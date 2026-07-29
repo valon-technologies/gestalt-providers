@@ -29,7 +29,7 @@ export function useAppAdminRegistryQuery(appName: string) {
     setBootstrapPollEpoch((epoch) => epoch + 1);
   }, [appName]);
 
-  const query = useQuery({
+  const { refetch, ...query } = useQuery({
     queryKey: queryKeys.appAdmin.registry(appName),
     queryFn: () => getAppAdminRegistry(appName),
     retry: (failureCount, error) =>
@@ -51,10 +51,10 @@ export function useAppAdminRegistryQuery(appName: string) {
     bootstrapPollUntilRef.current = Date.now() + APP_ADMIN_BOOTSTRAP_POLL_MS;
     setBootstrapPollEpoch((epoch) => epoch + 1);
     setIsCheckingForNewVersions(true);
-    void query.refetch().finally(() => {
+    void refetch().finally(() => {
       setIsCheckingForNewVersions(false);
     });
-  }, [query]);
+  }, [refetch]);
 
   return {
     ...query,

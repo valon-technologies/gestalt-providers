@@ -26,7 +26,6 @@ import { ThemeToggle } from "./ui/theme-toggle";
 const links = [
   { href: "/apps", label: "Apps" },
   { href: BUILD_PATH, label: "Build" },
-  { href: "/workflows", label: "Workflows" },
   { href: DOCS_PATH, label: "Docs" },
 ];
 

@@ -1,21 +1,18 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { KeyboardEvent, MouseEvent } from "react";
 import {
   Integration,
-  PENDING_CONNECTION_PATH,
-  resolveAPIPath,
   startIntegrationOAuth,
   connectManualIntegration,
   disconnectIntegration,
 } from "@/lib/api";
 import {
   appOpenPath,
-  appManagementPath,
   badgeVariantFromTone,
   canManageApp,
-  catalogCardActivateTarget,
   catalogInstallState,
+  catalogShowOpenAppButton,
   getAppSurfaces,
   primaryConnectLabel,
 } from "@/lib/catalogFilters";
@@ -26,6 +23,7 @@ import {
   type ConnectionContext,
 } from "@/lib/integrationStatus";
 import { resolveMountedAppHref } from "@/lib/mount";
+import { useIntegrationConnection } from "@/hooks/useIntegrationConnection";
 import { cn } from "@/lib/cn";
 import { Badge } from "@/components/ui/badge";
 import AppListingDetail from "./AppListingDetail";
@@ -34,7 +32,6 @@ import IntegrationIcon from "./IntegrationIcon";
 import {
   MoreHorizontalIcon,
   PlusIcon,
-  SlidersIcon,
   TrashIcon,
 } from "./icons";
 import IntegrationSettingsModal from "./IntegrationSettingsModal";
@@ -44,7 +41,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import {
@@ -53,16 +49,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "./ui/tooltip";
-
-type ConnectionTarget = {
-  instance?: string;
-  connection?: string;
-};
-
-type PendingSelection = {
-  action: string;
-  pendingToken: string;
-};
 
 type StartOAuthFn = (
   integration: string,
@@ -105,8 +91,7 @@ export default function IntegrationCard({
   readOnly = false,
   disableNavigation = false,
   connectionContext = "current_user",
-  settingsOpen: settingsOpenProp,
-  onSettingsOpenChange,
+  connectionEntry = connectionContext === "current_user" ? "app-detail" : "modal",
   highlightQuery = "",
 }: {
   integration: Integration;
@@ -121,40 +106,34 @@ export default function IntegrationCard({
   readOnly?: boolean;
   disableNavigation?: boolean;
   connectionContext?: ConnectionContext;
-  /** Controlled settings modal (e.g. App Admin header Connect). */
-  settingsOpen?: boolean;
-  onSettingsOpenChange?: (open: boolean) => void;
+  /** Where credential flows open — app detail page or modal dialog. */
+  connectionEntry?: "app-detail" | "modal";
   /** Catalog search query — highlights matching tokens in title/description. */
   highlightQuery?: string;
 }) {
   const navigate = useNavigate();
   const label = getIntegrationLabel(integration);
-  const [loading, setLoading] = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [settingsOpenUncontrolled, setSettingsOpenUncontrolled] =
-    useState(false);
-  const settingsOpen = settingsOpenProp ?? settingsOpenUncontrolled;
-  function setSettingsOpen(open: boolean) {
-    onSettingsOpenChange?.(open);
-    if (settingsOpenProp === undefined) {
-      setSettingsOpenUncontrolled(open);
-    }
-  }
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsInitialView, setSettingsInitialView] = useState<
     "default" | "disconnect"
   >("default");
   const [destructiveActionLabel, setDestructiveActionLabel] = useState<
-    "Disconnect" | "Uninstall"
+    "Disconnect" | "Remove app"
   >("Disconnect");
-  const [listingOpen, setListingOpen] = useState(false);
-  const [pendingOAuthTarget, setPendingOAuthTarget] = useState<ConnectionTarget>(
-    {},
-  );
-  const [pendingSelection, setPendingSelection] =
-    useState<PendingSelection | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const pendingSelectionFormRef = useRef<HTMLFormElement>(null);
+
+  const useAppDetailConnection = connectionEntry === "app-detail";
+
+  const connection = useIntegrationConnection({
+    integration,
+    onConnected,
+    onDisconnected,
+    onStatusMessage,
+    startOAuth,
+    connectManual,
+    disconnect,
+    returnPath,
+    onFlowComplete: () => setSettingsOpen(false),
+  });
 
   const normalizedStatus = normalizeIntegrationStatus(
     integration,
@@ -165,185 +144,74 @@ export default function IntegrationCard({
   const isAppAdmin = canManageApp(integration);
   const mountedPath = appOpenPath(integration);
   const connectLabel = primaryConnectLabel(integration, connectionContext);
-  const settingsAvailable = shouldShowIntegrationSettings(
-    normalizedStatus,
-    readOnly,
-  );
+  const settingsAvailable =
+    !useAppDetailConnection &&
+    shouldShowIntegrationSettings(normalizedStatus, readOnly);
   /** Attention chip only — Ready is a check beside the options menu. */
   const statusBadgeLabel =
     installState === "needs_attention" ? normalizedStatus.summaryLabel : null;
   const statusBadgeVariant = badgeVariantFromTone(normalizedStatus.tone);
-  const cardActivateTarget = catalogCardActivateTarget(
-    integration,
-    connectionContext,
-  );
   const cardNavigationEnabled = !disableNavigation && !settingsOpen;
-  /** Installed → More (Manage / Settings / Uninstall). Discovery → Add when connectable. */
+  /** Installed → More (Remove app). Discovery → Add when connectable. */
   const showInstalledMenu =
-    installState === "connected" || installState === "needs_attention";
+    useAppDetailConnection &&
+    !readOnly &&
+    (installState === "connected" || installState === "needs_attention");
   const showInstalledCheck = showInstalledMenu;
   const showAddButton =
     !readOnly &&
     (installState === "mount_only" ||
       installState === "not_connected" ||
       connectLabel !== null);
+  const showOpenAppButton =
+    !readOnly && catalogShowOpenAppButton(integration, connectionContext);
 
-  useEffect(() => {
-    if (!pendingSelection) return;
-    pendingSelectionFormRef.current?.submit();
-  }, [pendingSelection]);
-
-  async function beginOAuth(
-    connectionParams?: Record<string, string>,
-    target: ConnectionTarget = pendingOAuthTarget,
-  ) {
-    setLoading(true);
-    setError(null);
-    try {
-      const { url } = await startOAuth(
-        integration.name,
-        undefined,
-        connectionParams,
-        target.instance,
-        target.connection,
-        returnPath,
-      );
-      window.location.href = url;
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Couldn't start sign-in. Try again.",
-      );
-      setLoading(false);
+  function navigateToAppDetail(options?: {
+    connection?: boolean;
+    action?: "disconnect";
+  }) {
+    if (useAppDetailConnection) {
+      const toConnection =
+        options?.connection ?? installState === "needs_attention";
+      void navigate({
+        to: toConnection ? "/apps/$app/connection" : "/apps/$app",
+        params: { app: integration.name },
+        search: options?.action ? { action: options.action } : {},
+      });
+      return;
     }
+    openConnectionModal(options?.action === "disconnect" ? "disconnect" : "default");
   }
 
-  async function handleStartOAuth(
-    instance?: string,
-    connection?: string,
-    connectionParams?: Record<string, string>,
-  ) {
-    const target = { instance, connection };
-    setPendingOAuthTarget(target);
-    await beginOAuth(connectionParams, target);
-  }
-
-  async function handleSubmitToken(
-    credential: string | Record<string, string>,
-    connectionParams?: Record<string, string>,
-    instance?: string,
-    connection?: string,
-  ) {
-    setSubmitting(true);
-    setError(null);
-    try {
-      const result = await connectManual(
-        integration.name,
-        credential,
-        connectionParams,
-        instance,
-        connection,
-        returnPath,
-      );
-      if (result.status === "selection_required") {
-        if (!result.pendingToken) {
-          throw new Error(
-            "Connection requires selection, but the server did not return a pending token.",
-          );
-        }
-        setSettingsOpen(false);
-        setPendingSelection({
-          action: resolveAPIPath(
-            result.selectionUrl || PENDING_CONNECTION_PATH,
-          ),
-          pendingToken: result.pendingToken,
-        });
-      } else {
-        setSettingsOpen(false);
-        onStatusMessage?.(`${label} connected successfully.`);
-        onConnected?.();
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't connect. Try again.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function handleDisconnect(instance?: string, connection?: string) {
-    setDisconnecting(true);
-    setError(null);
-    try {
-      await disconnect(integration.name, instance, connection);
-      onStatusMessage?.(`${label} disconnected.`);
-      onDisconnected?.();
-      setSettingsOpen(false);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Couldn't disconnect. Try again.",
-      );
-    } finally {
-      setDisconnecting(false);
-    }
+  function openConnectionModal(view: "default" | "disconnect" = "default") {
+    setSettingsInitialView(view);
+    setDestructiveActionLabel(view === "disconnect" ? "Remove app" : "Disconnect");
+    connection.clearError();
+    setSettingsOpen(true);
   }
 
   function handleSettingsClose() {
     setSettingsOpen(false);
     setSettingsInitialView("default");
     setDestructiveActionLabel("Disconnect");
-    setError(null);
+    connection.clearError();
   }
 
-  function openSettings() {
-    setSettingsInitialView("default");
-    setDestructiveActionLabel("Disconnect");
-    setSettingsOpen(true);
-  }
-
-  function openManage() {
-    navigateToAdmin();
-  }
-
-  function openUninstall() {
-    setSettingsInitialView("disconnect");
-    setDestructiveActionLabel("Uninstall");
-    setSettingsOpen(true);
-  }
-
-  function handleListingConnect() {
-    setListingOpen(false);
-    setSettingsOpen(true);
-  }
-
-  function handleListingOpenApp() {
-    setListingOpen(false);
-    if (mountedPath) {
-      navigateToApp();
+  function openRemoveApp() {
+    if (useAppDetailConnection) {
+      navigateToAppDetail({ connection: true, action: "disconnect" });
       return;
     }
-    if (isAppAdmin) {
-      navigateToAdmin();
-    }
+    openConnectionModal("disconnect");
   }
 
-  function navigateToApp() {
+  function navigateToMountedApp() {
     if (!mountedPath) return;
     window.location.assign(resolveMountedAppHref(mountedPath));
   }
 
-  function navigateToAdmin() {
-    const path = appManagementPath(integration);
-    if (!path) return;
-    void navigate({ to: path });
-  }
-
   function activateCard() {
-    if (cardActivateTarget === "listing") {
-      setListingOpen(true);
-      return;
-    }
-    navigateToApp();
+    navigateToAppDetail();
   }
 
   function handleCardClick(e: MouseEvent<HTMLDivElement>) {
@@ -362,23 +230,14 @@ export default function IntegrationCard({
     activateCard();
   }
 
-  const cardAriaLabel =
-    cardActivateTarget === "listing"
-      ? `View details for ${label}`
-      : `Open ${label} app`;
+  const cardAriaLabel = `View details for ${label}`;
 
   return (
     <div
       data-testid={`integration-card-${integration.name}`}
       className={cn(
-        // Registry Card `variant="solid"` rest = secondary ≈ --neutral-hover.
-        // Interactive deepen: Neutral dark (selectable-rows.md) — named L-step
-        // tokens, not a ramp jump to base-200 (hover-pressed-color.md).
         "rounded-xl bg-neutral-hover p-4 text-foreground",
         "hover:bg-neutral-dark-hover active:bg-neutral-dark-pressed",
-        // Nested controls own the hit (More / Add): suppress card deepen while
-        // they are hovered/pressed — same :has() contract as Registry table
-        // tbody rows (table.tsx + ROW_LINK_INTERACTIVE_SELECTOR / data-no-row-click).
         "hover:has-[button:hover,[role=button]:hover,[data-no-row-click]:hover]:bg-neutral-hover",
         "active:has-[button:active,[role=button]:active,[data-no-row-click]:active]:bg-neutral-hover",
         cardNavigationEnabled &&
@@ -390,17 +249,17 @@ export default function IntegrationCard({
       tabIndex={cardNavigationEnabled ? 0 : undefined}
       aria-label={cardNavigationEnabled ? cardAriaLabel : undefined}
     >
-      {pendingSelection && (
+      {connection.pendingSelection && (
         <form
-          ref={pendingSelectionFormRef}
+          ref={connection.pendingSelectionFormRef}
           method="post"
-          action={pendingSelection.action}
+          action={connection.pendingSelection.action}
           className="hidden"
         >
           <input
             type="hidden"
             name="pending_token"
-            value={pendingSelection.pendingToken}
+            value={connection.pendingSelection.pendingToken}
           />
         </form>
       )}
@@ -452,7 +311,7 @@ export default function IntegrationCard({
         </div>
         <div
           data-no-row-click
-          className="flex shrink-0 items-center gap-1"
+          className="flex shrink-0 flex-col items-end gap-1.5 sm:flex-row sm:items-center"
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
         >
@@ -464,7 +323,6 @@ export default function IntegrationCard({
                     className="flex size-control-sm items-center justify-center text-success"
                     aria-label="Installed"
                   >
-                    {/* Registry SelectionCheck — stroke-draw / bounce. */}
                     <SelectionCheck
                       checked
                       tone="current"
@@ -474,6 +332,18 @@ export default function IntegrationCard({
                 </TooltipTrigger>
                 <TooltipContent side="top">Installed</TooltipContent>
               </Tooltip>
+            ) : null}
+
+            {showOpenAppButton ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                data-testid={`open-app-${integration.name}`}
+                onClick={navigateToMountedApp}
+              >
+                Open app
+              </Button>
             ) : null}
 
             {showInstalledMenu ? (
@@ -496,35 +366,47 @@ export default function IntegrationCard({
                   <TooltipContent side="top">More</TooltipContent>
                 </Tooltip>
                 <DropdownMenuContent align="end" className="w-44">
-                  {isAppAdmin ? (
-                    <DropdownMenuItem
-                      onClick={openManage}
-                      data-testid={`manage-app-${integration.name}`}
-                    >
-                      <SlidersIcon />
-                      Manage
-                    </DropdownMenuItem>
-                  ) : null}
-                  {settingsAvailable ? (
-                    <DropdownMenuItem onClick={openSettings}>
-                      <SlidersIcon />
-                      Settings
-                    </DropdownMenuItem>
-                  ) : null}
-                  {!readOnly ? (
-                    <>
-                      {isAppAdmin || settingsAvailable ? (
-                        <DropdownMenuSeparator />
-                      ) : null}
-                      <DropdownMenuItem
-                        onClick={openUninstall}
-                        className="text-destructive"
-                      >
-                        <TrashIcon />
-                        Uninstall
-                      </DropdownMenuItem>
-                    </>
-                  ) : null}
+                  <DropdownMenuItem
+                    onClick={openRemoveApp}
+                    className="text-destructive"
+                  >
+                    <TrashIcon />
+                    Remove app
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+
+            {settingsAvailable ? (
+              <DropdownMenu>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`${label} options`}
+                        >
+                          <MoreHorizontalIcon />
+                        </Button>
+                      </DropdownMenuTrigger>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">More</TooltipContent>
+                </Tooltip>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem onClick={() => openConnectionModal()}>
+                    Connection
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={openRemoveApp}
+                    className="text-destructive"
+                  >
+                    <TrashIcon />
+                    Remove app
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : null}
@@ -538,7 +420,7 @@ export default function IntegrationCard({
                       variant="ghost"
                       size="icon-sm"
                       aria-label={`Add ${label}`}
-                      onClick={openSettings}
+                      onClick={() => navigateToAppDetail({ connection: true })}
                     >
                       <PlusIcon />
                     </Button>
@@ -550,33 +432,25 @@ export default function IntegrationCard({
           </TooltipProvider>
         </div>
       </div>
-      {error && !settingsOpen && (
-        <p className="mt-3 text-sm text-ember-500">{error}</p>
-      )}
-      {listingOpen && (
-        <AppListingDetail
-          integration={integration}
-          onClose={() => setListingOpen(false)}
-          onConnect={handleListingConnect}
-          onOpenApp={handleListingOpenApp}
-          readOnly={readOnly}
-        />
+      {connection.error && !settingsOpen && (
+        <p className="mt-3 text-sm text-ember-500">{connection.error}</p>
       )}
       {settingsOpen && (
         <IntegrationSettingsModal
           integration={integration}
           onClose={handleSettingsClose}
-          onStartOAuth={handleStartOAuth}
-          onSubmitToken={handleSubmitToken}
-          onDisconnect={handleDisconnect}
-          reconnecting={loading}
-          disconnecting={disconnecting}
-          submitting={submitting}
-          error={error}
+          onStartOAuth={connection.handleStartOAuth}
+          onSubmitToken={connection.handleSubmitToken}
+          onDisconnect={connection.handleDisconnect}
+          reconnecting={connection.loading}
+          disconnecting={connection.disconnecting}
+          submitting={connection.submitting}
+          error={connection.error}
           readOnly={readOnly}
           connectionContext={connectionContext}
           initialView={settingsInitialView}
           destructiveActionLabel={destructiveActionLabel}
+          presentation="modal"
         />
       )}
     </div>

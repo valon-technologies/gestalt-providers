@@ -1891,6 +1891,7 @@ function ConnectStepActions({
                 returnPath={returnPath}
                 onConnected={() => void refreshIntegrations()}
                 onDisconnected={() => void refreshIntegrations()}
+                connectionEntry="modal"
               />
             </div>
           );
