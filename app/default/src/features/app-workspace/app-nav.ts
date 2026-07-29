@@ -28,6 +28,21 @@ export const APP_USER_NAV = [
   },
 ] as const;
 
+/** Admin surface required for a pathname under `/apps/:app/admin/*`. */
+export function adminSurfaceForPathname(
+  pathname: string,
+  app: string,
+): AppAdminSurface | null {
+  const base = `/apps/${app}/admin`;
+  if (!pathname.includes(base)) return null;
+  if (pathname.includes(`${base}/snapshots`)) return "registry";
+  if (pathname.includes(`${base}/history`)) return "registry";
+  if (pathname.includes(`${base}/workflows`)) return "workflows";
+  if (pathname.includes(`${base}/members`)) return "authorization";
+  if (pathname.includes(`${base}/agent-identities`)) return "authorization";
+  return "registry";
+}
+
 export const APP_ADMIN_NAV = [
   {
     id: "snapshots" as const,

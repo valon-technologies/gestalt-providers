@@ -12,7 +12,7 @@ const SLACK_APP = "slack";
 
 const SLACK_REGISTRY: AppAdminRegistryResponse = {
   app: SLACK_APP,
-  registry: "toolshed",
+  registry: "example-registry",
   knownVersions: [],
   publishedVersions: [],
   selectionDisabled: false,

@@ -103,7 +103,7 @@ test.describe("Navigation", () => {
     ]);
     await mockAppAdminRegistry(page, "slack", {
       app: "slack",
-      registry: "toolshed",
+      registry: "example-registry",
       knownVersions: [],
       publishedVersions: [],
       selectionDisabled: false,

@@ -58,8 +58,7 @@ async function loadWorkflowProviderFromAuthInfo(): Promise<string> {
     return fromServer;
   }
 
-  // Interim until gestaltd exposes features.workflowDefaultProvider on all
-  // deployments. valon.tools configures a single workflow provider named "local".
+  // Interim until gestaltd exposes features.workflowDefaultProvider on all deployments.
   const interim = "local";
   rememberWorkflowProvider(interim);
   return interim;

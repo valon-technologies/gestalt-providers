@@ -32,6 +32,7 @@ import { isActiveRegistryRollout } from "@/features/registry/format";
 import { RolloutBadge } from "@/features/registry/rollout-badge";
 import { RegistryCode } from "@/features/registry/registry-code";
 import {
+  adminSurfaceForPathname,
   APP_ADMIN_NAV,
   APP_USER_NAV,
 } from "@/features/app-workspace/app-nav";
@@ -222,6 +223,20 @@ export default function AppWorkspaceLayout() {
     ? isActiveRegistryRollout(registry.rollout.state)
     : false;
 
+  const requiredAdminSurface = isAdminPath
+    ? adminSurfaceForPathname(pathname, app)
+    : null;
+  const adminSurfaceReady =
+    !requiredAdminSurface ||
+    (authorizationProbeDone &&
+      (requiredAdminSurface !== "registry" || !canManageRegistry || registryQuery.isFetched));
+  const adminSurfaceLoading = Boolean(requiredAdminSurface && !adminSurfaceReady);
+  const adminAccessDenied = Boolean(
+    requiredAdminSurface &&
+      adminSurfaceReady &&
+      !hasAdminSurface(capabilities, requiredAdminSurface),
+  );
+
   const content = (
     <AppWorkspaceProvider value={workspaceValue}>
       <Container as="main" className="py-12">
@@ -300,11 +315,11 @@ export default function AppWorkspaceLayout() {
                 </p>
               ) : null}
 
-              {isAdminPath && registryQuery.isPending ? (
+              {adminSurfaceLoading ? (
                 <p className="text-sm text-muted-foreground">
-                  Loading app registry…
+                  Loading app admin…
                 </p>
-              ) : isAdminPath && registryForbidden ? (
+              ) : adminAccessDenied ? (
                 <div
                   className="rounded-2xl border border-border bg-card p-6 text-card-foreground"
                   data-testid="app-admin-access-denied"
@@ -313,7 +328,7 @@ export default function AppWorkspaceLayout() {
                     Access denied
                   </h1>
                   <p className="mt-3 text-sm text-muted-foreground">
-                    You do not have permission to manage this app.
+                    You do not have permission to manage this section of the app.
                   </p>
                 </div>
               ) : (

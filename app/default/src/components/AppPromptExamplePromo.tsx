@@ -11,9 +11,8 @@ type AppPromptExamplePromoProps = {
 };
 
 /**
- * ChatGPT plugin–style promo: Valon Peachy-Copper gradient stage + chat-input
- * pill with an example agent ask. Clicking copies the prompt (Gestalt has no
- * in-page chat).
+ * ChatGPT plugin–style promo: muted stage + chat-input pill with an example
+ * agent ask. Clicking copies the prompt (Gestalt has no in-page chat).
  */
 export default function AppPromptExamplePromo({
   displayName,
@@ -35,11 +34,7 @@ export default function AppPromptExamplePromo({
     <div
       data-testid="app-prompt-example"
       className={cn(
-        "rounded-2xl px-4 py-10 sm:px-8 sm:py-12",
-        // Valon Peachy-Copper — https://www.valon.ai/style
-        "bg-[radial-gradient(140%_90%_at_50%_100%,#EACCB8_0%,#FDFCF9_50%,#F8F6F3_80%)]",
-        // Dark: same radial geometry, deeper copper → ink surface.
-        "dark:bg-[radial-gradient(140%_90%_at_50%_100%,oklch(0.48_0.06_50)_0%,oklch(0.28_0.02_70)_50%,oklch(0.22_0.02_60)_80%)]",
+        "rounded-2xl border border-border bg-muted px-4 py-10 sm:px-8 sm:py-12",
         className,
       )}
     >
@@ -50,8 +45,8 @@ export default function AppPromptExamplePromo({
         aria-label={copied ? "Copied prompt" : "Copy example prompt"}
         className={cn(
           "mx-auto flex w-full max-w-2xl items-center gap-3 rounded-full",
-          "bg-base-white px-5 py-3.5 text-left shadow-sm",
-          "dark:bg-surface dark:shadow-none dark:ring-1 dark:ring-border",
+          "bg-card px-5 py-3.5 text-left shadow-sm",
+          "ring-1 ring-border",
           "transition-[background-color,box-shadow] duration-hover-out ease-out-quart",
           "hover:bg-neutral-hover hover:duration-hover-in",
           "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gold-400 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
@@ -64,8 +59,7 @@ export default function AppPromptExamplePromo({
         <span
           className={cn(
             "flex size-8 shrink-0 items-center justify-center rounded-full",
-            "border border-border bg-base-white text-foreground",
-            "dark:bg-surface",
+            "border border-border bg-card text-foreground",
           )}
           aria-hidden
         >

@@ -18,7 +18,12 @@ import {
 import Button from "./Button";
 import { CheckCircleIcon, CloseIcon } from "./icons";
 
-export type ConnectionPanelView = "default" | "disconnect" | "instance" | "token";
+export type ConnectionPanelView =
+  | "default"
+  | "disconnect"
+  | "instance"
+  | "token"
+  | "oauth_params";
 type ActionKind = "connect" | "add_instance" | "reconnect" | "select_instance";
 type ConnectionTarget = {
   instance?: string;
@@ -43,7 +48,11 @@ type PendingAuthAction = AuthAction & {
 export interface IntegrationConnectionPanelProps {
   integration: Integration;
   onClose?: () => void;
-  onStartOAuth: (instance?: string, connection?: string) => void;
+  onStartOAuth: (
+    instance?: string,
+    connection?: string,
+    connectionParams?: Record<string, string>,
+  ) => void;
   onSubmitToken: (
     credential: string | Record<string, string>,
     connectionParams?: Record<string, string>,
@@ -205,6 +214,29 @@ function isPendingAction(action: AuthAction, pendingAction?: PendingAuthAction) 
   );
 }
 
+function firstDisconnectableTarget(
+  connections: NormalizedConnection[],
+): ConnectionTarget | null {
+  for (const connection of connections) {
+    if (!connection.canDisconnect) continue;
+    if (connection.instances.length > 0) {
+      const instance = connection.instances[0]!;
+      return {
+        instance: instance.name,
+        connection: instance.connection || connection.connection,
+      };
+    }
+    return { connection: connection.connection };
+  }
+  return null;
+}
+
+function hasConnectionParams(
+  connectionParams: Record<string, ConnectionParamDef> | undefined,
+): boolean {
+  return Boolean(connectionParams && Object.keys(connectionParams).length > 0);
+}
+
 const inputClasses = `mt-1.5 w-full ${INPUT_CLASSES}`;
 
 export default function IntegrationConnectionPanel({
@@ -230,21 +262,34 @@ export default function IntegrationConnectionPanel({
   const [pendingAction, setPendingAction] = useState<PendingAuthAction | undefined>();
   const isDialog = variant === "dialog";
 
-  useEffect(() => {
-    setView(initialView);
-  }, [initialView, integration.name]);
-
-  useEffect(() => {
-    if (!isDialog) return;
-    dialogRef.current?.showModal();
-  }, [isDialog]);
-
   const displayName = integration.displayName || integration.name;
   const headingId = `connection-panel-heading-${integration.name}`;
   const normalizedStatus = normalizeIntegrationStatus(
     integration,
     connectionContext,
   );
+
+  useEffect(() => {
+    setView(initialView);
+    if (initialView === "disconnect") {
+      const target = firstDisconnectableTarget(normalizedStatus.connections);
+      setDisconnectTarget(target ?? {});
+    }
+  }, [initialView, integration.name, normalizedStatus.connections]);
+
+  useEffect(() => {
+    if (view !== "disconnect" || disconnectTarget.instance || disconnectTarget.connection) {
+      return;
+    }
+    const target = firstDisconnectableTarget(normalizedStatus.connections);
+    if (target) setDisconnectTarget(target);
+  }, [disconnectTarget.connection, disconnectTarget.instance, normalizedStatus.connections, view]);
+
+  useEffect(() => {
+    if (!isDialog) return;
+    dialogRef.current?.showModal();
+  }, [isDialog]);
+
   const authActions = buildAuthActions(normalizedStatus.connections);
   const pendingConnection = pendingAction
     ? normalizedStatus.connections.find(
@@ -280,7 +325,14 @@ export default function IntegrationConnectionPanel({
     } else if (action.authType === "manual") {
       setView("token");
     } else {
-      onStartOAuth(undefined, action.connection);
+      const connection = normalizedStatus.connections.find(
+        (item) => item.key === action.connectionKey,
+      );
+      if (hasConnectionParams(connection?.connectionParams)) {
+        setView("oauth_params");
+      } else {
+        onStartOAuth(undefined, action.connection);
+      }
     }
   }
 
@@ -292,9 +344,27 @@ export default function IntegrationConnectionPanel({
     setPendingAction(action);
     if (action.authType === "manual") {
       setView("token");
+    } else if (hasConnectionParams(pendingConnection?.connectionParams)) {
+      setView("oauth_params");
     } else {
       onStartOAuth(action.instance, action.connection);
     }
+  }
+
+  function handleOAuthParamsSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!pendingAction || !pendingConnectionParams) return;
+    const fd = new FormData(e.currentTarget);
+    const collected: Record<string, string> = {};
+    for (const name of Object.keys(pendingConnectionParams)) {
+      const val = (fd.get(`cp_${name}`) as string)?.trim();
+      if (val) collected[name] = val;
+    }
+    onStartOAuth(
+      pendingAction.instance,
+      pendingAction.connection,
+      Object.keys(collected).length > 0 ? collected : undefined,
+    );
   }
 
   function resolveCredentialFields(): CredentialFieldDef[] | undefined {
@@ -509,7 +579,10 @@ export default function IntegrationConnectionPanel({
                 variant="danger"
                 className="flex-1"
                 onClick={() => onDisconnect(disconnectTarget.instance, disconnectTarget.connection)}
-                disabled={disconnecting}
+                disabled={
+                  disconnecting ||
+                  (!disconnectTarget.instance && !disconnectTarget.connection)
+                }
               >
                 {disconnecting
                   ? destructiveActionLabel === "Remove app"
@@ -566,6 +639,18 @@ export default function IntegrationConnectionPanel({
             error={error}
             submitting={submitting}
             onSubmit={handleTokenSubmit}
+            onCancel={() =>
+              setView(pendingAction?.requiresInstanceName ? "instance" : "default")
+            }
+          />
+        ) : view === "oauth_params" ? (
+          <ConnectionParamsForm
+            integrationName={integration.name}
+            headingId={headingId}
+            connectionParams={pendingConnectionParams}
+            error={error}
+            submitting={reconnecting || submitting}
+            onSubmit={handleOAuthParamsSubmit}
             onCancel={() =>
               setView(pendingAction?.requiresInstanceName ? "instance" : "default")
             }
@@ -648,6 +733,68 @@ function renderLinkedText(text: string): ReactNode[] {
     if (!m) return seg;
     return <a key={i} href={m[2]} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{m[1]}</a>;
   });
+}
+
+function ConnectionParamsForm({
+  integrationName,
+  headingId,
+  connectionParams,
+  error,
+  submitting,
+  onSubmit,
+  onCancel,
+}: {
+  integrationName: string;
+  headingId: string;
+  connectionParams: Record<string, ConnectionParamDef> | undefined;
+  error: string | null;
+  submitting: boolean;
+  onSubmit: (e: FormEvent<HTMLFormElement>) => void;
+  onCancel: () => void;
+}) {
+  if (!connectionParams) return null;
+
+  return (
+    <form onSubmit={onSubmit}>
+      <h2 id={headingId} className="text-lg font-heading text-foreground">
+        Connection details
+      </h2>
+      {Object.entries(connectionParams).map(([name, def]) => (
+        <div key={name} className="mt-3">
+          <label
+            htmlFor={`cp_${name}-${integrationName}`}
+            className="label-text block"
+          >
+            {def.description || name}
+          </label>
+          <input
+            id={`cp_${name}-${integrationName}`}
+            name={`cp_${name}`}
+            type="text"
+            required={def.required}
+            defaultValue={def.default}
+            placeholder={name}
+            className={inputClasses}
+          />
+        </div>
+      ))}
+      {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
+      <div className="mt-6 flex gap-3">
+        <Button
+          type="button"
+          variant="secondary"
+          className="flex-1"
+          onClick={onCancel}
+          disabled={submitting}
+        >
+          Cancel
+        </Button>
+        <Button type="submit" className="flex-1" disabled={submitting}>
+          {submitting ? "Connecting..." : "Continue"}
+        </Button>
+      </div>
+    </form>
+  );
 }
 
 function TokenForm({
