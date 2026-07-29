@@ -134,7 +134,6 @@ carry-over is a no-op here).
 | --- | --- |
 | **Avatar `xl` size** (`size-10` / 40px) | Nav account chip; Registry stops at `lg` |
 | **TableOfContents `kind: "separator"`** | Apps catalog TOC divider between groups |
-| **`InputGroupInput` forwards `ref`** | Search bar focus; Registry component does not forward ref today |
 | **`AGENT_CONSOLE_THEME_CODEX` / `_CURSOR` exports** (optional) | Story palettes only today; Build re-copies them — promote from `agent-console.stories` |
 
 ### Keep as console adapters (not Registry gaps)
