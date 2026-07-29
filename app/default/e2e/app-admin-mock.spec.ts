@@ -739,6 +739,38 @@ test.describe("app admin registry UI", () => {
     await expect(rows.nth(1)).toContainText("Available in 1m 52s");
   });
 
+  test("ticks rollout duration live between registry polls", async ({ page }) => {
+    await mockAppAdminRegistry(page, APP, {
+      ...installedRegistryState(),
+      desiredVersion: PUBLISHED_NEW.version,
+      rollout: {
+        version: PUBLISHED_NEW.version,
+        state: "enrolling",
+      },
+    });
+    await mockAppAdminRegistryHistory(page, APP, {
+      app: APP,
+      revisions: [
+        {
+          id: "rev-rollout-live",
+          version: PUBLISHED_NEW.version,
+          previousVersion: PUBLISHED_LEGACY.version,
+          deployedAt: "2026-07-23T14:59:50.000Z",
+          deployedBy: "user:alice@valon.com",
+          rolloutState: "enrolling",
+          rolloutForSeconds: 5,
+        },
+      ],
+    });
+    await page.goto(`/apps/${APP}/admin`);
+    await page.getByTestId("app-admin-tab-history").click();
+
+    const row = page.getByTestId("revision-history-row").first();
+    await expect(row).toContainText("for 10s");
+    await page.clock.fastForward(5_000);
+    await expect(row).toContainText("for 15s");
+  });
+
   test("omits live rollout status from older same-version revision", async ({ page }) => {
     await mockAppAdminRegistry(page, APP, {
       ...installedRegistryState(),

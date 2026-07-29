@@ -80,8 +80,9 @@ export function revisionRolloutStatusTimer(
 
   if (state === "enrolling" || state === "restarting") {
     const seconds =
+      durationSecondsBetween(revision.deployedAt, now ?? Date.now()) ??
       revision.rolloutForSeconds ??
-      durationSecondsBetween(revision.deployedAt, now ?? Date.now());
+      null;
     return seconds !== null ? `for ${formatDurationSeconds(seconds)}` : null;
   }
 
