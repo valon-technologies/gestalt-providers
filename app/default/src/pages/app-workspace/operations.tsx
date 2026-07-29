@@ -8,7 +8,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { getIntegrationOperations, type IntegrationOperation } from "@/lib/api";
+import type { IntegrationOperation } from "@/lib/api";
+import { useIntegrationOperationsQuery } from "@/lib/queries";
 import { appOperationElementId } from "@/lib/appAdminPaths";
 import {
   filterOperations,
@@ -150,14 +151,14 @@ function OperationRow({
         {operation.method ? (
           <OperationMethod method={operation.method} highlightQuery={highlightQuery} />
         ) : (
-          <span className="text-faint">—</span>
+          <span className="text-muted-foreground">—</span>
         )}
       </TableCell>
       <TableCell className="align-baseline text-muted-foreground">
         {rolesLabel ? (
           <SearchHighlight text={rolesLabel} query={highlightQuery} variant="vivid" />
         ) : (
-          <span className="text-faint">—</span>
+          <span className="text-muted-foreground">—</span>
         )}
       </TableCell>
     </TableRow>
@@ -213,39 +214,23 @@ function OperationResourceSection({
 
 export default function AppWorkspaceOperationsPage() {
   const { app } = useParams({ from: "/apps/$app/operations" });
-  const [operations, setOperations] = useState<IntegrationOperation[]>([]);
-  const [operationsLoading, setOperationsLoading] = useState(true);
-  const [operationsError, setOperationsError] = useState<string | null>(null);
+  const {
+    data: operations = [],
+    isLoading: operationsLoading,
+    error: operationsQueryError,
+  } = useIntegrationOperationsQuery(app);
+  const operationsError =
+    operationsQueryError instanceof Error
+      ? operationsQueryError.message
+      : operationsQueryError
+        ? "Failed to load operations"
+        : null;
   const [searchQuery, setSearchQuery] = useState("");
   const deferredHighlightQuery = useDeferredValue(searchQuery);
   const [highlightedOperationId, setHighlightedOperationId] = useState<
     string | null
   >(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    let active = true;
-    setOperationsLoading(true);
-    setOperationsError(null);
-    getIntegrationOperations(app)
-      .then((ops) => {
-        if (!active) return;
-        setOperations(ops);
-      })
-      .catch((err) => {
-        if (!active) return;
-        setOperations([]);
-        setOperationsError(
-          err instanceof Error ? err.message : "Failed to load operations",
-        );
-      })
-      .finally(() => {
-        if (active) setOperationsLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [app]);
 
   const visibleOperations = useMemo(
     () =>
@@ -390,7 +375,7 @@ export default function AppWorkspaceOperationsPage() {
             ) : null}
           </InputGroup>
           {hasSearchQuery && filteredOperations.length > 0 ? (
-            <p className="text-xs text-faint">
+            <p className="text-xs text-muted-foreground">
               Showing {filteredOperations.length} of {visibleOperations.length}{" "}
               operations
             </p>
