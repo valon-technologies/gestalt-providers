@@ -5,6 +5,7 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from "@/components/ui/input-group";
+import { cn } from "@/lib/cn";
 import { CloseIcon, SearchIcon } from "./icons";
 
 type PluginSearchBarProps = {
@@ -24,6 +25,7 @@ export default function PluginSearchBar({
 }: PluginSearchBarProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const trimmedQuery = query.trim();
+  const showClear = trimmedQuery.length > 0 && !disabled;
 
   function clearSearch() {
     onQueryChange("");
@@ -47,22 +49,24 @@ export default function PluginSearchBar({
           placeholder="Search apps"
           className="[&::-webkit-search-cancel-button]:hidden"
         />
-        {trimmedQuery.length > 0 && !disabled ? (
-          <InputGroupAddon align="inline-end">
-            <InputGroupButton
-              aria-label="Clear app search"
-              onMouseDown={(event) => {
-                event.preventDefault();
-              }}
-              onClick={(event) => {
-                event.preventDefault();
-                clearSearch();
-              }}
-            >
-              <CloseIcon className="size-4" />
-            </InputGroupButton>
-          </InputGroupAddon>
-        ) : null}
+        <InputGroupAddon align="inline-end">
+          <InputGroupButton
+            aria-label={showClear ? "Clear app search" : undefined}
+            aria-hidden={!showClear}
+            tabIndex={showClear ? undefined : -1}
+            className={cn(!showClear && "pointer-events-none invisible")}
+            onMouseDown={(event) => {
+              event.preventDefault();
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              if (!showClear) return;
+              clearSearch();
+            }}
+          >
+            <CloseIcon className="size-4" />
+          </InputGroupButton>
+        </InputGroupAddon>
       </InputGroup>
     </div>
   );
