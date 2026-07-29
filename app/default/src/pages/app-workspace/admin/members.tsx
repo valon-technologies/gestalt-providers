@@ -1,0 +1,167 @@
+import { useEffect, useMemo, useState } from "react";
+import {
+  APIError,
+  getAppAuthorizationMembers,
+  type AppAuthorizationMember,
+} from "@/lib/api";
+import { Badge } from "@/components/ui/badge";
+import { Link } from "@/components/ui/link";
+import { SpinnerIcon } from "@/components/icons";
+import { useAppWorkspace } from "@/features/app-workspace/app-workspace-context";
+import {
+  memberLabel,
+  memberMeta,
+  SummaryStat,
+} from "@/features/app-workspace/app-workspace-shared";
+
+export default function AppAdminMembersPage() {
+  const { app } = useAppWorkspace();
+  const [members, setMembers] = useState<AppAuthorizationMember[]>([]);
+  const [membersLoading, setMembersLoading] = useState(true);
+  const [membersError, setMembersError] = useState<string | null>(null);
+  const [membersForbidden, setMembersForbidden] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setMembersLoading(true);
+    setMembersError(null);
+    setMembersForbidden(false);
+
+    getAppAuthorizationMembers(app)
+      .then((rows) => {
+        if (!active) return;
+        setMembers(rows);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setMembers([]);
+        if (err instanceof APIError && (err.status === 403 || err.status === 401)) {
+          setMembersForbidden(true);
+          setMembersError(null);
+          return;
+        }
+        setMembersError(
+          err instanceof Error ? err.message : "Failed to load members",
+        );
+      })
+      .finally(() => {
+        if (active) setMembersLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [app]);
+
+  const memberCounts = useMemo(() => {
+    const effective = members.filter((row) => row.effective).length;
+    const staticCount = members.filter((row) => row.source === "static").length;
+    const dynamicCount = members.filter((row) => row.source === "dynamic").length;
+    const shadowed = members.filter(
+      (row) => row.source === "dynamic" && !row.effective,
+    ).length;
+    return { effective, staticCount, dynamicCount, shadowed };
+  }, [members]);
+
+  return (
+    <section aria-label="Members">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-heading text-foreground">Members</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Who has access to this app (static policy + dynamic grants). Same
+            roster as the admin Authorization tab.
+          </p>
+        </div>
+        <Link href="/admin/" underlineVariant="always">
+          Open admin Authorization
+        </Link>
+      </div>
+
+      {!membersLoading && !membersForbidden && !membersError ? (
+        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <SummaryStat label="Effective" value={String(memberCounts.effective)} />
+          <SummaryStat label="Static" value={String(memberCounts.staticCount)} />
+          <SummaryStat label="Dynamic" value={String(memberCounts.dynamicCount)} />
+          <SummaryStat label="Shadowed" value={String(memberCounts.shadowed)} />
+        </div>
+      ) : null}
+
+      {membersLoading ? (
+        <p className="mt-5 flex items-center gap-1.5 text-sm text-faint">
+          <SpinnerIcon className="size-4 animate-spin" aria-hidden />
+          Loading members…
+        </p>
+      ) : null}
+
+      {membersForbidden ? (
+        <p
+          className="mt-5 text-sm text-muted-foreground"
+          data-testid="app-admin-access-denied"
+        >
+          Member roster requires app authorization admin access. Manage members in{" "}
+          <Link href="/admin/" underlineVariant="always">
+            /admin/
+          </Link>{" "}
+          or ask a Gestalt admin.
+        </p>
+      ) : null}
+
+      {membersError ? (
+        <p className="mt-5 text-sm text-ember-500">{membersError}</p>
+      ) : null}
+
+      {!membersLoading && !membersForbidden && !membersError && members.length === 0 ? (
+        <p className="mt-5 text-sm text-faint">No members found for this app.</p>
+      ) : null}
+
+      {!membersLoading && members.length > 0 ? (
+        <ul
+          className="mt-5 divide-y divide-alpha rounded-lg border border-alpha"
+          data-testid="app-members-list"
+        >
+          {members.map((member, index) => (
+            <li
+              key={`${memberLabel(member)}:${member.role}:${index}`}
+              className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-foreground">
+                  {memberLabel(member)}
+                </p>
+                {memberMeta(member) ? (
+                  <p className="mt-0.5 font-mono text-xs text-muted-foreground">
+                    {memberMeta(member)}
+                  </p>
+                ) : null}
+                {!member.effective && member.shadowedBy ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Shadowed by {member.shadowedBy}
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <Badge variant="secondary" size="sm">
+                  {member.role || "role"}
+                </Badge>
+                <Badge
+                  variant={member.source === "static" ? "muted" : "outline"}
+                  size="sm"
+                >
+                  {member.source || "unknown"}
+                  {member.mutable === false ? " · locked" : ""}
+                </Badge>
+                <Badge
+                  variant={member.effective ? "success" : "warning"}
+                  size="sm"
+                >
+                  {member.effective ? "Effective" : "Shadowed"}
+                </Badge>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}

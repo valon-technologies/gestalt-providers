@@ -16,11 +16,15 @@ import {
   WorkflowsDocsPage,
 } from "@/docs/DocsContent";
 import { useDocumentTitle } from "@/hooks/use-document-title";
-import AppAdminLayout from "@/pages/app-admin-layout";
-import AppAdminSnapshotsPage from "@/pages/app-admin-snapshots";
 import AppAdminHistoryPage from "@/pages/app-admin-history";
+import AppAdminSnapshotsPage from "@/pages/app-admin-snapshots";
 import AppAdminWorkflowsPage from "@/pages/app-admin-workflows";
-import AppDetailPage from "@/pages/app-detail";
+import AppWorkspaceLayout from "@/pages/app-workspace-layout";
+import AppWorkspaceConnectionPage from "@/pages/app-workspace/connection";
+import AppWorkspaceOperationsPage from "@/pages/app-workspace/operations";
+import AppWorkspaceOverviewPage from "@/pages/app-workspace/overview";
+import AppAdminAgentIdentitiesPage from "@/pages/app-workspace/admin/agent-identities";
+import AppAdminMembersPage from "@/pages/app-workspace/admin/members";
 import AppsPage from "@/pages/apps";
 import BuildPage, { BuildIndexRedirect } from "@/pages/build";
 import SettingsPage from "@/pages/settings";
@@ -82,6 +86,14 @@ function DocsTroubleshootingRoute() {
   return <TroubleshootingDocsPage />;
 }
 
+const LEGACY_APP_SECTIONS = {
+  overview: "",
+  connection: "/connection",
+  access: "/admin/members",
+  workflows: "/admin/workflows",
+  operations: "/operations",
+} as const;
+
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
@@ -116,65 +128,59 @@ const buildStepRoute = createRoute({
   component: BuildPage,
 });
 
-const APP_DETAIL_SECTIONS = [
-  "overview",
-  "connection",
-  "access",
-  "workflows",
-  "operations",
-] as const;
-
-type AppDetailSectionSearch = (typeof APP_DETAIL_SECTIONS)[number];
-
-const appDetailRoute = createRoute({
+const appWorkspaceLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/apps/$appName",
-  validateSearch: (search: Record<string, unknown>): {
-    section?: AppDetailSectionSearch;
-    operation?: string;
-  } => {
-    const raw = search.section;
-    let section: AppDetailSectionSearch | undefined;
-    if (
-      typeof raw === "string" &&
-      (APP_DETAIL_SECTIONS as readonly string[]).includes(raw)
-    ) {
-      section = raw as AppDetailSectionSearch;
+  path: "/apps/$app",
+  beforeLoad: ({ location, params }) => {
+    const search = new URLSearchParams(location.searchStr);
+    const section = search.get("section");
+    if (section && section in LEGACY_APP_SECTIONS) {
+      const suffix =
+        LEGACY_APP_SECTIONS[section as keyof typeof LEGACY_APP_SECTIONS];
+      const operation = search.get("operation");
+      const action = search.get("action");
+      throw redirect({
+        to: suffix
+          ? (`/apps/$app${suffix}` as "/apps/$app/connection")
+          : "/apps/$app",
+        params: { app: params.app },
+        hash: operation && section === "operations" ? operation : undefined,
+        search:
+          section === "connection" && action === "disconnect"
+            ? { action: "disconnect" as const }
+            : {},
+      });
     }
-    const operationRaw = search.operation;
-    const operation =
-      typeof operationRaw === "string" && operationRaw.trim()
-        ? operationRaw.trim()
-        : undefined;
-    return { section, operation };
   },
-  component: AppDetailPage,
+  component: AppWorkspaceLayout,
 });
 
-const appAdminLayoutRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/apps/$app/admin",
-  beforeLoad: ({ location, params }) => {
-    const section = new URLSearchParams(location.searchStr).get("section");
-    if (section === "workflows") {
-      throw redirect({
-        to: "/apps/$app/admin/workflows",
-        params: { app: params.app },
-      });
-    }
-    if (section === "registry" && location.pathname.endsWith("/admin")) {
-      throw redirect({
-        to: "/apps/$app/admin/snapshots",
-        params: { app: params.app },
-      });
-    }
-  },
-  component: AppAdminLayout,
+const appOverviewRoute = createRoute({
+  getParentRoute: () => appWorkspaceLayoutRoute,
+  path: "/",
+  component: AppWorkspaceOverviewPage,
+});
+
+const appConnectionRoute = createRoute({
+  getParentRoute: () => appWorkspaceLayoutRoute,
+  path: "/connection",
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { action?: "disconnect" } => ({
+    action: search.action === "disconnect" ? "disconnect" : undefined,
+  }),
+  component: AppWorkspaceConnectionPage,
+});
+
+const appOperationsRoute = createRoute({
+  getParentRoute: () => appWorkspaceLayoutRoute,
+  path: "/operations",
+  component: AppWorkspaceOperationsPage,
 });
 
 const appAdminIndexRoute = createRoute({
-  getParentRoute: () => appAdminLayoutRoute,
-  path: "/",
+  getParentRoute: () => appWorkspaceLayoutRoute,
+  path: "/admin",
   beforeLoad: ({ params }) => {
     throw redirect({
       to: "/apps/$app/admin/snapshots",
@@ -184,21 +190,33 @@ const appAdminIndexRoute = createRoute({
 });
 
 const appAdminSnapshotsRoute = createRoute({
-  getParentRoute: () => appAdminLayoutRoute,
-  path: "/snapshots",
+  getParentRoute: () => appWorkspaceLayoutRoute,
+  path: "/admin/snapshots",
   component: AppAdminSnapshotsPage,
 });
 
 const appAdminHistoryRoute = createRoute({
-  getParentRoute: () => appAdminLayoutRoute,
-  path: "/history",
+  getParentRoute: () => appWorkspaceLayoutRoute,
+  path: "/admin/history",
   component: AppAdminHistoryPage,
 });
 
 const appAdminWorkflowsRoute = createRoute({
-  getParentRoute: () => appAdminLayoutRoute,
-  path: "/workflows",
+  getParentRoute: () => appWorkspaceLayoutRoute,
+  path: "/admin/workflows",
   component: AppAdminWorkflowsPage,
+});
+
+const appAdminMembersRoute = createRoute({
+  getParentRoute: () => appWorkspaceLayoutRoute,
+  path: "/admin/members",
+  component: AppAdminMembersPage,
+});
+
+const appAdminAgentIdentitiesRoute = createRoute({
+  getParentRoute: () => appWorkspaceLayoutRoute,
+  path: "/admin/agent-identities",
+  component: AppAdminAgentIdentitiesPage,
 });
 
 const settingsRoute = createRoute({
@@ -355,15 +373,19 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   agentsRoute,
   appsRoute,
-  appDetailRoute,
-  buildIndexRoute,
-  buildStepRoute,
-  appAdminLayoutRoute.addChildren([
+  appWorkspaceLayoutRoute.addChildren([
+    appOverviewRoute,
+    appConnectionRoute,
+    appOperationsRoute,
     appAdminIndexRoute,
     appAdminSnapshotsRoute,
     appAdminHistoryRoute,
     appAdminWorkflowsRoute,
+    appAdminMembersRoute,
+    appAdminAgentIdentitiesRoute,
   ]),
+  buildIndexRoute,
+  buildStepRoute,
   settingsRoute.addChildren([
     settingsIndexRoute,
     settingsTokensRoute,

@@ -268,22 +268,46 @@ export function appOpenPath(integration: Integration): string | undefined {
   return mountedPath || undefined;
 }
 
+export type AppDetailConnectionSearch = {
+  action?: "disconnect";
+};
+
+/** User-facing connection route for credential management. */
+export function appDetailConnectionPath(
+  integration: Integration,
+  options: AppDetailConnectionSearch = {},
+): string {
+  const base = `/apps/${encodeURIComponent(integration.name)}/connection`;
+  if (options.action === "disconnect") {
+    return `${base}?action=disconnect`;
+  }
+  return base;
+}
+
+/** Canonical app overview route. */
+export function appDetailPath(integration: Integration): string {
+  return `/apps/${encodeURIComponent(integration.name)}`;
+}
+
 /**
- * Whole-card activate target — listing (connect funnel) vs mounted app.
- * The tile has no separate face CTA; the card itself is the hit target.
+ * Whole-card activate target — always app detail for catalog tiles.
+ * Product launch uses the explicit Open app control on the card.
  */
 export function catalogCardActivateTarget(
+  _integration: Integration,
+  _context: ConnectionContext = "current_user",
+): "detail" {
+  return "detail";
+}
+
+/** Show Open app on the catalog card when the mounted UI is reachable. */
+export function catalogShowOpenAppButton(
   integration: Integration,
   context: ConnectionContext = "current_user",
-): "listing" | "app" {
-  const state = catalogInstallState(integration, context);
-  if (state === "mount_only") {
-    return "app";
-  }
-  if (state === "not_connected" || state === "needs_attention") {
-    return "listing";
-  }
-  return appOpenPath(integration) ? "app" : "listing";
+): boolean {
+  if (!appOpenPath(integration)) return false;
+  const status = normalizeIntegrationStatus(integration, context);
+  return status.connected || primaryConnectLabel(integration, context) === null;
 }
 
 /** Catalog tile / listing badge copy — shorter success label without mutating settings labels. */

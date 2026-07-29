@@ -1,16 +1,10 @@
 import { useParams } from "@tanstack/react-router";
-import {
-  SectionHeader,
-  SectionHeaderContent,
-  SectionHeaderDescription,
-  SectionHeaderTitle,
-} from "@/components/ui/section-header";
 import { AppAdminHistoryTable } from "@/features/registry/app-admin-history-table";
 import { useAppAdminRegistryHistoryQuery } from "@/lib/queries";
 
 export default function AppAdminHistoryPage() {
-  const { app: appName } = useParams({ from: "/apps/$app/admin/history" });
-  const historyQuery = useAppAdminRegistryHistoryQuery(appName, true);
+  const { app } = useParams({ from: "/apps/$app/admin/history" });
+  const historyQuery = useAppAdminRegistryHistoryQuery(app, true);
   const historyRevisions =
     historyQuery.data?.pages.flatMap((page) => page.revisions) ?? [];
   const historyError = historyQuery.error
@@ -20,24 +14,22 @@ export default function AppAdminHistoryPage() {
     : null;
 
   return (
-    <section className="space-y-4 rounded-2xl border border-border bg-card p-6 text-card-foreground">
-      <SectionHeader>
-        <SectionHeaderContent>
-          <SectionHeaderTitle>Revision history</SectionHeaderTitle>
-          <SectionHeaderDescription>
-            Accepted fleet version changes in reverse chronological order.
-          </SectionHeaderDescription>
-        </SectionHeaderContent>
-      </SectionHeader>
+    <section aria-label="Revision history">
+      <h1 className="text-2xl font-heading text-foreground">Revision history</h1>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Accepted fleet version changes in reverse chronological order.
+      </p>
 
-      <AppAdminHistoryTable
-        revisions={historyRevisions}
-        loading={historyQuery.isPending}
-        loadingMore={historyQuery.isFetchingNextPage}
-        error={historyError}
-        hasMore={historyQuery.hasNextPage}
-        onLoadMore={() => void historyQuery.fetchNextPage()}
-      />
+      <div className="mt-6">
+        <AppAdminHistoryTable
+          revisions={historyRevisions}
+          loading={historyQuery.isPending}
+          loadingMore={historyQuery.isFetchingNextPage}
+          error={historyError}
+          hasMore={historyQuery.hasNextPage}
+          onLoadMore={() => void historyQuery.fetchNextPage()}
+        />
+      </div>
     </section>
   );
 }

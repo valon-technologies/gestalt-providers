@@ -12,7 +12,7 @@ import {
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import { normalizeIntegrationStatus } from "@/lib/integrationStatus";
 import { Badge } from "@/components/ui/badge";
-import Button from "@/components/Button";
+import { Button } from "@/components/ui/button";
 import IntegrationIcon from "@/components/IntegrationIcon";
 import { CloseIcon } from "@/components/icons";
 
@@ -129,7 +129,7 @@ export default function AppListingDetail({
 
       <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-5 py-4">
         {showOpenApp ? (
-          <Button type="button" variant="secondary" onClick={onOpenApp}>
+          <Button type="button" variant="ghost" onClick={onOpenApp}>
             Open app
           </Button>
         ) : isAppAdmin ? (
