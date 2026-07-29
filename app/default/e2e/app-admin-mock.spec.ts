@@ -457,6 +457,14 @@ test.describe("app admin registry UI", () => {
     await expect(
       page.getByTestId("snapshot-row-failed").getByTestId("snapshot-severity-indicator"),
     ).toHaveAttribute("data-variant", "danger");
+
+    const indicatorShell = deployedRow
+      .getByTestId("snapshot-severity-indicator")
+      .locator("span[aria-hidden]");
+    const deployedBadge = deployedRow.getByTestId("snapshot-status");
+    const indicatorBg = await indicatorShell.evaluate((el) => getComputedStyle(el).backgroundColor);
+    const badgeBg = await deployedBadge.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(indicatorBg).toBe(badgeBg);
   });
 
   test("legacy gestalt-shell grove success override does not recolor status badges", async ({

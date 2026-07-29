@@ -119,6 +119,10 @@ with `TableStatusIndicator` in a gutter column (`iconOnly`) and match the status
 `Badge` via `tableStatusIndicatorBadgeVariant`. Do not convey severity with
 full-row washes alone — see Registry `Display/Table → Row status indicators`.
 
+**Held local override:** indicator shells use `bg-badge-*` (not upstream
+`bg-success` / `bg-destructive`) so gutter icons stay paired with Badge chips
+when tenant `theme.css` remaps legacy `--success` (gestalt-shell grove).
+
 ## SearchHighlight
 
 Registry `search-highlight` + `search-highlight-context` are vendored as
