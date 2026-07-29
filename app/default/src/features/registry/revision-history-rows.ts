@@ -47,9 +47,9 @@ export function revisionRolloutStatusLabel(state?: string): string | null {
     case "restarting":
       return "Rolling out";
     case "complete":
-      return "Available";
+      return "Current";
     case "failed":
-      return "Failed";
+      return "Deploy failed";
     default:
       return null;
   }
@@ -92,7 +92,7 @@ export function revisionRolloutStatusTimer(
       (revision.rolloutCompletedAt
         ? durationSecondsBetween(revision.deployedAt, revision.rolloutCompletedAt)
         : null);
-    return duration !== null ? `Available in ${formatDurationSeconds(duration)}` : null;
+    return duration !== null ? `Serving in ${formatDurationSeconds(duration)}` : null;
   }
 
   const duration =
@@ -100,5 +100,7 @@ export function revisionRolloutStatusTimer(
     (revision.rolloutFailedAt
       ? durationSecondsBetween(revision.deployedAt, revision.rolloutFailedAt)
       : null);
-  return duration !== null ? `Failed after ${formatDurationSeconds(duration)}` : null;
+  return duration !== null
+    ? `Deploy failed after ${formatDurationSeconds(duration)}`
+    : null;
 }

@@ -1,35 +1,26 @@
 import { Badge } from "@/components/ui/badge";
-import { formatRolloutStateLabel } from "@/features/registry/format";
+import { fleetRolloutBadgeLabel } from "@/features/registry/rollout-stepper";
 import type { RegistryAppSummary } from "@/features/registry/types";
 
 type BadgeVariant = "success" | "warning" | "destructive" | "muted";
 
-export function rolloutState(app: RegistryAppSummary): string {
-  return app.rollout?.state || (app.desiredVersion ? "not started" : "not installed");
-}
-
-export function rolloutBadgeLabel(app: RegistryAppSummary): string {
-  return formatRolloutStateLabel(rolloutState(app));
-}
-
-export function rolloutBadgeVariant(state: string): BadgeVariant {
-  switch (state) {
-    case "complete":
-      return "success";
-    case "failed":
-      return "destructive";
-    case "enrolling":
-    case "restarting":
-      return "warning";
-    default:
-      return "muted";
+export function rolloutBadgeVariant(app: RegistryAppSummary): BadgeVariant {
+  const rolloutState = app.rollout?.state;
+  if (rolloutState === "enrolling" || rolloutState === "restarting") {
+    return "warning";
   }
+  if (rolloutState === "failed") {
+    return "destructive";
+  }
+  if (app.desiredVersion) {
+    return "success";
+  }
+  return "muted";
 }
 
 export function RolloutBadge({ app }: { app: RegistryAppSummary }) {
-  const state = rolloutState(app);
-  const label = formatRolloutStateLabel(state);
-  const variant = rolloutBadgeVariant(state);
+  const label = fleetRolloutBadgeLabel(app);
+  const variant = rolloutBadgeVariant(app);
   return (
     <Badge
       data-testid="rollout-badge"

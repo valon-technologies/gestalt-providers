@@ -19,7 +19,7 @@ export function PublicationPullRequestLabel({
   const numberLabel = `PR #${pullRequest.number}`;
 
   return (
-    <span className="inline-flex flex-wrap items-baseline gap-x-1.5">
+    <span className="inline-flex flex-wrap items-baseline gap-x-2">
       {pullRequest.url ? (
         <a
           href={pullRequest.url}

@@ -170,6 +170,7 @@ export function DataTableView<TData>({
                           ? "center"
                           : undefined
                     }
+                    className={header.column.columnDef.meta?.headerClassName}
                     aria-sort={
                       canSort
                         ? sortHeaderAriaSort(sorted !== false, sortDirection)
@@ -203,6 +204,7 @@ export function DataTableView<TData>({
                           ? "end"
                           : undefined
                       }
+                      className={cell.column.columnDef.meta?.className}
                     >
                       {flexRender(
                         cell.column.columnDef.cell,
@@ -217,7 +219,7 @@ export function DataTableView<TData>({
             <TableRow>
               <TableCell
                 colSpan={columns.length}
-                className="h-24 text-center text-muted-foreground"
+                className="h-24 align-middle text-center text-muted-foreground"
               >
                 {emptyMessage}
               </TableCell>
@@ -233,5 +235,9 @@ declare module "@tanstack/react-table" {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   interface ColumnMeta<TData, TValue> {
     align?: "start" | "center" | "end";
+    /** `TableCell` classes — body alignment (e.g. `align-top`) stays off headers. */
+    className?: string;
+    /** `TableHead` classes — width/padding for gutter columns, etc. */
+    headerClassName?: string;
   }
 }

@@ -289,8 +289,9 @@ export default function AppWorkspaceLayout() {
                   className="rounded-lg border border-info-foreground/40 bg-info px-4 py-3 text-sm text-info-foreground"
                   data-testid="rollout-active-banner"
                 >
-                  Rollout in progress:{" "}
-                  <RegistryCode>{registry.rollout.version}</RegistryCode>
+                  Rolling out{" "}
+                  <RegistryCode>{registry.rollout.version}</RegistryCode> across the
+                  fleet
                 </p>
               ) : null}
 

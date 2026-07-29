@@ -8,22 +8,29 @@ import {
 } from "@tanstack/react-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CopyableCode } from "@/components/ui/copyable-code";
 import {
   DataTableColumnHeader,
   DataTableSearchShell,
   DataTableView,
 } from "@/components/ui/data-table";
 import { SearchHighlight } from "@/components/ui/search-highlight";
+import {
+  TableStatusIndicator,
+  type TableStatusIndicatorVariant,
+} from "@/components/ui/table-status-indicator";
 import { isActiveRegistryRollout } from "@/features/registry/format";
+import { RolloutPhaseStepper } from "@/features/registry/rollout-phase-stepper";
 import {
   isRolloutDeployingAction,
+  rolloutProgressSubline,
   selectedVersionRowAffordance,
+  shouldShowRowRolloutStepper,
 } from "@/features/registry/rollout-stepper";
 import {
   PublicationPullRequestLabel,
   REGISTRY_TABLE_LINK_CLASS,
 } from "@/features/registry/publication-pull-request-label";
-import { RegistryCode } from "@/features/registry/registry-code";
 import {
   buildAppAdminSnapshotRows,
   snapshotFailedReason,
@@ -45,13 +52,13 @@ import { Loader2 } from "lucide-react";
 const PUBLISH_DURATION_CLASS =
   "inline-block min-w-[4.75rem] tabular-nums text-muted-foreground";
 
-const columnHelper = createColumnHelper<AppAdminSnapshotRow>();
+/** Registry DataTable row actions use outline — bordered + page background, not secondary (secondary === neutral-hover in theme). */
+const TABLE_ROW_ACTION_BUTTON_VARIANT = "outline" as const;
 
-function shortenSnapshotVersion(version: string): string {
-  const trimmed = version.trim();
-  if (trimmed.length <= 24) return trimmed;
-  return `${trimmed.slice(0, 20)}…`;
-}
+/** Gutter width = px-3 + size-5 indicator + px-3 (12px + 20px + 12px). */
+const SNAPSHOT_SEVERITY_GUTTER_CLASS = "w-11 px-3";
+
+const columnHelper = createColumnHelper<AppAdminSnapshotRow>();
 
 function rowPublication(row: AppAdminSnapshotRow): AppAdminPublication | undefined {
   if (row.kind === "published") return row.published.publication;
@@ -71,10 +78,15 @@ function snapshotRowSearchText(
     rollout: registry.rollout,
     autoDeployPendingVersion: registry.autoDeploy?.pendingVersion,
   });
+  const rolloutPhase =
+    registry.rollout && registry.rollout.version === row.version
+      ? rolloutProgressSubline(registry.rollout)
+      : null;
   const lastUpdated = snapshotLastUpdatedLabel(row);
   return [
     row.version,
     status.label,
+    rolloutPhase,
     pullRequest?.number ? `PR #${pullRequest.number}` : null,
     pullRequest?.title,
     publication?.workflowRunUrl ? "workflow" : null,
@@ -102,25 +114,81 @@ function snapshotStatus({
     return { label: "Publishing", variant: "warning" };
   }
   if (row.kind === "failed") {
-    return { label: "Failed", variant: "destructive" };
+    return { label: "Publish failed", variant: "destructive" };
   }
   if (
     autoDeployPendingVersion === row.version &&
     !isRolloutDeployingAction(rollout, row.version)
   ) {
-    return { label: "Queued for deploy", variant: "warning" };
+    return { label: "Queued to deploy", variant: "warning" };
+  }
+  if (rollout && rollout.version === row.version && rollout.state === "failed") {
+    return { label: "Deploy failed", variant: "destructive" };
   }
   const rolloutTargetActive =
     rollout &&
     rollout.version === row.version &&
     isActiveRegistryRollout(rollout.state);
   if (row.version === desiredVersion && !rolloutTargetActive) {
-    return { label: "Deployed", variant: "success" };
+    return { label: "Current", variant: "success" };
   }
   if (rollout && rollout.version === row.version && isActiveRegistryRollout(rollout.state)) {
     return { label: "Rolling out", variant: "warning" };
   }
-  return { label: "Available", variant: "info" };
+  return { label: "Ready to deploy", variant: "info" };
+}
+
+function snapshotStatusBadgeVariant(
+  status: ReturnType<typeof snapshotStatus>,
+): "success" | "warning" | "info" | "destructive" {
+  if (status.label === "Current") {
+    return "info";
+  }
+  if (status.label === "Ready to deploy") {
+    return "success";
+  }
+  return status.variant;
+}
+
+/** Lower sorts first when ascending — in-flight and failures above stable states. */
+const SNAPSHOT_STATUS_SORT_ORDER: Record<string, number> = {
+  Publishing: 0,
+  "Rolling out": 1,
+  "Queued to deploy": 2,
+  "Deploy failed": 3,
+  "Publish failed": 4,
+  Current: 5,
+  "Ready to deploy": 6,
+};
+
+function snapshotStatusSortKey(
+  row: AppAdminSnapshotRow,
+  registry: SnapshotTableMeta["registry"],
+): number {
+  const { label } = snapshotStatus({
+    row,
+    desiredVersion: registry.desiredVersion,
+    rollout: registry.rollout,
+    autoDeployPendingVersion: registry.autoDeploy?.pendingVersion,
+  });
+  return SNAPSHOT_STATUS_SORT_ORDER[label] ?? 99;
+}
+
+function snapshotStatusIndicatorVariant(
+  status: ReturnType<typeof snapshotStatus>,
+): TableStatusIndicatorVariant {
+  switch (status.variant) {
+    case "success":
+      return "success";
+    case "warning":
+      return "warning";
+    case "destructive":
+      return "danger";
+    case "info":
+      return "success";
+    default:
+      return "default";
+  }
 }
 
 function PendingPublishDuration({ statusTimer }: { statusTimer: string }) {
@@ -137,11 +205,7 @@ function selectedRowClassName(
   rowVersion: string,
 ): string {
   const affordance = selectedVersionRowAffordance(rollout, rowVersion);
-  return cn(
-    affordance === "pulsing" && "bg-primary/10 motion-safe:animate-pulse",
-    affordance === "success" && "bg-success/10",
-    affordance === "error" && "bg-destructive/10",
-  );
+  return cn(affordance === "success" && "bg-success/10");
 }
 
 type SnapshotTableMeta = {
@@ -164,6 +228,31 @@ type SnapshotTableRuntimeMeta = {
   liveNow: number;
 };
 
+function SnapshotSeverityCell({
+  row,
+  registry,
+}: {
+  row: AppAdminSnapshotRow;
+  registry: SnapshotTableMeta["registry"];
+}) {
+  const status = snapshotStatus({
+    row,
+    desiredVersion: registry.desiredVersion,
+    rollout: registry.rollout,
+    autoDeployPendingVersion: registry.autoDeploy?.pendingVersion,
+  });
+
+  return (
+    <div className="flex h-5 items-center justify-center">
+      <TableStatusIndicator
+        variant={snapshotStatusIndicatorVariant(status)}
+        iconOnly
+        label={status.label}
+      />
+    </div>
+  );
+}
+
 function SnapshotPullRequestCell({
   row,
   registry,
@@ -173,36 +262,45 @@ function SnapshotPullRequestCell({
 }) {
   const publication = rowPublication(row);
   const pullRequest = publication?.triggerPullRequest;
-  const rowAffordance =
-    row.kind !== "pending"
-      ? selectedVersionRowAffordance(registry.rollout, row.version)
-      : undefined;
+  const rollout = registry.rollout;
+  const showRolloutStepper =
+    row.kind === "published" &&
+    rollout &&
+    shouldShowRowRolloutStepper(rollout, row.version);
 
   return (
-    <div className="relative">
-      {rowAffordance ? (
-        <span
-          className="pointer-events-none absolute -left-7 top-1/2 flex w-7 -translate-y-1/2 items-center justify-center text-primary leading-none"
-          aria-hidden="true"
-          data-testid="snapshot-row-arrow"
+    <div className="flex min-w-0 flex-col gap-2">
+      <div className="flex min-w-0 flex-col gap-2">
+        <div className="flex min-h-5 items-center">
+          {pullRequest?.number ? (
+            <PublicationPullRequestLabel
+              pullRequest={pullRequest}
+              titleClassName="font-medium text-foreground"
+            />
+          ) : publication?.workflowRunUrl ? (
+            <a
+              href={publication.workflowRunUrl}
+              target="_blank"
+              rel="noreferrer"
+              className={REGISTRY_TABLE_LINK_CLASS}
+            >
+              <SearchHighlight text="workflow" />
+            </a>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
+        </div>
+        <CopyableCode
+          value={row.version}
+          className="w-fit max-w-full text-xs [&_code]:text-xs"
+          tooltip={`Copy ${row.version}`}
         >
-          →
-        </span>
+          <SearchHighlight text={row.version} />
+        </CopyableCode>
+      </div>
+      {showRolloutStepper ? (
+        <RolloutPhaseStepper rollout={rollout} size="mini" className="self-start" />
       ) : null}
-      {pullRequest?.number ? (
-        <PublicationPullRequestLabel pullRequest={pullRequest} />
-      ) : publication?.workflowRunUrl ? (
-        <a
-          href={publication.workflowRunUrl}
-          target="_blank"
-          rel="noreferrer"
-          className={REGISTRY_TABLE_LINK_CLASS}
-        >
-          <SearchHighlight text="workflow" />
-        </a>
-      ) : (
-        <span className="text-muted-foreground">—</span>
-      )}
     </div>
   );
 }
@@ -216,10 +314,11 @@ function SnapshotStatusCell({
   registry: SnapshotTableMeta["registry"];
   liveNow?: number;
 }) {
+  const rollout = registry.rollout;
   const status = snapshotStatus({
     row,
     desiredVersion: registry.desiredVersion,
-    rollout: registry.rollout,
+    rollout,
     autoDeployPendingVersion: registry.autoDeploy?.pendingVersion,
   });
   const statusTimer = snapshotStatusTimer(
@@ -227,11 +326,23 @@ function SnapshotStatusCell({
     row.kind === "pending" ? liveNow : undefined,
   );
   const failedReason = snapshotFailedReason(row);
+  const showRolloutStepper =
+    row.kind === "published" &&
+    rollout &&
+    shouldShowRowRolloutStepper(rollout, row.version);
+  const rolloutSubline =
+    rollout && showRolloutStepper && isActiveRegistryRollout(rollout.state)
+      ? rolloutProgressSubline(rollout, liveNow)
+      : null;
 
   return (
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge variant={status.variant} data-testid="snapshot-status" className="relative">
+        <Badge
+          variant={snapshotStatusBadgeVariant(status)}
+          data-testid="snapshot-status"
+          className="relative"
+        >
           {row.kind === "pending" ? (
             <Loader2
               className="absolute top-1/2 right-full mr-1.5 size-3.5 -translate-y-1/2 animate-spin text-warning-foreground"
@@ -245,7 +356,11 @@ function SnapshotStatusCell({
           <PendingPublishDuration statusTimer={statusTimer} />
         ) : null}
       </div>
-      {statusTimer && row.kind !== "pending" ? (
+      {rolloutSubline ? (
+        <div className="text-xs text-muted-foreground">
+          <SearchHighlight text={rolloutSubline} />
+        </div>
+      ) : statusTimer && row.kind !== "pending" ? (
         <div className="text-xs text-muted-foreground">
           <SearchHighlight text={statusTimer} />
         </div>
@@ -277,7 +392,7 @@ function SnapshotLastUpdateCell({
 
   return (
     <time
-      className="text-muted-foreground"
+      className="text-xs text-muted-foreground"
       dateTime={snapshotLastUpdatedAt(row) ?? undefined}
       title={lastUpdated.absolute}
       data-testid="snapshot-last-updated-at"
@@ -313,14 +428,17 @@ function SnapshotActionCell({
 
   if (showRolloutDeploying) {
     return (
-      <Button
-        type="button"
-        size="sm"
-        data-testid={`deploy-version-${row.version}`}
-        disabled
-      >
-        Deploying...
-      </Button>
+      <span className="inline-block align-baseline">
+        <Button
+          type="button"
+          variant={TABLE_ROW_ACTION_BUTTON_VARIANT}
+          size="sm"
+          data-testid={`deploy-version-${row.version}`}
+          disabled
+        >
+          Deploying...
+        </Button>
+      </span>
     );
   }
 
@@ -330,15 +448,18 @@ function SnapshotActionCell({
 
   if (isDeployable) {
     return (
-      <Button
-        type="button"
-        size="sm"
-        data-testid={`deploy-version-${row.version}`}
-        disabled={deployDisabled}
-        onClick={() => onDeployVersion(row.version)}
-      >
-        {isDeploying ? "Deploying..." : "Deploy"}
-      </Button>
+      <span className="inline-block align-baseline">
+        <Button
+          type="button"
+          variant={TABLE_ROW_ACTION_BUTTON_VARIANT}
+          size="sm"
+          data-testid={`deploy-version-${row.version}`}
+          disabled={deployDisabled}
+          onClick={() => onDeployVersion(row.version)}
+        >
+          {isDeploying ? "Deploying..." : "Deploy"}
+        </Button>
+      </span>
     );
   }
 
@@ -353,7 +474,10 @@ export function AppAdminSnapshotsTable({
 }: SnapshotTableMeta) {
   const rows = useMemo(() => buildAppAdminSnapshotRows(registry), [registry]);
   const hasPendingRows = rows.some((row) => row.kind === "pending");
-  const liveNow = useLiveNow({ enabled: hasPendingRows });
+  const hasActiveRollout = Boolean(
+    registry.rollout && isActiveRegistryRollout(registry.rollout.state),
+  );
+  const liveNow = useLiveNow({ enabled: hasPendingRows || hasActiveRollout });
   const [sorting, setSorting] = useState<SortingState>([
     { id: "sortAt", desc: true },
   ]);
@@ -368,10 +492,23 @@ export function AppAdminSnapshotsTable({
 
   const columns = useMemo(
     () => [
+      columnHelper.display({
+        id: "severity",
+        header: () => <span className="sr-only">Status</span>,
+        meta: {
+          headerClassName: SNAPSHOT_SEVERITY_GUTTER_CLASS,
+          className: cn(SNAPSHOT_SEVERITY_GUTTER_CLASS, "align-top"),
+        },
+        enableSorting: false,
+        cell: ({ row }) => (
+          <SnapshotSeverityCell row={row.original} registry={registry} />
+        ),
+      }),
       columnHelper.accessor(
         (row) => rowPublication(row)?.triggerPullRequest?.number ?? 0,
         {
           id: "pullRequest",
+          meta: { className: "align-top pl-0", headerClassName: "pl-0" },
           header: ({ column }) => (
             <DataTableColumnHeader column={column} title="Pull request" />
           ),
@@ -380,25 +517,8 @@ export function AppAdminSnapshotsTable({
           ),
         },
       ),
-      columnHelper.accessor((row) => row.version, {
-        id: "snapshot",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Snapshot" />
-        ),
-        cell: ({ row }) => (
-          <RegistryCode title={row.original.version}>
-            <SearchHighlight text={shortenSnapshotVersion(row.original.version)} />
-          </RegistryCode>
-        ),
-      }),
       columnHelper.accessor(
-        (row) =>
-          snapshotStatus({
-            row,
-            desiredVersion: registry.desiredVersion,
-            rollout: registry.rollout,
-            autoDeployPendingVersion: registry.autoDeploy?.pendingVersion,
-          }).label,
+        (row) => snapshotStatusSortKey(row, registry),
         {
           id: "status",
           header: ({ column }) => (
@@ -409,13 +529,15 @@ export function AppAdminSnapshotsTable({
               row={row.original}
               registry={registry}
               liveNow={
-                row.original.kind === "pending"
+                row.original.kind === "pending" ||
+                (registry.rollout &&
+                  row.original.version === registry.rollout.version &&
+                  isActiveRegistryRollout(registry.rollout.state))
                   ? (table.options.meta as SnapshotTableRuntimeMeta).liveNow
                   : undefined
               }
             />
           ),
-          enableSorting: false,
         },
       ),
       columnHelper.accessor((row) => row.sortAt, {

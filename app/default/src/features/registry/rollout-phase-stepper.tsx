@@ -1,4 +1,13 @@
-import { Fragment } from "react";
+import type { LucideIcon } from "lucide-react";
+import { Check, Circle, Dot, TriangleAlert } from "lucide-react";
+import {
+  TimelineSteps,
+  TimelineStepsConnector,
+  TimelineStepsHeader,
+  TimelineStepsIcon,
+  TimelineStepsItem,
+  TimelineStepsTitle,
+} from "@/components/ui/timeline-steps";
 import { isActiveRegistryRollout } from "@/features/registry/format";
 import {
   buildRolloutStepperModel,
@@ -7,79 +16,129 @@ import {
 import type { RegistryRollout } from "@/features/registry/types";
 import { cn } from "@/lib/cn";
 
-function StepNode({
-  phase,
-}: {
-  phase: RolloutStepperModel["phases"][number];
-}) {
-  return (
-    <span
-      className={cn(
-        "size-3 shrink-0 rounded-full border-2",
-        phase.state === "current" && "border-primary bg-primary",
-        phase.state === "completed" && "border-warning bg-warning",
-        phase.state === "upcoming" && "border-warning bg-transparent",
-        phase.state === "terminal" &&
-          phase.tone === "success" &&
-          "border-success bg-success",
-        phase.state === "terminal" &&
-          phase.tone === "error" &&
-          "border-destructive bg-destructive",
-        phase.state === "terminal" &&
-          phase.tone === "muted" &&
-          "border-muted-foreground/40 bg-transparent",
-      )}
-      data-testid={`rollout-phase-node-${phase.id}`}
-    />
-  );
+type PhaseItemStatus = "default" | "completed" | "current" | "upcoming" | "warning";
+
+/** Registry CompactDots horizontal xs — dot rail, no inner glyphs, flex-1 steps. */
+const MINI_TIMELINE_ROOT_CLASS = "w-full max-w-[17.5rem]";
+
+function phaseItemStatus(
+  phase: RolloutStepperModel["phases"][number],
+): PhaseItemStatus {
+  if (phase.state === "completed") return "completed";
+  if (phase.state === "current") return "current";
+  if (phase.state === "upcoming") return "upcoming";
+  if (phase.state === "terminal" && phase.tone === "error") return "warning";
+  if (phase.state === "terminal") return "completed";
+  return "default";
 }
 
-function StepConnector({ active }: { active: boolean }) {
+function connectorLineState(
+  phase: RolloutStepperModel["phases"][number],
+): "completed" | "pending" {
+  return phase.state === "completed" ? "completed" : "pending";
+}
+
+function phaseIconConfig(phase: RolloutStepperModel["phases"][number]): {
+  state: "completed" | "active" | "pending" | "warning";
+  icon: LucideIcon;
+  pulse: boolean;
+} {
+  if (phase.state === "completed") {
+    return { state: "completed", icon: Check, pulse: false };
+  }
+  if (phase.state === "current") {
+    return { state: "active", icon: Circle, pulse: true };
+  }
+  if (phase.state === "terminal" && phase.tone === "error") {
+    return { state: "warning", icon: TriangleAlert, pulse: false };
+  }
+  if (phase.state === "terminal") {
+    return { state: "completed", icon: Check, pulse: false };
+  }
+  return { state: "pending", icon: Dot, pulse: false };
+}
+
+function RolloutPhaseIcon({
+  phase,
+  mini,
+}: {
+  phase: RolloutStepperModel["phases"][number];
+  mini: boolean;
+}) {
+  if (mini) {
+    return (
+      <TimelineStepsIcon
+        className={cn(phase.state === "current" && "motion-safe:animate-pulse")}
+      />
+    );
+  }
+
+  const { state, icon: Icon, pulse } = phaseIconConfig(phase);
+
   return (
-    <span
-      className={cn(
-        "mt-1.5 h-0.5 min-w-8 flex-1 self-start",
-        active ? "bg-warning" : "bg-muted-foreground/25",
-      )}
-      aria-hidden="true"
-    />
+    <TimelineStepsIcon
+      state={state}
+      glyph="none"
+      className={cn(pulse && "motion-safe:animate-pulse")}
+    >
+      <Icon className="size-3.5" aria-hidden="true" />
+    </TimelineStepsIcon>
   );
 }
 
 export function RolloutPhaseStepper({
   rollout,
+  size = "default",
+  className,
 }: {
-  rollout?: RegistryRollout;
+  rollout: RegistryRollout;
+  size?: "default" | "mini";
+  className?: string;
 }) {
   const model = buildRolloutStepperModel(rollout);
-  const isActiveRollout = rollout ? isActiveRegistryRollout(rollout.state) : false;
+  const isActiveRollout = isActiveRegistryRollout(rollout.state);
+  const isMini = size === "mini";
+  const timelineSize = isMini ? "xs" : "default";
 
   return (
-    <div
-      className={cn(
-        "mx-auto flex w-fit max-w-md items-start",
-        isActiveRollout && "motion-safe:animate-pulse",
-      )}
+    <TimelineSteps
+      orientation="horizontal"
+      size={timelineSize}
+      glyph="none"
+      className={cn(isMini ? MINI_TIMELINE_ROOT_CLASS : "w-full max-w-md", className)}
       data-testid="rollout-phase-stepper"
       data-rollout-active={isActiveRollout ? "true" : undefined}
-      aria-label="Rollout progress"
+      aria-label="Fleet rollout progress"
     >
       {model.phases.map((phase, index) => {
-        const previousPhase = index > 0 ? model.phases[index - 1] : null;
-        const connectorActive = previousPhase?.state === "completed";
+        const isLast = index === model.phases.length - 1;
 
         return (
-          <Fragment key={phase.id}>
-            {index > 0 ? <StepConnector active={connectorActive} /> : null}
-            <div className="flex shrink-0 flex-col items-center gap-1.5">
-              <StepNode phase={phase} />
-              <span className="whitespace-nowrap text-xs text-muted-foreground">
+          <TimelineStepsItem
+            key={phase.id}
+            status={phaseItemStatus(phase)}
+            index={index}
+            data-testid={`rollout-phase-node-${phase.id}`}
+          >
+            <TimelineStepsHeader>
+              <RolloutPhaseIcon phase={phase} mini={isMini} />
+              <TimelineStepsTitle
+                className={cn(
+                  isMini && "font-normal text-muted-foreground",
+                )}
+              >
                 {phase.label}
-              </span>
-            </div>
-          </Fragment>
+              </TimelineStepsTitle>
+            </TimelineStepsHeader>
+            {!isLast ? (
+              <TimelineStepsConnector
+                orientation="horizontal"
+                lineState={connectorLineState(phase)}
+              />
+            ) : null}
+          </TimelineStepsItem>
         );
       })}
-    </div>
+    </TimelineSteps>
   );
 }

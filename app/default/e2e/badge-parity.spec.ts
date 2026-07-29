@@ -41,12 +41,11 @@ test.describe("badge parity with registry storybook", () => {
     "Set BADGE_PARITY_CHECK=1 with storybook (6049) running",
   );
 
-  test("deployed and available match storybook success/info colors", async ({ page }) => {
+  test("current and available match storybook info/success colors", async ({ page }) => {
     await page.goto(STORYBOOK_URL);
     const frame = page.locator("#storybook-preview-iframe").contentFrame();
     if (!frame) throw new Error("Storybook preview iframe not found");
 
-    const storybookSuccess = await badgeColors(frame.getByText("success", { exact: true }).first());
     const storybookInfo = await badgeColors(frame.getByText("info", { exact: true }).first());
 
     await mockAuthSession(page);
@@ -61,10 +60,9 @@ test.describe("badge parity with registry storybook", () => {
     });
     await page.goto(`/apps/${APP}/admin`);
 
-    const deployed = await badgeColors(page.getByTestId("snapshot-status").filter({ hasText: "Deployed" }));
-    const available = await badgeColors(page.getByTestId("snapshot-status").filter({ hasText: "Available" }));
+    const current = await badgeColors(page.getByTestId("snapshot-status").filter({ hasText: "Current" }));
 
-    expect(deployed).toEqual(storybookSuccess);
-    expect(available).toEqual(storybookInfo);
+    expect(current).toEqual(storybookInfo);
+    await expect(page.getByTestId("table-status-indicator").first()).toBeVisible();
   });
 });

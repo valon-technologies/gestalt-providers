@@ -145,3 +145,12 @@ export function formatRolloutStateLabel(state: string): string {
   if (!trimmed) return trimmed;
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
 }
+
+export function formatRegistryDisabledReason(reason?: string): string | undefined {
+  if (!reason?.trim()) return undefined;
+  const normalized = reason.trim().toLowerCase();
+  if (normalized === "rollout in progress") {
+    return "Deploy paused while a rollout is in progress.";
+  }
+  return reason.trim();
+}
