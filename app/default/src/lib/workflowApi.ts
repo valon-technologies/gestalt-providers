@@ -28,7 +28,9 @@ export type ListWorkflowRunsOptions = {
 export type WorkflowRunRequestOptions = {
   provider?: string;
   /** When set, uses `run.provider` before the deployment default. */
-  run?: Pick<WorkflowRun, "provider">;
+  run?: Pick<WorkflowRun, "provider" | "targetApp">;
+  /** Server-side step-target filter (`target_app` in the Workflow API). */
+  targetApp?: string;
 };
 
 function workflowRunPath(runId: string): string {
@@ -53,16 +55,30 @@ function appendProviderQuery(
   query.set("provider", provider);
 }
 
+function resolveTargetApp(opts?: ListWorkflowRunsOptions | WorkflowRunRequestOptions): string | undefined {
+  const explicit = "targetApp" in (opts ?? {}) ? opts?.targetApp?.trim() : undefined;
+  if (explicit) return explicit;
+  const fromRun =
+    opts && "run" in opts ? opts.run?.targetApp?.trim() : undefined;
+  return fromRun || undefined;
+}
+
+function appendTargetAppQuery(
+  query: URLSearchParams,
+  targetApp: string | undefined,
+): void {
+  if (targetApp) {
+    query.set("targetApp", targetApp);
+  }
+}
+
 function listWorkflowRunsQuery(
   provider: string,
   opts?: ListWorkflowRunsOptions,
 ): string {
   const query = new URLSearchParams();
   appendProviderQuery(query, provider);
-  const targetApp = opts?.targetApp?.trim();
-  if (targetApp) {
-    query.set("targetApp", targetApp);
-  }
+  appendTargetAppQuery(query, resolveTargetApp(opts));
   const status = opts?.status?.trim();
   if (status) {
     query.set("status", status);
@@ -77,9 +93,13 @@ function listWorkflowRunsQuery(
   return query.toString();
 }
 
-function runDetailQuery(provider: string): string {
+function runDetailQuery(
+  provider: string,
+  targetApp?: string,
+): string {
   const query = new URLSearchParams();
   appendProviderQuery(query, provider);
+  appendTargetAppQuery(query, targetApp);
   return query.toString();
 }
 
@@ -112,7 +132,7 @@ export async function getWorkflowRun(
   opts?: WorkflowRunRequestOptions,
 ): Promise<WorkflowRun> {
   const provider = await resolveProvider(opts);
-  const params = runDetailQuery(provider);
+  const params = runDetailQuery(provider, resolveTargetApp(opts));
   const run = await fetchAPI<WorkflowRunWire>(
     `${workflowRunPath(runId)}?${params}`,
   );
@@ -127,7 +147,7 @@ export async function cancelWorkflowRun(
   opts?: WorkflowRunRequestOptions,
 ): Promise<WorkflowRun> {
   const provider = await resolveProvider(opts);
-  const params = runDetailQuery(provider);
+  const params = runDetailQuery(provider, resolveTargetApp(opts));
   const run = await fetchAPI<WorkflowRunWire>(
     `${workflowRunPath(runId)}:cancel?${params}`,
     {

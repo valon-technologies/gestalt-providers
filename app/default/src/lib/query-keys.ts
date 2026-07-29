@@ -28,5 +28,12 @@ export const queryKeys = {
     root: ["app-admin"] as const,
     registry: (app: string) => ["app-admin", app, "registry"] as const,
     history: (app: string) => ["app-admin", app, "history"] as const,
+    members: (app: string) => ["app-admin", app, "members"] as const,
+  },
+  workflows: {
+    root: ["workflows"] as const,
+    list: (app: string) => ["workflows", app, "list"] as const,
+    detail: (app: string, runId: string) =>
+      ["workflows", app, "detail", runId] as const,
   },
 } as const;

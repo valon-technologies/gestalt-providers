@@ -1,9 +1,6 @@
 import { Link, Outlet, useParams, useRouterState } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  getAppAuthorizationMembers,
-  isAPIErrorStatus,
-} from "@/lib/api";
+import { useCallback, useMemo } from "react";
+import { isAPIErrorStatus } from "@/lib/api";
 import { canManageApp, primaryConnectLabel } from "@/lib/catalogFilters";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import {
@@ -12,6 +9,7 @@ import {
 } from "@/lib/integrationStatus";
 import {
   useAppAdminRegistryQuery,
+  useAppAuthorizationMembersQuery,
   useDeployAppAdminVersionMutation,
   useIntegrationsQuery,
   useInvalidateIntegrations,
@@ -62,33 +60,14 @@ export default function AppWorkspaceLayout() {
   const isAdminPath = pathname.includes(`/apps/${app}/admin`);
   const canManageRegistry = Boolean(integration && canManageApp(integration));
   const registryQuery = useAppAdminRegistryQuery(app);
+  const membersQuery = useAppAuthorizationMembersQuery(app);
   const deployMutation = useDeployAppAdminVersionMutation(app);
   const registryForbidden =
     registryQuery.isError && isAPIErrorStatus(registryQuery.error, 403);
   const registry = registryQuery.data;
 
-  const [authorizationAdmin, setAuthorizationAdmin] = useState(false);
-  const [authorizationProbeDone, setAuthorizationProbeDone] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    setAuthorizationProbeDone(false);
-    getAppAuthorizationMembers(app)
-      .then(() => {
-        if (!active) return;
-        setAuthorizationAdmin(true);
-      })
-      .catch(() => {
-        if (!active) return;
-        setAuthorizationAdmin(false);
-      })
-      .finally(() => {
-        if (active) setAuthorizationProbeDone(true);
-      });
-    return () => {
-      active = false;
-    };
-  }, [app]);
+  const authorizationAdmin = membersQuery.isSuccess;
+  const authorizationProbeDone = membersQuery.isFetched;
 
   const status = integration
     ? normalizeIntegrationStatus(integration, "current_user")

@@ -1,7 +1,7 @@
 import type { AppAuthorizationMember } from "@/lib/api";
 
 export const APP_SECTION_CARD =
-  "rounded-lg border border-alpha bg-base-white p-6 dark:bg-surface";
+  "rounded-lg border border-border bg-card p-6";
 
 export function memberLabel(member: AppAuthorizationMember): string {
   if (member.email?.trim()) return member.email.trim();
@@ -22,7 +22,7 @@ export function memberMeta(member: AppAuthorizationMember): string {
 
 export function SummaryStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-alpha bg-alpha-5 px-3 py-2">
+    <div className="rounded-lg border border-border bg-muted px-3 py-2">
       <p className="text-xs font-medium text-muted-foreground">{label}</p>
       <p className="mt-0.5 text-lg font-heading text-foreground">{value}</p>
     </div>

@@ -345,6 +345,8 @@ export interface WorkflowStepExecution {
 export interface WorkflowRun {
   id: string;
   provider: string;
+  /** Server-declared step-target app for this run (Workflow API `target_app`). */
+  targetApp?: string;
   status?: string;
   target: WorkflowTarget;
   trigger?: WorkflowRunTrigger;
@@ -367,8 +369,13 @@ type WorkflowRunWire = Omit<WorkflowRun, "target" | "steps"> & {
 };
 
 export function normalizeWorkflowRun(run: WorkflowRunWire): WorkflowRun {
+  const wire = run as WorkflowRunWire & {
+    targetApp?: string;
+    target_app?: string;
+  };
   return {
     ...run,
+    targetApp: optionalString(wire.targetApp) ?? optionalString(wire.target_app),
     target: normalizeWorkflowTarget(run.target),
     steps: normalizeWorkflowStepExecutions(run.steps),
   };

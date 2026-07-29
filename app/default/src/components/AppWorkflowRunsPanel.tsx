@@ -2,7 +2,6 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -13,12 +12,12 @@ import {
   type WorkflowStepTarget,
   type WorkflowTarget,
 } from "@/lib/api";
-import {
-  cancelWorkflowRun,
-  getWorkflowRun,
-  listWorkflowRuns,
-} from "@/lib/workflowApi";
 import { Link } from "@tanstack/react-router";
+import {
+  useCancelWorkflowRunMutation,
+  useWorkflowRunQuery,
+  useWorkflowRunsQuery,
+} from "@/lib/queries";
 import {
   SectionHeader,
   SectionHeaderActions,
@@ -39,7 +38,6 @@ import {
 import {
   collectAutomationSubjects,
   summarizeWorkflowDefinitionsFromRuns,
-  workflowRunMatchesApp,
 } from "@/lib/workflowActivity";
 import { Info } from "lucide-react";
 
@@ -53,54 +51,33 @@ const RUN_STATUSES = [
 ] as const;
 
 export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
-  const [runs, setRuns] = useState<WorkflowRun[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [refreshNonce, setRefreshNonce] = useState(0);
-  const [runsError, setRunsError] = useState<string | null>(null);
+  const runsQuery = useWorkflowRunsQuery(appName);
+  const runs = runsQuery.data ?? [];
+  const loading = runsQuery.isPending;
+  const refreshing = runsQuery.isFetching && !runsQuery.isPending;
+  const runsError = runsQuery.error
+    ? errorMessage(runsQuery.error, "Failed to load workflow runs")
+    : null;
 
   const [selectedRunID, setSelectedRunID] = useState<string | null>(null);
-  const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [canceling, setCanceling] = useState(false);
+  const selectedListRun =
+    runs.find((run) => run.id === selectedRunID) ?? undefined;
+  const detailQuery = useWorkflowRunQuery(appName, selectedRunID, selectedListRun);
+  const cancelMutation = useCancelWorkflowRunMutation(appName);
 
-  const [runsQuery, setRunsQuery] = useState("");
+  const selectedRun = detailQuery.data ?? selectedListRun ?? null;
+  const detailLoading = detailQuery.isFetching && !detailQuery.data;
+  const detailError = detailQuery.error
+    ? errorMessage(detailQuery.error, "Failed to load workflow run")
+    : null;
+  const actionError = cancelMutation.error
+    ? errorMessage(cancelMutation.error, "Failed to cancel workflow run")
+    : null;
+  const canceling = cancelMutation.isPending;
+
+  const [runsQueryText, setRunsQuery] = useState("");
   const [runStatus, setRunStatus] = useState<string>("all");
-  const deferredRunsQuery = useDeferredValue(runsQuery);
-  const runsRef = useRef<WorkflowRun[]>([]);
-
-  useEffect(() => {
-    runsRef.current = runs;
-  }, [runs]);
-
-  useEffect(() => {
-    let active = true;
-    if (refreshNonce > 0) {
-      setRefreshing(true);
-    }
-
-    listWorkflowRuns({ targetApp: appName })
-      .then((value) => {
-        if (!active) return;
-        setRuns(value);
-        setRunsError(null);
-      })
-      .catch((err) => {
-        if (!active) return;
-        setRunsError(errorMessage(err, "Failed to load workflow runs"));
-      })
-      .finally(() => {
-        if (!active) return;
-        setLoading(false);
-        setRefreshing(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [appName, refreshNonce]);
+  const deferredRunsQuery = useDeferredValue(runsQueryText);
 
   const filteredRuns = useMemo(
     () => filterRuns(runs, deferredRunsQuery, runStatus),
@@ -120,69 +97,19 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
     }
   }, [filteredRuns, selectedRunID]);
 
-  useEffect(() => {
-    if (!selectedRunID) {
-      setSelectedRun(null);
-      setDetailError(null);
-      return;
-    }
-
-    const existing =
-      runsRef.current.find((run) => run.id === selectedRunID) ?? null;
-    setSelectedRun(existing);
-    setDetailLoading(true);
-    setDetailError(null);
-    setActionError(null);
-
-    let active = true;
-    getWorkflowRun(selectedRunID, {
-      run: runsRef.current.find((run) => run.id === selectedRunID) ?? undefined,
-    })
-      .then((run) => {
-        if (!active) return;
-        if (!workflowRunMatchesApp(run, appName)) {
-          setDetailError("This workflow run does not belong to this app.");
-          setSelectedRun(null);
-          return;
-        }
-        setSelectedRun(run);
-        setRuns((current) => upsertScopedRun(current, run, appName));
-      })
-      .catch((err) => {
-        if (!active) return;
-        setDetailError(errorMessage(err, "Failed to load workflow run"));
-      })
-      .finally(() => {
-        if (!active) return;
-        setDetailLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [selectedRunID, appName]);
-
-  async function handleCancelSelectedRun() {
+  function handleCancelSelectedRun() {
     if (!selectedRun || canceling) return;
-    setCanceling(true);
-    setActionError(null);
+    cancelMutation.mutate({
+      id: selectedRun.id,
+      reason: "Canceled from Gestalt UI",
+      run: selectedRun,
+    });
+  }
 
-    try {
-      const canceled = await cancelWorkflowRun(
-        selectedRun.id,
-        "Canceled from Gestalt UI",
-        { run: selectedRun },
-      );
-      if (!workflowRunMatchesApp(canceled, appName)) {
-        setActionError("This workflow run does not belong to this app.");
-        return;
-      }
-      setSelectedRun(canceled);
-      setRuns((current) => upsertScopedRun(current, canceled, appName));
-    } catch (err) {
-      setActionError(errorMessage(err, "Failed to cancel workflow run"));
-    } finally {
-      setCanceling(false);
+  function refreshRuns() {
+    void runsQuery.refetch();
+    if (selectedRunID) {
+      void detailQuery.refetch();
     }
   }
 
@@ -212,7 +139,7 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
           <Button
             type="button"
             variant="outline"
-            onClick={() => setRefreshNonce((value) => value + 1)}
+            onClick={refreshRuns}
             disabled={refreshing}
           >
             {refreshing ? "Refreshing…" : "Refresh"}
@@ -416,7 +343,7 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
         <label className="block">
           <span className="text-xs font-medium text-muted-foreground">Search runs</span>
           <input
-            value={runsQuery}
+            value={runsQueryText}
             onChange={(event) => setRunsQuery(event.target.value)}
             placeholder="Run ID, step, definition, event"
             className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-hidden transition-colors duration-150 placeholder:text-muted-foreground/70 focus:border-info-foreground"
@@ -543,7 +470,7 @@ function RunsPanel({
         </ul>
       </div>
 
-      <div className="rounded-lg border border-border bg-base-white p-5 dark:bg-surface">
+      <div className="rounded-lg border border-border bg-card p-5">
         {detailError ? (
           <p className="text-sm text-destructive">{detailError}</p>
         ) : !selectedRun ? (
@@ -838,23 +765,6 @@ function workflowRunCounts(runs: WorkflowRun[]) {
     succeeded: runs.filter((run) => run.status === "succeeded").length,
     failed: runs.filter((run) => run.status === "failed").length,
   };
-}
-
-function upsertScopedRun(
-  runs: WorkflowRun[],
-  run: WorkflowRun,
-  appName: string,
-): WorkflowRun[] {
-  if (!workflowRunMatchesApp(run, appName)) return runs;
-  return upsertRun(runs, run);
-}
-
-function upsertRun(runs: WorkflowRun[], run: WorkflowRun): WorkflowRun[] {
-  const index = runs.findIndex((item) => item.id === run.id);
-  if (index === -1) return [run, ...runs];
-  const next = [...runs];
-  next[index] = run;
-  return next;
 }
 
 function formatDate(value?: string): string {

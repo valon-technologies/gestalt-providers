@@ -89,7 +89,7 @@ export default function AppWorkspaceOperationsPage() {
 
       {!operationsLoading && visibleOperations.length > 0 ? (
         <ul
-          className="mt-5 divide-y divide-alpha rounded-lg border border-alpha"
+          className="mt-5 divide-y divide-border rounded-lg border border-border"
           data-testid="app-operations-list"
         >
           {visibleOperations.map((operation) => (

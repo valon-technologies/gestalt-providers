@@ -99,7 +99,7 @@ export default function AppAdminAgentIdentitiesPage() {
       ) : null}
 
       {!accessLoading && accessGrants.length > 0 ? (
-        <ul className="mt-5 divide-y divide-alpha rounded-lg border border-alpha">
+        <ul className="mt-5 divide-y divide-border rounded-lg border border-border">
           {accessGrants.map(({ identity, grant }) => (
             <li
               key={`${identity.subjectId}:${grant.plugin}`}

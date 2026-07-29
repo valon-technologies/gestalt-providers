@@ -1,9 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import {
-  APIError,
-  getAppAuthorizationMembers,
-  type AppAuthorizationMember,
-} from "@/lib/api";
+import { useMemo } from "react";
+import { APIError, isAPIErrorStatus } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "@/components/ui/link";
 import { SpinnerIcon } from "@/components/icons";
@@ -13,45 +9,23 @@ import {
   memberMeta,
   SummaryStat,
 } from "@/features/app-workspace/app-workspace-shared";
+import { useAppAuthorizationMembersQuery } from "@/lib/queries";
 
 export default function AppAdminMembersPage() {
   const { app } = useAppWorkspace();
-  const [members, setMembers] = useState<AppAuthorizationMember[]>([]);
-  const [membersLoading, setMembersLoading] = useState(true);
-  const [membersError, setMembersError] = useState<string | null>(null);
-  const [membersForbidden, setMembersForbidden] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    setMembersLoading(true);
-    setMembersError(null);
-    setMembersForbidden(false);
-
-    getAppAuthorizationMembers(app)
-      .then((rows) => {
-        if (!active) return;
-        setMembers(rows);
-      })
-      .catch((err) => {
-        if (!active) return;
-        setMembers([]);
-        if (err instanceof APIError && (err.status === 403 || err.status === 401)) {
-          setMembersForbidden(true);
-          setMembersError(null);
-          return;
-        }
-        setMembersError(
-          err instanceof Error ? err.message : "Failed to load members",
-        );
-      })
-      .finally(() => {
-        if (active) setMembersLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [app]);
+  const membersQuery = useAppAuthorizationMembersQuery(app);
+  const members = membersQuery.data ?? [];
+  const membersLoading = membersQuery.isPending;
+  const membersForbidden =
+    membersQuery.isError && isAPIErrorStatus(membersQuery.error, 403);
+  const membersError =
+    membersQuery.isError && !membersForbidden
+      ? membersQuery.error instanceof APIError
+        ? membersQuery.error.message
+        : membersQuery.error instanceof Error
+          ? membersQuery.error.message
+          : "Failed to load members"
+      : null;
 
   const memberCounts = useMemo(() => {
     const effective = members.filter((row) => row.effective).length;
@@ -117,7 +91,7 @@ export default function AppAdminMembersPage() {
 
       {!membersLoading && members.length > 0 ? (
         <ul
-          className="mt-5 divide-y divide-alpha rounded-lg border border-alpha"
+          className="mt-5 divide-y divide-border rounded-lg border border-border"
           data-testid="app-members-list"
         >
           {members.map((member, index) => (

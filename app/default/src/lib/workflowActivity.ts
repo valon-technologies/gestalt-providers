@@ -117,9 +117,25 @@ export function workflowRunDefinitionApp(run: WorkflowRun): string | null {
   return underscore === -1 ? rest : rest.slice(0, underscore);
 }
 
+/**
+ * Whether a workflow run is owned by an app for admin listing.
+ * Prefers the server-declared `targetApp`; falls back to hydrated targets
+ * and definition-id conventions for partial list payloads.
+ */
 export function workflowRunMatchesApp(run: WorkflowRun, appName: string): boolean {
   const needle = appName.trim();
   if (!needle) return false;
-  if (workflowTargetAppNames(run.target).includes(needle)) return true;
-  return workflowRunDefinitionApp(run) === needle;
+
+  const declared = run.targetApp?.trim();
+  if (declared) return declared === needle;
+
+  return workflowRunMatchesAppFromPayload(run, needle);
+}
+
+function workflowRunMatchesAppFromPayload(
+  run: WorkflowRun,
+  appName: string,
+): boolean {
+  if (workflowTargetAppNames(run.target).includes(appName)) return true;
+  return workflowRunDefinitionApp(run) === appName;
 }
