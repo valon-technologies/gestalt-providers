@@ -3,6 +3,7 @@ import {
   formatDurationSeconds,
   isActiveRegistryRollout,
 } from "@/features/registry/format";
+import { registryRolloutStatusLabel } from "@/features/registry/rollout-stepper";
 import type { AppAdminRegistryRevision, RegistryRollout } from "@/features/registry/types";
 
 export function decorateRevisionRollout(
@@ -40,8 +41,6 @@ export function revisionHasActiveRollout(
   const currentRevision = revisions[0];
   return currentRevision?.version === rollout.version;
 }
-
-import { registryRolloutStatusLabel } from "@/features/registry/rollout-stepper";
 
 export function revisionRolloutStatusLabel(state?: string): string | null {
   return registryRolloutStatusLabel(state);
