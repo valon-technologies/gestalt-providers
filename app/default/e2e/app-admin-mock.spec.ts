@@ -208,6 +208,13 @@ test.describe("app admin registry UI", () => {
     );
     await expect(page.getByText("Last rollout")).toBeVisible();
     await expect(page.getByTestId("rollout-badge")).toHaveText("Deploy failed");
+    await page.getByTestId("app-admin-nav-snapshots").click();
+    const snapshotRow = page.getByTestId("snapshot-row-published").filter({
+      hasText: PUBLISHED_LEGACY.version.slice(0, 20),
+    });
+    await expect(
+      snapshotRow.getByTestId(`deploy-version-${PUBLISHED_LEGACY.version}`),
+    ).toHaveCount(0);
 
     await page.getByTestId("app-admin-nav-history").click();
     const row = page.getByTestId("revision-history-row");

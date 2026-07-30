@@ -115,14 +115,3 @@ export function snapshotRowStatusPresentation(
 ): SnapshotRowPresentation {
   return SNAPSHOT_ROW_STATUS[statusId];
 }
-
-export function isFailedRolloutRetryRow(
-  row: AppAdminSnapshotRow,
-  rollout?: RegistryAppSummary["rollout"],
-): boolean {
-  return (
-    row.kind === "published" &&
-    rollout?.version === row.version &&
-    rollout.state === "failed"
-  );
-}
