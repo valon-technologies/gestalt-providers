@@ -1,5 +1,25 @@
 import type { WorkflowRun, WorkflowTarget } from "@/lib/api";
 
+/** Registry Badge variant for a workflow run or step execution status. */
+export function workflowRunBadgeVariant(
+  status?: string,
+): "success" | "warning" | "info" | "destructive" | "muted" {
+  switch (status) {
+    case "succeeded":
+      return "success";
+    case "failed":
+      return "destructive";
+    case "running":
+      return "info";
+    case "pending":
+      return "warning";
+    case "canceled":
+      return "muted";
+    default:
+      return "muted";
+  }
+}
+
 export type WorkflowDefinitionActivity = {
   definitionId: string;
   runCount: number;

@@ -47,7 +47,7 @@ export default function AppWorkspaceConnectionPage() {
           Connect or reconnect this app under your user. Disconnect to revoke
           access.
         </p>
-        <p className="mt-3 text-xs text-faint">
+        <p className="mt-3 text-xs text-muted-foreground">
           Connecting grants this workspace permission to use the app with your
           credentials. Review the provider’s privacy policy before continuing.
         </p>
