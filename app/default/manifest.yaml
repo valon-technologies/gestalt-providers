@@ -8,6 +8,7 @@ install:
   - [bun, install, --frozen-lockfile]
 build:
   - [bun, run, check]
+  - [bun, run, gestalt, build]
   - [bun, run, build]
 run:
   - [bun, run, gestalt, run, ., './provider.ts#provider']
