@@ -165,7 +165,7 @@ test.describe("app admin registry UI", () => {
 
     const failedRow = page.getByTestId("snapshot-row-failed");
     await expect(failedRow).toContainText(FAILED_VERSION.version.slice(0, 20));
-    await expect(failedRow.getByTestId("snapshot-status")).toHaveText("Failed");
+    await expect(failedRow.getByTestId("snapshot-status")).toHaveText("Publish failed");
     await expect(failedRow).toContainText("Failed after 35m");
     await expect(failedRow).toContainText("stale");
     await expect(failedRow).toContainText("Retry registry publish");
@@ -206,6 +206,8 @@ test.describe("app admin registry UI", () => {
             --badge-success-foreground: oklch(85.8% 0.075 144);
             --badge-warning: oklch(28.2% 0.058 82);
             --badge-warning-foreground: oklch(85.8% 0.075 82);
+            --badge-info: oklch(28.2% 0.058 248);
+            --badge-info-foreground: oklch(85.8% 0.07 248);
           }
         `,
       }),
@@ -221,8 +223,8 @@ test.describe("app admin registry UI", () => {
       .getByTestId(`snapshot-row-published`)
       .filter({ hasText: PUBLISHED_NEW.version.slice(0, 20) })
       .getByTestId("snapshot-status");
-    await expect(deployedBadge).toHaveText("Deployed");
-    await expect(deployedBadge).toHaveCSS("color", "oklch(0.858 0.075 144)");
+    await expect(deployedBadge).toHaveText("Current");
+    await expect(deployedBadge).toHaveCSS("color", "oklch(0.858 0.07 248)");
 
     const publishingBadge = page.getByTestId("snapshot-row-pending").getByTestId("snapshot-status");
     await expect(publishingBadge).toHaveText("Publishing");
@@ -243,25 +245,35 @@ test.describe("app admin registry UI", () => {
     await mockAppAdminRegistry(page, APP, installedRegistryState());
     await page.goto(`/apps/${APP}/admin`);
 
-    const availableBadge = page
+    const availableRow = page
       .getByTestId("snapshot-row-published")
-      .filter({ hasText: PUBLISHED_NEW.version.slice(0, 20) })
-      .getByTestId("snapshot-status");
-    await expect(availableBadge).toHaveText("Available");
-    await expect(availableBadge).toHaveAttribute("data-variant", "info");
-    await expect(availableBadge).toHaveCSS("color", "oklch(0.408 0.105 248)");
+      .filter({ hasText: PUBLISHED_NEW.version.slice(0, 20) });
+    await expect(availableRow.getByTestId("snapshot-status")).toHaveText("Ready to deploy");
+    await expect(availableRow.getByTestId("snapshot-status")).toHaveAttribute(
+      "data-variant",
+      "success",
+    );
+    await expect(availableRow.getByTestId("table-status-indicator")).toHaveAttribute(
+      "data-variant",
+      "success",
+    );
+    const availableIndicatorShell = availableRow
+      .getByTestId("table-status-indicator")
+      .locator("> span");
+    await expect(availableIndicatorShell).toHaveCSS(
+      "background-color",
+      "oklch(0.928 0.045 144)",
+    );
+    await expect(availableIndicatorShell).toHaveCSS("color", "oklch(0.408 0.105 144)");
+    await expect(availableRow).toContainText("Published in");
 
     const deployedBadge = page
       .getByTestId("snapshot-row-published")
       .filter({ hasText: PUBLISHED_LEGACY.version.slice(0, 20) })
       .getByTestId("snapshot-status");
-    await expect(deployedBadge).toHaveText("Deployed");
-    await expect(deployedBadge).toHaveAttribute("data-variant", "success");
-    await expect(deployedBadge).toHaveCSS("color", "oklch(0.408 0.105 144)");
-
-    const availableBg = await availableBadge.evaluate((el) => getComputedStyle(el).backgroundColor);
-    const deployedBg = await deployedBadge.evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(availableBg).not.toBe(deployedBg);
+    await expect(deployedBadge).toHaveText("Current");
+    await expect(deployedBadge).toHaveAttribute("data-variant", "info");
+    await expect(deployedBadge).toHaveCSS("color", "oklch(0.408 0.105 248)");
   });
 
   test("legacy gestalt-shell grove success override does not recolor status badges", async ({
@@ -284,10 +296,21 @@ test.describe("app admin registry UI", () => {
       .getByTestId("snapshot-row-published")
       .filter({ hasText: PUBLISHED_LEGACY.version.slice(0, 20) })
       .getByTestId("snapshot-status");
-    await expect(deployedBadge).toHaveText("Deployed");
-    await expect(deployedBadge).toHaveCSS("background-color", "oklch(0.928 0.045 144)");
-    await expect(deployedBadge).toHaveCSS("color", "oklch(0.408 0.105 144)");
+    await expect(deployedBadge).toHaveText("Current");
+    await expect(deployedBadge).toHaveCSS("background-color", "oklch(0.928 0.035 248)");
+    await expect(deployedBadge).toHaveCSS("color", "oklch(0.408 0.105 248)");
     await expect(deployedBadge).not.toHaveAttribute("style", /./);
+
+    const liveIndicatorShell = page
+      .getByTestId("snapshot-row-published")
+      .filter({ hasText: PUBLISHED_LEGACY.version.slice(0, 20) })
+      .getByTestId("table-status-indicator")
+      .locator("> span");
+    await expect(liveIndicatorShell).toHaveCSS(
+      "background-color",
+      "oklch(0.928 0.045 144)",
+    );
+    await expect(liveIndicatorShell).toHaveCSS("color", "oklch(0.408 0.105 144)");
   });
 
   test("prefers published rows over pending and failed for the same version", async ({
@@ -327,7 +350,7 @@ test.describe("app admin registry UI", () => {
     await expect(rows.nth(0)).toContainText("Add registry deploy banner");
     await expect(rows.nth(0).getByTestId("snapshot-last-updated-at")).toHaveText("yesterday");
     await expect(rows.nth(1)).toContainText(PUBLISHED_LEGACY.version.slice(0, 20));
-    await expect(rows.nth(1)).toContainText("Deployed");
+    await expect(rows.nth(1)).toContainText("Current");
   });
 
   test("links to the mounted app page when mountedPath is available", async ({ page }) => {
@@ -364,7 +387,7 @@ test.describe("app admin registry UI", () => {
     });
     await page.goto(`/apps/${APP}/admin`);
 
-    await expect(page.getByText(/No version is installed yet/i)).toBeVisible();
+    await expect(page.getByText(/No version is live on the fleet yet/i)).toBeVisible();
     await expect(page.getByTestId("snapshot-row-published")).toHaveCount(1);
   });
 
@@ -374,20 +397,26 @@ test.describe("app admin registry UI", () => {
       rollout: {
         version: PUBLISHED_NEW.version,
         state: "enrolling",
+        createdAt: "2026-07-23T14:56:00Z",
       },
       selectionDisabled: true,
       disabledReason: "rollout in progress",
     });
     await page.goto(`/apps/${APP}/admin`);
 
-    await expect(page.getByTestId("rollout-badge")).toHaveText("Enrolling");
+    await expect(page.getByTestId("rollout-badge")).toHaveText("Rolling out");
+    const rolloutRow = page.getByTestId("snapshot-row-published").filter({
+      hasText: PUBLISHED_NEW.version.slice(0, 20),
+    });
+    await expect(rolloutRow.getByTestId("rollout-phase-stepper")).toBeVisible();
+    await expect(rolloutRow.getByTestId("rollout-phase-node-enrolling")).toBeVisible();
     await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toBeDisabled();
     await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toHaveText(
       "Deploying...",
     );
     await expect(page.getByTestId(`deploy-version-${PUBLISHED_LEGACY.version}`)).toHaveCount(0);
     await expect(page.getByTestId("selection-disabled-reason")).toHaveText(
-      "rollout in progress",
+      "Deploy paused while a rollout is in progress.",
     );
   });
 
@@ -408,7 +437,12 @@ test.describe("app admin registry UI", () => {
 
     await page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`).click();
 
-    await expect(page.getByTestId("rollout-badge")).toHaveText("Enrolling");
+    await expect(page.getByTestId("rollout-badge")).toHaveText("Rolling out");
+    const rolloutRow = page.getByTestId("snapshot-row-published").filter({
+      hasText: PUBLISHED_NEW.version.slice(0, 20),
+    });
+    await expect(rolloutRow.getByTestId("rollout-phase-stepper")).toBeVisible();
+    await expect(rolloutRow.getByTestId("rollout-phase-node-enrolling")).toBeVisible();
     await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toBeDisabled();
     await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toHaveText(
       "Deploying...",
@@ -576,7 +610,7 @@ test.describe("app admin registry UI", () => {
     await expect(legacyRow.getByTestId("deploy-version-" + PUBLISHED_LEGACY.version)).toHaveText(
       "Deploying...",
     );
-    await expect(newRow.getByTestId("snapshot-status")).toHaveText("Queued for deploy");
+    await expect(newRow.getByTestId("snapshot-status")).toHaveText("Queued to deploy");
   });
 
   test("shows system:auto-deploy in revision history", async ({ page }) => {

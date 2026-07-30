@@ -3,12 +3,34 @@ import { AppAdminAutoDeployToggle } from "@/features/registry/app-admin-auto-dep
 import { useAppAdminRegistryContext } from "@/features/registry/app-admin-registry-context";
 import { AppAdminSnapshotsTable } from "@/features/registry/app-admin-snapshots-table";
 import {
+  formatRegistryDisabledReason,
   formatRegistryTime,
   formatRegistryTimeShort,
+  isActiveRegistryRollout,
 } from "@/features/registry/format";
-import { RolloutPhaseStepper } from "@/features/registry/rollout-phase-stepper";
 import { useUpdateAppAdminAutoDeployMutation } from "@/lib/queries";
 import { Loader2 } from "lucide-react";
+
+function snapshotsSubhead({
+  autoDeployEnabled,
+  desiredVersion,
+  rolloutActive,
+}: {
+  autoDeployEnabled: boolean;
+  desiredVersion?: string;
+  rolloutActive: boolean;
+}): string {
+  if (autoDeployEnabled) {
+    if (rolloutActive) {
+      return "Automatic deploy is on. New snapshots queue until the current rollout finishes.";
+    }
+    return "Automatic deploy is on. New published snapshots deploy to the fleet without a manual deploy.";
+  }
+  if (desiredVersion) {
+    return "Deploy a published snapshot to change the version running across the fleet.";
+  }
+  return "No snapshot is serving on the fleet yet. Deploy a published snapshot to start.";
+}
 
 export default function AppAdminSnapshotsPage() {
   const {
@@ -24,17 +46,18 @@ export default function AppAdminSnapshotsPage() {
   const autoDeployMutation = useUpdateAppAdminAutoDeployMutation(appName);
 
   const autoDeployEnabled = registry.autoDeploy?.enabled ?? false;
+  const rolloutActive = Boolean(
+    registry.rollout && isActiveRegistryRollout(registry.rollout.state),
+  );
   const controlsDisabled =
     registry.selectionDisabled || deployingVersion !== null || autoDeployEnabled;
-  const autoDeployError =
-    autoDeployMutation.isError && autoDeployMutation.error instanceof Error
-      ? autoDeployMutation.error.message
-      : autoDeployMutation.isError
-        ? "Failed to update auto-deploy"
-        : null;
+  const autoDeployError = autoDeployMutation.isError
+    ? "Couldn't update automatic deploy. Check your connection and try again."
+    : null;
   const registryUpdatedIso = registryUpdatedAt
     ? new Date(registryUpdatedAt).toISOString()
     : null;
+  const disabledReason = formatRegistryDisabledReason(registry.disabledReason);
 
   return (
     <section aria-label="Published snapshots">
@@ -44,11 +67,11 @@ export default function AppAdminSnapshotsPage() {
             Published snapshots
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {autoDeployEnabled
-              ? "Automatic deploy is on — new snapshots are admitted without manual deploy."
-              : registry.desiredVersion
-                ? "Deploy any published snapshot across the fleet."
-                : "No version is installed yet. Deploy a published snapshot to install this app across the fleet."}
+            {snapshotsSubhead({
+              autoDeployEnabled,
+              desiredVersion: registry.desiredVersion,
+              rolloutActive,
+            })}
           </p>
         </div>
         <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-4">
@@ -86,13 +109,12 @@ export default function AppAdminSnapshotsPage() {
       </div>
 
       <div className="mt-6 space-y-8">
-        <RolloutPhaseStepper rollout={registry.rollout} />
-
         <AppAdminAutoDeployToggle
           autoDeploy={registry.autoDeploy ?? { enabled: false }}
           disabled={autoDeployMutation.isPending}
           updating={autoDeployMutation.isPending}
           updateError={autoDeployError}
+          rolloutInProgress={rolloutActive}
           onChange={(enabled) => autoDeployMutation.mutate(enabled)}
         />
 
@@ -103,12 +125,12 @@ export default function AppAdminSnapshotsPage() {
           onDeployVersion={onDeployVersion}
         />
 
-        {registry.selectionDisabled && registry.disabledReason ? (
+        {registry.selectionDisabled && disabledReason ? (
           <p
             className="text-sm text-muted-foreground"
             data-testid="selection-disabled-reason"
           >
-            {registry.disabledReason}
+            {disabledReason}
           </p>
         ) : null}
 

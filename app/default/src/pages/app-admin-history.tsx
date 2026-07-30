@@ -17,7 +17,7 @@ export default function AppAdminHistoryPage() {
     <section aria-label="Revision history">
       <h1 className="text-2xl font-heading text-foreground">Revision history</h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        Accepted fleet version changes in reverse chronological order.
+        Fleet version changes in reverse chronological order.
       </p>
 
       <div className="mt-6">

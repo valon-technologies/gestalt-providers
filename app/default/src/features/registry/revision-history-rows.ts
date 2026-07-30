@@ -3,6 +3,7 @@ import {
   formatDurationSeconds,
   isActiveRegistryRollout,
 } from "@/features/registry/format";
+import { registryRolloutStatusLabel } from "@/features/registry/rollout-stepper";
 import type { AppAdminRegistryRevision, RegistryRollout } from "@/features/registry/types";
 
 export function decorateRevisionRollout(
@@ -42,17 +43,7 @@ export function revisionHasActiveRollout(
 }
 
 export function revisionRolloutStatusLabel(state?: string): string | null {
-  switch (state) {
-    case "enrolling":
-    case "restarting":
-      return "Rolling out";
-    case "complete":
-      return "Available";
-    case "failed":
-      return "Failed";
-    default:
-      return null;
-  }
+  return registryRolloutStatusLabel(state);
 }
 
 export function revisionRolloutStatusVariant(
@@ -92,7 +83,7 @@ export function revisionRolloutStatusTimer(
       (revision.rolloutCompletedAt
         ? durationSecondsBetween(revision.deployedAt, revision.rolloutCompletedAt)
         : null);
-    return duration !== null ? `Available in ${formatDurationSeconds(duration)}` : null;
+    return duration !== null ? `Serving in ${formatDurationSeconds(duration)}` : null;
   }
 
   const duration =
@@ -100,5 +91,7 @@ export function revisionRolloutStatusTimer(
     (revision.rolloutFailedAt
       ? durationSecondsBetween(revision.deployedAt, revision.rolloutFailedAt)
       : null);
-  return duration !== null ? `Failed after ${formatDurationSeconds(duration)}` : null;
+  return duration !== null
+    ? `Deploy failed after ${formatDurationSeconds(duration)}`
+    : null;
 }
