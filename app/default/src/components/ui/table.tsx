@@ -15,10 +15,9 @@ import { cn } from "@/lib/cn";
 //
 // - `line` — style-guide / Applied Spacing: hairline row separators, transparent
 //   header, no outer table border.
-// - `surface` — marketing / embedded product tables (valon.ai Complete Financial
-//   Visibility): muted header band + hairline body separators. Pair with a Card
-//   (`overflow-hidden`, no content padding) when the header fill should meet the
-//   rounded frame edge.
+// - `surface` — marketing / embedded product tables with a muted header band and
+//   hairline body separators. Pair with a Card (`overflow-hidden`, no content
+//   padding) when the header fill should meet the rounded frame edge.
 const tableVariants = cva("group/table relative w-full overflow-auto", {
   variants: {
     variant: {

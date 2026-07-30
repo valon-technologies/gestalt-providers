@@ -50,12 +50,11 @@ export function AppAdminAutoDeployToggle({
   const lastError = autoDeploy.lastError?.trim();
   const rolloutFailedVersion = lastError ? parseRolloutLastError(lastError) : null;
   const mutationError = updateError?.trim();
-  const description =
-    autoDeploy.enabled && rolloutInProgress
-      ? "A rollout is in progress. New snapshots queue until it finishes."
-      : autoDeploy.enabled
-        ? "When a new snapshot is published, deploy it across the fleet automatically."
-        : "When a new snapshot is published, deploy it across the fleet automatically.";
+  const description = autoDeploy.enabled && rolloutInProgress
+    ? "A rollout is in progress. New snapshots queue until it finishes."
+    : autoDeploy.enabled
+      ? "When a new snapshot is published, deploy it across the fleet automatically."
+      : "Deploy snapshots from the table below. Turn on to deploy new snapshots automatically.";
 
   return (
     <div className="space-y-2">
@@ -117,16 +116,17 @@ export function AppAdminAutoDeployToggle({
                       failure.
                     </p>
                     <p>
-                      To deploy manually, turn off automatic deploy above, then
-                      choose Deploy on the failed snapshot to retry, or on another
-                      snapshot to change versions.
+                      Use Retry deploy on the failed snapshot in the table below.
                     </p>
                   </>
                 ) : null}
               </AlertDescription>
             </>
           ) : (
-            <AlertDescription>{lastError}</AlertDescription>
+            <AlertDescription>
+              Automatic deploy failed. Try Retry deploy in the table below, or refresh
+              and try again.
+            </AlertDescription>
           )}
         </Alert>
       ) : null}

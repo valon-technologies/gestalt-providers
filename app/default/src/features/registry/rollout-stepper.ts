@@ -23,6 +23,20 @@ const ROLLOUT_TERMINAL_FAILURE_LABEL = "Deploy failed";
 const ROLLOUT_PHASE_ENROLLING_LABEL = "Updating fleet";
 const ROLLOUT_PHASE_RESTARTING_LABEL = "Reloading apps";
 
+export function registryRolloutStatusLabel(state?: string): string | null {
+  switch (state) {
+    case "enrolling":
+    case "restarting":
+      return "Rolling out";
+    case "complete":
+      return ROLLOUT_TERMINAL_SUCCESS_LABEL;
+    case "failed":
+      return ROLLOUT_TERMINAL_FAILURE_LABEL;
+    default:
+      return null;
+  }
+}
+
 export function rolloutTerminalLabel(state?: string): string {
   return state === "failed" ? ROLLOUT_TERMINAL_FAILURE_LABEL : ROLLOUT_TERMINAL_SUCCESS_LABEL;
 }

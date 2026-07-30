@@ -17,7 +17,6 @@ import {
 import { SearchHighlight } from "@/components/ui/search-highlight";
 import {
   TableStatusIndicator,
-  type TableStatusIndicatorVariant,
 } from "@/components/ui/table-status-indicator";
 import { isActiveRegistryRollout } from "@/features/registry/format";
 import { RolloutPhaseStepper } from "@/features/registry/rollout-phase-stepper";
@@ -31,6 +30,11 @@ import {
   PublicationPullRequestLabel,
   REGISTRY_TABLE_LINK_CLASS,
 } from "@/features/registry/publication-pull-request-label";
+import {
+  isFailedRolloutRetryRow,
+  resolveSnapshotRowStatus,
+  snapshotRowStatusPresentation,
+} from "@/features/registry/snapshot-row-status";
 import {
   buildAppAdminSnapshotRows,
   snapshotFailedReason,
@@ -72,12 +76,13 @@ function snapshotRowSearchText(
 ): string {
   const publication = rowPublication(row);
   const pullRequest = publication?.triggerPullRequest;
-  const status = snapshotStatus({
+  const statusId = resolveSnapshotRowStatus({
     row,
     desiredVersion: registry.desiredVersion,
     rollout: registry.rollout,
     autoDeployPendingVersion: registry.autoDeploy?.pendingVersion,
   });
+  const status = snapshotRowStatusPresentation(statusId);
   const rolloutPhase =
     registry.rollout && registry.rollout.version === row.version
       ? rolloutProgressSubline(registry.rollout)
@@ -99,96 +104,24 @@ function snapshotRowSearchText(
     .join(" ");
 }
 
-function snapshotStatus({
-  row,
-  desiredVersion,
-  rollout,
-  autoDeployPendingVersion,
-}: {
-  row: AppAdminSnapshotRow;
-  desiredVersion?: string;
-  rollout?: RegistryAppSummary["rollout"];
-  autoDeployPendingVersion?: string;
-}): { label: string; variant: "success" | "warning" | "info" | "destructive" } {
-  if (row.kind === "pending") {
-    return { label: "Publishing", variant: "warning" };
-  }
-  if (row.kind === "failed") {
-    return { label: "Publish failed", variant: "destructive" };
-  }
-  if (
-    autoDeployPendingVersion === row.version &&
-    !isRolloutDeployingAction(rollout, row.version)
-  ) {
-    return { label: "Queued to deploy", variant: "warning" };
-  }
-  if (rollout && rollout.version === row.version && rollout.state === "failed") {
-    return { label: "Deploy failed", variant: "destructive" };
-  }
-  const rolloutTargetActive =
-    rollout &&
-    rollout.version === row.version &&
-    isActiveRegistryRollout(rollout.state);
-  if (row.version === desiredVersion && !rolloutTargetActive) {
-    return { label: "Current", variant: "success" };
-  }
-  if (rollout && rollout.version === row.version && isActiveRegistryRollout(rollout.state)) {
-    return { label: "Rolling out", variant: "warning" };
-  }
-  return { label: "Ready to deploy", variant: "info" };
+function snapshotRowStatusInput(
+  row: AppAdminSnapshotRow,
+  registry: SnapshotTableMeta["registry"],
+) {
+  return {
+    row,
+    desiredVersion: registry.desiredVersion,
+    rollout: registry.rollout,
+    autoDeployPendingVersion: registry.autoDeploy?.pendingVersion,
+  };
 }
-
-function snapshotStatusBadgeVariant(
-  status: ReturnType<typeof snapshotStatus>,
-): "success" | "warning" | "info" | "destructive" {
-  if (status.label === "Current") {
-    return "info";
-  }
-  if (status.label === "Ready to deploy") {
-    return "success";
-  }
-  return status.variant;
-}
-
-/** Lower sorts first when ascending — in-flight and failures above stable states. */
-const SNAPSHOT_STATUS_SORT_ORDER: Record<string, number> = {
-  Publishing: 0,
-  "Rolling out": 1,
-  "Queued to deploy": 2,
-  "Deploy failed": 3,
-  "Publish failed": 4,
-  Current: 5,
-  "Ready to deploy": 6,
-};
 
 function snapshotStatusSortKey(
   row: AppAdminSnapshotRow,
   registry: SnapshotTableMeta["registry"],
 ): number {
-  const { label } = snapshotStatus({
-    row,
-    desiredVersion: registry.desiredVersion,
-    rollout: registry.rollout,
-    autoDeployPendingVersion: registry.autoDeploy?.pendingVersion,
-  });
-  return SNAPSHOT_STATUS_SORT_ORDER[label] ?? 99;
-}
-
-function snapshotStatusIndicatorVariant(
-  status: ReturnType<typeof snapshotStatus>,
-): TableStatusIndicatorVariant {
-  switch (status.variant) {
-    case "success":
-      return "success";
-    case "warning":
-      return "warning";
-    case "destructive":
-      return "danger";
-    case "info":
-      return "success";
-    default:
-      return "default";
-  }
+  const statusId = resolveSnapshotRowStatus(snapshotRowStatusInput(row, registry));
+  return snapshotRowStatusPresentation(statusId).sortOrder;
 }
 
 function PendingPublishDuration({ statusTimer }: { statusTimer: string }) {
@@ -205,7 +138,10 @@ function selectedRowClassName(
   rowVersion: string,
 ): string {
   const affordance = selectedVersionRowAffordance(rollout, rowVersion);
-  return cn(affordance === "success" && "bg-success/10");
+  return cn(
+    affordance === "success" && "bg-success/10",
+    affordance === "error" && "bg-destructive/10",
+  );
 }
 
 type SnapshotTableMeta = {
@@ -235,17 +171,13 @@ function SnapshotSeverityCell({
   row: AppAdminSnapshotRow;
   registry: SnapshotTableMeta["registry"];
 }) {
-  const status = snapshotStatus({
-    row,
-    desiredVersion: registry.desiredVersion,
-    rollout: registry.rollout,
-    autoDeployPendingVersion: registry.autoDeploy?.pendingVersion,
-  });
+  const statusId = resolveSnapshotRowStatus(snapshotRowStatusInput(row, registry));
+  const status = snapshotRowStatusPresentation(statusId);
 
   return (
     <div className="flex h-5 items-center justify-center">
       <TableStatusIndicator
-        variant={snapshotStatusIndicatorVariant(status)}
+        variant={status.indicatorVariant}
         iconOnly
         label={status.label}
       />
@@ -315,12 +247,8 @@ function SnapshotStatusCell({
   liveNow?: number;
 }) {
   const rollout = registry.rollout;
-  const status = snapshotStatus({
-    row,
-    desiredVersion: registry.desiredVersion,
-    rollout,
-    autoDeployPendingVersion: registry.autoDeploy?.pendingVersion,
-  });
+  const statusId = resolveSnapshotRowStatus(snapshotRowStatusInput(row, registry));
+  const status = snapshotRowStatusPresentation(statusId);
   const statusTimer = snapshotStatusTimer(
     row,
     row.kind === "pending" ? liveNow : undefined,
@@ -339,7 +267,7 @@ function SnapshotStatusCell({
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-2">
         <Badge
-          variant={snapshotStatusBadgeVariant(status)}
+          variant={status.badgeVariant}
           data-testid="snapshot-status"
           className="relative"
         >
@@ -418,12 +346,13 @@ function SnapshotActionCell({
   const isDeployable = row.kind === "published";
   const isDeploying = deployingVersion === row.version;
   const autoDeployEnabled = registry.autoDeploy?.enabled ?? false;
+  const failedRolloutRetry = isFailedRolloutRetryRow(row, registry.rollout);
   const deployDisabled =
     !isDeployable ||
-    controlsDisabled ||
-    autoDeployEnabled ||
+    (controlsDisabled && !failedRolloutRetry) ||
+    (autoDeployEnabled && !failedRolloutRetry) ||
     isDeploying ||
-    row.version === registry.desiredVersion;
+    (row.version === registry.desiredVersion && !failedRolloutRetry);
   const showRolloutDeploying = isRolloutDeployingAction(registry.rollout, row.version);
 
   if (showRolloutDeploying) {
@@ -442,11 +371,19 @@ function SnapshotActionCell({
     );
   }
 
-  if (isDeployable && row.version === registry.desiredVersion) {
+  if (isDeployable && row.version === registry.desiredVersion && !failedRolloutRetry) {
     return <span className="text-muted-foreground">—</span>;
   }
 
   if (isDeployable) {
+    const actionLabel = failedRolloutRetry
+      ? isDeploying
+        ? "Retrying..."
+        : "Retry deploy"
+      : isDeploying
+        ? "Deploying..."
+        : "Deploy";
+
     return (
       <span className="inline-block align-baseline">
         <Button
@@ -457,7 +394,7 @@ function SnapshotActionCell({
           disabled={deployDisabled}
           onClick={() => onDeployVersion(row.version)}
         >
-          {isDeploying ? "Deploying..." : "Deploy"}
+          {actionLabel}
         </Button>
       </span>
     );

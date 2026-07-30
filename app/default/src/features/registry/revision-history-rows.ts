@@ -41,18 +41,10 @@ export function revisionHasActiveRollout(
   return currentRevision?.version === rollout.version;
 }
 
+import { registryRolloutStatusLabel } from "@/features/registry/rollout-stepper";
+
 export function revisionRolloutStatusLabel(state?: string): string | null {
-  switch (state) {
-    case "enrolling":
-    case "restarting":
-      return "Rolling out";
-    case "complete":
-      return "Current";
-    case "failed":
-      return "Deploy failed";
-    default:
-      return null;
-  }
+  return registryRolloutStatusLabel(state);
 }
 
 export function revisionRolloutStatusVariant(

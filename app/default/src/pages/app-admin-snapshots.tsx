@@ -51,12 +51,9 @@ export default function AppAdminSnapshotsPage() {
   );
   const controlsDisabled =
     registry.selectionDisabled || deployingVersion !== null || autoDeployEnabled;
-  const autoDeployError =
-    autoDeployMutation.isError && autoDeployMutation.error instanceof Error
-      ? autoDeployMutation.error.message
-      : autoDeployMutation.isError
-        ? "Couldn't update automatic deploy. Try again."
-        : null;
+  const autoDeployError = autoDeployMutation.isError
+    ? "Couldn't update automatic deploy. Check your connection and try again."
+    : null;
   const registryUpdatedIso = registryUpdatedAt
     ? new Date(registryUpdatedAt).toISOString()
     : null;

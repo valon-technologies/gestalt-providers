@@ -152,5 +152,5 @@ export function formatRegistryDisabledReason(reason?: string): string | undefine
   if (normalized === "rollout in progress") {
     return "Deploy paused while a rollout is in progress.";
   }
-  return reason.trim();
+  return "Deploy is temporarily unavailable. Refresh and try again.";
 }
