@@ -1,4 +1,3 @@
-import { useRef } from "react";
 import {
   InputGroup,
   InputGroupAddon,
@@ -22,8 +21,8 @@ export default function PluginSearchBar({
   disabled = false,
   onQueryChange,
 }: PluginSearchBarProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
   const trimmedQuery = query.trim();
+  const showClear = trimmedQuery.length > 0 && !disabled;
 
   function clearSearch() {
     onQueryChange("");
@@ -36,7 +35,6 @@ export default function PluginSearchBar({
           <SearchIcon aria-hidden />
         </InputGroupAddon>
         <InputGroupInput
-          ref={inputRef}
           type="search"
           aria-label="Search apps"
           autoComplete="off"
@@ -46,7 +44,7 @@ export default function PluginSearchBar({
           placeholder="Search apps"
         />
         <InputGroupClearAddon
-          visible={trimmedQuery.length > 0}
+          visible={showClear}
           aria-label="Clear app search"
           onClear={clearSearch}
         >
