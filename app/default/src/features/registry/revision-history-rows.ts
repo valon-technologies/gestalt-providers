@@ -95,3 +95,16 @@ export function revisionRolloutStatusTimer(
     ? `Deploy failed after ${formatDurationSeconds(duration)}`
     : null;
 }
+
+export function revisionRecoveryDurationLabel(
+  revision: AppAdminRegistryRevision,
+): string | null {
+  if (!revision.recovery?.recoveredAt || !revision.rolloutFailedAt) return null;
+  const duration = durationSecondsBetween(
+    revision.rolloutFailedAt,
+    revision.recovery.recoveredAt,
+  );
+  return duration !== null
+    ? `${formatDurationSeconds(duration)} after failure`
+    : null;
+}

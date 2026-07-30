@@ -1,6 +1,7 @@
 export type RegistryRollout = {
   version: string;
   state: string;
+  targetSourceVersion?: string;
   createdAt?: string;
   enrollmentEndsAt?: string;
   deadline?: string;
@@ -109,6 +110,26 @@ export type AppAdminAutoDeploy = {
   lastError?: string;
 };
 
+export type AppAdminFleetState = {
+  state: string;
+  sourceVersion?: string;
+  desiredVersion?: string;
+  minimumHealthyInstances: number;
+  liveInstances: number;
+  runningDesiredVersion: number;
+  mismatched: number;
+  errors: number;
+  heartbeatTtlSeconds: number;
+  evaluatedAt: string;
+};
+
+export type AppAdminRecovery = {
+  recoveredAt: string;
+  sourceVersion: string;
+  liveInstances: number;
+  minimumHealthyInstances: number;
+};
+
 export type AppAdminRegistryResponse = RegistryAppSummary & {
   knownVersions: Array<{
     version: string;
@@ -118,6 +139,8 @@ export type AppAdminRegistryResponse = RegistryAppSummary & {
   publishedVersions: AppAdminPublishedVersion[];
   pendingVersions?: AppAdminPendingVersion[];
   failedVersions?: AppAdminFailedVersion[];
+  fleetState?: AppAdminFleetState;
+  recovery?: AppAdminRecovery;
   autoDeploy: AppAdminAutoDeploy;
   selectionDisabled: boolean;
   disabledReason?: string;
@@ -148,10 +171,12 @@ export type AppAdminRegistryRevision = {
   rolloutDurationSeconds?: number;
   rolloutCompletedAt?: string;
   rolloutFailedAt?: string;
+  recovery?: AppAdminRecovery;
 };
 
 export type AppAdminRegistryHistoryResponse = {
   app: string;
   revisions: AppAdminRegistryRevision[];
+  fleetState?: AppAdminFleetState;
   nextCursor?: string;
 };

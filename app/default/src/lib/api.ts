@@ -143,6 +143,26 @@ export interface AppAdminAutoDeploy {
   lastError?: string;
 }
 
+export interface AppAdminFleetState {
+  state: string;
+  sourceVersion?: string;
+  desiredVersion?: string;
+  minimumHealthyInstances: number;
+  liveInstances: number;
+  runningDesiredVersion: number;
+  mismatched: number;
+  errors: number;
+  heartbeatTtlSeconds: number;
+  evaluatedAt: string;
+}
+
+export interface AppAdminRecovery {
+  recoveredAt: string;
+  sourceVersion: string;
+  liveInstances: number;
+  minimumHealthyInstances: number;
+}
+
 export interface AppAdminRegistryResponse {
   app: string;
   registry: string;
@@ -158,7 +178,10 @@ export interface AppAdminRegistryResponse {
   rollout?: {
     version: string;
     state: string;
+    targetSourceVersion?: string;
   };
+  fleetState?: AppAdminFleetState;
+  recovery?: AppAdminRecovery;
   autoDeploy: AppAdminAutoDeploy;
   selectionDisabled: boolean;
   disabledReason?: string;
@@ -177,6 +200,7 @@ export interface AppAdminRegistryVersionResponse {
   rollout: {
     version: string;
     state: string;
+    targetSourceVersion?: string;
   };
 }
 
@@ -197,11 +221,13 @@ export interface AppAdminRegistryRevision {
   rolloutDurationSeconds?: number;
   rolloutCompletedAt?: string;
   rolloutFailedAt?: string;
+  recovery?: AppAdminRecovery;
 }
 
 export interface AppAdminRegistryHistoryResponse {
   app: string;
   revisions: AppAdminRegistryRevision[];
+  fleetState?: AppAdminFleetState;
   nextCursor?: string;
 }
 

@@ -108,7 +108,7 @@ export function RolloutPhaseStepper({
       className={cn(isMini ? MINI_TIMELINE_ROOT_CLASS : "w-full max-w-md", className)}
       data-testid="rollout-phase-stepper"
       data-rollout-active={isActiveRollout ? "true" : undefined}
-      aria-label="Fleet rollout progress"
+      aria-label="Last rollout progress"
     >
       {model.phases.map((phase, index) => {
         const isLast = index === model.phases.length - 1;
