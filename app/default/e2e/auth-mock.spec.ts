@@ -41,7 +41,7 @@ test.describe("Authentication", () => {
     await expect(page).toHaveURL((url) => {
       return (
         url.pathname === "/api/v1/auth/login" &&
-        url.searchParams.get("next") === "/identities?id=agent-1#profile"
+        url.searchParams.get("next") === "/settings/identities/agent-1#profile"
       );
     });
   });
@@ -72,13 +72,15 @@ test.describe("Authentication", () => {
     await expect(page.getByRole("menuitem", { name: /Log out/i })).toHaveCount(0);
 
     await page.goto("/identities");
+    await expect(page).toHaveURL(/\/settings\/identities$/);
     await expect(
-      page.getByRole("heading", { name: "Agent Identities" }),
+      page.getByRole("heading", { name: "Managed identities" }),
     ).toBeVisible();
 
     await page.goto("/identities?id=agent-1");
+    await expect(page).toHaveURL(/\/settings\/identities\/agent-1$/);
     await expect(
-      page.getByRole("heading", { name: "Agent Identities" }),
+      page.getByRole("heading", { name: "Settings" }),
     ).toBeVisible();
   });
 
@@ -202,12 +204,20 @@ test.describe("Authentication", () => {
     await page.route(`**${PERSONAL_IDENTITY_GRANTS_PATH}`, (route) => {
       route.fulfill({ status: 401, json: { error: "invalid token" } });
     });
+    await page.route("**/api/v2/workflow/runs", (route) => {
+      route.fulfill({ status: 401, json: { error: "invalid token" } });
+    });
 
-    await page.goto("/apps?view=catalog#list");
+    await page.goto("/apps/slack/admin/workflows", { waitUntil: "networkidle" });
+    await page.waitForFunction(
+      () => window.location.pathname === "/api/v1/auth/login",
+      null,
+      { timeout: 15000 },
+    );
     await expect(page).toHaveURL((url) => {
       return (
         url.pathname === "/api/v1/auth/login" &&
-        url.searchParams.get("next") === "/apps?view=catalog#list"
+        url.searchParams.get("next") === "/apps/slack/admin/workflows"
       );
     });
     await expect(

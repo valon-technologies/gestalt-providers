@@ -240,10 +240,7 @@ export default function BuildStepPage() {
           <p className="mb-8 text-sm text-ember-500">{error}</p>
         )}
 
-        <div
-          data-testid="build-step-nav"
-          className="animate-fade-in-up"
-        >
+        <div data-testid="build-step-nav">
           <Stepper
             value={stepId}
             onValueChange={(next) => {
@@ -271,7 +268,7 @@ export default function BuildStepPage() {
 
         <PageHeader
           className={cn(
-            "mt-10 animate-fade-in-up [animation-delay:40ms]",
+            "mt-10",
             stepId === "authorize" && "hidden",
           )}
         >
@@ -1089,7 +1086,7 @@ function BuildStepPanel({
   return (
     <section
       data-testid="build-step-panel"
-      className="mt-10 space-y-3 animate-fade-in-up [animation-delay:60ms]"
+      className="mt-10 space-y-3"
       aria-busy={
         (step.id === "authorize" && !tokensReady) ||
         (step.id === "connect" && !integrationsReady) ||
@@ -1802,7 +1799,13 @@ function BuildStoreAppCard({
         "focus-ring rounded-xl",
       )}
     >
-      <IntegrationIcon iconSvg={iconSvg} size="xl" />
+      <IntegrationIcon
+        iconSvg={iconSvg}
+        name={name}
+        displayName={label}
+        size="xl"
+        variant="bare"
+      />
       <span className="min-w-0">
         <span className="block text-base font-heading text-foreground">
           {label}
@@ -1856,7 +1859,12 @@ function ConnectStepActions({
                 data-testid={`build-connect-app-${appId}`}
               >
                 <div className="flex items-start gap-3">
-                  <IntegrationIcon size="md" />
+                  <IntegrationIcon
+                    name={appId}
+                    displayName={companionAppLabel(appId)}
+                    size="md"
+                    variant="bare"
+                  />
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-foreground">
                       {companionAppLabel(appId)}
@@ -1883,6 +1891,7 @@ function ConnectStepActions({
                 returnPath={returnPath}
                 onConnected={() => void refreshIntegrations()}
                 onDisconnected={() => void refreshIntegrations()}
+                connectionEntry="modal"
               />
             </div>
           );

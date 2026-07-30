@@ -1,8 +1,15 @@
-/**
- * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
- */
-
 import { cn } from "@/lib/cn";
+import { SearchHighlight } from "@/components/ui/search-highlight";
+
+/**
+ * Gestalt console vendor of Valon Registry `table-of-contents`.
+ *
+ * Vendored from the upstream design-system registry. Pair with `useScrollSpy`
+ * for active-section tracking.
+ *
+ * NOTE: `kind: "separator"` and `highlightQuery` are console forward-ports until
+ * Registry lands the same APIs — keep this file in sync when Registry ships them.
+ */
 
 export type TableOfContentsLinkItem = {
   /** Omitted or `"link"` — navigates to a section. */
@@ -44,6 +51,8 @@ export type TableOfContentsProps = {
    * (`scrollbar-gutter` alone is ignored by overlay scrollbars on macOS).
    */
   maxHeight?: string;
+  /** When set, link labels use SearchHighlight for query matches. */
+  highlightQuery?: string;
 };
 
 function depthPaddingClass(depth: number): string {
@@ -70,6 +79,7 @@ function TableOfContents({
   className,
   listClassName,
   maxHeight,
+  highlightQuery,
 }: TableOfContentsProps) {
   if (items.length === 0) return null;
 
@@ -113,7 +123,15 @@ function TableOfContents({
               )}
               title={item.title}
             >
-              {item.title}
+              {highlightQuery?.trim() ? (
+                <SearchHighlight
+                  text={item.title}
+                  query={highlightQuery}
+                  variant="vivid"
+                />
+              ) : (
+                item.title
+              )}
             </button>
           </li>
         );

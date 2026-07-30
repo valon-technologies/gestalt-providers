@@ -14,8 +14,8 @@ type PluginSearchBarProps = {
 };
 
 /**
- * Plain filter field for the apps catalog — no suggestion flyout.
- * Typing filters the apps grid on AppsPage.
+ * Apps catalog search — Registry InputGroup (leading search icon, clear
+ * addon). No call-site chrome overrides on the control.
  */
 export default function PluginSearchBar({
   query,

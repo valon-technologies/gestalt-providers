@@ -1,4 +1,5 @@
 import type { AppAdminPublicationPullRequest } from "@/features/registry/types";
+import { SearchHighlight } from "@/components/ui/search-highlight";
 
 export const REGISTRY_TABLE_LINK_CLASS =
   "font-medium text-primary underline decoration-primary underline-offset-2 hover:text-primary";
@@ -26,17 +27,21 @@ export function PublicationPullRequestLabel({
           rel="noreferrer"
           className={linkClassName}
         >
-          {numberLabel}
+          <SearchHighlight text={numberLabel} />
         </a>
       ) : (
-        <span className={linkClassName}>{numberLabel}</span>
+        <span className={linkClassName}>
+          <SearchHighlight text={numberLabel} />
+        </span>
       )}
       {title ? (
         <>
           <span className="text-muted-foreground" aria-hidden="true">
             ·
           </span>
-          <span className={titleClassName}>{title}</span>
+          <span className={titleClassName}>
+            <SearchHighlight text={title} />
+          </span>
         </>
       ) : null}
     </span>

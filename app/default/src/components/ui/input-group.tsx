@@ -1,4 +1,3 @@
-"use client";
 
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
@@ -191,54 +190,53 @@ function InputGroupText({ className, ...props }: React.ComponentProps<"span">) {
   );
 }
 
-const InputGroupInput = React.forwardRef<HTMLInputElement, InputProps>(
-  function InputGroupInput({ className, size: sizeProp, ...props }, ref) {
-    const sizeCtx = React.useContext(InputGroupSizeContext);
-    const size = sizeProp ?? sizeCtx;
+const InputGroupInput = React.forwardRef<
+  HTMLInputElement,
+  Omit<InputProps, "chrome">
+>(function InputGroupInput({ className, size: sizeProp, ...props }, ref) {
+  const sizeCtx = React.useContext(InputGroupSizeContext);
+  const size = sizeProp ?? sizeCtx;
 
-    return (
-      <Input
-        ref={ref}
-        data-slot="input-group-control"
-        size={size}
-        className={cn(
-          // Fill the shell. `h-full!` beats Input's `h-control-*`. Block-addon
-          // min-height is owned by the shell size variants — do not set a
-          // control min-height token here or fixed shells overflow by border.
-          "h-full! min-w-0 flex-1 rounded-none border-0 bg-transparent py-0 shadow-none",
-          // Shell owns focus — suppress Input's focus-ring only while focused
-          // (scoped :focus-visible; do not set base outline-none).
-          "focus-visible:outline-none",
-          "disabled:bg-transparent",
-          className,
-        )}
-        {...props}
-      />
-    );
-  },
-);
+  return (
+    <Input
+      ref={ref}
+      data-slot="input-group-control"
+      size={size}
+      className={cn(
+        // Fill the shell. `h-full!` beats Input's `h-control-*`. Block-addon
+        // min-height is owned by the shell size variants — do not set a
+        // control min-height token here or fixed shells overflow by border.
+        "h-full! min-w-0 flex-1 rounded-none bg-transparent py-0",
+        "disabled:bg-transparent",
+        className,
+      )}
+      {...props}
+      chrome="group"
+    />
+  );
+});
 InputGroupInput.displayName = "InputGroupInput";
 
 function InputGroupTextarea({
   className,
   ...props
-}: React.ComponentProps<typeof Textarea>) {
+}: Omit<React.ComponentProps<typeof Textarea>, "chrome">) {
   const size = React.useContext(InputGroupSizeContext);
 
   return (
     <Textarea
       data-slot="input-group-control"
       className={cn(
-        "min-w-0 flex-1 resize-none rounded-none border-0 bg-transparent py-3 shadow-none",
+        "min-w-0 flex-1 resize-none rounded-none bg-transparent py-3",
         // Override Textarea's fixed text-sm so chrome + value share size.
         size === "sm" && "text-control-sm",
         size === "default" && "text-control-default",
         size === "lg" && "text-control-lg",
-        "focus-visible:outline-none",
         "disabled:bg-transparent",
         className,
       )}
       {...props}
+      chrome="group"
     />
   );
 }

@@ -1,243 +1,154 @@
-import { createElement, useId } from "react";
-import type { ReactNode } from "react";
+import { useId } from "react";
+import type { CSSProperties } from "react";
 import { DefaultIcon } from "@/components/icons";
+import { appInitials, describeBrandMark } from "@/lib/app-mark";
 import { cn } from "@/lib/cn";
+import { renderSafeIcon, iconSvgHasPaintableContent } from "@/lib/safe-svg";
 
 /**
- * Canonical renderer for Integration.iconSvg from `/api/v1/apps`.
- * Owns the SVG allowlist + ID remapping so multiple icons on one page do not
- * collide. Falls back to DefaultIcon when svg is missing or unsafe.
+ * Canonical renderer for an app's mark. Sole owner of the brand-vs-monogram
+ * choice, so every surface showing an app resolves it identically.
+ *
+ * The choice can only be made here: a brand mark counts as present when it
+ * actually survives sanitization, which is not knowable before parsing.
+ *
+ * In `tile` mode the mark sits in a fixed bordered square, and how it fills that
+ * square depends on how the artwork was authored. A glyph drawn on transparency
+ * is inset, revealing the border, which gives every glyph the same optical size
+ * regardless of the padding its author happened to bake into the viewBox. A mark
+ * that paints its own background instead fills the tile edge to edge and is
+ * clipped by the tile's radius, so its colour bleeds into the corners and covers
+ * the border — the treatment app-icon grids use.
  */
 
-const SAFE_SVG_ELEMENTS = new Set([
-  "clipPath",
-  "circle",
-  "defs",
-  "ellipse",
-  "feColorMatrix",
-  "feComponentTransfer",
-  "feComposite",
-  "feFlood",
-  "feFuncA",
-  "filter",
-  "g",
-  "image",
-  "line",
-  "linearGradient",
-  "mask",
-  "path",
-  "polygon",
-  "polyline",
-  "radialGradient",
-  "rect",
-  "stop",
-  "svg",
-  "title",
-  "use",
-]);
+const frameSizeClass = {
+  sm: "size-8",
+  md: "size-10",
+  lg: "size-12",
+  xl: "size-14",
+} as const;
 
-const SAFE_SVG_ATTRIBUTES = new Set([
-  "aria-label",
-  "aria-labelledby",
-  "clip-path",
-  "clip-rule",
-  "color-interpolation-filters",
-  "cx",
-  "cy",
-  "d",
-  "fill",
-  "fill-opacity",
-  "fill-rule",
-  "filter",
-  "flood-color",
-  "gradientTransform",
-  "gradientUnits",
-  "height",
-  "href",
-  "id",
-  "in",
-  "in2",
-  "mask",
-  "offset",
-  "opacity",
-  "operator",
-  "points",
-  "preserveAspectRatio",
-  "r",
-  "result",
-  "role",
-  "rx",
-  "ry",
-  "stop-color",
-  "stop-opacity",
-  "stroke",
-  "stroke-linecap",
-  "stroke-linejoin",
-  "stroke-miterlimit",
-  "stroke-opacity",
-  "stroke-width",
-  "tableValues",
-  "transform",
-  "type",
-  "viewBox",
-  "width",
-  "x",
-  "x1",
-  "x2",
-  "xlink:href",
-  "xmlns",
-  "y",
-  "y1",
-  "y2",
-]);
+const glyphSizeClass = {
+  sm: "[&>svg]:size-4",
+  md: "[&>svg]:size-5",
+  lg: "[&>svg]:size-7",
+  xl: "[&>svg]:size-7",
+} as const;
 
-function normalizeSVGAttrName(name: string): string {
-  if (name === "class") return "className";
-  if (name.startsWith("aria-") || name.startsWith("data-")) {
-    return name;
-  }
-  return name.replace(/[:\-]([a-z])/g, (_, letter: string) =>
-    letter.toUpperCase(),
-  );
-}
+// Serif caps run optically smaller than the brand marks beside them, so the
+// monogram sits above the glyph scale to hold equal weight in the grid.
+const monogramSizeClass = {
+  sm: "text-xs",
+  md: "text-base",
+  lg: "text-lg",
+  xl: "text-xl",
+} as const;
 
-function isSafeSVGHref(value: string): boolean {
-  const normalized = value.replace(/\s/g, "").toLowerCase();
-  return normalized.startsWith("#") || normalized.startsWith("data:image/");
-}
-
-function buildSVGIDMap(root: Element, prefix: string): Map<string, string> {
-  const ids = new Map<string, string>();
-  let index = 0;
-  for (const element of [root, ...Array.from(root.querySelectorAll("[id]"))]) {
-    const currentID = element.getAttribute("id");
-    if (!currentID) continue;
-    ids.set(currentID, `${prefix}-${index}`);
-    index += 1;
-  }
-  return ids;
-}
-
-function rewriteSVGReferences(value: string, idMap: Map<string, string>): string {
-  let rewritten = value.replace(/url\(#([^)]+)\)/g, (match, id: string) => {
-    const mappedID = idMap.get(id);
-    return mappedID ? `url(#${mappedID})` : match;
-  });
-  if (rewritten.startsWith("#")) {
-    const mappedID = idMap.get(rewritten.slice(1));
-    if (mappedID) {
-      rewritten = `#${mappedID}`;
-    }
-  }
-  return rewritten;
-}
-
-function renderSafeSVGNode(
-  node: ChildNode,
-  key: string,
-  idMap: Map<string, string>,
-): ReactNode | null {
-  if (node.nodeType === Node.TEXT_NODE) {
-    const text = node.textContent?.trim();
-    return text ? text : null;
-  }
-  if (node.nodeType !== Node.ELEMENT_NODE) {
-    return null;
-  }
-
-  const element = node as Element;
-  const tagName = element.tagName;
-  if (!SAFE_SVG_ELEMENTS.has(tagName)) {
-    return null;
-  }
-
-  const props: Record<string, string> = { key };
-  for (const attr of Array.from(element.attributes)) {
-    if (!SAFE_SVG_ATTRIBUTES.has(attr.name)) {
-      continue;
-    }
-
-    const value =
-      attr.name === "id"
-        ? idMap.get(attr.value) ?? attr.value
-        : rewriteSVGReferences(attr.value, idMap);
-    if (
-      (attr.name === "href" || attr.name === "xlink:href") &&
-      !isSafeSVGHref(value)
-    ) {
-      continue;
-    }
-    props[normalizeSVGAttrName(attr.name)] = value;
-  }
-
-  if (tagName === "svg") {
-    props["aria-hidden"] = "true";
-    props.focusable = "false";
-    // Let the frame own layout size; baked-in width/height fight fill.
-    delete props.width;
-    delete props.height;
-  }
-
-  const children: ReactNode[] = [];
-  Array.from(element.childNodes).forEach((child, index) => {
-    const rendered = renderSafeSVGNode(child, `${key}-${index}`, idMap);
-    if (rendered !== null) {
-      children.push(rendered);
-    }
-  });
-  return createElement(tagName, props, ...children);
-}
-
-export function renderSafeIcon(
-  svg: string,
-  prefix: string,
-): ReactNode | null {
-  const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
-  const root = doc.documentElement;
-  if (root.nodeName !== "svg" || doc.querySelector("parsererror")) {
-    return null;
-  }
-  return renderSafeSVGNode(root, prefix, buildSVGIDMap(root, prefix));
-}
+// A three-character monogram is half again as wide as a two-character one, so at
+// the same size it runs to the tile's edges. Step it down to keep the same
+// margin either side.
+const wideMonogramSizeClass = {
+  sm: "text-[0.625rem]",
+  md: "text-sm",
+  lg: "text-base",
+  xl: "text-lg",
+} as const;
 
 export default function IntegrationIcon({
   iconSvg,
+  name,
+  displayName,
   className,
   size = "md",
+  variant = "tile",
 }: {
   iconSvg?: string;
+  /** Stable app id. Used to derive a monogram when there is no brand mark. */
+  name?: string;
+  displayName?: string;
   className?: string;
-  size?: "sm" | "md" | "lg" | "xl";
+  size?: keyof typeof frameSizeClass;
+  /**
+   * `tile` — bordered square; glyphs inset, full-bleed marks clipped flush.
+   * `bare` — no chrome, for surfaces that supply their own.
+   */
+  variant?: "tile" | "bare";
 }) {
   const iconIDPrefix = `provider-icon-${useId().replace(/:/g, "")}`;
   const iconNode = iconSvg ? renderSafeIcon(iconSvg, iconIDPrefix) : null;
-  // Brand marks from /api/v1/apps are full-bleed; glyph fallback stays inset.
   const hasBrandMark = iconNode != null;
+  const shape =
+    hasBrandMark && iconSvg && iconSvgHasPaintableContent(iconSvg)
+      ? describeBrandMark(iconSvg)
+      : null;
+  const fullBleed = shape?.fullBleed ?? false;
+  const initials = hasBrandMark ? "" : appInitials(displayName, name ?? "");
+  const tile = variant === "tile";
 
   return (
     <div
+      data-testid="app-mark"
+      data-full-bleed={fullBleed || undefined}
+      style={
+        shape
+          ? ({
+              "--mark-inset": `${(shape.inset * 100).toFixed(1)}%`,
+              // The tile wears the mark's own background so the fill reaches the
+              // tile's corners while the artwork sits inside the safe area.
+              ...(shape.backgroundColor
+                ? { backgroundColor: shape.backgroundColor }
+                : {}),
+            } as CSSProperties)
+          : undefined
+      }
       className={cn(
-        // Frameless mark — no plate. A filled frame matches the card at rest
-        // and only appears on card hover (card darkens, plate does not).
-        "flex shrink-0 items-center justify-center overflow-hidden text-muted-foreground",
-        size === "sm" && "size-8",
-        size === "md" && "size-10",
-        size === "lg" && "size-12",
-        size === "xl" && "size-14",
+        "flex shrink-0 items-center justify-center overflow-hidden",
+        // A brand mark carries the app's identity, so monochrome marks drawn in
+        // currentColor take full ink. Only the placeholder glyph is muted.
+        hasBrandMark ? "text-foreground" : "text-muted-foreground",
+        frameSizeClass[size],
+        tile && "rounded-lg",
+        // A full-bleed mark covers the border anyway, and keeping it off avoids
+        // a hairline seam showing through the clipped corners.
+        tile && !fullBleed && "border border-border bg-background",
         hasBrandMark
-          ? // Brand SVGs are full-bleed in the slot; ~12% inset matches the
-            // optical padding most catalog marks already bake into their
-            // viewBox (g-issues was edge-cropped and read oversized).
-            "[&>svg]:size-[76%]"
-          : size === "sm"
-            ? "[&>svg]:size-4"
-            : size === "lg" || size === "xl"
-              ? "[&>svg]:size-7"
-              : "[&>svg]:size-5",
+          ? // Inset by the amount that normalises this mark's own baked padding,
+            // so every glyph's ink lands at one optical size. A full-bleed mark
+            // uses it as a safe area instead, clearing the rounded corners.
+            "[&>svg]:size-[var(--mark-inset)]"
+          : glyphSizeClass[size],
         className,
       )}
     >
-      {iconNode ?? <DefaultIcon />}
+      {hasBrandMark ? (
+        iconNode
+      ) : initials ? (
+        <span
+          data-testid="app-monogram"
+          aria-hidden="true"
+          className={cn(
+            // Display face at normal weight — the display cut carries the
+            // monogram; extra weight only muddies it at this size.
+            // Full ink, not the frame's muted tone: a monogram *is* the app's
+            // identity, so it reads as a mark rather than as secondary text.
+            "select-none font-display font-normal tracking-tight",
+            "text-foreground",
+            // Size first: `text-base` also carries a line-height, so
+            // tailwind-merge drops any `leading-*` that precedes it.
+            (initials.length > 2 ? wideMonogramSizeClass : monogramSizeClass)[
+              size
+            ],
+            "leading-none",
+            // Trim the box to cap height so flex centring aligns the glyphs
+            // rather than the serif's ascent and descent.
+            "trim-cap",
+          )}
+        >
+          {initials}
+        </span>
+      ) : (
+        <DefaultIcon />
+      )}
     </div>
   );
 }

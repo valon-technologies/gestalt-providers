@@ -336,7 +336,7 @@ function normalizeConnection(
     credentialState === "invalid" ||
     credentialState === "unknown";
   const detailLines = compact([
-    isMCPPassthrough ? "MCP passthrough" : undefined,
+    isMCPPassthrough ? "Uses a shared connection" : undefined,
     shouldShowCredentialDetail ? credentialLabel : undefined,
     shouldShowCredentialDetail && !isNoAuth ? ownerLabel : undefined,
     healthLabel,
@@ -624,15 +624,15 @@ function statusDisplayLabel(
     case "ready":
       return "Ready";
     case "degraded":
-      return "Degraded";
+      return "Needs fix";
     case "needs_user_connection":
       return context === "managed_subject"
         ? "Identity connection required"
         : "Not connected";
     case "needs_instance_selection":
-      return "Instance selection required";
+      return "Choose an account";
     case "needs_admin_configuration":
-      return "Admin configuration required";
+      return "Ask an admin to finish setup";
     case "unavailable":
       return "Unavailable";
     case "unknown":

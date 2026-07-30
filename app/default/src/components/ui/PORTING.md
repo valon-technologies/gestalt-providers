@@ -47,6 +47,10 @@ ink utilities — those names are Registry fills. Optional console-only
 Compose labeled controls with `Field` + `FieldLabel` (+ `FieldDescription` /
 `FieldError`) — see Registry `guidelines/fields.md`.
 
+`Input` / `Textarea` expose a `chrome` variant (`standalone` default,
+`group` for `InputGroupInput` / `InputGroupTextarea`) so the shell owns the
+focus ring without stacking on the inner control.
+
 ## Choice cards (RadioGroup)
 
 Do not fork tile chrome at call sites. Import helpers from
@@ -107,6 +111,20 @@ checks + connectors). Depends on `lib/list-item-interaction.ts` and
 `--accent-fill-pressed` for soft-selected hover (selectable-rows). Build page
 uses controlled `activationMode="jump"` — do not restyle Stepper chrome at the
 call site (layout-only wrappers OK).
+
+## SearchHighlight
+
+Registry `search-highlight` + `search-highlight-context` are vendored as
+`ui/search-highlight.tsx` and `lib/search-highlight-context.tsx` (helpers in
+`lib/search-highlight.ts`). Highlight paint is decoupled from DataTable: pass an
+explicit `query` prop or wrap with `SearchHighlightProvider`. Use
+`variant="vivid"` on card surfaces (integrations catalog); default
+`bg-accent-highlight` is for table cells when DataTable bridges context.
+Do not hand-roll `<mark className="bg-accent-vivid">` at call sites.
+Catalog filtering (`lib/integrationSearch.ts`, `lib/catalogFilters.ts`) must
+delegate matching to `search-highlight.ts` — one normalization stack for filter
+and highlight. Strip `"use client"` from vendored copies (Vite SPA; Registry
+carry-over is a no-op here).
 
 ## Held local overrides (discuss before dropping)
 

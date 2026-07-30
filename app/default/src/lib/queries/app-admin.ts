@@ -22,13 +22,14 @@ import { queryKeys } from "@/lib/query-keys";
 export function useAppAdminRegistryQuery(appName: string) {
   const bootstrapPollUntilRef = useRef(0);
   const [bootstrapPollEpoch, setBootstrapPollEpoch] = useState(0);
+  const [isCheckingForNewVersions, setIsCheckingForNewVersions] = useState(false);
 
   useEffect(() => {
     bootstrapPollUntilRef.current = Date.now() + APP_ADMIN_BOOTSTRAP_POLL_MS;
     setBootstrapPollEpoch((epoch) => epoch + 1);
   }, [appName]);
 
-  const query = useQuery({
+  const { refetch, ...query } = useQuery({
     queryKey: queryKeys.appAdmin.registry(appName),
     queryFn: () => getAppAdminRegistry(appName),
     retry: (failureCount, error) =>
@@ -49,12 +50,16 @@ export function useAppAdminRegistryQuery(appName: string) {
   const checkForNewVersions = useCallback(() => {
     bootstrapPollUntilRef.current = Date.now() + APP_ADMIN_BOOTSTRAP_POLL_MS;
     setBootstrapPollEpoch((epoch) => epoch + 1);
-    void query.refetch();
-  }, [query]);
+    setIsCheckingForNewVersions(true);
+    void refetch().finally(() => {
+      setIsCheckingForNewVersions(false);
+    });
+  }, [refetch]);
 
   return {
     ...query,
     checkForNewVersions,
+    isCheckingForNewVersions,
   };
 }
 
@@ -89,6 +94,34 @@ export function useUpdateAppAdminAutoDeployMutation(appName: string) {
   return useMutation({
     mutationFn: (enabled: boolean) =>
       updateAppAdminRegistryAutoDeploy(appName, enabled),
+    onMutate: async (enabled) => {
+      await queryClient.cancelQueries({
+        queryKey: queryKeys.appAdmin.registry(appName),
+      });
+      const previous = queryClient.getQueryData<
+        Awaited<ReturnType<typeof getAppAdminRegistry>>
+      >(queryKeys.appAdmin.registry(appName));
+      if (previous) {
+        queryClient.setQueryData(queryKeys.appAdmin.registry(appName), {
+          ...previous,
+          autoDeploy: {
+            ...previous.autoDeploy,
+            enabled,
+            lastError: enabled ? undefined : previous.autoDeploy?.lastError,
+            pendingVersion: enabled ? previous.autoDeploy?.pendingVersion : undefined,
+          },
+        });
+      }
+      return { previous };
+    },
+    onError: (_error, _enabled, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(
+          queryKeys.appAdmin.registry(appName),
+          context.previous,
+        );
+      }
+    },
     onSuccess: (response) => {
       queryClient.setQueryData(
         queryKeys.appAdmin.registry(appName),

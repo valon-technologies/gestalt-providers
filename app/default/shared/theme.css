@@ -94,6 +94,19 @@
   --list-item-hover: var(--neutral-hover);
   --list-item-pressed: var(--neutral-pressed);
 
+  /* ── Sidebar (Registry shadcn sidebar-* roles) ─────────────────────── */
+  --sidebar: var(--card);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+  --overlay: oklch(0% 0 0 / 45%);
+  --separator-hover: var(--accent-vivid);
+  --separator-active: var(--accent-vivid-pressed);
+
   /* ── Surface / disabled ──────────────────────────────────────────────── */
   --surface-hover: oklch(98.829% 0.0029 84.56);
   --surface-pressed: oklch(from var(--surface-hover) calc(l - var(--interaction-step-pale-press)) c h);

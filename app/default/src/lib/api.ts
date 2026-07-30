@@ -192,6 +192,11 @@ export interface AppAdminRegistryRevision {
   deploymentState?: string;
   deployableUntil?: string;
   current?: boolean;
+  rolloutState?: string;
+  rolloutForSeconds?: number;
+  rolloutDurationSeconds?: number;
+  rolloutCompletedAt?: string;
+  rolloutFailedAt?: string;
 }
 
 export interface AppAdminRegistryHistoryResponse {
@@ -207,6 +212,10 @@ export interface IntegrationOperation {
   readOnly?: boolean;
   visible?: boolean;
   tags?: string[];
+  method?: string;
+  path?: string;
+  allowedRoles?: string[];
+  transport?: string;
 }
 
 export interface AccessPermission {
@@ -340,6 +349,8 @@ export interface WorkflowStepExecution {
 export interface WorkflowRun {
   id: string;
   provider: string;
+  /** Server-declared step-target app for this run (Workflow API `target_app`). */
+  targetApp?: string;
   status?: string;
   target: WorkflowTarget;
   trigger?: WorkflowRunTrigger;
@@ -356,19 +367,19 @@ export interface WorkflowRun {
   steps?: WorkflowStepExecution[];
 }
 
-interface WorkflowRunListResponse {
-  runs: WorkflowRunWire[];
-  nextPageToken?: string;
-}
-
 type WorkflowRunWire = Omit<WorkflowRun, "target" | "steps"> & {
   target?: unknown;
   steps?: unknown;
 };
 
-function normalizeWorkflowRun(run: WorkflowRunWire): WorkflowRun {
+export function normalizeWorkflowRun(run: WorkflowRunWire): WorkflowRun {
+  const wire = run as WorkflowRunWire & {
+    targetApp?: string;
+    target_app?: string;
+  };
   return {
     ...run,
+    targetApp: optionalString(wire.targetApp) ?? optionalString(wire.target_app),
     target: normalizeWorkflowTarget(run.target),
     steps: normalizeWorkflowStepExecutions(run.steps),
   };
@@ -648,6 +659,11 @@ export interface AuthInfo {
   provider: string;
   displayName: string;
   loginSupported: boolean;
+  features?: {
+    agent?: boolean;
+    /** Default `providers.workflow.*` name for this deployment. */
+    workflowDefaultProvider?: string;
+  };
 }
 
 export interface AuthSession {
@@ -662,6 +678,38 @@ export async function getAuthInfo(): Promise<AuthInfo> {
 
 export async function getAuthSession(): Promise<AuthSession> {
   return fetchAPI("/api/v1/auth/session");
+}
+
+/**
+ * App authorization member row from the admin control plane.
+ * Same shape as `/admin/` Authorization → app members.
+ */
+export interface AppAuthorizationMember {
+  email?: string;
+  role?: string;
+  source?: "static" | "dynamic" | string;
+  mutable?: boolean;
+  effective?: boolean;
+  shadowedBy?: string;
+  selectorKind?: string;
+  selectorValue?: string;
+  subjectId?: string;
+}
+
+/**
+ * List humans (and selectors) with access to an app.
+ * Requires admin authorization for the app; callers should handle 403.
+ */
+export async function getAppAuthorizationMembers(
+  appName: string,
+): Promise<AppAuthorizationMember[]> {
+  const response = await fetchAPI<
+    AppAuthorizationMember[] | { members?: AppAuthorizationMember[] }
+  >(
+    `/admin/api/v1/authorization/apps/${encodeURIComponent(appName)}/members`,
+  );
+  if (Array.isArray(response)) return response;
+  return response.members ?? [];
 }
 
 export async function logout(): Promise<void> {
@@ -798,34 +846,6 @@ import {
 
 export async function getTokens(): Promise<APIToken[]> {
   return listPersonalAPITokens(fetchAPI);
-}
-
-export async function getWorkflowRuns(): Promise<WorkflowRun[]> {
-  const response = await fetchAPI<WorkflowRunListResponse>(
-    "/api/v1/workflow/runs",
-  );
-  return response.runs.map(normalizeWorkflowRun);
-}
-
-export async function getWorkflowRun(id: string): Promise<WorkflowRun> {
-  const run = await fetchAPI<WorkflowRunWire>(
-    `/api/v1/workflow/runs/${encodeURIComponent(id)}`,
-  );
-  return normalizeWorkflowRun(run);
-}
-
-export async function cancelWorkflowRun(
-  id: string,
-  reason?: string,
-): Promise<WorkflowRun> {
-  const run = await fetchAPI<WorkflowRunWire>(
-    `/api/v1/workflow/runs/${encodeURIComponent(id)}/cancel`,
-    {
-      method: "POST",
-      body: JSON.stringify(reason ? { reason } : {}),
-    },
-  );
-  return normalizeWorkflowRun(run);
 }
 
 export async function createToken(
