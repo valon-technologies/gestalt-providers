@@ -11,8 +11,8 @@ type AppPromptExamplePromoProps = {
 };
 
 /**
- * ChatGPT plugin–style promo: muted stage + chat-input pill with an example
- * agent ask. Clicking copies the prompt (Gestalt has no in-page chat).
+ * ChatGPT plugin–style promo: themed radial stage + chat-input pill with an
+ * example agent ask. Clicking copies the prompt (Gestalt has no in-page chat).
  */
 export default function AppPromptExamplePromo({
   displayName,
@@ -34,7 +34,7 @@ export default function AppPromptExamplePromo({
     <div
       data-testid="app-prompt-example"
       className={cn(
-        "rounded-2xl border border-border bg-muted px-4 py-10 sm:px-8 sm:py-12",
+        "rounded-2xl bg-promo-stage px-4 py-10 sm:px-8 sm:py-12",
         className,
       )}
     >

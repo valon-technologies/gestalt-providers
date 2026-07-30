@@ -77,7 +77,7 @@ export default function AppWorkspaceOverviewPage() {
   }, [status, surfaces]);
 
   return (
-    <section aria-label="Overview">
+    <section aria-label="Overview" className="flex flex-col gap-8">
       <div className="flex flex-col gap-4">
         <IntegrationIcon
           iconSvg={integration.iconSvg}
@@ -146,12 +146,10 @@ export default function AppWorkspaceOverviewPage() {
         </div>
       </div>
 
-      <div className={overviewSectionClass}>
-        <AppPromptExamplePromo
-          displayName={promptExample.displayName}
-          body={promptExample.body}
-        />
-      </div>
+      <AppPromptExamplePromo
+        displayName={promptExample.displayName}
+        body={promptExample.body}
+      />
 
       <div className={overviewSectionClass}>
         <h2 className="text-lg font-heading text-foreground">Your access</h2>
