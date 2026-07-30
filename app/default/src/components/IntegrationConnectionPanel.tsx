@@ -1,5 +1,5 @@
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, MouseEvent, ReactNode, SyntheticEvent } from "react";
 import {
   AuthType,
@@ -253,9 +253,9 @@ export default function IntegrationConnectionPanel({
 
   const displayName = integration.displayName || integration.name;
   const headingId = `connection-panel-heading-${integration.name}`;
-  const normalizedStatus = normalizeIntegrationStatus(
-    integration,
-    connectionContext,
+  const normalizedStatus = useMemo(
+    () => normalizeIntegrationStatus(integration, connectionContext),
+    [integration, connectionContext],
   );
 
   useEffect(() => {
