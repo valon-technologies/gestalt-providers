@@ -1,6 +1,23 @@
 import { describe, expect, it } from "vitest";
 import type { WorkflowRun } from "@/lib/api";
-import { workflowRunMatchesApp } from "@/lib/workflowActivity";
+import {
+  workflowRunBadgeVariant,
+  workflowRunMatchesApp,
+} from "@/lib/workflowActivity";
+
+describe("workflowRunBadgeVariant", () => {
+  it.each([
+    ["succeeded", "success"],
+    ["failed", "destructive"],
+    ["running", "info"],
+    ["pending", "warning"],
+    ["canceled", "muted"],
+    [undefined, "muted"],
+    ["unknown", "muted"],
+  ] as const)("maps %s to %s", (status, variant) => {
+    expect(workflowRunBadgeVariant(status)).toBe(variant);
+  });
+});
 
 function run(partial: Partial<WorkflowRun> & Pick<WorkflowRun, "id" | "provider">): WorkflowRun {
   return {

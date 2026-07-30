@@ -13,7 +13,7 @@ const SIGNAL_DIR = join(homedir(), ".cache", "gestalt-operations-demo");
 const READY = join(SIGNAL_DIR, "READY");
 const GO = join(SIGNAL_DIR, "GO");
 
-const APP = "g-issues";
+const APP = "example-app";
 
 const DEMO_OPERATIONS: IntegrationOperation[] = [
   {
@@ -117,7 +117,7 @@ test.describe("Record operations demo", () => {
 
     const integration: Integration = {
       name: APP,
-      displayName: "G Issues",
+      displayName: "Example App",
       description: "Issue tracking integration",
     };
     await mockIntegrations(page, [integration]);

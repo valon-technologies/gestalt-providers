@@ -1,4 +1,3 @@
-
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
@@ -25,16 +24,24 @@ import { Textarea } from "@/components/ui/textarea";
 // *before* the control; inline-end / block-end *after*. Do not use CSS `order`
 // to rearrange focusable chrome (that desyncs keyboard from the eye).
 // Focus: group draws focus-ring geometry via :has(control:focus-visible) —
-// same outline recipe as Calendar chrome (focus-ring.md). Inner control kills
-// its own focus-ring so rings don't stack.
+// same outline recipe as Calendar chrome (focus-ring.md). Inner control uses
+// Input/Textarea chrome="group" so focus-ring is omitted at the source.
 // Disabled: flat --disabled recolor on the shell (never opacity on addons).
 // Color for addon text lives on Addon (muted → disabled); InputGroupText does
 // not set its own muted color or it would win over the disabled recolor.
 // Invalid: aria-invalid on the control → destructive shell border.
+// Search + custom clear: type="search" with a trailing InputGroupButton for
+// clear — shell hides WebKit's native cancel so consumers need no className
+// override on InputGroupInput. Use InputGroupClearAddon when the clear affordance
+// toggles — it reserves inline-end chrome so the shell width stays stable.
 
 type InputGroupSize = NonNullable<InputProps["size"]>;
 
 const InputGroupSizeContext = React.createContext<InputGroupSize>("default");
+const InputGroupControlDisabledContext = React.createContext(false);
+const InputGroupControlDisabledRegistrarContext = React.createContext<
+  ((disabled: boolean) => void) | null
+>(null);
 
 const inputGroupVariants = cva(
   [
@@ -55,6 +62,10 @@ const inputGroupVariants = cva(
     // Invalid / disabled — control owns aria-invalid + disabled; shell paints.
     "has-[[data-slot=input-group-control][aria-invalid=true]]:border-destructive",
     "has-[[data-slot=input-group-control]:disabled]:cursor-not-allowed has-[[data-slot=input-group-control]:disabled]:border-border has-[[data-slot=input-group-control]:disabled]:bg-disabled",
+
+    // Trailing InputGroupButton + type=search → hide WebKit native clear (custom
+    // clear owns the affordance; avoids duplicate × at the inline-end).
+    "has-[>[data-align=inline-end]_[data-input-group-button]]:[&_[data-slot=input-group-control][type=search]::-webkit-search-cancel-button]:hidden",
   ],
   {
     variants: {
@@ -78,15 +89,21 @@ function InputGroup({
   size = "default",
   ...props
 }: React.ComponentProps<"div"> & VariantProps<typeof inputGroupVariants>) {
+  const [controlDisabled, setControlDisabled] = React.useState(false);
+
   return (
     <InputGroupSizeContext.Provider value={size ?? "default"}>
-      <div
-        data-slot="input-group"
-        role="group"
-        data-size={size ?? "default"}
-        className={cn(inputGroupVariants({ size }), className)}
-        {...props}
-      />
+      <InputGroupControlDisabledContext.Provider value={controlDisabled}>
+        <InputGroupControlDisabledRegistrarContext.Provider value={setControlDisabled}>
+          <div
+            data-slot="input-group"
+            role="group"
+            data-size={size ?? "default"}
+            className={cn(inputGroupVariants({ size }), className)}
+            {...props}
+          />
+        </InputGroupControlDisabledRegistrarContext.Provider>
+      </InputGroupControlDisabledContext.Provider>
     </InputGroupSizeContext.Provider>
   );
 }
@@ -146,8 +163,8 @@ function InputGroupAddon({
         if (!control || control.disabled) return;
         // focusVisible so the shell's :focus-visible ring paints — plain
         // .focus() from a click would leave the field focused with no ring.
-        // DOM lib lag: FocusOptions does not yet declare focusVisible.
-        control.focus({ focusVisible: true } as FocusOptions);
+        // @ts-expect-error focusVisible is supported in Chromium; DOM lib lag.
+        control.focus({ focusVisible: true });
       }}
     />
   );
@@ -175,6 +192,66 @@ function InputGroupButton({
   );
 }
 
+type InputGroupClearAddonProps = Omit<
+  React.ComponentProps<typeof InputGroupButton>,
+  | "aria-label"
+  | "aria-hidden"
+  | "tabIndex"
+  | "disabled"
+  | "onClick"
+  | "onMouseDown"
+  | "children"
+> & {
+  visible: boolean;
+  onClear: () => void;
+  "aria-label"?: string;
+  children: React.ReactNode;
+};
+
+/** Trailing clear affordance that keeps inline-end chrome mounted for stable width. */
+function InputGroupClearAddon({
+  visible,
+  onClear,
+  "aria-label": ariaLabel = "Clear",
+  className,
+  children,
+  ...props
+}: InputGroupClearAddonProps) {
+  const controlDisabled = React.useContext(InputGroupControlDisabledContext);
+  const interactive = visible && !controlDisabled;
+
+  return (
+    <InputGroupAddon align="inline-end">
+      <InputGroupButton
+        {...props}
+        disabled={!interactive}
+        aria-label={interactive ? ariaLabel : undefined}
+        aria-hidden={!interactive}
+        tabIndex={interactive ? undefined : -1}
+        className={cn(className, !visible && "pointer-events-none invisible")}
+        onMouseDown={(event) => {
+          event.preventDefault();
+        }}
+        onClick={(event) => {
+          event.preventDefault();
+          if (!visible) return;
+          const control = event.currentTarget
+            .closest("[data-slot=input-group]")
+            ?.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+              "[data-slot=input-group-control]",
+            );
+          if (!control || control.disabled) return;
+          onClear();
+          // @ts-expect-error focusVisible is supported in Chromium; DOM lib lag.
+          control.focus({ focusVisible: true });
+        }}
+      >
+        {children}
+      </InputGroupButton>
+    </InputGroupAddon>
+  );
+}
+
 function InputGroupText({ className, ...props }: React.ComponentProps<"span">) {
   return (
     <span
@@ -190,18 +267,30 @@ function InputGroupText({ className, ...props }: React.ComponentProps<"span">) {
   );
 }
 
-const InputGroupInput = React.forwardRef<
-  HTMLInputElement,
-  Omit<InputProps, "chrome">
->(function InputGroupInput({ className, size: sizeProp, ...props }, ref) {
+function InputGroupInput({
+  className,
+  size: sizeProp,
+  ref,
+  disabled,
+  ...props
+}: Omit<InputProps, "chrome"> & { ref?: React.Ref<HTMLInputElement> }) {
   const sizeCtx = React.useContext(InputGroupSizeContext);
+  const registerControlDisabled = React.useContext(
+    InputGroupControlDisabledRegistrarContext,
+  );
   const size = sizeProp ?? sizeCtx;
+
+  React.useLayoutEffect(() => {
+    registerControlDisabled?.(!!disabled);
+    return () => registerControlDisabled?.(false);
+  }, [disabled, registerControlDisabled]);
 
   return (
     <Input
       ref={ref}
       data-slot="input-group-control"
       size={size}
+      disabled={disabled}
       className={cn(
         // Fill the shell. `h-full!` beats Input's `h-control-*`. Block-addon
         // min-height is owned by the shell size variants — do not set a
@@ -214,18 +303,29 @@ const InputGroupInput = React.forwardRef<
       chrome="group"
     />
   );
-});
-InputGroupInput.displayName = "InputGroupInput";
+}
 
 function InputGroupTextarea({
   className,
+  ref,
+  disabled,
   ...props
 }: Omit<React.ComponentProps<typeof Textarea>, "chrome">) {
   const size = React.useContext(InputGroupSizeContext);
+  const registerControlDisabled = React.useContext(
+    InputGroupControlDisabledRegistrarContext,
+  );
+
+  React.useLayoutEffect(() => {
+    registerControlDisabled?.(!!disabled);
+    return () => registerControlDisabled?.(false);
+  }, [disabled, registerControlDisabled]);
 
   return (
     <Textarea
+      ref={ref}
       data-slot="input-group-control"
+      disabled={disabled}
       className={cn(
         "min-w-0 flex-1 resize-none rounded-none bg-transparent py-3",
         // Override Textarea's fixed text-sm so chrome + value share size.
@@ -245,6 +345,7 @@ export {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
+  InputGroupClearAddon,
   InputGroupText,
   InputGroupInput,
   InputGroupTextarea,

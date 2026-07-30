@@ -62,7 +62,7 @@ export default function AppAdminMembersPage() {
       ) : null}
 
       {membersLoading ? (
-        <p className="mt-5 flex items-center gap-1.5 text-sm text-faint">
+        <p className="mt-5 flex items-center gap-1.5 text-sm text-muted-foreground">
           <SpinnerIcon className="size-4 animate-spin" aria-hidden />
           Loading members…
         </p>
@@ -86,7 +86,7 @@ export default function AppAdminMembersPage() {
       ) : null}
 
       {!membersLoading && !membersForbidden && !membersError && members.length === 0 ? (
-        <p className="mt-5 text-sm text-faint">No members found for this app.</p>
+        <p className="mt-5 text-sm text-muted-foreground">No members found for this app.</p>
       ) : null}
 
       {!membersLoading && members.length > 0 ? (

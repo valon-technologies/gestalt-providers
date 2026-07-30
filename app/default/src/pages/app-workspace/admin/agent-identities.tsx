@@ -82,7 +82,7 @@ export default function AppAdminAgentIdentitiesPage() {
       </div>
 
       {accessLoading ? (
-        <p className="mt-5 flex items-center gap-1.5 text-sm text-faint">
+        <p className="mt-5 flex items-center gap-1.5 text-sm text-muted-foreground">
           <SpinnerIcon className="size-4 animate-spin" aria-hidden />
           Loading access…
         </p>
@@ -93,7 +93,7 @@ export default function AppAdminAgentIdentitiesPage() {
       ) : null}
 
       {!accessLoading && !accessError && accessGrants.length === 0 ? (
-        <p className="mt-5 text-sm text-faint">
+        <p className="mt-5 text-sm text-muted-foreground">
           No agent identities have a grant for this app yet.
         </p>
       ) : null}

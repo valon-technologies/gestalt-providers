@@ -8,6 +8,7 @@ import {
   Integration,
 } from "@/lib/api";
 import { INPUT_CLASSES } from "@/lib/constants";
+import { badgeVariantFromTone } from "@/lib/catalogFilters";
 import {
   normalizeIntegrationStatus,
   statusTone,
@@ -15,7 +16,8 @@ import {
   type NormalizedConnection,
   type NormalizedIntegrationStatus,
 } from "@/lib/integrationStatus";
-import Button from "./Button";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { CheckCircleIcon, CloseIcon } from "./icons";
 
 export type ConnectionPanelView =
@@ -37,7 +39,7 @@ type AuthAction = {
   connectionKey: string;
   connection?: string;
   label: string;
-  variant?: "primary" | "secondary";
+  variant?: "default" | "secondary";
   requiresInstanceName: boolean;
 };
 
@@ -71,19 +73,6 @@ export interface IntegrationConnectionPanelProps {
   variant?: "inline" | "dialog";
   /** When false, omit the integration title block (e.g. app detail Credentials section). */
   showHeader?: boolean;
-}
-
-function statusBadgeClasses(tone: NormalizedIntegrationStatus["tone"]): string {
-  switch (tone) {
-    case "success":
-      return "border-success-foreground/40 bg-success text-success-foreground";
-    case "warning":
-      return "border-warning-foreground/40 bg-warning text-warning-foreground";
-    case "danger":
-      return "border-destructive bg-destructive/10 text-destructive";
-    case "neutral":
-      return "border-border bg-muted text-muted-foreground";
-  }
 }
 
 function shouldShowIntegrationSummary(status: NormalizedIntegrationStatus): boolean {
@@ -176,7 +165,7 @@ function buildAuthActions(connections: NormalizedConnection[]): AuthAction[] {
           variant:
             authType === "manual" && connection.authTypes.includes("oauth")
               ? "secondary"
-              : "primary",
+              : "default",
           requiresInstanceName: kind === "add_instance",
         });
       }
@@ -420,11 +409,9 @@ export default function IntegrationConnectionPanel({
       connection.healthState,
     );
     return (
-      <span
-        className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${statusBadgeClasses(tone)}`}
-      >
+      <Badge size="sm" variant={badgeVariantFromTone(tone)}>
         {connection.summaryLabel}
-      </span>
+      </Badge>
     );
   }
 
@@ -455,16 +442,18 @@ export default function IntegrationConnectionPanel({
           </Button>
         ))}
         {connection.canDisconnect && connection.instances.length === 0 ? (
-          <button
+          <Button
+            type="button"
+            variant="ghostDestructive"
+            size="sm"
             onClick={() => {
               setDisconnectTarget({ connection: connection.connection });
               setView("disconnect");
             }}
             disabled={disconnecting}
-            className="text-sm text-destructive transition-colors duration-150 hover:text-destructive"
           >
             Disconnect
-          </button>
+          </Button>
         ) : null}
       </div>
     );
@@ -515,7 +504,10 @@ export default function IntegrationConnectionPanel({
                       ) : null}
                     </div>
                     {!readOnly && connection.canDisconnect ? (
-                      <button
+                      <Button
+                        type="button"
+                        variant="ghostDestructive"
+                        size="xs"
                         onClick={() => {
                           setDisconnectTarget({
                             instance: instance.name,
@@ -525,10 +517,9 @@ export default function IntegrationConnectionPanel({
                           setView("disconnect");
                         }}
                         disabled={disconnecting}
-                        className="text-xs text-destructive transition-colors duration-150 hover:text-destructive"
                       >
                         Disconnect
-                      </button>
+                      </Button>
                     ) : null}
                   </div>
                 ))}
@@ -576,7 +567,7 @@ export default function IntegrationConnectionPanel({
                 Cancel
               </Button>
               <Button
-                variant="danger"
+                variant="destructive"
                 className="flex-1"
                 onClick={() => onDisconnect(disconnectTarget.instance, disconnectTarget.connection)}
                 disabled={
@@ -673,13 +664,15 @@ export default function IntegrationConnectionPanel({
                   ) : null}
                 </div>
                 {isDialog ? (
-                  <button
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
                     onClick={closeDialog}
-                    className="rounded-md p-1.5 text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-accent-foreground"
                     aria-label="Close"
                   >
                     <CloseIcon className="h-4 w-4" />
-                  </button>
+                  </Button>
                 ) : null}
               </div>
             ) : (

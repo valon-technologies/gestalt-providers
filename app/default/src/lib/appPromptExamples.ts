@@ -46,8 +46,8 @@ const APP_PROMPT_BODIES: Readonly<Record<string, readonly string[]>> = {
   notion: ["Find the latest notes on our Q3 roadmap"],
   datadog: ["Any error spikes in production in the last hour?"],
   incident_io: ["Summarize the active incidents"],
-  bigquery: ["What’s our 30-day delinquency rate?"],
-  hex: ["Open the latest loan portfolio report"],
+  bigquery: ["What were weekly active users over the last 30 days?"],
+  hex: ["Open the latest product metrics dashboard"],
   ramp: ["Show my recent card spend this week"],
   rippling: ["Who’s out of office this week?"],
 };

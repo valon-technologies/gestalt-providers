@@ -12,6 +12,8 @@ import {
   type WorkflowStepTarget,
   type WorkflowTarget,
 } from "@/lib/api";
+import { cn } from "@/lib/cn";
+import { listItemInteraction } from "@/lib/list-item-interaction";
 import { Link } from "@tanstack/react-router";
 import {
   useCancelWorkflowRunMutation,
@@ -29,6 +31,9 @@ import {
   AlertDescription,
 } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Stat,
   StatGroup,
@@ -38,6 +43,7 @@ import {
 import {
   collectAutomationSubjects,
   summarizeWorkflowDefinitionsFromRuns,
+  workflowRunBadgeVariant,
 } from "@/lib/workflowActivity";
 import { Info } from "lucide-react";
 
@@ -225,19 +231,19 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {item.scheduleCount > 0 ? (
-                    <span className="rounded-full bg-warning px-2 py-1 text-[11px] font-medium text-warning-foreground">
+                    <Badge size="sm" variant="warning">
                       Schedule ×{item.scheduleCount}
-                    </span>
+                    </Badge>
                   ) : null}
                   {item.eventCount > 0 ? (
-                    <span className="rounded-full bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                    <Badge size="sm" variant="muted">
                       Event ×{item.eventCount}
-                    </span>
+                    </Badge>
                   ) : null}
                   {item.manualCount > 0 ? (
-                    <span className="rounded-full bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                    <Badge size="sm" variant="muted">
                       Manual ×{item.manualCount}
-                    </span>
+                    </Badge>
                   ) : null}
                 </div>
               </li>
@@ -340,15 +346,18 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
         </div>
 
       <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem]">
-        <label className="block">
-          <span className="text-xs font-medium text-muted-foreground">Search runs</span>
-          <input
+        <div className="block">
+          <Label htmlFor="workflow-runs-search" variant="field">
+            Search runs
+          </Label>
+          <Input
+            id="workflow-runs-search"
             value={runsQueryText}
             onChange={(event) => setRunsQuery(event.target.value)}
             placeholder="Run ID, step, definition, event"
-            className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-hidden transition-colors duration-150 placeholder:text-muted-foreground/70 focus:border-info-foreground"
+            className="mt-2"
           />
-        </label>
+        </div>
         <label className="block">
           <span className="text-xs font-medium text-muted-foreground">Status</span>
           <select
@@ -448,11 +457,11 @@ function RunsPanel({
                 <button
                   type="button"
                   onClick={() => onSelectRun(run.id)}
-                  className={`flex w-full flex-col gap-1 px-4 py-3 text-left transition-colors duration-150 ${
-                    selected
-                      ? "bg-accent"
-                      : "hover:bg-accent"
-                  }`}
+                  data-selected={selected || undefined}
+                  className={cn(
+                    "flex w-full flex-col gap-1 px-4 py-3 text-left focus-ring-inset",
+                    listItemInteraction({ pointer: "css" }),
+                  )}
                 >
                   <span className="truncate text-sm font-medium text-foreground">
                     {targetLabel(run.target) ||
@@ -497,14 +506,15 @@ function RunsPanel({
                 ) : null}
               </div>
               {selectedRun.status === "pending" ? (
-                <button
+                <Button
                   type="button"
+                  variant="outline"
                   onClick={onCancelSelectedRun}
                   disabled={canceling}
-                  className="shrink-0 rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors duration-150 hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                  className="shrink-0"
                 >
                   {canceling ? "Canceling…" : "Cancel run"}
-                </button>
+                </Button>
               ) : null}
             </div>
             {actionError ? (
@@ -689,27 +699,10 @@ function DetailLine({ label, value }: { label: string; value: string }) {
 
 function StatusBadge({ status }: { status?: string }) {
   return (
-    <span className={runStatusClassName(status)}>
+    <Badge size="sm" variant={workflowRunBadgeVariant(status)}>
       {capitalize(status || "unknown")}
-    </span>
+    </Badge>
   );
-}
-
-function runStatusClassName(status?: string): string {
-  switch (status) {
-    case "succeeded":
-      return "rounded-full bg-success px-2 py-1 text-[11px] font-medium text-success-foreground";
-    case "failed":
-      return "rounded-full bg-destructive/10 px-2 py-1 text-[11px] font-medium text-destructive";
-    case "running":
-      return "rounded-full bg-info px-2 py-1 text-[11px] font-medium text-info-foreground";
-    case "pending":
-      return "rounded-full bg-warning px-2 py-1 text-[11px] font-medium text-warning-foreground";
-    case "canceled":
-      return "rounded-full bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground";
-    default:
-      return "rounded-full bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground";
-  }
 }
 
 function filterRuns(

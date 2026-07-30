@@ -25,10 +25,10 @@ import { Code } from "@/components/ui/code";
 import {
   InputGroup,
   InputGroupAddon,
-  InputGroupButton,
+  InputGroupClearAddon,
   InputGroupInput,
 } from "@/components/ui/input-group";
-import { CloseIcon, SearchIcon, SpinnerIcon } from "@/components/icons";
+import { SearchIcon, SpinnerIcon, CloseIcon } from "@/components/icons";
 import { SearchHighlight } from "@/components/ui/search-highlight";
 import {
   Table,
@@ -230,7 +230,6 @@ export default function AppWorkspaceOperationsPage() {
   const [highlightedOperationId, setHighlightedOperationId] = useState<
     string | null
   >(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const visibleOperations = useMemo(
     () =>
@@ -330,6 +329,7 @@ export default function AppWorkspaceOperationsPage() {
   }, [activate, operationsLoading, searchQuery, visibleOperations]);
 
   const hasSearchQuery = searchQuery.trim().length > 0;
+  const showClearSearch = hasSearchQuery;
 
   return (
     <section aria-label="Operations">
@@ -346,7 +346,6 @@ export default function AppWorkspaceOperationsPage() {
               <SearchIcon aria-hidden />
             </InputGroupAddon>
             <InputGroupInput
-              ref={searchInputRef}
               type="search"
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
@@ -354,25 +353,14 @@ export default function AppWorkspaceOperationsPage() {
               aria-label="Search operations"
               autoComplete="off"
               data-testid="app-operations-search"
-              className="[&::-webkit-search-cancel-button]:hidden"
             />
-            {searchQuery.trim().length > 0 ? (
-              <InputGroupAddon align="inline-end">
-                <InputGroupButton
-                  aria-label="Clear operation search"
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                  }}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    setSearchQuery("");
-                    searchInputRef.current?.focus();
-                  }}
-                >
-                  <CloseIcon className="size-4" />
-                </InputGroupButton>
-              </InputGroupAddon>
-            ) : null}
+            <InputGroupClearAddon
+              visible={showClearSearch}
+              aria-label="Clear operation search"
+              onClear={() => setSearchQuery("")}
+            >
+              <CloseIcon className="size-4" />
+            </InputGroupClearAddon>
           </InputGroup>
           {hasSearchQuery && filteredOperations.length > 0 ? (
             <p className="text-xs text-muted-foreground">
@@ -384,7 +372,7 @@ export default function AppWorkspaceOperationsPage() {
       ) : null}
 
       {operationsLoading ? (
-        <p className="mt-5 flex items-center gap-1.5 text-sm text-faint">
+        <p className="mt-5 flex items-center gap-1.5 text-sm text-muted-foreground">
           <SpinnerIcon className="size-4 animate-spin" aria-hidden />
           Loading operations…
         </p>
@@ -397,7 +385,7 @@ export default function AppWorkspaceOperationsPage() {
       {!operationsLoading &&
       !operationsError &&
       visibleOperations.length === 0 ? (
-        <p className="mt-5 text-sm text-faint">No visible operations for this app.</p>
+        <p className="mt-5 text-sm text-muted-foreground">No visible operations for this app.</p>
       ) : null}
 
       {!operationsLoading &&
