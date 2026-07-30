@@ -5,6 +5,8 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { gestalt } from "@valon-technologies/gestalt/vite";
 import { defineConfig, loadEnv } from "vite";
+import { gestaltDevMockApi } from "./scripts/vite-dev-mock-api.mjs";
+import { serveTenantThemeInDev } from "./scripts/vite-serve-tenant-theme.mjs";
 
 const projectDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -48,12 +50,19 @@ export default defineConfig(({ mode }) => {
     env.GESTALT_API_PROXY_TARGET?.trim().replace(/\/+$/, "") ||
     "http://127.0.0.1:8080";
   const gestaltPublicOrigin = resolveGestaltPublicOrigin(env, backendOrigin);
+  const mockAuth = process.env.GESTALT_DEV_MOCK_AUTH === "1";
 
   return {
     // Production artifacts are mount-relative. The Gestalt Vite plugin
     // overrides this with GESTALT_DEV_BASE_PATH for native UI development.
     base: "./",
-    plugins: [react(), tailwindcss(), gestalt()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      gestalt(),
+      serveTenantThemeInDev(),
+      gestaltDevMockApi(),
+    ],
     define: {
       "import.meta.env.VITE_GESTALT_PUBLIC_ORIGIN": JSON.stringify(
         gestaltPublicOrigin,
@@ -66,7 +75,9 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       proxy: {
-        "/api": { target: backendOrigin, changeOrigin: true },
+        ...(mockAuth
+          ? {}
+          : { "/api": { target: backendOrigin, changeOrigin: true } }),
         "/theme.css": { target: backendOrigin, changeOrigin: true },
         "/theme/": { target: backendOrigin, changeOrigin: true },
       },

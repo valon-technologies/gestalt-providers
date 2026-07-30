@@ -185,7 +185,8 @@ GESTALT_THEME_FILE=/path/to/deployment-repo/deploy/ui/theme.css
 
 Vite then:
 
-1. Mirrors the stylesheet into `.dev/theme.css` for the `@theme.css` import.
+1. Mirrors the stylesheet into `.dev/theme.css` for the `@theme.css` import
+   (and `npm run dev:theme` watches for HMR).
 2. Serves the production theme contract on the Vite origin:
    `/theme.css` ← stylesheet, `/theme/*` ← assetsDir (brand `@font-face`
    files at `/theme/fonts/…`). Without (2), tenant font URLs fall through
