@@ -15,22 +15,29 @@ import {
 
 import { cn } from "@/lib/cn";
 
-// Carbon-style icon shell — fill/ink must match Badge status variants in this bundle
-// (`badge.tsx` uses --badge-* surfaces so legacy gestalt-shell --success overrides
-// do not recolor chips). Registry upstream uses bg-success; gp maps badge parity here.
+/**
+ * Carbon-style icon indicator for table rows: semantic shell + symbol +
+ * optional label. Shell fill/ink matches `Badge` status variants. Distinct from
+ * uptime `StatusIndicator` dots and from checkbox row selection.
+ *
+ * Local bundle override: use `bg-badge-*` so the indicator stays paired with
+ * Badge status chips when a tenant theme remaps legacy `--success` tokens.
+ */
 const tableStatusIndicatorVariants = cva(
   "inline-flex shrink-0 items-center justify-center [&>svg]:pointer-events-none [&>svg]:size-3",
   {
     variants: {
       variant: {
-        default: "size-5 rounded-full bg-foreground/[0.06] text-foreground/80",
+        default:
+          "size-5 rounded-full bg-foreground/[0.06] text-foreground/80",
         success:
           "size-5 rounded-full bg-badge-success text-badge-success-foreground",
         danger:
           "size-5 rounded-full bg-badge-destructive text-badge-destructive-foreground",
         warning:
           "size-5 rounded-full bg-badge-warning text-badge-warning-foreground",
-        info: "size-5 rounded-full bg-badge-info text-badge-info-foreground",
+        info:
+          "size-5 rounded-full bg-badge-info text-badge-info-foreground",
       },
     },
     defaultVariants: {
@@ -54,6 +61,7 @@ export type TableStatusIndicatorVariant = NonNullable<
   VariantProps<typeof tableStatusIndicatorVariants>["variant"]
 >;
 
+/** Badge variant that matches shell fill/ink for each indicator severity. */
 export function tableStatusIndicatorBadgeVariant(
   variant: TableStatusIndicatorVariant,
 ): "success" | "warning" | "destructive" | "info" | "secondary" {
@@ -73,7 +81,9 @@ export function tableStatusIndicatorBadgeVariant(
 
 export type TableStatusIndicatorProps = React.HTMLAttributes<HTMLSpanElement> &
   VariantProps<typeof tableStatusIndicatorVariants> & {
+    /** Visible label beside the icon (Carbon icon indicator pattern). */
     label?: string;
+    /** Icon-only gutter cell — still exposes `aria-label`. */
     iconOnly?: boolean;
   };
 
