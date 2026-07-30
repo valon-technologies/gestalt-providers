@@ -9,6 +9,13 @@ import {
 } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "@/components/ui/link";
+import {
+  PageHeader,
+  PageHeaderActions,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
 import { SpinnerIcon } from "@/components/icons";
 import { useAppWorkspace } from "@/features/app-workspace/app-workspace-context";
 
@@ -65,21 +72,21 @@ export default function AppAdminAgentIdentitiesPage() {
 
   return (
     <section aria-label="Agent identities">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-heading text-foreground">
-            Agent identities
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+      <PageHeader>
+        <PageHeaderContent>
+          <PageHeaderTitle>Agent identities</PageHeaderTitle>
+          <PageHeaderDescription>
             Managed identities with an authorization grant for this app —
             usually the <code className="font-mono text-xs">runAs</code> subject
             for schedules.
-          </p>
-        </div>
-        <Link asChild>
-          <RouterLink to="/settings/identities">Manage identities</RouterLink>
-        </Link>
-      </div>
+          </PageHeaderDescription>
+        </PageHeaderContent>
+        <PageHeaderActions>
+          <Link asChild>
+            <RouterLink to="/settings/identities">Manage identities</RouterLink>
+          </Link>
+        </PageHeaderActions>
+      </PageHeader>
 
       {accessLoading ? (
         <p className="mt-5 flex items-center gap-1.5 text-sm text-muted-foreground">

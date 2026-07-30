@@ -14,6 +14,18 @@ import AppPromptExamplePromo from "@/components/AppPromptExamplePromo";
 import IntegrationIcon from "@/components/IntegrationIcon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  PageHeader,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
+import {
+  SectionHeader,
+  SectionHeaderContent,
+  SectionHeaderDescription,
+  SectionHeaderTitle,
+} from "@/components/ui/section-header";
 import { SelectionCheck } from "@/components/ui/selection-check";
 import { useAppWorkspace } from "@/features/app-workspace/app-workspace-context";
 
@@ -87,17 +99,21 @@ export default function AppWorkspaceOverviewPage() {
           className="shrink-0"
         />
         <div className="flex min-w-0 flex-col gap-3">
-          <h1 className="text-2xl font-heading text-foreground">{label}</h1>
-          {integration.description ? (
-            <p className="text-sm text-muted-foreground">
-              {integration.description}
-            </p>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Connection, workflows, and operations for{" "}
-              <code className="font-mono text-xs">{integration.name}</code>.
-            </p>
-          )}
+          <PageHeader>
+            <PageHeaderContent>
+              <PageHeaderTitle>{label}</PageHeaderTitle>
+              <PageHeaderDescription>
+                {integration.description ? (
+                  integration.description
+                ) : (
+                  <>
+                    Connection, workflows, and operations for{" "}
+                    <code className="font-mono text-xs">{integration.name}</code>.
+                  </>
+                )}
+              </PageHeaderDescription>
+            </PageHeaderContent>
+          </PageHeader>
           <div className="flex flex-wrap items-center gap-2">
             <Badge
               variant={badgeVariantFromTone(status.tone)}
@@ -154,10 +170,14 @@ export default function AppWorkspaceOverviewPage() {
       </div>
 
       <div className={overviewSectionClass}>
-        <h2 className="text-lg font-heading text-foreground">Your access</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Connection and credentials for the signed-in user.
-        </p>
+        <SectionHeader>
+          <SectionHeaderContent size="sm">
+            <SectionHeaderTitle>Your access</SectionHeaderTitle>
+            <SectionHeaderDescription>
+              Connection and credentials for the signed-in user.
+            </SectionHeaderDescription>
+          </SectionHeaderContent>
+        </SectionHeader>
         <dl className="mt-4 grid gap-3 sm:grid-cols-2">
           <div>
             <dt className="text-xs font-medium text-muted-foreground">User</dt>
@@ -184,11 +204,15 @@ export default function AppWorkspaceOverviewPage() {
           className={overviewSectionClass}
           data-testid="app-admin-checklist"
         >
-          <h2 className="text-lg font-heading text-foreground">Setup</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {checklist.filter((item) => item.done).length}/{checklist.length}{" "}
-            ready
-          </p>
+          <SectionHeader>
+            <SectionHeaderContent size="sm">
+              <SectionHeaderTitle>Setup</SectionHeaderTitle>
+              <SectionHeaderDescription>
+                {checklist.filter((item) => item.done).length}/{checklist.length}{" "}
+                ready
+              </SectionHeaderDescription>
+            </SectionHeaderContent>
+          </SectionHeader>
           <ul className="mt-4 space-y-2">
             {checklist.map((item) => (
               <li
@@ -204,7 +228,11 @@ export default function AppWorkspaceOverviewPage() {
       ) : null}
 
       <div className={overviewSectionClass}>
-        <h2 className="text-lg font-heading text-foreground">Details</h2>
+        <SectionHeader>
+          <SectionHeaderContent size="sm">
+            <SectionHeaderTitle>Details</SectionHeaderTitle>
+          </SectionHeaderContent>
+        </SectionHeader>
         <dl className="mt-4 grid gap-3 sm:grid-cols-2">
           <div>
             <dt className="text-xs font-medium text-muted-foreground">App name</dt>

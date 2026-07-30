@@ -24,6 +24,7 @@ import {
   SectionHeader,
   SectionHeaderActions,
   SectionHeaderContent,
+  SectionHeaderDescription,
   SectionHeaderTitle,
 } from "@/components/ui/section-header";
 import {
@@ -183,16 +184,18 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
       </StatGroup>
 
       <section className="space-y-3" aria-label="Definitions and schedules">
-        <div>
-          <h3 className="text-base font-heading text-foreground">
-            Definitions &amp; schedules
-          </h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Cron jobs are schedule activations on a definition (cron, timezone,
-            pause, runAs). Full definition APIs are not yet in this UI — below
-            is what recent runs reveal.
-          </p>
-        </div>
+        <SectionHeader>
+          <SectionHeaderContent size="sm">
+            <SectionHeaderTitle as="h3">
+              Definitions &amp; schedules
+            </SectionHeaderTitle>
+            <SectionHeaderDescription className="text-sm">
+              Cron jobs are schedule activations on a definition (cron, timezone,
+              pause, runAs). Full definition APIs are not yet in this UI — below
+              is what recent runs reveal.
+            </SectionHeaderDescription>
+          </SectionHeaderContent>
+        </SectionHeader>
         {loading ? (
           <p className="text-sm text-muted-foreground/70">Loading definitions…</p>
         ) : definitions.length === 0 ? (
@@ -257,15 +260,15 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
       </section>
 
       <section className="space-y-3" aria-label="Event activations">
-        <div>
-          <h3 className="text-base font-heading text-foreground">
-            Event activations
-          </h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Event-matched activations observed on recent runs (type / source /
-            subject).
-          </p>
-        </div>
+        <SectionHeader>
+          <SectionHeaderContent size="sm">
+            <SectionHeaderTitle as="h3">Event activations</SectionHeaderTitle>
+            <SectionHeaderDescription className="text-sm">
+              Event-matched activations observed on recent runs (type / source /
+              subject).
+            </SectionHeaderDescription>
+          </SectionHeaderContent>
+        </SectionHeader>
         {loading ? (
           <p className="text-sm text-muted-foreground/70">Loading events…</p>
         ) : eventDefinitions.length === 0 ? (
@@ -294,15 +297,15 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
       </section>
 
       <section className="space-y-3" aria-label="Automation identities">
-        <div>
-          <h3 className="text-base font-heading text-foreground">
-            Automation identity
-          </h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Subjects observed as <code className="font-mono text-xs">createdBy</code>{" "}
-            on recent runs (often the definition <code className="font-mono text-xs">runAs</code>).
-          </p>
-        </div>
+        <SectionHeader>
+          <SectionHeaderContent size="sm">
+            <SectionHeaderTitle as="h3">Automation identity</SectionHeaderTitle>
+            <SectionHeaderDescription className="text-sm">
+              Subjects observed as <code className="font-mono text-xs">createdBy</code>{" "}
+              on recent runs (often the definition <code className="font-mono text-xs">runAs</code>).
+            </SectionHeaderDescription>
+          </SectionHeaderContent>
+        </SectionHeader>
         {loading ? (
           <p className="text-sm text-muted-foreground/70">Loading identities…</p>
         ) : automationSubjects.length === 0 ? (
@@ -335,13 +338,15 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
       </section>
 
       <section className="space-y-4" aria-label="Recent runs">
-        <div>
-          <h3 className="text-base font-heading text-foreground">Recent runs</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Status, trigger, definition, step plan, and I/O for runs that target
-            this app.
-          </p>
-        </div>
+        <SectionHeader>
+          <SectionHeaderContent size="sm">
+            <SectionHeaderTitle as="h3">Recent runs</SectionHeaderTitle>
+            <SectionHeaderDescription className="text-sm">
+              Status, trigger, definition, step plan, and I/O for runs that target
+              this app.
+            </SectionHeaderDescription>
+          </SectionHeaderContent>
+        </SectionHeader>
 
       <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem]">
         <div className="block">
@@ -484,37 +489,39 @@ function RunsPanel({
           <p className="text-sm text-muted-foreground/70">Select a run to inspect details.</p>
         ) : (
           <div className="space-y-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0">
+            <SectionHeader>
+              <SectionHeaderContent size="sm" className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <StatusBadge status={selectedRun.status} />
                   <span className="truncate font-mono text-xs text-muted-foreground">
                     {shortRunId(selectedRun.id)}
                   </span>
                 </div>
-                <h3 className="mt-2 text-base font-heading text-foreground">
+                <SectionHeaderTitle as="h3">
                   {targetLabel(selectedRun.target) ||
                     selectedRun.definitionId ||
                     "Workflow run"}
-                </h3>
+                </SectionHeaderTitle>
                 {selectedRun.statusMessage ? (
-                  <p className="mt-1 text-sm text-muted-foreground">
+                  <SectionHeaderDescription className="text-sm">
                     {selectedRun.statusMessage}
-                  </p>
+                  </SectionHeaderDescription>
                 ) : null}
-              </div>
+              </SectionHeaderContent>
               {selectedRun.status === "pending" ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={onCancelSelectedRun}
-                  disabled={canceling}
-                  className="shrink-0"
-                >
-                  {canceling ? "Canceling…" : "Cancel run"}
-                </Button>
+                <SectionHeaderActions>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={onCancelSelectedRun}
+                    disabled={canceling}
+                    className="shrink-0"
+                  >
+                    {canceling ? "Canceling…" : "Cancel run"}
+                  </Button>
+                </SectionHeaderActions>
               ) : null}
-            </div>
+            </SectionHeader>
             {actionError ? (
               <p className="text-sm text-destructive">{actionError}</p>
             ) : null}

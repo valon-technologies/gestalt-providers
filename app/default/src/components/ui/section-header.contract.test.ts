@@ -13,13 +13,16 @@ const SOURCE = readFileSync(
 /** Tailwind spacing scale: class → px at default 16px root. */
 const TW_PX: Record<string, number> = {
   "gap-y-1.5": 6,
+  "gap-y-2": 8,
   "gap-y-2.5": 10,
   "pt-5.5": 22,
+  "pt-8": 32,
   "pt-10.5": 42,
 };
 
 const SVG_PX: Record<string, number> = {
   "[&_svg:not([class*='size-'])]:size-4": 16,
+  "[&_svg:not([class*='size-'])]:size-6": 24,
   "[&_svg:not([class*='size-'])]:size-8": 32,
 };
 
@@ -28,7 +31,7 @@ describe("SectionHeader", () => {
     expect(SOURCE).toContain("createHeaderChrome");
     expect(SOURCE).toContain('title: { kind: "section"');
     expect(SOURCE).toContain('alignBetweenItems: "sm:items-baseline"');
-    expect(SOURCE).toContain('default: "font-display text-heading-xl tracking-display"');
+    expect(SOURCE).toContain('lg: "font-display text-heading-lg tracking-heading"');
     expect(SOURCE).toContain("SECTION_HEADER_ICON_STACK");
     expect(SOURCE).toContain(
       "[&:has([data-slot=section-header-content][data-size=default])]:gap-y-2.5",
@@ -36,7 +39,7 @@ describe("SectionHeader", () => {
   });
 
   test("icon stack padding equals svg box + content gap per tier", () => {
-    for (const tier of ["sm", "default", "md"] as const) {
+    for (const tier of ["sm", "lg", "default", "md"] as const) {
       const { svg, gapY, textPad } = SECTION_HEADER_ICON_STACK[tier];
       expect(TW_PX[textPad]).toBe(SVG_PX[svg]! + TW_PX[gapY]!);
     }

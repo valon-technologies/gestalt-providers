@@ -1,4 +1,11 @@
 import { Button } from "@/components/ui/button";
+import {
+  PageHeader,
+  PageHeaderActions,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
 import { AppAdminAutoDeployToggle } from "@/features/registry/app-admin-auto-deploy-toggle";
 import { useAppAdminRegistryContext } from "@/features/registry/app-admin-registry-context";
 import { AppAdminSnapshotsTable } from "@/features/registry/app-admin-snapshots-table";
@@ -61,20 +68,18 @@ export default function AppAdminSnapshotsPage() {
 
   return (
     <section aria-label="Published snapshots">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-heading text-foreground">
-            Published snapshots
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+      <PageHeader>
+        <PageHeaderContent>
+          <PageHeaderTitle>Published snapshots</PageHeaderTitle>
+          <PageHeaderDescription>
             {snapshotsSubhead({
               autoDeployEnabled,
               desiredVersion: registry.desiredVersion,
               rolloutActive,
             })}
-          </p>
-        </div>
-        <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-4">
+          </PageHeaderDescription>
+        </PageHeaderContent>
+        <PageHeaderActions className="flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-4">
           {isCheckingForNewVersions ? (
             <p className="text-sm text-muted-foreground">Refreshing…</p>
           ) : registryUpdatedAt ? (
@@ -105,8 +110,8 @@ export default function AppAdminSnapshotsPage() {
               "Check for new versions"
             )}
           </Button>
-        </div>
-      </div>
+        </PageHeaderActions>
+      </PageHeader>
 
       <div className="mt-6 space-y-8">
         <AppAdminAutoDeployToggle

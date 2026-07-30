@@ -1,4 +1,10 @@
 import { useAuthSessionQuery } from "@/lib/queries";
+import {
+  PageHeader,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const sessionQuery = useAuthSessionQuery();
@@ -8,12 +14,14 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   if (sessionQuery.isError && !sessionQuery.data) {
     return (
       <main className="mx-auto max-w-lg px-4 py-16 text-center">
-        <h1 className="text-lg font-heading text-foreground">
-          Could not verify your session
-        </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          The session check failed. Try again or sign in from the login page.
-        </p>
+        <PageHeader align="center">
+          <PageHeaderContent>
+            <PageHeaderTitle>Could not verify your session</PageHeaderTitle>
+            <PageHeaderDescription className="text-sm">
+              The session check failed. Try again or sign in from the login page.
+            </PageHeaderDescription>
+          </PageHeaderContent>
+        </PageHeader>
         <button
           type="button"
           onClick={() => void sessionQuery.refetch()}

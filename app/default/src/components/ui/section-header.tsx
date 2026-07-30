@@ -8,6 +8,7 @@ import { createHeaderChrome } from "./header-chrome";
 /** Static Tailwind literals — must stay complete strings for `@source` emission. */
 const SECTION_HEADER_STACKED_ROW_GAP_Y = [
   "[&:has([data-slot=section-header-content][data-size=sm])]:gap-y-1.5",
+  "[&:has([data-slot=section-header-content][data-size=lg])]:gap-y-2",
   "[&:has([data-slot=section-header-content][data-size=default])]:gap-y-2.5",
   "[&:has([data-slot=section-header-content][data-size=md])]:gap-y-2.5",
 ] as const;
@@ -29,6 +30,11 @@ export const SECTION_HEADER_ICON_STACK = {
     svg: "[&_svg:not([class*='size-'])]:size-8",
     gapY: "gap-y-2.5",
     textPad: "pt-10.5",
+  },
+  lg: {
+    svg: "[&_svg:not([class*='size-'])]:size-6",
+    gapY: "gap-y-2",
+    textPad: "pt-8",
   },
   md: {
     svg: "[&_svg:not([class*='size-'])]:size-8",
@@ -60,22 +66,26 @@ const {
   scale: {
     contentGapY: {
       sm: SECTION_HEADER_ICON_STACK.sm.gapY,
+      lg: SECTION_HEADER_ICON_STACK.lg.gapY,
       default: SECTION_HEADER_ICON_STACK.default.gapY,
       md: SECTION_HEADER_ICON_STACK.md.gapY,
     },
     title: {
       sm: "font-sans text-heading-sm",
+      lg: "font-display text-heading-lg tracking-heading",
       default: "font-display text-heading-xl tracking-display",
       md: "font-display text-heading-xl tracking-display",
     },
-    description: { sm: "text-xs", default: "text-base", md: "text-base" },
+    description: { sm: "text-xs", lg: "text-sm", default: "text-base", md: "text-base" },
     icon: {
       sm: SECTION_HEADER_ICON_STACK.sm.svg,
+      lg: SECTION_HEADER_ICON_STACK.lg.svg,
       default: SECTION_HEADER_ICON_STACK.default.svg,
       md: SECTION_HEADER_ICON_STACK.md.svg,
     },
     iconStackPadding: {
       sm: SECTION_HEADER_ICON_STACK.sm.textPad,
+      lg: SECTION_HEADER_ICON_STACK.lg.textPad,
       default: SECTION_HEADER_ICON_STACK.default.textPad,
       md: SECTION_HEADER_ICON_STACK.md.textPad,
     },

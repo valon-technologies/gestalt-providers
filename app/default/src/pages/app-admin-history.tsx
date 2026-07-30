@@ -1,5 +1,11 @@
 import { useParams } from "@tanstack/react-router";
 import { AppAdminHistoryTable } from "@/features/registry/app-admin-history-table";
+import {
+  PageHeader,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
 import { useAppAdminRegistryHistoryQuery } from "@/lib/queries";
 
 export default function AppAdminHistoryPage() {
@@ -15,10 +21,14 @@ export default function AppAdminHistoryPage() {
 
   return (
     <section aria-label="Revision history">
-      <h1 className="text-2xl font-heading text-foreground">Revision history</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Fleet version changes in reverse chronological order.
-      </p>
+      <PageHeader>
+        <PageHeaderContent>
+          <PageHeaderTitle>Revision history</PageHeaderTitle>
+          <PageHeaderDescription>
+            Accepted fleet version changes in reverse chronological order.
+          </PageHeaderDescription>
+        </PageHeaderContent>
+      </PageHeader>
 
       <div className="mt-6">
         <AppAdminHistoryTable

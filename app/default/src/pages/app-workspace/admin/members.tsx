@@ -2,6 +2,13 @@ import { useMemo } from "react";
 import { APIError, isAPIErrorStatus } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "@/components/ui/link";
+import {
+  PageHeader,
+  PageHeaderActions,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
 import { SpinnerIcon } from "@/components/icons";
 import { useAppWorkspace } from "@/features/app-workspace/app-workspace-context";
 import {
@@ -39,18 +46,20 @@ export default function AppAdminMembersPage() {
 
   return (
     <section aria-label="Members">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-heading text-foreground">Members</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+      <PageHeader>
+        <PageHeaderContent>
+          <PageHeaderTitle>Members</PageHeaderTitle>
+          <PageHeaderDescription>
             Who has access to this app (static policy + dynamic grants). Same
             roster as the admin Authorization tab.
-          </p>
-        </div>
-        <Link href="/admin/" underlineVariant="always">
-          Open admin Authorization
-        </Link>
-      </div>
+          </PageHeaderDescription>
+        </PageHeaderContent>
+        <PageHeaderActions>
+          <Link href="/admin/" underlineVariant="always">
+            Open admin Authorization
+          </Link>
+        </PageHeaderActions>
+      </PageHeader>
 
       {!membersLoading && !membersForbidden && !membersError ? (
         <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">

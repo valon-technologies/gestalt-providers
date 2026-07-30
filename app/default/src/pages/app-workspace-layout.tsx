@@ -44,6 +44,12 @@ import {
 import { APP_SECTION_CARD } from "@/features/app-workspace/app-workspace-shared";
 import type { AppAdminOutletContext } from "@/pages/app-admin-outlet-context";
 import { AppWorkspaceNav } from "@/features/app-workspace/app-workspace-nav";
+import {
+  SectionHeader,
+  SectionHeaderContent,
+  SectionHeaderDescription,
+  SectionHeaderTitle,
+} from "@/components/ui/section-header";
 
 export default function AppWorkspaceLayout() {
   const { app: rawApp } = useParams({ from: "/apps/$app" });
@@ -314,12 +320,14 @@ export default function AppWorkspaceLayout() {
                   className="rounded-2xl border border-border bg-card p-6 text-card-foreground"
                   data-testid="app-admin-access-denied"
                 >
-                  <h1 className="text-2xl font-heading text-foreground">
-                    Access denied
-                  </h1>
-                  <p className="mt-3 text-sm text-muted-foreground">
-                    You do not have permission to manage this section of the app.
-                  </p>
+                  <SectionHeader>
+                    <SectionHeaderContent size="sm">
+                      <SectionHeaderTitle>Access denied</SectionHeaderTitle>
+                      <SectionHeaderDescription className="text-sm">
+                        You do not have permission to manage this section of the app.
+                      </SectionHeaderDescription>
+                    </SectionHeaderContent>
+                  </SectionHeader>
                 </div>
               ) : (
                 <Outlet />

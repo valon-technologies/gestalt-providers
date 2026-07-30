@@ -4,6 +4,17 @@ import { useEffect, useState, type ReactNode } from "react";
 import { CheckIcon, CopyIcon } from "@/components/icons";
 import ShikiCode from "@/components/ShikiCode";
 import { Eyebrow } from "@/components/ui/eyebrow";
+import {
+  PageHeader,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
+import {
+  SectionHeader,
+  SectionHeaderContent,
+  SectionHeaderTitle,
+} from "@/components/ui/section-header";
 
 const FALLBACK_ORIGIN = "https://your-gestalt-host";
 
@@ -541,21 +552,15 @@ function DocsPageHeader({
   const showEyebrow = eyebrow != null && eyebrow !== title;
 
   return (
-    <header className="scroll-mt-24 border-b border-alpha pb-10">
-      {showEyebrow ? <Eyebrow>{eyebrow}</Eyebrow> : null}
-      <h1
-        className={
-          showEyebrow
-            ? "mt-5 font-heading text-3xl tracking-[-0.03em] text-primary sm:text-4xl"
-            : "font-heading text-3xl tracking-[-0.03em] text-primary sm:text-4xl"
-        }
-      >
-        {title}
-      </h1>
-      <div className="mt-6 max-w-3xl text-base leading-7 text-foreground/80">
-        {description}
-      </div>
-    </header>
+    <PageHeader className="scroll-mt-24 border-b border-alpha pb-10">
+      <PageHeaderContent size="lg">
+        {showEyebrow ? <Eyebrow>{eyebrow}</Eyebrow> : null}
+        <PageHeaderTitle>{title}</PageHeaderTitle>
+        <PageHeaderDescription className="max-w-3xl text-foreground/80">
+          {description}
+        </PageHeaderDescription>
+      </PageHeaderContent>
+    </PageHeader>
   );
 }
 
@@ -1202,12 +1207,11 @@ function InlineCode({ children }: { children: React.ReactNode }) {
 
 function Subheading({ id, title }: { id?: string; title: string }) {
   return (
-    <h2
-      id={id}
-      className="scroll-mt-24 pt-2 text-lg tracking-[-0.01em] text-foreground"
-    >
-      {title}
-    </h2>
+    <SectionHeader className="scroll-mt-24 pt-2">
+      <SectionHeaderContent size="sm">
+        <SectionHeaderTitle id={id}>{title}</SectionHeaderTitle>
+      </SectionHeaderContent>
+    </SectionHeader>
   );
 }
 
