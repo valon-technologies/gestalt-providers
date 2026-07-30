@@ -45,7 +45,7 @@ function IdentitiesSectionHeader({
 }) {
   return (
     <SectionHeader>
-      <SectionHeaderContent size="lg">
+      <SectionHeaderContent>
         <SectionHeaderTitle>Managed identities</SectionHeaderTitle>
         <SectionHeaderDescription>{description}</SectionHeaderDescription>
       </SectionHeaderContent>

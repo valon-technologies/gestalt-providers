@@ -137,9 +137,7 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
     <>
       <SectionHeader className="mb-6">
         <SectionHeaderContent>
-          <SectionHeaderTitle className="font-heading text-2xl tracking-normal">
-            Workflows
-          </SectionHeaderTitle>
+          <SectionHeaderTitle>Workflows</SectionHeaderTitle>
         </SectionHeaderContent>
         <SectionHeaderActions>
           <Button

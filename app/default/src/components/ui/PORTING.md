@@ -72,6 +72,12 @@ Do not hand-roll `bg-muted font-mono` at call sites.
 
 ## Brand type scale
 
+Registry `header-chrome`, `PageHeader`, and `SectionHeader` are vendored here.
+`PageHeader` / `SectionHeader` are thin wrappers over `createHeaderChrome` — sync
+all three together from toolshed. Season (`font-display`) is baked into default
+tiers; Melange (`font-sans`) is dense-only (`sm`). Do not reintroduce a `display`
+prop or face overrides at call sites.
+
 Registry PageHeader / SectionHeader consume `text-heading-*`, `text-display-*`,
 `tracking-heading`, `tracking-display` (brand type scale). Add **generic** defaults
 in `shared/theme.css` and bridge them in `globals.css` `@theme inline`. Tenant-
