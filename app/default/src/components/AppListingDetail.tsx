@@ -63,7 +63,7 @@ export default function AppListingDetail({
       onCancel={handleCancel}
       onClick={handleBackdropClick}
       aria-labelledby={headingId}
-      className="fixed inset-0 z-50 m-auto w-[min(100%-2rem,28rem)] max-h-[min(100%-2rem,36rem)] overflow-y-auto rounded-xl border border-border bg-card p-0 text-card-foreground shadow-xl backdrop:bg-background/80"
+      className="fixed inset-0 z-50 m-auto w-[min(100%-2rem,28rem)] max-h-[min(100%-2rem,36rem)] overflow-y-auto rounded-xl border border-border bg-card p-0 text-card-foreground shadow-lg backdrop:bg-background/80"
       data-testid={`app-listing-detail-${integration.name}`}
     >
       <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">

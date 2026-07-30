@@ -143,6 +143,13 @@
   --code-line-emphasis: color-mix(in oklch, var(--accent-wash), var(--accent-highlight));
   --scrollbar-thumb: oklch(86.851% 0.0197 72.55);
 
+  /* Elevation shadows (registry elevation.md) — warm foreground ink, not default
+   * Tailwind black at 10%. lg uses the softer spread that reads on marketing washes. */
+  --elevation-shadow-md: 0 4px 6px -1px color-mix(in oklab, var(--foreground) 8%, transparent),
+    0 2px 4px -2px color-mix(in oklab, var(--foreground) 6%, transparent);
+  --elevation-shadow-lg: 0 20px 25px -5px color-mix(in oklab, var(--foreground) 6%, transparent),
+    0 8px 10px -6px color-mix(in oklab, var(--foreground) 4%, transparent);
+
   /* Type scale — semantic sizes for PageHeader / SectionHeader. Tenants override
    * at serve time; deployment palettes map to these names in deploy/ui/theme.css. */
   --text-body-lg: 1.125rem; /* 18px */

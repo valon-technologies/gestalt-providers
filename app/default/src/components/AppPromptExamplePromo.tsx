@@ -45,7 +45,7 @@ export default function AppPromptExamplePromo({
         aria-label={copied ? "Copied prompt" : "Copy example prompt"}
         className={cn(
           "mx-auto flex w-full max-w-2xl items-center gap-3 rounded-full",
-          "bg-card px-5 py-3.5 text-left shadow-sm",
+          "bg-card px-5 py-3.5 text-left",
           "ring-1 ring-border",
           "transition-[background-color,box-shadow] duration-hover-out ease-out-quart",
           "hover:bg-neutral-hover hover:duration-hover-in",
