@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import { SpinnerIcon } from "@/components/icons";
 import { useDocumentTitle } from "@/hooks/use-document-title";
+import { AppAdminFleetState } from "@/features/registry/app-admin-fleet-state";
 import { AppAdminRegistryProvider } from "@/features/registry/app-admin-registry-context";
 import { isActiveRegistryRollout } from "@/features/registry/format";
 import { RolloutBadge } from "@/features/registry/rollout-badge";
@@ -280,8 +281,17 @@ export default function AppWorkspaceLayout() {
                       </p>
                     ) : null}
                   </div>
-                  <RolloutBadge app={registry} />
+                  <div className="flex flex-col items-end gap-1">
+                    <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Last rollout
+                    </span>
+                    <RolloutBadge app={registry} />
+                  </div>
                 </div>
+              ) : null}
+
+              {isAdminPath && capabilities.registry && registry ? (
+                <AppAdminFleetState registry={registry} />
               ) : null}
 
               {rolloutActive && registry?.rollout ? (

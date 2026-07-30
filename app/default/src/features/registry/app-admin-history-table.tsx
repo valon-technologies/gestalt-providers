@@ -23,6 +23,7 @@ import { RegistryCode } from "@/features/registry/registry-code";
 import {
   decorateRevisionRollout,
   revisionHasActiveRollout,
+  revisionRecoveryDurationLabel,
   revisionRolloutStatusLabel,
   revisionRolloutStatusTimer,
   revisionRolloutStatusVariant,
@@ -96,6 +97,15 @@ function revisionRowSearchText(
     revision.publication?.workflowRunUrl ? "workflow" : null,
     revisionRolloutStatusLabel(decoratedRevision.rolloutState),
     revisionRolloutStatusTimer(decoratedRevision, liveNow),
+    revision.recovery ? "Recovered after failed rollout" : null,
+    revisionRecoveryDurationLabel(revision),
+    revision.recovery?.recoveredAt
+      ? formatRegistryTimeAgo(revision.recovery.recoveredAt, liveNow)
+      : null,
+    revision.recovery?.recoveredAt
+      ? formatRegistryTime(revision.recovery.recoveredAt)
+      : null,
+    revision.recovery?.sourceVersion,
   ]
     .filter(Boolean)
     .join(" ");
@@ -193,6 +203,14 @@ function RevisionStatusCell({
   const isActiveRollout =
     decoratedRevision.rolloutState === "enrolling" ||
     decoratedRevision.rolloutState === "restarting";
+  const recovery =
+    decoratedRevision.rolloutState === "failed"
+      ? decoratedRevision.recovery
+      : undefined;
+  const recoveryDuration = revisionRecoveryDurationLabel(decoratedRevision);
+  const recoveredAgo = recovery?.recoveredAt
+    ? formatRegistryTimeAgo(recovery.recoveredAt, liveNow)
+    : "";
 
   if (!statusLabel || !statusVariant) {
     return <span className="text-muted-foreground">—</span>;
@@ -213,6 +231,31 @@ function RevisionStatusCell({
         </Badge>
         {statusTimer ? <RevisionRolloutDuration statusTimer={statusTimer} /> : null}
       </div>
+      {recovery ? (
+        <div
+          className="flex flex-wrap items-center gap-2 pt-1"
+          data-testid="revision-recovery"
+        >
+          <Badge variant="success">
+            <SearchHighlight text="Recovered after failed rollout" />
+          </Badge>
+          <time
+            className="text-xs text-muted-foreground"
+            dateTime={recovery.recoveredAt}
+            title={formatRegistryTime(recovery.recoveredAt)}
+            data-testid="revision-recovered-at"
+          >
+            <SearchHighlight
+              text={recoveredAgo || formatRegistryTime(recovery.recoveredAt)}
+            />
+          </time>
+          {recoveryDuration ? (
+            <span className="text-xs text-muted-foreground">
+              <SearchHighlight text={`(${recoveryDuration})`} />
+            </span>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -235,7 +278,9 @@ export function AppAdminHistoryTable({
   hasMore: boolean;
 }) {
   const liveNow = useLiveNow({
-    enabled: revisionHasActiveRollout(revisions, rollout),
+    enabled:
+      revisionHasActiveRollout(revisions, rollout) ||
+      revisions.some((revision) => revision.recovery !== undefined),
   });
   const currentRevisionId = revisions[0]?.id;
   const [sorting, setSorting] = useState<SortingState>([
