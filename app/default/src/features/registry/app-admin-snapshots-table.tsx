@@ -31,7 +31,6 @@ import {
   REGISTRY_TABLE_LINK_CLASS,
 } from "@/features/registry/publication-pull-request-label";
 import {
-  isFailedRolloutRetryRow,
   resolveSnapshotRowStatus,
   snapshotRowStatusPresentation,
 } from "@/features/registry/snapshot-row-status";
@@ -346,13 +345,12 @@ function SnapshotActionCell({
   const isDeployable = row.kind === "published";
   const isDeploying = deployingVersion === row.version;
   const autoDeployEnabled = registry.autoDeploy?.enabled ?? false;
-  const failedRolloutRetry = isFailedRolloutRetryRow(row, registry.rollout);
   const deployDisabled =
     !isDeployable ||
-    (controlsDisabled && !failedRolloutRetry) ||
-    (autoDeployEnabled && !failedRolloutRetry) ||
+    controlsDisabled ||
+    autoDeployEnabled ||
     isDeploying ||
-    (row.version === registry.desiredVersion && !failedRolloutRetry);
+    row.version === registry.desiredVersion;
   const showRolloutDeploying = isRolloutDeployingAction(registry.rollout, row.version);
 
   if (showRolloutDeploying) {
@@ -371,19 +369,11 @@ function SnapshotActionCell({
     );
   }
 
-  if (isDeployable && row.version === registry.desiredVersion && !failedRolloutRetry) {
+  if (isDeployable && row.version === registry.desiredVersion) {
     return <span className="text-muted-foreground">—</span>;
   }
 
   if (isDeployable) {
-    const actionLabel = failedRolloutRetry
-      ? isDeploying
-        ? "Retrying..."
-        : "Retry deploy"
-      : isDeploying
-        ? "Deploying..."
-        : "Deploy";
-
     return (
       <span className="inline-block align-baseline">
         <Button
@@ -394,7 +384,7 @@ function SnapshotActionCell({
           disabled={deployDisabled}
           onClick={() => onDeployVersion(row.version)}
         >
-          {actionLabel}
+          {isDeploying ? "Deploying..." : "Deploy"}
         </Button>
       </span>
     );
