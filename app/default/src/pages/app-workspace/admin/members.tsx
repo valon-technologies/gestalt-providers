@@ -51,12 +51,12 @@ export default function AppAdminMembersPage() {
           <PageHeaderTitle>Members</PageHeaderTitle>
           <PageHeaderDescription>
             Who has access to this app (static policy + dynamic grants). Same
-            roster as the admin Authorization tab.
+            roster as the admin authorization tab.
           </PageHeaderDescription>
         </PageHeaderContent>
         <PageHeaderActions>
           <Link href="/admin/" underlineVariant="always">
-            Open admin Authorization
+            Open admin authorization
           </Link>
         </PageHeaderActions>
       </PageHeader>

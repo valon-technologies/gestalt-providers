@@ -9,9 +9,13 @@ const SOURCE = readFileSync(
 );
 
 describe("PageHeader", () => {
-  test("bakes Season into tiers via createHeaderChrome config", () => {
+  test("uses the display token for display tiers", () => {
     expect(SOURCE).toContain("createHeaderChrome");
-    expect(SOURCE).toContain('default: "font-display text-heading-lg tracking-heading"');
+    expect(SOURCE).toContain('title: "font-display text-heading-lg tracking-heading"');
+    expect(SOURCE).toContain("PAGE_HEADER_TIERS");
+    expect(SOURCE).toContain("createHeaderChromeScale");
+    expect(SOURCE).toContain('title: "font-display text-display-sm tracking-display"');
+    expect(SOURCE).not.toContain("Season");
     expect(SOURCE).not.toContain("display:");
     expect(SOURCE).toContain(
       "[&:has([data-slot=page-header-content][data-size=lg])]:gap-y-3",

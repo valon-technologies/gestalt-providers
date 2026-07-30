@@ -21,6 +21,13 @@ import {
   useWorkflowRunsQuery,
 } from "@/lib/queries";
 import {
+  PageHeader,
+  PageHeaderActions,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
+import {
   SectionHeader,
   SectionHeaderActions,
   SectionHeaderContent,
@@ -36,6 +43,17 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import ErrorNotice from "@/components/ErrorNotice";
+import {
   Stat,
   StatGroup,
   StatLabel,
@@ -47,6 +65,7 @@ import {
   workflowRunBadgeVariant,
 } from "@/lib/workflowActivity";
 import { Info } from "lucide-react";
+import { userFacingError } from "@/lib/user-facing-error";
 
 const RUN_STATUSES = [
   "all",
@@ -63,8 +82,9 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
   const loading = runsQuery.isPending;
   const refreshing = runsQuery.isFetching && !runsQuery.isPending;
   const runsError = runsQuery.error
-    ? errorMessage(runsQuery.error, "Failed to load workflow runs")
+    ? userFacingError(runsQuery.error, "Unable to load workflow activity. Try again.")
     : null;
+  const activityUnavailable = Boolean(runsError && !loading);
 
   const [selectedRunID, setSelectedRunID] = useState<string | null>(null);
   const selectedListRun =
@@ -75,10 +95,10 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
   const selectedRun = detailQuery.data ?? selectedListRun ?? null;
   const detailLoading = detailQuery.isFetching && !detailQuery.data;
   const detailError = detailQuery.error
-    ? errorMessage(detailQuery.error, "Failed to load workflow run")
+    ? userFacingError(detailQuery.error, "Unable to load this workflow run. Try again.")
     : null;
   const actionError = cancelMutation.error
-    ? errorMessage(cancelMutation.error, "Failed to cancel workflow run")
+    ? userFacingError(cancelMutation.error, "Unable to cancel this workflow run. Try again.")
     : null;
   const canceling = cancelMutation.isPending;
 
@@ -136,11 +156,15 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
 
   return (
     <>
-      <SectionHeader className="mb-6">
-        <SectionHeaderContent>
-          <SectionHeaderTitle>Workflows</SectionHeaderTitle>
-        </SectionHeaderContent>
-        <SectionHeaderActions>
+      <PageHeader className="mb-6">
+        <PageHeaderContent>
+          <PageHeaderTitle>Workflows</PageHeaderTitle>
+          <PageHeaderDescription>
+            Review recent workflow runs and the identities, definitions, and
+            triggers that have used this app.
+          </PageHeaderDescription>
+        </PageHeaderContent>
+        <PageHeaderActions>
           <Button
             type="button"
             variant="outline"
@@ -149,20 +173,25 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
           >
             {refreshing ? "Refreshing…" : "Refresh"}
           </Button>
-        </SectionHeaderActions>
-      </SectionHeader>
+        </PageHeaderActions>
+      </PageHeader>
 
       <div className="space-y-8">
       <Alert variant="info" data-testid="app-workflow-ownership-note">
         <Info aria-hidden />
         <AlertDescription>
-          Runs listed here target this app as a{" "}
-          <span className="text-foreground">step app</span> (or ship under{" "}
-          <code className="font-mono text-xs">app_{appName}_…</code> definition
-          IDs). Workflows that only <em>publish</em> events handled elsewhere are
-          not included — open the other app’s admin page for those.
+          Only runs that target this app are shown. Runs owned by another app
+          appear in that app’s workspace.
         </AlertDescription>
       </Alert>
+
+      {runsError ? (
+        <ErrorNotice
+          message={runsError}
+          onRetry={refreshRuns}
+          retrying={refreshing}
+        />
+      ) : null}
 
       <StatGroup className="w-full" data-testid="workflow-run-stats">
         <Stat variant="plain" className="w-max max-w-full shrink-0">
@@ -189,14 +218,17 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
             <SectionHeaderTitle as="h3">
               Definitions &amp; schedules
             </SectionHeaderTitle>
-            <SectionHeaderDescription className="text-sm">
-              Cron jobs are schedule activations on a definition (cron, timezone,
-              pause, runAs). Full definition APIs are not yet in this UI — below
-              is what recent runs reveal.
+            <SectionHeaderDescription>
+              Recent runs show which workflow definitions and triggers have been
+              active. Definition editing is not available here yet.
             </SectionHeaderDescription>
           </SectionHeaderContent>
         </SectionHeader>
-        {loading ? (
+        {activityUnavailable ? (
+          <p className="text-sm text-muted-foreground">
+            Workflow activity is unavailable until the run list loads.
+          </p>
+        ) : loading ? (
           <p className="text-sm text-muted-foreground/70">Loading definitions…</p>
         ) : definitions.length === 0 ? (
           <p className="text-sm text-muted-foreground/70">
@@ -263,13 +295,17 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
         <SectionHeader>
           <SectionHeaderContent size="sm">
             <SectionHeaderTitle as="h3">Event activations</SectionHeaderTitle>
-            <SectionHeaderDescription className="text-sm">
-              Event-matched activations observed on recent runs (type / source /
-              subject).
+            <SectionHeaderDescription>
+              Event-triggered activity observed on recent runs, including event
+              type and source.
             </SectionHeaderDescription>
           </SectionHeaderContent>
         </SectionHeader>
-        {loading ? (
+        {activityUnavailable ? (
+          <p className="text-sm text-muted-foreground">
+            Workflow activity is unavailable until the run list loads.
+          </p>
+        ) : loading ? (
           <p className="text-sm text-muted-foreground/70">Loading events…</p>
         ) : eventDefinitions.length === 0 ? (
           <p className="text-sm text-muted-foreground/70">
@@ -300,13 +336,16 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
         <SectionHeader>
           <SectionHeaderContent size="sm">
             <SectionHeaderTitle as="h3">Automation identity</SectionHeaderTitle>
-            <SectionHeaderDescription className="text-sm">
-              Subjects observed as <code className="font-mono text-xs">createdBy</code>{" "}
-              on recent runs (often the definition <code className="font-mono text-xs">runAs</code>).
+            <SectionHeaderDescription>
+              Identities that created recent runs.
             </SectionHeaderDescription>
           </SectionHeaderContent>
         </SectionHeader>
-        {loading ? (
+        {activityUnavailable ? (
+          <p className="text-sm text-muted-foreground">
+            Workflow activity is unavailable until the run list loads.
+          </p>
+        ) : loading ? (
           <p className="text-sm text-muted-foreground/70">Loading identities…</p>
         ) : automationSubjects.length === 0 ? (
           <p className="text-sm text-muted-foreground/70">
@@ -341,9 +380,9 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
         <SectionHeader>
           <SectionHeaderContent size="sm">
             <SectionHeaderTitle as="h3">Recent runs</SectionHeaderTitle>
-            <SectionHeaderDescription className="text-sm">
-              Status, trigger, definition, step plan, and I/O for runs that target
-              this app.
+            <SectionHeaderDescription>
+              Inspect status, trigger, definition, steps, and input or output for
+              runs that target this app.
             </SectionHeaderDescription>
           </SectionHeaderContent>
         </SectionHeader>
@@ -392,17 +431,22 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
       {loading ? (
         <p className="text-sm text-muted-foreground/70">Loading workflow runs…</p>
       ) : (
-        <RunsPanel
-          runs={filteredRuns}
-          runsError={runsError}
-          selectedRunID={selectedRunID}
-          selectedRun={selectedRun}
-          detailLoading={detailLoading}
-          detailError={detailError}
-          actionError={actionError}
-          canceling={canceling}
-          onSelectRun={setSelectedRunID}
-          onCancelSelectedRun={handleCancelSelectedRun}
+          <RunsPanel
+            runs={filteredRuns}
+            totalRuns={runs.length}
+            hasFilters={Boolean(deferredRunsQuery.trim() || runStatus !== "all")}
+            onClearFilters={() => {
+              setRunsQuery("");
+              setRunStatus("all");
+            }}
+            selectedRunID={selectedRunID}
+            selectedRun={selectedRun}
+            detailLoading={detailLoading}
+            detailError={detailError}
+            actionError={actionError}
+            canceling={canceling}
+            onSelectRun={setSelectedRunID}
+            onConfirmCancelSelectedRun={handleCancelSelectedRun}
         />
       )}
       </section>
@@ -413,7 +457,9 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
 
 function RunsPanel({
   runs,
-  runsError,
+  totalRuns,
+  hasFilters,
+  onClearFilters,
   selectedRunID,
   selectedRun,
   detailLoading,
@@ -421,10 +467,12 @@ function RunsPanel({
   actionError,
   canceling,
   onSelectRun,
-  onCancelSelectedRun,
+  onConfirmCancelSelectedRun,
 }: {
   runs: WorkflowRun[];
-  runsError: string | null;
+  totalRuns: number;
+  hasFilters: boolean;
+  onClearFilters: () => void;
   selectedRunID: string | null;
   selectedRun: WorkflowRun | null;
   detailLoading: boolean;
@@ -432,13 +480,26 @@ function RunsPanel({
   actionError: string | null;
   canceling: boolean;
   onSelectRun: (id: string) => void;
-  onCancelSelectedRun: () => void;
+  onConfirmCancelSelectedRun: () => void;
 }) {
-  if (runsError) {
-    return <p className="text-sm text-destructive">{runsError}</p>;
-  }
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
 
   if (runs.length === 0) {
+    if (totalRuns > 0 && hasFilters) {
+      return (
+        <div
+          className="flex flex-col items-start gap-3"
+          data-testid="app-workflows-filtered-empty"
+        >
+          <p className="text-sm text-muted-foreground">
+            No workflow runs match the current filters.
+          </p>
+          <Button type="button" variant="outline" size="sm" onClick={onClearFilters}>
+            Clear filters
+          </Button>
+        </div>
+      );
+    }
     return (
       <p className="text-sm text-muted-foreground/70" data-testid="app-workflows-empty">
         No workflow runs for this app yet.
@@ -447,6 +508,7 @@ function RunsPanel({
   }
 
   return (
+    <>
     <div className="grid gap-4 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
       <div
         className="rounded-lg border border-border bg-card"
@@ -460,6 +522,7 @@ function RunsPanel({
                 <button
                   type="button"
                   onClick={() => onSelectRun(run.id)}
+                  aria-pressed={selected}
                   data-selected={selected || undefined}
                   className={cn(
                     "flex w-full flex-col gap-1 px-4 py-3 text-left focus-ring-inset",
@@ -503,7 +566,7 @@ function RunsPanel({
                     "Workflow run"}
                 </SectionHeaderTitle>
                 {selectedRun.statusMessage ? (
-                  <SectionHeaderDescription className="text-sm">
+                  <SectionHeaderDescription>
                     {selectedRun.statusMessage}
                   </SectionHeaderDescription>
                 ) : null}
@@ -513,9 +576,10 @@ function RunsPanel({
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={onCancelSelectedRun}
-                    disabled={canceling}
                     className="shrink-0"
+                    size="sm"
+                    onClick={() => setCancelDialogOpen(true)}
+                    disabled={canceling}
                   >
                     {canceling ? "Canceling…" : "Cancel run"}
                   </Button>
@@ -533,6 +597,28 @@ function RunsPanel({
         )}
       </div>
     </div>
+    <AlertDialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Cancel this workflow run?</AlertDialogTitle>
+          <AlertDialogDescription>
+            The run will stop if it has not already completed. This action cannot
+            be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={canceling}>Keep run</AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            onClick={onConfirmCancelSelectedRun}
+            disabled={canceling}
+          >
+            {canceling ? "Canceling…" : "Cancel run"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }
 
@@ -709,7 +795,6 @@ function StatusBadge({ status }: { status?: string }) {
     </Badge>
   );
 }
-
 function filterRuns(
   runs: WorkflowRun[],
   query: string,
@@ -822,8 +907,4 @@ function shortRunId(id: string): string {
 function capitalize(value: string): string {
   if (!value) return value;
   return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-function errorMessage(err: unknown, fallback: string): string {
-  return err instanceof Error && err.message ? err.message : fallback;
 }

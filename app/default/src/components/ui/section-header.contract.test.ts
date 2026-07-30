@@ -29,9 +29,11 @@ const SVG_PX: Record<string, number> = {
 describe("SectionHeader", () => {
   test("uses createHeaderChrome with section title mode", () => {
     expect(SOURCE).toContain("createHeaderChrome");
+    expect(SOURCE).toContain("SECTION_HEADER_TIERS");
+    expect(SOURCE).toContain("createHeaderChromeScale");
     expect(SOURCE).toContain('title: { kind: "section"');
     expect(SOURCE).toContain('alignBetweenItems: "sm:items-baseline"');
-    expect(SOURCE).toContain('lg: "font-display text-heading-lg tracking-heading"');
+    expect(SOURCE).toContain('title: "font-display text-heading-lg tracking-heading"');
     expect(SOURCE).toContain("SECTION_HEADER_ICON_STACK");
     expect(SOURCE).toContain(
       "[&:has([data-slot=section-header-content][data-size=default])]:gap-y-2.5",

@@ -26,7 +26,10 @@ import {
 import { SpinnerIcon } from "@/components/icons";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import { AppAdminFleetState } from "@/features/registry/app-admin-fleet-state";
-import { AppAdminRegistryProvider } from "@/features/registry/app-admin-registry-context";
+import {
+  AppAdminRegistryProvider,
+  type AppAdminRegistryContextValue,
+} from "@/features/registry/app-admin-registry-context";
 import { isActiveRegistryRollout } from "@/features/registry/format";
 import { RolloutBadge } from "@/features/registry/rollout-badge";
 import { RegistryCode } from "@/features/registry/registry-code";
@@ -42,14 +45,15 @@ import {
   type AppWorkspaceCapabilities,
 } from "@/features/app-workspace/app-workspace-context";
 import { APP_SECTION_CARD } from "@/features/app-workspace/app-workspace-shared";
-import type { AppAdminOutletContext } from "@/pages/app-admin-outlet-context";
 import { AppWorkspaceNav } from "@/features/app-workspace/app-workspace-nav";
+import { userFacingError } from "@/lib/user-facing-error";
+import ErrorNotice from "@/components/ErrorNotice";
 import {
-  SectionHeader,
-  SectionHeaderContent,
-  SectionHeaderDescription,
-  SectionHeaderTitle,
-} from "@/components/ui/section-header";
+  PageHeader,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
 
 export default function AppWorkspaceLayout() {
   const { app: rawApp } = useParams({ from: "/apps/$app" });
@@ -94,9 +98,7 @@ export default function AppWorkspaceLayout() {
   );
 
   const capabilities = useMemo<AppWorkspaceCapabilities>(() => {
-    const registryAdmin =
-      !registryForbidden &&
-      (canManageRegistry || registryQuery.isSuccess);
+    const registryAdmin = registryQuery.isSuccess;
     const authorization = authorizationAdmin;
     const workflows = registryAdmin || authorization;
     return {
@@ -116,11 +118,9 @@ export default function AppWorkspaceLayout() {
     (!canManageRegistry || registryQuery.isFetched);
 
   const error =
-    integrationsQuery.error instanceof Error
-      ? integrationsQuery.error.message
-      : integrationsQuery.error
-        ? "Failed to load app"
-        : !loading && integrationsQuery.data && !integration && !isAdminPath
+    integrationsQuery.error
+      ? userFacingError(integrationsQuery.error, "Unable to load this app. Try again.")
+      : !loading && integrationsQuery.data && !integration && !isAdminPath
           ? `App “${app}” was not found in this workspace.`
           : null;
 
@@ -130,9 +130,15 @@ export default function AppWorkspaceLayout() {
   const deployFailed = deployMutation.isError && !deployConflict;
   const deployError =
     deployFailed && registry
-      ? deployMutation.error instanceof Error
-        ? deployMutation.error.message
-        : "Failed to deploy version"
+      ? userFacingError(deployMutation.error, "Unable to deploy this version. Try again.")
+      : null;
+
+  const registryError =
+    registryQuery.isError && !registryForbidden
+      ? userFacingError(
+          registryQuery.error,
+          "Unable to load deployment versions. Try again.",
+        )
       : null;
 
   const onDeployVersion = useCallback(
@@ -142,7 +148,7 @@ export default function AppWorkspaceLayout() {
     [deployMutation],
   );
 
-  const registryOutlet = useMemo<AppAdminOutletContext | undefined>(() => {
+  const registryOutlet = useMemo<AppAdminRegistryContextValue | undefined>(() => {
     if (!registry || !capabilities.registry) return undefined;
     return {
       appName: app,
@@ -152,6 +158,7 @@ export default function AppWorkspaceLayout() {
         deployMutation.isPending ? deployMutation.variables : null,
       onDeployVersion,
       deployError,
+      registryError,
       checkForNewVersions: registryQuery.checkForNewVersions,
       isCheckingForNewVersions: registryQuery.isCheckingForNewVersions,
       registryUpdatedAt: registryQuery.isFetched ? registryQuery.dataUpdatedAt : null,
@@ -160,6 +167,7 @@ export default function AppWorkspaceLayout() {
     app,
     capabilities.registry,
     deployError,
+    registryError,
     deployMutation.isPending,
     deployMutation.variables,
     mountedPath,
@@ -217,6 +225,8 @@ export default function AppWorkspaceLayout() {
     (authorizationProbeDone &&
       (requiredAdminSurface !== "registry" || !canManageRegistry || registryQuery.isFetched));
   const adminSurfaceLoading = Boolean(requiredAdminSurface && !adminSurfaceReady);
+  const adminSurfaceError =
+    requiredAdminSurface === "registry" && registryError ? registryError : null;
   const adminAccessDenied = Boolean(
     requiredAdminSurface &&
       adminSurfaceReady &&
@@ -243,8 +253,8 @@ export default function AppWorkspaceLayout() {
         </div>
 
         {loading ? (
-          <p className="flex items-center gap-1.5 text-sm text-faint">
-            <SpinnerIcon className="size-4 animate-spin" aria-hidden />
+          <p className="flex items-center gap-1.5 text-sm text-muted-foreground-soft">
+            <SpinnerIcon className="size-4 motion-safe:animate-spin" aria-hidden />
             Loading app…
           </p>
         ) : null}
@@ -315,19 +325,25 @@ export default function AppWorkspaceLayout() {
                 <p className="text-sm text-muted-foreground">
                   Loading app admin…
                 </p>
+              ) : adminSurfaceError ? (
+                <ErrorNotice
+                  message={adminSurfaceError}
+                  onRetry={registryQuery.checkForNewVersions}
+                  retrying={registryQuery.isCheckingForNewVersions}
+                />
               ) : adminAccessDenied ? (
                 <div
                   className="rounded-2xl border border-border bg-card p-6 text-card-foreground"
                   data-testid="app-admin-access-denied"
                 >
-                  <SectionHeader>
-                    <SectionHeaderContent size="sm">
-                      <SectionHeaderTitle>Access denied</SectionHeaderTitle>
-                      <SectionHeaderDescription className="text-sm">
+                  <PageHeader>
+                    <PageHeaderContent size="sm">
+                      <PageHeaderTitle>Access denied</PageHeaderTitle>
+                      <PageHeaderDescription>
                         You do not have permission to manage this section of the app.
-                      </SectionHeaderDescription>
-                    </SectionHeaderContent>
-                  </SectionHeader>
+                      </PageHeaderDescription>
+                    </PageHeaderContent>
+                  </PageHeader>
                 </div>
               ) : (
                 <Outlet />

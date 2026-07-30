@@ -1,7 +1,5 @@
+name: home
 operations:
   - id: static
     method: GET
-    description: Serve the home UI bundle.
-    inputSchema:
-      type: object
-      properties: {}
+    transport: app

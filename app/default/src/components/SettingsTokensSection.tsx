@@ -26,10 +26,10 @@ export default function SettingsTokensSection() {
   }
 
   return (
-    <section className="scroll-mt-24 space-y-8" aria-label="Your API Tokens">
+    <section className="scroll-mt-24 space-y-8" aria-label="Your API tokens">
       <SectionHeader>
         <SectionHeaderContent>
-          <SectionHeaderTitle>Your API Tokens</SectionHeaderTitle>
+          <SectionHeaderTitle>Your API tokens</SectionHeaderTitle>
           <SectionHeaderDescription>
             Create personal tokens for local tooling, scripts, and one-off
             integrations. These act as you.

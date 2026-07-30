@@ -466,7 +466,7 @@ export default function ManagedIdentityDetailView({
             <SectionHeader>
               <SectionHeaderContent size="sm">
                 <Eyebrow tone="secondary">Authorization</Eyebrow>
-                <SectionHeaderTitle>Identity App Access</SectionHeaderTitle>
+                <SectionHeaderTitle>Identity app access</SectionHeaderTitle>
                 <SectionHeaderDescription>
                   Grants are identity-level roles for apps that enforce authorization. API keys do not create these grants; they only authenticate as this identity.
                 </SectionHeaderDescription>
@@ -607,7 +607,7 @@ export default function ManagedIdentityDetailView({
             <SectionHeader>
               <SectionHeaderContent size="sm">
                 <Eyebrow tone="secondary">Connections</Eyebrow>
-                <SectionHeaderTitle>App Connections</SectionHeaderTitle>
+                <SectionHeaderTitle>App connections</SectionHeaderTitle>
                 <SectionHeaderDescription>
                   Connections store OAuth or manual credentials for this identity. They do not add app roles or change API-key limits.
                 </SectionHeaderDescription>
@@ -680,8 +680,8 @@ export default function ManagedIdentityDetailView({
           <section className={SECTION_CARD}>
             <SectionHeader>
               <SectionHeaderContent size="sm">
-                <Eyebrow tone="secondary">API Access</Eyebrow>
-                <SectionHeaderTitle>Identity API Keys</SectionHeaderTitle>
+                <Eyebrow tone="secondary">API access</Eyebrow>
+                <SectionHeaderTitle>Identity API keys</SectionHeaderTitle>
                 <SectionHeaderDescription>
                   API keys authenticate as this identity. By default, a key follows managed identity app access and connector credentials at use time; token limits only narrow one key.
                 </SectionHeaderDescription>

@@ -19,11 +19,17 @@ export default function AppWorkspaceConnectionPage() {
     "default" | "disconnect"
   >("default");
   const [removeAppConfirm, setRemoveAppConfirm] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const connectionFlow = useIntegrationConnection({
     integration: integration ?? { name: app },
     onConnected: reloadIntegration,
     onDisconnected: reloadIntegration,
+    onStatusMessage: setStatusMessage,
+    onFlowComplete: () => {
+      setConnectionPanelView("default");
+      setRemoveAppConfirm(false);
+    },
     returnPath: appDetailConnectionPath(integration ?? { name: app }),
   });
 
@@ -56,7 +62,12 @@ export default function AppWorkspaceConnectionPage() {
           </PageHeaderDescription>
         </PageHeaderContent>
       </PageHeader>
-      <p className="text-xs text-faint">
+      {statusMessage ? (
+        <p className="text-sm text-success-foreground" role="status">
+          {statusMessage}
+        </p>
+      ) : null}
+      <p className="text-xs text-muted-foreground-soft">
         Connecting grants this workspace permission to use the app with your
         credentials. Review the provider’s privacy policy before continuing.
       </p>

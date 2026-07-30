@@ -665,10 +665,10 @@ export default function IntegrationConnectionPanel({
                     <SectionHeaderDescription className="text-sm">
                       {normalizedStatus.summaryLabel}
                     </SectionHeaderDescription>
-                  ) : null}
-                </SectionHeaderContent>
-                {isDialog ? (
-                  <SectionHeaderActions>
+                ) : null}
+              </SectionHeaderContent>
+              {isDialog ? (
+                <SectionHeaderActions>
                     <Button
                       type="button"
                       variant="ghost"
@@ -879,7 +879,7 @@ function TokenForm({
           Cancel
         </Button>
         <Button type="submit" className="flex-1" disabled={submitting}>
-          {submitting ? "Connecting..." : "Submit"}
+          {submitting ? "Connecting…" : "Connect"}
         </Button>
       </div>
     </form>

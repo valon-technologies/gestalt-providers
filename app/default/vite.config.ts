@@ -4,13 +4,30 @@ import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { gestalt } from "@valon-technologies/gestalt/vite";
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig, loadEnv, type ProxyOptions } from "vite";
 
 const projectDir = path.dirname(fileURLToPath(import.meta.url));
 
 /** prod-dev cookie-proxy ports — disjoint from /local-dev (see prod-dev skill). */
 const PROD_DEV_PROXY_PORT_MIN = 8100;
 const PROD_DEV_PROXY_PORT_MAX = 8199;
+
+function nativeApiProxy(backendOrigin: string): ProxyOptions {
+  return {
+    target: backendOrigin,
+    changeOrigin: true,
+    configure(proxy) {
+      const token = process.env.GESTALT_DEV_API_PROXY_TOKEN?.trim();
+      if (!token) return;
+
+      proxy.on("proxyReq", (proxyRequest) => {
+        // The native credential is available only to the supervised Vite
+        // process. It must never be serialized into the browser bundle.
+        proxyRequest.setHeader("Authorization", `Bearer ${token}`);
+      });
+    },
+  };
+}
 
 function resolveGestaltPublicOrigin(
   env: Record<string, string>,
@@ -66,9 +83,9 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       proxy: {
-        "/api": { target: backendOrigin, changeOrigin: true },
-        "/theme.css": { target: backendOrigin, changeOrigin: true },
-        "/theme/": { target: backendOrigin, changeOrigin: true },
+        "/api": nativeApiProxy(backendOrigin),
+        "/theme.css": nativeApiProxy(backendOrigin),
+        "/theme/": nativeApiProxy(backendOrigin),
       },
     },
     test: {

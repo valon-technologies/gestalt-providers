@@ -3,45 +3,81 @@
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
 
-import { createHeaderChrome } from "./header-chrome";
+import {
+  createHeaderChrome,
+  createHeaderChromeScale,
+  type HeaderChromeTierTable,
+} from "./header-chrome";
 
-/** Static Tailwind literals — must stay complete strings for `@source` emission. */
-const SECTION_HEADER_STACKED_ROW_GAP_Y = [
-  "[&:has([data-slot=section-header-content][data-size=sm])]:gap-y-1.5",
-  "[&:has([data-slot=section-header-content][data-size=lg])]:gap-y-2",
-  "[&:has([data-slot=section-header-content][data-size=default])]:gap-y-2.5",
-  "[&:has([data-slot=section-header-content][data-size=md])]:gap-y-2.5",
-] as const;
+type SectionHeaderSize = "sm" | "default" | "lg" | "md";
 
 const SECTION_HEADER_ALIGN_CENTER =
   "[&_[data-slot=section-header-content]]:items-center [&_[data-slot=section-header-actions]]:justify-center";
 
 /**
- * Per-tier icon stack rhythm — single source of truth.
- * `textPad` must equal svg box height + `gapY` (e.g. sm: 16px + 6px → pt-5.5 / 22px).
+ * Canonical section-header tier table. `iconStackPadding` must equal the SVG
+ * box height plus `contentGapY` for each tier.
  */
-export const SECTION_HEADER_ICON_STACK = {
+const SECTION_HEADER_TIERS = {
   sm: {
-    svg: "[&_svg:not([class*='size-'])]:size-4",
-    gapY: "gap-y-1.5",
-    textPad: "pt-5.5",
+    contentGapY: "gap-y-1.5",
+    stackedRowGapY:
+      "[&:has([data-slot=section-header-content][data-size=sm])]:gap-y-1.5",
+    title: "font-sans text-heading-sm",
+    description: "text-xs",
+    icon: "[&_svg:not([class*='size-'])]:size-4",
+    iconStackPadding: "pt-5.5",
   },
   default: {
-    svg: "[&_svg:not([class*='size-'])]:size-8",
-    gapY: "gap-y-2.5",
-    textPad: "pt-10.5",
+    contentGapY: "gap-y-2.5",
+    stackedRowGapY:
+      "[&:has([data-slot=section-header-content][data-size=default])]:gap-y-2.5",
+    title: "font-display text-heading-xl tracking-display",
+    description: "text-base",
+    icon: "[&_svg:not([class*='size-'])]:size-8",
+    iconStackPadding: "pt-10.5",
   },
   lg: {
-    svg: "[&_svg:not([class*='size-'])]:size-6",
-    gapY: "gap-y-2",
-    textPad: "pt-8",
+    contentGapY: "gap-y-2",
+    stackedRowGapY:
+      "[&:has([data-slot=section-header-content][data-size=lg])]:gap-y-2",
+    title: "font-display text-heading-lg tracking-heading",
+    description: "text-sm",
+    icon: "[&_svg:not([class*='size-'])]:size-6",
+    iconStackPadding: "pt-8",
   },
   md: {
-    svg: "[&_svg:not([class*='size-'])]:size-8",
-    gapY: "gap-y-2.5",
-    textPad: "pt-10.5",
+    contentGapY: "gap-y-2.5",
+    stackedRowGapY:
+      "[&:has([data-slot=section-header-content][data-size=md])]:gap-y-2.5",
+    title: "font-display text-heading-xl tracking-display",
+    description: "text-base",
+    icon: "[&_svg:not([class*='size-'])]:size-8",
+    iconStackPadding: "pt-10.5",
   },
-} as const;
+} as const satisfies HeaderChromeTierTable<SectionHeaderSize>;
+
+const SECTION_HEADER_SCALE = createHeaderChromeScale(SECTION_HEADER_TIERS);
+
+type SectionHeaderIconStack = {
+  readonly [K in SectionHeaderSize]: {
+    readonly svg: string;
+    readonly gapY: string;
+    readonly textPad: string;
+  };
+};
+
+/** Compatibility projection for the existing icon-rhythm contract test/API. */
+export const SECTION_HEADER_ICON_STACK = Object.fromEntries(
+  Object.entries(SECTION_HEADER_TIERS).map(([size, tier]) => [
+    size,
+    {
+      svg: tier.icon,
+      gapY: tier.contentGapY,
+      textPad: tier.iconStackPadding,
+    },
+  ]),
+) as SectionHeaderIconStack;
 
 const {
   Header: SectionHeader,
@@ -55,41 +91,14 @@ const {
   iconVariants: sectionHeaderIconVariants,
   titleVariants: sectionHeaderTitleVariants,
   descriptionVariants: sectionHeaderDescriptionVariants,
-} = createHeaderChrome({
+} = createHeaderChrome<"div", SectionHeaderSize>({
   slotPrefix: "section-header",
   rootElement: "div",
   alignBetweenItems: "sm:items-baseline",
   alignCenterClasses: SECTION_HEADER_ALIGN_CENTER,
-  stackedRowGapY: SECTION_HEADER_STACKED_ROW_GAP_Y,
   defaultSize: "default",
   title: { kind: "section", defaultTag: "h2" },
-  scale: {
-    contentGapY: {
-      sm: SECTION_HEADER_ICON_STACK.sm.gapY,
-      lg: SECTION_HEADER_ICON_STACK.lg.gapY,
-      default: SECTION_HEADER_ICON_STACK.default.gapY,
-      md: SECTION_HEADER_ICON_STACK.md.gapY,
-    },
-    title: {
-      sm: "font-sans text-heading-sm",
-      lg: "font-display text-heading-lg tracking-heading",
-      default: "font-display text-heading-xl tracking-display",
-      md: "font-display text-heading-xl tracking-display",
-    },
-    description: { sm: "text-xs", lg: "text-sm", default: "text-base", md: "text-base" },
-    icon: {
-      sm: SECTION_HEADER_ICON_STACK.sm.svg,
-      lg: SECTION_HEADER_ICON_STACK.lg.svg,
-      default: SECTION_HEADER_ICON_STACK.default.svg,
-      md: SECTION_HEADER_ICON_STACK.md.svg,
-    },
-    iconStackPadding: {
-      sm: SECTION_HEADER_ICON_STACK.sm.textPad,
-      lg: SECTION_HEADER_ICON_STACK.lg.textPad,
-      default: SECTION_HEADER_ICON_STACK.default.textPad,
-      md: SECTION_HEADER_ICON_STACK.md.textPad,
-    },
-  },
+  ...SECTION_HEADER_SCALE,
 });
 
 export {

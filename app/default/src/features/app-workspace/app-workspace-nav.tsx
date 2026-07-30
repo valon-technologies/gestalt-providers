@@ -41,7 +41,12 @@ function WorkspaceNavItem({
   return (
     <SidebarMenuItem>
       <SidebarMenuButton asChild isActive={isActive}>
-        <Link to={item.to} params={{ app }} data-testid={testId}>
+        <Link
+          to={item.to}
+          params={{ app }}
+          data-testid={testId}
+          aria-current={isActive ? "page" : undefined}
+        >
           {item.label}
         </Link>
       </SidebarMenuButton>
@@ -62,8 +67,9 @@ export function AppWorkspaceNav({
 }) {
   return (
     <SidebarProvider defaultWidth="11rem" className="min-h-0 w-full">
+      <nav aria-label="App workspace navigation">
       <Sidebar collapsible="none" className="h-full">
-        <SidebarContent className="overflow-visible" aria-label="App workspace">
+        <SidebarContent className="overflow-visible">
           <SidebarGroup className="p-0">
             <SidebarGroupContent>
               <SidebarMenu>
@@ -99,6 +105,7 @@ export function AppWorkspaceNav({
           ) : null}
         </SidebarContent>
       </Sidebar>
+      </nav>
     </SidebarProvider>
   );
 }

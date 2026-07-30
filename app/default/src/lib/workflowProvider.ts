@@ -5,6 +5,13 @@ const SESSION_KEY = "gestalt.workflow.provider";
 let memoryProvider: string | null = null;
 let resolving: Promise<string> | null = null;
 
+export class WorkflowProviderConfigurationError extends Error {
+  constructor() {
+    super("This deployment has not configured a workflow provider.");
+    this.name = "WorkflowProviderConfigurationError";
+  }
+}
+
 /** Remember a provider observed from platform workflow runs or config. */
 export function rememberWorkflowProvider(provider: string | undefined): void {
   const name = provider?.trim();
@@ -58,8 +65,5 @@ async function loadWorkflowProviderFromAuthInfo(): Promise<string> {
     return fromServer;
   }
 
-  // Interim until gestaltd exposes features.workflowDefaultProvider on all deployments.
-  const interim = "local";
-  rememberWorkflowProvider(interim);
-  return interim;
+  throw new WorkflowProviderConfigurationError();
 }

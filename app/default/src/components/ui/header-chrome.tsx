@@ -8,20 +8,35 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/cn";
 
-export type HeaderChromeScale = {
-  contentGapY: Record<string, string>;
-  title: Record<string, string>;
-  description: Record<string, string>;
-  icon: Record<string, string>;
+export type HeaderChromeTier = {
+  contentGapY: string;
+  /** Complete `:has([data-slot=…-content][data-size=…])` selector literal. */
+  stackedRowGapY: string;
+  title: string;
+  description: string;
+  icon: string;
   /** Top padding on the text stack when an icon is stacked above (section headers). */
-  iconStackPadding?: Record<string, string>;
+  iconStackPadding?: string;
+};
+
+export type HeaderChromeTierTable<Size extends string> = {
+  readonly [K in Size]: HeaderChromeTier;
+};
+
+export type HeaderChromeScale<Size extends string> = {
+  contentGapY: { readonly [K in Size]: string };
+  title: { readonly [K in Size]: string };
+  description: { readonly [K in Size]: string };
+  icon: { readonly [K in Size]: string };
+  /** Top padding on the text stack when an icon is stacked above (section headers). */
+  iconStackPadding?: { readonly [K in Size]: string };
 };
 
 export type HeaderChromeTitleMode =
   | { kind: "page" }
   | { kind: "section"; defaultTag?: "h2" | "h3" };
 
-export type HeaderChromeConfig = {
+export type HeaderChromeConfig<Size extends string> = {
   slotPrefix: string;
   rootElement: "header" | "div";
   alignBetweenItems: string;
@@ -29,10 +44,64 @@ export type HeaderChromeConfig = {
   alignCenterClasses: string;
   /** Complete `:has([data-slot=…-content][data-size=…])` gap-y literals for stacked row rhythm. */
   stackedRowGapY: readonly string[];
-  defaultSize: string;
-  scale: HeaderChromeScale;
+  defaultSize: Size;
+  scale: HeaderChromeScale<Size>;
   title: HeaderChromeTitleMode;
 };
+
+type HeaderChromeSizeVariant<Size extends string> = (options?: {
+  size?: Size | null;
+}) => string;
+
+/** Keep cva's generic conditional types behind a precise public size boundary. */
+function createHeaderChromeSizeVariant<Size extends string>(
+  base: string,
+  variants: { readonly [K in Size]: string },
+  defaultSize: Size,
+): HeaderChromeSizeVariant<Size> {
+  const variant = cva(base, { variants: { size: variants } });
+  return (options) =>
+    variant(
+      { size: options?.size ?? defaultSize } as NonNullable<
+        Parameters<typeof variant>[0]
+      >,
+    );
+}
+
+/**
+ * Derive the cva maps and row selectors from one canonical tier table.
+ *
+ * The class literals stay in the caller's source so Tailwind can discover them,
+ * while this helper keeps every consumer on the same typed set of size keys.
+ */
+export function createHeaderChromeScale<const Tiers extends Record<string, HeaderChromeTier>>(
+  tiers: Tiers,
+): Pick<HeaderChromeConfig<keyof Tiers & string>, "stackedRowGapY" | "scale"> {
+  type Size = keyof Tiers & string;
+  const sizes = Object.keys(tiers) as Size[];
+  const firstSize = sizes[0];
+  if (!firstSize) throw new Error("Header chrome tiers must not be empty");
+
+  const map = <Key extends keyof HeaderChromeTier>(key: Key) =>
+    Object.fromEntries(sizes.map((size) => [size, tiers[size][key]])) as {
+      readonly [K in Size]: string;
+    };
+
+  const iconStackPadding = tiers[firstSize].iconStackPadding
+    ? (map("iconStackPadding") as { readonly [K in Size]: string })
+    : undefined;
+
+  return {
+    stackedRowGapY: sizes.map((size) => tiers[size].stackedRowGapY),
+    scale: {
+      contentGapY: map("contentGapY"),
+      title: map("title"),
+      description: map("description"),
+      icon: map("icon"),
+      ...(iconStackPadding ? { iconStackPadding } : {}),
+    },
+  };
+}
 
 const TITLE_INTERACTIVE_CLASSNAME =
   "cursor-pointer border-0 bg-transparent p-0 text-left font-[inherit] text-inherit no-underline hover:text-inherit focus-ring rounded-sm";
@@ -59,8 +128,8 @@ export function isHeaderChromeIconChild(child: React.ReactNode): boolean {
   return false;
 }
 
-export function createHeaderChrome<Root extends "header" | "div">(
-  config: HeaderChromeConfig & { rootElement: Root },
+export function createHeaderChrome<Root extends "header" | "div", Size extends string>(
+  config: HeaderChromeConfig<Size> & { rootElement: Root },
 ) {
   const {
     slotPrefix,
@@ -93,28 +162,32 @@ export function createHeaderChrome<Root extends "header" | "div">(
     },
   );
 
-  const titleVariants = cva("font-normal text-balance text-foreground", {
-    variants: { size: scale.title },
-    defaultVariants: { size: defaultSize },
-  });
-
-  type HeaderSize = keyof typeof scale.title & string;
-  const ScaleContext = React.createContext<HeaderSize>(defaultSize as HeaderSize);
-
-  const contentVariants = cva("flex min-w-0 flex-col", {
-    variants: { size: scale.contentGapY },
-    defaultVariants: { size: defaultSize },
-  });
-
-  const iconVariants = cva(
-    "flex shrink-0 items-center text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0",
-    { variants: { size: scale.icon }, defaultVariants: { size: defaultSize } },
+  const titleVariants = createHeaderChromeSizeVariant(
+    "font-normal text-balance text-foreground",
+    scale.title,
+    defaultSize,
   );
 
-  const descriptionVariants = cva("max-w-xl text-balance text-muted-foreground", {
-    variants: { size: scale.description },
-    defaultVariants: { size: defaultSize },
-  });
+  type HeaderSize = Size;
+  const ScaleContext = React.createContext<HeaderSize>(defaultSize);
+
+  const contentVariants = createHeaderChromeSizeVariant(
+    "flex min-w-0 flex-col",
+    scale.contentGapY,
+    defaultSize,
+  );
+
+  const iconVariants = createHeaderChromeSizeVariant(
+    "flex shrink-0 items-center text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0",
+    scale.icon,
+    defaultSize,
+  );
+
+  const descriptionVariants = createHeaderChromeSizeVariant(
+    "max-w-xl text-balance text-muted-foreground",
+    scale.description,
+    defaultSize,
+  );
 
   type HeaderAlign = NonNullable<VariantProps<typeof headerVariants>["align"]>;
   type HeaderProps = React.ComponentProps<Root> & { align?: HeaderAlign };
@@ -154,7 +227,7 @@ export function createHeaderChrome<Root extends "header" | "div">(
     size = defaultSize,
     children,
     ...props
-  }: React.ComponentProps<"div"> & VariantProps<typeof contentVariants>) {
+  }: React.ComponentProps<"div"> & { size?: HeaderSize | null }) {
     const resolved = (size ?? defaultSize) as HeaderSize;
     const gapClasses = contentVariants({ size: resolved });
     const align = React.useContext(AlignContext);
@@ -209,7 +282,7 @@ export function createHeaderChrome<Root extends "header" | "div">(
     );
   }
 
-  function PageTitle({ className, size: sizeProp, href, onNavigate, children, ...props }: Omit<React.ComponentProps<"h1">, "onClick"> & VariantProps<typeof titleVariants> & { href?: string; onNavigate?: () => void }) {
+  function PageTitle({ className, size: sizeProp, href, onNavigate, children, ...props }: Omit<React.ComponentProps<"h1">, "onClick"> & { size?: HeaderSize | null; href?: string; onNavigate?: () => void }) {
     const scaleSize = React.useContext(ScaleContext);
     const size = sizeProp ?? scaleSize;
     let body = children;
@@ -218,7 +291,7 @@ export function createHeaderChrome<Root extends "header" | "div">(
     return <h1 data-slot={titleSlot} data-size={size} className={cn(titleVariants({ size }), className)} {...props}>{body}</h1>;
   }
 
-  function SectionTitle({ className, size: sizeProp, as: Comp = titleMode.kind === "section" ? (titleMode.defaultTag ?? "h2") : "h2", ...props }: Omit<React.ComponentProps<"h2">, "as"> & VariantProps<typeof titleVariants> & { as?: "h2" | "h3" }) {
+  function SectionTitle({ className, size: sizeProp, as: Comp = titleMode.kind === "section" ? (titleMode.defaultTag ?? "h2") : "h2", ...props }: Omit<React.ComponentProps<"h2">, "as"> & { size?: HeaderSize | null; as?: "h2" | "h3" }) {
     const scaleSize = React.useContext(ScaleContext);
     const size = sizeProp ?? scaleSize;
     return <Comp data-slot={titleSlot} data-size={size} className={cn(titleVariants({ size }), className)} {...props} />;

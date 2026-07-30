@@ -8,6 +8,7 @@ import {
 } from "@/lib/api";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import type { Integration } from "@/lib/api";
+import { userFacingError } from "@/lib/user-facing-error";
 
 type ConnectionTarget = {
   instance?: string;
@@ -104,11 +105,7 @@ export function useIntegrationConnection({
       );
       window.location.href = url;
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Couldn't start sign-in. Try again.",
-      );
+      setError(userFacingError(err, "Couldn't start sign-in. Try again."));
       setLoading(false);
     }
   }
@@ -142,9 +139,7 @@ export function useIntegrationConnection({
       );
       if (result.status === "selection_required") {
         if (!result.pendingToken) {
-          throw new Error(
-            "Connection requires selection, but the server did not return a pending token.",
-          );
+          throw new Error("Connection setup is incomplete. Try again.");
         }
         onFlowComplete?.();
         setPendingSelection({
@@ -159,7 +154,7 @@ export function useIntegrationConnection({
         onConnected?.();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't connect. Try again.");
+      setError(userFacingError(err, "Couldn't connect. Try again."));
     } finally {
       setSubmitting(false);
     }
@@ -174,9 +169,7 @@ export function useIntegrationConnection({
       onDisconnected?.();
       onFlowComplete?.();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Couldn't disconnect. Try again.",
-      );
+      setError(userFacingError(err, "Couldn't disconnect. Try again."));
     } finally {
       setDisconnecting(false);
     }
