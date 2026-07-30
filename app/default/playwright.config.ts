@@ -31,6 +31,15 @@ export default defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
     },
+    {
+      name: "record-demo",
+      testMatch: "**/record-snapshots-rollout-demo.spec.ts",
+      use: {
+        viewport: { width: 1440, height: 900 },
+        deviceScaleFactor: 1,
+        headless: false,
+      },
+    },
   ],
 
   expect: {
