@@ -190,7 +190,8 @@ export function SegmentedControl<V extends string>({
         aria-hidden
         style={pill ? { left: pill.left, top: pill.top, width: pill.width, height: pill.height } : { opacity: 0 }}
         className={cn(
-          "pointer-events-none absolute rounded-md bg-background shadow-sm",
+          // No shadow — on-canvas sliding pill is flat (elevation.md); fill contrast only.
+          "pointer-events-none absolute rounded-md bg-background",
           // ease-out-back-soft = gentler overshoot than the default --ease-out-back, for the
           // pill's larger travel; duration-overshoot auto-zeroes under prefers-reduced-motion.
           animate && "transition-[left,top,width,height] duration-overshoot ease-out-back-soft",

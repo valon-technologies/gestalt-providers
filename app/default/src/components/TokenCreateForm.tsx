@@ -519,7 +519,7 @@ const TokenCreateForm = React.forwardRef<
                   <ListboxButton
                     aria-labelledby={expirationId}
                     className={cn(
-                      "relative flex w-full items-center gap-2 rounded-md border border-input bg-transparent px-3 py-2 text-left text-sm text-foreground shadow-xs",
+                      "relative flex w-full items-center gap-2 rounded-md border border-input bg-transparent px-3 py-2 text-left text-sm text-foreground",
                       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-base-950/10",
                       "dark:focus-visible:ring-base-200/10",
                     )}
