@@ -212,6 +212,10 @@ export interface IntegrationOperation {
   readOnly?: boolean;
   visible?: boolean;
   tags?: string[];
+  method?: string;
+  path?: string;
+  allowedRoles?: string[];
+  transport?: string;
 }
 
 export interface AccessPermission {
