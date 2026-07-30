@@ -292,7 +292,7 @@ export default function AppWorkspaceLayout() {
                     </p>
                     {registry.desiredVersion ? (
                       <p className="text-sm text-muted-foreground">
-                        Desired version:{" "}
+                        Deployed version:{" "}
                         <RegistryCode>{registry.desiredVersion}</RegistryCode>
                       </p>
                     ) : null}

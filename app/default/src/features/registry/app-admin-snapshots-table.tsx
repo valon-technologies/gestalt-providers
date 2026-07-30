@@ -82,6 +82,7 @@ function snapshotRowSearchText(
     autoDeployPendingVersion: registry.autoDeploy?.pendingVersion,
   });
   const status = snapshotRowStatusPresentation(statusId);
+  const isDeployedVersion = statusId === "current";
   const rolloutPhase =
     registry.rollout && registry.rollout.version === row.version
       ? rolloutProgressSubline(registry.rollout)
@@ -90,6 +91,7 @@ function snapshotRowSearchText(
   return [
     row.version,
     status.label,
+    isDeployedVersion ? "Deployed Version" : null,
     rolloutPhase,
     pullRequest?.number ? `PR #${pullRequest.number}` : null,
     pullRequest?.title,
@@ -137,10 +139,7 @@ function selectedRowClassName(
   rowVersion: string,
 ): string {
   const affordance = selectedVersionRowAffordance(rollout, rowVersion);
-  return cn(
-    affordance === "success" && "bg-success/10",
-    affordance === "error" && "bg-destructive/10",
-  );
+  return cn(affordance === "success" && "bg-success/10");
 }
 
 type SnapshotTableMeta = {
@@ -248,6 +247,7 @@ function SnapshotStatusCell({
   const rollout = registry.rollout;
   const statusId = resolveSnapshotRowStatus(snapshotRowStatusInput(row, registry));
   const status = snapshotRowStatusPresentation(statusId);
+  const isDeployedVersion = statusId === "current";
   const statusTimer = snapshotStatusTimer(
     row,
     row.kind === "pending" ? liveNow : undefined,
@@ -265,20 +265,26 @@ function SnapshotStatusCell({
   return (
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge
-          variant={status.badgeVariant}
-          data-testid="snapshot-status"
-          className="relative"
-        >
-          {row.kind === "pending" ? (
-            <Loader2
-              className="absolute top-1/2 right-full mr-1.5 size-3.5 -translate-y-1/2 animate-spin text-warning-foreground"
-              aria-hidden="true"
-              data-testid="snapshot-status-spinner"
-            />
-          ) : null}
-          <SearchHighlight text={status.label} />
-        </Badge>
+        {isDeployedVersion ? (
+          <Badge variant="info" data-testid="deployed-version-badge">
+            Deployed Version
+          </Badge>
+        ) : (
+          <Badge
+            variant={status.badgeVariant}
+            data-testid="snapshot-status"
+            className="relative"
+          >
+            {row.kind === "pending" ? (
+              <Loader2
+                className="absolute top-1/2 right-full mr-1.5 size-3.5 -translate-y-1/2 animate-spin text-warning-foreground"
+                aria-hidden="true"
+                data-testid="snapshot-status-spinner"
+              />
+            ) : null}
+            <SearchHighlight text={status.label} />
+          </Badge>
+        )}
         {row.kind === "pending" && statusTimer ? (
           <PendingPublishDuration statusTimer={statusTimer} />
         ) : null}
@@ -525,7 +531,7 @@ export function AppAdminSnapshotsTable({
     <DataTableSearchShell
       search={search}
       onSearchChange={setSearch}
-      searchPlaceholder="Search snapshots"
+      searchPlaceholder="Search versions"
     >
       <DataTableView
         table={table}

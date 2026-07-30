@@ -18,7 +18,7 @@ export type RolloutStepperModel = {
   }>;
 };
 
-const ROLLOUT_TERMINAL_SUCCESS_LABEL = "Current";
+const ROLLOUT_TERMINAL_SUCCESS_LABEL = "Deployed";
 const ROLLOUT_TERMINAL_FAILURE_LABEL = "Deploy failed";
 const ROLLOUT_PHASE_ENROLLING_LABEL = "Updating fleet";
 const ROLLOUT_PHASE_RESTARTING_LABEL = "Reloading apps";

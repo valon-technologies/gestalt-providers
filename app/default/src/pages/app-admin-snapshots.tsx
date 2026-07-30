@@ -18,7 +18,7 @@ import {
 import { useUpdateAppAdminAutoDeployMutation } from "@/lib/queries";
 import { Loader2 } from "lucide-react";
 
-function snapshotsSubhead({
+function versionsSubhead({
   autoDeployEnabled,
   desiredVersion,
   rolloutActive,
@@ -29,14 +29,14 @@ function snapshotsSubhead({
 }): string {
   if (autoDeployEnabled) {
     if (rolloutActive) {
-      return "Automatic deploy is on. New snapshots queue until the current rollout finishes.";
+      return "Automatic deploy is on. New versions queue until the current rollout finishes.";
     }
-    return "Automatic deploy is on. New published snapshots deploy to the fleet without a manual deploy.";
+    return "Automatic deploy is on. New versions deploy to the fleet without a manual deploy.";
   }
   if (desiredVersion) {
-    return "Deploy a published snapshot to change the version running across the fleet.";
+    return "Deploy a version to change what's running across the fleet.";
   }
-  return "No snapshot is serving on the fleet yet. Deploy a published snapshot to start.";
+  return "No version is serving on the fleet yet. Deploy a version to start.";
 }
 
 export default function AppAdminSnapshotsPage() {
@@ -67,12 +67,12 @@ export default function AppAdminSnapshotsPage() {
   const disabledReason = formatRegistryDisabledReason(registry.disabledReason);
 
   return (
-    <section aria-label="Published snapshots">
+    <section aria-label="Versions">
       <PageHeader>
         <PageHeaderContent>
-          <PageHeaderTitle>Published snapshots</PageHeaderTitle>
+          <PageHeaderTitle>Versions</PageHeaderTitle>
           <PageHeaderDescription>
-            {snapshotsSubhead({
+            {versionsSubhead({
               autoDeployEnabled,
               desiredVersion: registry.desiredVersion,
               rolloutActive,

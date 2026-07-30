@@ -46,13 +46,13 @@ export function adminSurfaceForPathname(
 export const APP_ADMIN_NAV = [
   {
     id: "snapshots" as const,
-    label: "Published snapshots",
+    label: "Versions",
     to: "/apps/$app/admin/snapshots" as const,
     requires: "registry" as const satisfies AppAdminSurface,
   },
   {
     id: "history" as const,
-    label: "Revision history",
+    label: "Version history",
     to: "/apps/$app/admin/history" as const,
     requires: "registry" as const satisfies AppAdminSurface,
   },

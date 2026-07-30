@@ -364,7 +364,7 @@ export function AppAdminHistoryTable({
   });
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading revision history…</p>;
+    return <p className="text-sm text-muted-foreground">Loading version history…</p>;
   }
 
   if (error) {
@@ -384,7 +384,7 @@ export function AppAdminHistoryTable({
       <DataTableSearchShell
         search={search}
         onSearchChange={setSearch}
-        searchPlaceholder="Search revision history"
+        searchPlaceholder="Search version history"
       >
         <DataTableView
           table={table}

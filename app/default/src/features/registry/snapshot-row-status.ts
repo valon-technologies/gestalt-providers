@@ -54,7 +54,7 @@ const SNAPSHOT_ROW_STATUS: Record<SnapshotRowStatusId, SnapshotRowPresentation> 
     sortOrder: 4,
   },
   current: {
-    label: "Current",
+    label: "Deployed",
     badgeVariant: "info",
     indicatorVariant: "success",
     sortOrder: 5,

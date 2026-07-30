@@ -380,8 +380,8 @@ test.describe("app admin registry UI", () => {
     const deployedBadge = page
       .getByTestId(`snapshot-row-published`)
       .filter({ hasText: PUBLISHED_NEW.version.slice(0, 20) })
-      .getByTestId("snapshot-status");
-    await expect(deployedBadge).toHaveText("Current");
+      .getByTestId("deployed-version-badge");
+    await expect(deployedBadge).toHaveText("Deployed Version");
     await expect(deployedBadge).toHaveCSS("color", "oklch(0.858 0.07 248)");
 
     const publishingBadge = page.getByTestId("snapshot-row-pending").getByTestId("snapshot-status");
@@ -428,8 +428,8 @@ test.describe("app admin registry UI", () => {
     const deployedBadge = page
       .getByTestId("snapshot-row-published")
       .filter({ hasText: PUBLISHED_LEGACY.version.slice(0, 20) })
-      .getByTestId("snapshot-status");
-    await expect(deployedBadge).toHaveText("Current");
+      .getByTestId("deployed-version-badge");
+    await expect(deployedBadge).toHaveText("Deployed Version");
     await expect(deployedBadge).toHaveAttribute("data-variant", "info");
     await expect(deployedBadge).toHaveCSS("color", "oklch(0.408 0.105 248)");
   });
@@ -453,8 +453,8 @@ test.describe("app admin registry UI", () => {
     const deployedBadge = page
       .getByTestId("snapshot-row-published")
       .filter({ hasText: PUBLISHED_LEGACY.version.slice(0, 20) })
-      .getByTestId("snapshot-status");
-    await expect(deployedBadge).toHaveText("Current");
+      .getByTestId("deployed-version-badge");
+    await expect(deployedBadge).toHaveText("Deployed Version");
     await expect(deployedBadge).toHaveCSS("background-color", "oklch(0.928 0.035 248)");
     await expect(deployedBadge).toHaveCSS("color", "oklch(0.408 0.105 248)");
     await expect(deployedBadge).not.toHaveAttribute("style", /./);
@@ -508,7 +508,7 @@ test.describe("app admin registry UI", () => {
     await expect(rows.nth(0)).toContainText("Add registry deploy banner");
     await expect(rows.nth(0).getByTestId("snapshot-last-updated-at")).toHaveText("yesterday");
     await expect(rows.nth(1)).toContainText(PUBLISHED_LEGACY.version.slice(0, 20));
-    await expect(rows.nth(1)).toContainText("Current");
+    await expect(rows.nth(1)).toContainText("Deployed Version");
   });
 
   test("links to the mounted app page when mountedPath is available", async ({ page }) => {
