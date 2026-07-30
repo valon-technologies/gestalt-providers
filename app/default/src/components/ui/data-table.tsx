@@ -101,6 +101,7 @@ export function DataTableSearchField({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
+        aria-label={placeholder}
         className="pl-9"
         data-testid={testId}
       />

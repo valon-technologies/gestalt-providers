@@ -42,6 +42,12 @@ import {
   TableOfContents,
   type TableOfContentsItem,
 } from "@/components/ui/table-of-contents";
+import {
+  PageHeader,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
 
 const TOC_ACTIVATION_OFFSET = 112;
 
@@ -333,11 +339,15 @@ export default function AppWorkspaceOperationsPage() {
 
   return (
     <section aria-label="Operations">
-      <h1 className="text-2xl font-heading text-foreground">Operations</h1>
-      <p className="mt-1 text-sm text-muted-foreground text-pretty">
-        Callable operation catalog for this app — grouped by resource, with
-        method summaries and deep links for agents and the CLI.
-      </p>
+      <PageHeader>
+        <PageHeaderContent>
+          <PageHeaderTitle>Operations</PageHeaderTitle>
+          <PageHeaderDescription>
+            Callable operation catalog for this app — grouped by resource, with
+            method summaries and deep links for agents and the CLI.
+          </PageHeaderDescription>
+        </PageHeaderContent>
+      </PageHeader>
 
       {!operationsLoading && visibleOperations.length > 0 ? (
         <div className="mt-5 max-w-md space-y-2">

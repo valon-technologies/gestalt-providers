@@ -4,6 +4,7 @@ import { SpinnerIcon } from "@/components/icons";
 import {
   SectionHeader,
   SectionHeaderContent,
+  SectionHeaderDescription,
   SectionHeaderTitle,
 } from "@/components/ui/section-header";
 import { useInvalidateTokens, useTokensQuery } from "@/lib/queries";
@@ -25,14 +26,16 @@ export default function SettingsTokensSection() {
   }
 
   return (
-    <section className="scroll-mt-24 space-y-8" aria-label="Your API Tokens">
-      <div>
-        <h2 className="text-lg font-heading text-foreground">Your API Tokens</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Create personal tokens for local tooling, scripts, and one-off
-          integrations. These act as you.
-        </p>
-      </div>
+    <section className="scroll-mt-24 space-y-8" aria-label="Your API tokens">
+      <SectionHeader>
+        <SectionHeaderContent>
+          <SectionHeaderTitle>Your API tokens</SectionHeaderTitle>
+          <SectionHeaderDescription>
+            Create personal tokens for local tooling, scripts, and one-off
+            integrations. These act as you.
+          </SectionHeaderDescription>
+        </SectionHeaderContent>
+      </SectionHeader>
 
       <div
         id="authorization"

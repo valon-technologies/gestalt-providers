@@ -1,6 +1,5 @@
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import type { KeyboardEvent, MouseEvent } from "react";
 import {
   Integration,
   startIntegrationOAuth,
@@ -26,7 +25,6 @@ import { resolveMountedAppHref } from "@/lib/mount";
 import { useIntegrationConnection } from "@/hooks/useIntegrationConnection";
 import { cn } from "@/lib/cn";
 import { Badge } from "@/components/ui/badge";
-import AppListingDetail from "./AppListingDetail";
 import { SearchHighlight } from "@/components/ui/search-highlight";
 import IntegrationIcon from "./IntegrationIcon";
 import {
@@ -210,27 +208,34 @@ export default function IntegrationCard({
     window.location.assign(resolveMountedAppHref(mountedPath));
   }
 
-  function activateCard() {
-    navigateToAppDetail();
-  }
-
-  function handleCardClick(e: MouseEvent<HTMLDivElement>) {
-    if (!cardNavigationEnabled) return;
-    const target = e.target as HTMLElement | null;
-    if (target?.closest("button, a, input, textarea, select, label, form")) {
-      return;
+  function renderCardTitle() {
+    const title = (
+      <h3 className="text-base font-heading text-foreground">
+        <SearchHighlight text={label} query={highlightQuery} variant="vivid" />
+      </h3>
+    );
+    if (!cardNavigationEnabled) return title;
+    if (useAppDetailConnection) {
+      return (
+        <Link
+          to={installState === "needs_attention" ? "/apps/$app/connection" : "/apps/$app"}
+          params={{ app: integration.name }}
+          className="block rounded-sm focus-ring"
+        >
+          {title}
+        </Link>
+      );
     }
-    activateCard();
+    return (
+      <button
+        type="button"
+        onClick={() => navigateToAppDetail()}
+        className="block rounded-sm text-left focus-ring"
+      >
+        {title}
+      </button>
+    );
   }
-
-  function handleCardKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    if (!cardNavigationEnabled || e.target !== e.currentTarget) return;
-    if (e.key !== "Enter" && e.key !== " ") return;
-    e.preventDefault();
-    activateCard();
-  }
-
-  const cardAriaLabel = `View details for ${label}`;
 
   return (
     <div
@@ -240,14 +245,7 @@ export default function IntegrationCard({
         "hover:bg-neutral-dark-hover active:bg-neutral-dark-pressed",
         "hover:has-[button:hover,[role=button]:hover,[data-no-row-click]:hover]:bg-neutral-hover",
         "active:has-[button:active,[role=button]:active,[data-no-row-click]:active]:bg-neutral-hover",
-        cardNavigationEnabled &&
-          "cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gold-400 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
       )}
-      onClick={handleCardClick}
-      onKeyDown={handleCardKeyDown}
-      role={cardNavigationEnabled ? "link" : undefined}
-      tabIndex={cardNavigationEnabled ? 0 : undefined}
-      aria-label={cardNavigationEnabled ? cardAriaLabel : undefined}
     >
       {connection.pendingSelection && (
         <form
@@ -272,9 +270,7 @@ export default function IntegrationCard({
             size="xl"
           />
           <div className="min-w-0">
-            <h3 className="text-base font-heading text-foreground">
-              <SearchHighlight text={label} query={highlightQuery} variant="vivid" />
-            </h3>
+            {renderCardTitle()}
             {integration.description && (
               <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
                 <SearchHighlight
@@ -398,7 +394,7 @@ export default function IntegrationCard({
                 </Tooltip>
                 <DropdownMenuContent align="end" className="w-44">
                   <DropdownMenuItem onClick={() => openConnectionModal()}>
-                    Connection
+                    Manage connection
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={openRemoveApp}

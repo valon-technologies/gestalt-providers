@@ -19,6 +19,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircleIcon, CloseIcon } from "./icons";
+import {
+  SectionHeader,
+  SectionHeaderActions,
+  SectionHeaderContent,
+  SectionHeaderDescription,
+  SectionHeaderTitle,
+} from "@/components/ui/section-header";
 
 export type ConnectionPanelView =
   | "default"
@@ -649,32 +656,31 @@ export default function IntegrationConnectionPanel({
         ) : (
           <>
             {showHeader ? (
-              <div className="flex items-start justify-between">
-                <div>
-                  <h2
-                    id={headingId}
-                    className="text-lg font-heading text-foreground"
-                  >
+              <SectionHeader>
+                <SectionHeaderContent size="sm">
+                  <SectionHeaderTitle as="h2" id={headingId}>
                     {displayName}
-                  </h2>
+                  </SectionHeaderTitle>
                   {shouldShowIntegrationSummary(normalizedStatus) ? (
-                    <p className="mt-2 text-sm text-muted-foreground">
+                    <SectionHeaderDescription className="text-sm">
                       {normalizedStatus.summaryLabel}
-                    </p>
-                  ) : null}
-                </div>
-                {isDialog ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={closeDialog}
-                    aria-label="Close"
-                  >
-                    <CloseIcon className="h-4 w-4" />
-                  </Button>
+                    </SectionHeaderDescription>
                 ) : null}
-              </div>
+              </SectionHeaderContent>
+              {isDialog ? (
+                <SectionHeaderActions>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={closeDialog}
+                      aria-label="Close"
+                    >
+                      <CloseIcon className="h-4 w-4" />
+                    </Button>
+                  </SectionHeaderActions>
+                ) : null}
+              </SectionHeader>
             ) : (
               <h2 id={headingId} className="sr-only">
                 Credentials for {displayName}
@@ -873,7 +879,7 @@ function TokenForm({
           Cancel
         </Button>
         <Button type="submit" className="flex-1" disabled={submitting}>
-          {submitting ? "Connecting..." : "Submit"}
+          {submitting ? "Connecting…" : "Connect"}
         </Button>
       </div>
     </form>

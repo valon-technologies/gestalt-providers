@@ -51,6 +51,12 @@ import {
   PageHeaderDescription,
   PageHeaderTitle,
 } from "@/components/ui/page-header";
+import {
+  SectionHeader,
+  SectionHeaderContent,
+  SectionHeaderDescription,
+  SectionHeaderTitle,
+} from "@/components/ui/section-header";
 import IdentityTokenCreateForm from "./IdentityTokenCreateForm";
 import IdentityTokenTable from "./IdentityTokenTable";
 import { SearchIcon } from "./icons";
@@ -381,10 +387,12 @@ export default function ManagedIdentityDetailView({
           </section>
 
           <section className={SECTION_CARD}>
-            <div>
-              <span className="label-text">Sharing</span>
-              <h2 className="mt-2 text-lg font-heading text-foreground">Members</h2>
-            </div>
+            <SectionHeader>
+              <SectionHeaderContent size="sm">
+                <Eyebrow tone="secondary">Sharing</Eyebrow>
+                <SectionHeaderTitle>Members</SectionHeaderTitle>
+              </SectionHeaderContent>
+            </SectionHeader>
             {canAdmin ? (
               <form onSubmit={handleMemberSubmit} className="mt-6 flex flex-col gap-3 lg:flex-row lg:items-end">
                 <div className="flex-1">
@@ -455,11 +463,15 @@ export default function ManagedIdentityDetailView({
           </section>
 
           <section className={SECTION_CARD}>
-            <span className="label-text">Authorization</span>
-            <h2 className="mt-2 text-lg font-heading text-foreground">Identity App Access</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Grants are identity-level roles for apps that enforce authorization. API keys do not create these grants; they only authenticate as this identity.
-            </p>
+            <SectionHeader>
+              <SectionHeaderContent size="sm">
+                <Eyebrow tone="secondary">Authorization</Eyebrow>
+                <SectionHeaderTitle>Identity app access</SectionHeaderTitle>
+                <SectionHeaderDescription>
+                  Grants are identity-level roles for apps that enforce authorization. API keys do not create these grants; they only authenticate as this identity.
+                </SectionHeaderDescription>
+              </SectionHeaderContent>
+            </SectionHeader>
             {canAdmin ? (
               <form
                 onSubmit={(event) => {
@@ -592,11 +604,15 @@ export default function ManagedIdentityDetailView({
           </section>
 
           <section className={SECTION_CARD}>
-            <span className="label-text">Connections</span>
-            <h2 className="mt-2 text-lg font-heading text-foreground">App Connections</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Connections store OAuth or manual credentials for this identity. They do not add app roles or change API-key limits.
-            </p>
+            <SectionHeader>
+              <SectionHeaderContent size="sm">
+                <Eyebrow tone="secondary">Connections</Eyebrow>
+                <SectionHeaderTitle>App connections</SectionHeaderTitle>
+                <SectionHeaderDescription>
+                  Connections store OAuth or manual credentials for this identity. They do not add app roles or change API-key limits.
+                </SectionHeaderDescription>
+              </SectionHeaderContent>
+            </SectionHeader>
             {managedIntegrationError ? (
               <p className="mt-6 text-sm text-destructive">{managedIntegrationError}</p>
             ) : managedIntegrations.length === 0 ? (
@@ -662,11 +678,15 @@ export default function ManagedIdentityDetailView({
           </section>
 
           <section className={SECTION_CARD}>
-            <span className="label-text">API Access</span>
-            <h2 className="mt-2 text-lg font-heading text-foreground">Identity API Keys</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              API keys authenticate as this identity. By default, a key follows managed identity app access and connector credentials at use time; token limits only narrow one key.
-            </p>
+            <SectionHeader>
+              <SectionHeaderContent size="sm">
+                <Eyebrow tone="secondary">API access</Eyebrow>
+                <SectionHeaderTitle>Identity API keys</SectionHeaderTitle>
+                <SectionHeaderDescription>
+                  API keys authenticate as this identity. By default, a key follows managed identity app access and connector credentials at use time; token limits only narrow one key.
+                </SectionHeaderDescription>
+              </SectionHeaderContent>
+            </SectionHeader>
             {canAdmin ? (
               <IdentityTokenCreateForm
                 identityID={identityID}

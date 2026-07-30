@@ -1,5 +1,4 @@
 import { fetchAPI, normalizeWorkflowRun, type WorkflowRun } from "@/lib/api";
-import { workflowRunMatchesApp } from "@/lib/workflowActivity";
 import {
   rememberWorkflowProvider,
   resolveWorkflowProvider,
@@ -120,11 +119,9 @@ export async function listWorkflowRuns(
     `${WORKFLOW_RUNS_PATH}?${params}`,
   );
   const runs = normalizeRuns(response.runs);
-  const targetApp = opts?.targetApp?.trim();
-  if (!targetApp) {
-    return runs;
-  }
-  return runs.filter((run) => workflowRunMatchesApp(run, targetApp));
+  // `targetApp` is a server-side ownership filter. List summaries may omit the
+  // hydrated target, so re-filtering here can silently discard valid results.
+  return runs;
 }
 
 export async function getWorkflowRun(

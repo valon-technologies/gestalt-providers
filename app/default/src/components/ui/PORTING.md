@@ -72,10 +72,16 @@ Do not hand-roll `bg-muted font-mono` at call sites.
 
 ## Brand type scale
 
+Registry `header-chrome`, `PageHeader`, and `SectionHeader` are vendored here.
+`PageHeader` / `SectionHeader` are thin wrappers over `createHeaderChrome` — sync
+all three together from the upstream Registry. Display tiers use
+`font-display`; compact tiers use `font-sans`. Do not reintroduce a `display`
+prop or face overrides at call sites.
+
 Registry PageHeader / SectionHeader consume `text-heading-*`, `text-display-*`,
 `tracking-heading`, `tracking-display` (brand type scale). Add **generic** defaults
 in `shared/theme.css` and bridge them in `globals.css` `@theme inline`. Tenant-
-specific values belong in the deployment repo's `deploy/ui/theme.css` — not here.
+specific values belong in the tenant deployment stylesheet — not here.
 See [`docs/agent/theme-boundary.md`](../../../../docs/agent/theme-boundary.md).
 Do not invent freestyle `tracking-*` / `text-*` sizes at call sites.
 

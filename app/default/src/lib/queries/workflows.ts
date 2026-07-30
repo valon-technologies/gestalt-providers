@@ -28,7 +28,7 @@ export function useWorkflowRunQuery(
         targetApp: appName,
       });
       if (!workflowRunMatchesApp(run, appName)) {
-        throw new Error("This workflow run does not belong to this app.");
+        throw new Error("This workflow run is not available in this app.");
       }
       return run;
     },

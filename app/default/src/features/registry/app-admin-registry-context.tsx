@@ -1,13 +1,26 @@
 import { createContext, useContext } from "react";
-import type { AppAdminOutletContext } from "@/pages/app-admin-outlet-context";
+import type { AppAdminRegistryResponse } from "@/features/registry/types";
 
-const AppAdminRegistryContext = createContext<AppAdminOutletContext | null>(null);
+export type AppAdminRegistryContextValue = {
+  appName: string;
+  registry: AppAdminRegistryResponse;
+  appMountedPath?: string;
+  deployingVersion: string | null;
+  onDeployVersion: (version: string) => void;
+  deployError: string | null;
+  registryError: string | null;
+  checkForNewVersions: () => void;
+  isCheckingForNewVersions: boolean;
+  registryUpdatedAt: number | null;
+};
+
+const AppAdminRegistryContext = createContext<AppAdminRegistryContextValue | null>(null);
 
 export function AppAdminRegistryProvider({
   value,
   children,
 }: {
-  value: AppAdminOutletContext;
+  value: AppAdminRegistryContextValue;
   children: React.ReactNode;
 }) {
   return (

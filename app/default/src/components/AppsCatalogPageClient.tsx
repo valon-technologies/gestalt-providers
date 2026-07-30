@@ -28,6 +28,12 @@ import {
   PageHeaderTitle,
 } from "@/components/ui/page-header";
 import {
+  SectionHeader,
+  SectionHeaderContent,
+  SectionHeaderDescription,
+  SectionHeaderTitle,
+} from "@/components/ui/section-header";
+import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
@@ -51,6 +57,29 @@ const APPS_PATH = appPath("/apps");
 /** Must sit below `scroll-mt-24` (96px) so a clicked heading still counts as
  *  crossed after `scrollIntoView` parks it on the scroll-margin. */
 const CATALOG_TOC_ACTIVATION_OFFSET = 112;
+
+function CatalogBucketSectionHeader({
+  id,
+  title,
+  description,
+}: {
+  id: string;
+  title: string;
+  description?: string;
+}) {
+  return (
+    <SectionHeader>
+      <SectionHeaderContent size="lg">
+        <SectionHeaderTitle id={id} className="scroll-mt-24">
+          {title}
+        </SectionHeaderTitle>
+        {description ? (
+          <SectionHeaderDescription>{description}</SectionHeaderDescription>
+        ) : null}
+      </SectionHeaderContent>
+    </SectionHeader>
+  );
+}
 
 export default function AppsCatalogPageClient() {
   const navigate = useNavigate();
@@ -364,20 +393,14 @@ export default function AppsCatalogPageClient() {
             {installed.length > 0 ? (
               <section
                 aria-labelledby="catalog-bucket-installed"
+                className="flex flex-col gap-4"
                 data-testid="catalog-bucket-installed"
               >
-                <div className="mb-4 max-w-2xl">
-                  <h2
-                    id="catalog-bucket-installed"
-                    className="scroll-mt-24 font-heading text-2xl text-foreground"
-                  >
-                    Installed
-                  </h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Apps you’re already connected to — open one to manage
-                    access.
-                  </p>
-                </div>
+                <CatalogBucketSectionHeader
+                  id="catalog-bucket-installed"
+                  title="Installed"
+                  description="Apps you’re already connected to — open one to manage access."
+                />
                 <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                   {installed.map((integration) => (
                     <IntegrationCard
@@ -402,21 +425,14 @@ export default function AppsCatalogPageClient() {
               <section
                 key={bucket.id}
                 aria-labelledby={`catalog-bucket-${bucket.id}`}
+                className="flex flex-col gap-4"
                 data-testid={`catalog-bucket-${bucket.id}`}
               >
-                <div className="mb-4 max-w-2xl">
-                  <h2
-                    id={`catalog-bucket-${bucket.id}`}
-                    className="scroll-mt-24 font-heading text-2xl text-foreground"
-                  >
-                    {bucket.label}
-                  </h2>
-                  {bucket.description ? (
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {bucket.description}
-                    </p>
-                  ) : null}
-                </div>
+                <CatalogBucketSectionHeader
+                  id={`catalog-bucket-${bucket.id}`}
+                  title={bucket.label}
+                  description={bucket.description}
+                />
                 <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                   {sectionApps.map((integration) => (
                     <IntegrationCard

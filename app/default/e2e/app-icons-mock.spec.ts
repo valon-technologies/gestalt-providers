@@ -220,7 +220,7 @@ test.describe("app registry icons", () => {
     ).toBe(
       await page.evaluate(() =>
         getComputedStyle(document.documentElement)
-          .getPropertyValue("--ui-font-display")
+          .getPropertyValue("--font-display")
           .trim(),
       ),
     );

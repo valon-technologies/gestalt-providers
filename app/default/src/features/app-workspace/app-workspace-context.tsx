@@ -1,6 +1,6 @@
 import { createContext, useContext, type ReactNode } from "react";
 import type { Integration } from "@/lib/api";
-import type { AppAdminOutletContext } from "@/pages/app-admin-outlet-context";
+import type { AppAdminRegistryContextValue } from "@/features/registry/app-admin-registry-context";
 import type { AppAdminSurface } from "./app-nav";
 
 export type AppWorkspaceCapabilities = {
@@ -16,7 +16,7 @@ export type AppWorkspaceContextValue = {
   error: string | null;
   capabilities: AppWorkspaceCapabilities;
   showConnectionNav: boolean;
-  registryOutlet?: AppAdminOutletContext;
+  registryOutlet?: AppAdminRegistryContextValue;
   reloadIntegration: () => void;
 };
 

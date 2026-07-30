@@ -2,6 +2,12 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { appDetailConnectionPath } from "@/lib/catalogFilters";
 import IntegrationConnectionPanel from "@/components/IntegrationConnectionPanel";
+import {
+  PageHeader,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
 import { useIntegrationConnection } from "@/hooks/useIntegrationConnection";
 import { useAppWorkspace } from "@/features/app-workspace/app-workspace-context";
 
@@ -13,11 +19,17 @@ export default function AppWorkspaceConnectionPage() {
     "default" | "disconnect"
   >("default");
   const [removeAppConfirm, setRemoveAppConfirm] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const connectionFlow = useIntegrationConnection({
     integration: integration ?? { name: app },
     onConnected: reloadIntegration,
     onDisconnected: reloadIntegration,
+    onStatusMessage: setStatusMessage,
+    onFlowComplete: () => {
+      setConnectionPanelView("default");
+      setRemoveAppConfirm(false);
+    },
     returnPath: appDetailConnectionPath(integration ?? { name: app }),
   });
 
@@ -41,17 +53,24 @@ export default function AppWorkspaceConnectionPage() {
       id="app-admin-connection"
       data-testid="app-admin-connection"
     >
-      <div>
-        <h1 className="text-2xl font-heading text-foreground">Credentials</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Connect or reconnect this app under your user. Disconnect to revoke
-          access.
+      <PageHeader>
+        <PageHeaderContent>
+          <PageHeaderTitle>Credentials</PageHeaderTitle>
+          <PageHeaderDescription>
+            Connect or reconnect this app under your user. Disconnect to revoke
+            access.
+          </PageHeaderDescription>
+        </PageHeaderContent>
+      </PageHeader>
+      {statusMessage ? (
+        <p className="text-sm text-success-foreground" role="status">
+          {statusMessage}
         </p>
-        <p className="mt-3 text-xs text-muted-foreground">
-          Connecting grants this workspace permission to use the app with your
-          credentials. Review the provider’s privacy policy before continuing.
-        </p>
-      </div>
+      ) : null}
+      <p className="text-xs text-muted-foreground-soft">
+        Connecting grants this workspace permission to use the app with your
+        credentials. Review the provider’s privacy policy before continuing.
+      </p>
       <IntegrationConnectionPanel
         integration={integration}
         onStartOAuth={connectionFlow.handleStartOAuth}
