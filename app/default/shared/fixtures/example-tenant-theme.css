@@ -13,6 +13,8 @@
   --surface: var(--example-surface);
   --surface-raised: var(--example-surface-raised);
   --foreground: var(--example-ink);
+  --card: var(--example-paper);
+  --card-foreground: var(--example-ink);
   --popover: var(--example-paper);
   --popover-foreground: var(--example-ink);
 }
@@ -27,6 +29,8 @@
   --surface: var(--example-night-100);
   --surface-raised: var(--example-night-200);
   --foreground: var(--example-ink-soft);
+  --card: var(--example-night-100);
+  --card-foreground: var(--example-ink-soft);
   --popover: var(--example-night-100);
   --popover-foreground: var(--example-ink-soft);
 }

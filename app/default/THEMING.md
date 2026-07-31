@@ -79,10 +79,10 @@ A tenant theme is one stylesheet that re-declares any subset of these tokens
 ### Required explicit overrides (validation)
 
 Some bundle defaults **alias** one semantic token to another (e.g.
-`--popover: var(--surface-raised)`). Registry and product themes often map
-those roles independently (flyouts → paper, not raised cream). If a tenant
-theme sets `--surface-raised` but not `--popover`, flyouts silently inherit
-the wrong color.
+`--card: var(--surface)`, `--popover: var(--surface-raised)`). Registry and
+product themes often map those roles independently (cards and flyouts → paper,
+not inset/raised cream). If a tenant theme sets `--surface` / `--surface-raised`
+but not `--card` / `--popover`, overlay surfaces silently inherit the wrong color.
 
 [`shared/tenant-theme-manifest.json`](shared/tenant-theme-manifest.json)
 lists tokens deployment themes must declare explicitly in **both** `:root` and

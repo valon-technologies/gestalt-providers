@@ -96,8 +96,10 @@ test("tenant manifest only lists tokens defined in shared/theme.css", () => {
   }
 });
 
-test("bundle popover default is an alias trap (documented in manifest)", () => {
+test("bundle overlay surface defaults are alias traps (documented in manifest)", () => {
+  expect(extractCssTokenValue(bundleTheme, "--card")).toBe("var(--surface)");
   expect(extractCssTokenValue(bundleTheme, "--popover")).toBe("var(--surface-raised)");
+  expect(manifest.required[":root"]).toContain("--card");
   expect(manifest.required[":root"]).toContain("--popover");
 });
 
