@@ -9,7 +9,7 @@ import { cn } from "@/lib/cn";
 
 // The shared link treatment, owned here so every link (Link, BreadcrumbLink,
 // Plate markdown links, app-level entity links) stays in sync. Link text uses --link
-// (gold-500); the draw underline uses --accent-solid (gold-400).
+// (--accent-strong); the draw underline uses --accent-solid.
 type LinkUnderlineVariant = "hover" | "always";
 
 const linkColor =

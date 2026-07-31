@@ -1,0 +1,15 @@
+{
+  "description": "Tenant themes must declare these tokens explicitly in :root and .dark. The bundle supplies :where() defaults, but some alias to a different semantic role than Registry / product intent — relying on the default silently mis-maps flyouts and cards.",
+  "agentTest": {
+    "file": "app/default/src/lib/tenant-theme.contract.test.ts",
+    "command": "cd app/default && GESTALT_THEME_FILE=/path/to/deploy/ui/theme.css bun test src/lib/tenant-theme.contract.test.ts"
+  },
+  "required": {
+    ":root": ["--popover", "--popover-foreground"],
+    ".dark": ["--popover", "--popover-foreground"]
+  },
+  "notes": {
+    "--popover": "Bundle default is var(--surface-raised). Registry flyouts use page paper (light) / card surface (dark), not raised cream.",
+    "--popover-foreground": "Bundle default is var(--foreground). Declare alongside --popover so dark-mode pairs stay explicit."
+  }
+}

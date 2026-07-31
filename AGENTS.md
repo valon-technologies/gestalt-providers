@@ -8,6 +8,7 @@ This is a **public, tenant-neutral** UI platform repository.
 - Runtime tokens: [`app/default/shared/theme.css`](app/default/shared/theme.css)
 - Tailwind bridge: [`app/default/src/globals.css`](app/default/src/globals.css) (`@theme inline`)
 - Agent guardrails: [`docs/agent/theme-boundary.md`](docs/agent/theme-boundary.md)
+- Tenant theme coverage test: [`app/default/src/lib/tenant-theme.contract.test.ts`](app/default/src/lib/tenant-theme.contract.test.ts) (manifest: [`app/default/shared/tenant-theme-manifest.json`](app/default/shared/tenant-theme-manifest.json))
 
 ### Hard rules
 

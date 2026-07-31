@@ -32,7 +32,19 @@
         });
       })();
     </script>
-    <link rel="stylesheet" href="theme.css" />
+    <link
+      id="tenant-theme"
+      rel="stylesheet"
+      href="theme.css"
+      data-theme-source="tenant"
+    />
+    <script>
+      (function () {
+        if (localStorage.getItem("gestalt-theme-source") === "default") {
+          document.getElementById("tenant-theme")?.setAttribute("disabled", "");
+        }
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </head>
   <body class="font-sans antialiased">

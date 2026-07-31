@@ -14,8 +14,8 @@ When lifting a shared UI kit control into `src/components/ui/`:
 2. **Map only through the theme bridge** in `shared/theme.css` /
    `globals.css`. Those aliases already mean (Registry-aligned):
    - accent / accent-subtle → soft gold-200 washes
-   - accent-vivid → gold-300 bright fill/stroke
-   - accent-solid → gold-400 mid control fill (Switch checked)
+   - accent-vivid → brand-soft selected fill/stroke
+   - accent-solid → brand control fill (Switch checked)
    - accent\*-foreground → ink (`--foreground`)
 3. **Body / secondary copy:** use `text-muted-foreground` (and
    `text-muted-foreground-soft` for tertiary). Never `text-muted` or
@@ -62,7 +62,7 @@ Do not fork tile chrome at call sites. Import helpers from
 - `choiceCardRadioClassName` / `choiceCardRadioEyebrowClassName` — radio placement
 - Pass `focusRing="none"` on `RadioGroupItem` inside choice cards
 
-Canonical: upstream `choice-card-chrome` + `radio-group` stories. Requires `--accent-solid` in theme (gold-400).
+Canonical: upstream `choice-card-chrome` + `radio-group` stories. Requires `--accent-solid` in theme.
 
 ## Code (inline)
 

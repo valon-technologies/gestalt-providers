@@ -17,11 +17,11 @@ dark).
 
 | Token | Purpose | Generic default |
 | --- | --- | --- |
-| `--background` / `--surface` / `--surface-raised` | page + card surfaces | white / warm near-white |
-| `--border`, `--foreground`, `--alpha-dark` | lines, text, alpha text/border scale | warm neutrals |
+| `--background` / `--surface` / `--surface-raised` | page + card surfaces | white / cool near-white |
+| `--border`, `--foreground`, `--alpha-dark` | lines, text, alpha text/border scale | cool blue neutrals |
 | `--shadow-ink` | shadow color (RGB triplet) — identical in light and dark by default, so shadows never become glows | `35, 24, 16` |
-| `--brand`, `--brand-soft`, `--danger`, `--success` | brand accent pair / status colors | gold pair / red / green |
-| `--accent`, `--accent-subtle`, `--accent-vivid` | selected/hover **fills** (derived from `--brand-soft`) | soft gold washes |
+| `--brand`, `--brand-soft`, `--danger`, `--success` | brand accent pair / status colors | blue pair / red / green |
+| `--accent`, `--accent-subtle`, `--accent-vivid` | selected/hover **fills** (derived from `--brand-soft`) | soft blue washes |
 | `--accent-foreground`, `--accent-vivid-foreground` | **ink on accent fills** (always `--foreground`) | same as `--foreground` |
 | `--radius` | base corner radius; the CSS theme (`@theme` in `src/globals.css`) derives `rounded-sm` (−2px), `rounded`/`rounded-md` (as is), `rounded-lg` (+4px) | `0.5rem` (→ 6/8/12px) |
 | `--content-max-width` | shared max width of the nav and every contained page (see `src/components/Container.tsx`) | `80rem` |
@@ -76,9 +76,32 @@ A tenant theme is one stylesheet that re-declares any subset of these tokens
 - Only `:root`, `.dark`, and `body` selectors (plus `@font-face`, `@media`,
   `@supports`) are allowed. A theme styles tokens, not components.
 
+### Required explicit overrides (validation)
+
+Some bundle defaults **alias** one semantic token to another (e.g.
+`--popover: var(--surface-raised)`). Registry and product themes often map
+those roles independently (flyouts → paper, not raised cream). If a tenant
+theme sets `--surface-raised` but not `--popover`, flyouts silently inherit
+the wrong color.
+
+[`shared/tenant-theme-manifest.json`](shared/tenant-theme-manifest.json)
+lists tokens deployment themes must declare explicitly in **both** `:root` and
+`.dark`. Contract test:
+
+[`src/lib/tenant-theme.contract.test.ts`](src/lib/tenant-theme.contract.test.ts)
+
+```bash
+cd app/default
+GESTALT_THEME_FILE=/path/to/deploy/ui/theme.css \
+  bun test src/lib/tenant-theme.contract.test.ts
+```
+
+Without `GESTALT_THEME_FILE`, only bundle/manifest integrity checks run. This
+is a **CSS contract test**, not oxlint — oxlint covers TS/TSX invariants (e.g.
+selected-row ink rules), not cross-repo stylesheet coverage.
+
 ### Interaction roles (accent fill vs on-fill ink)
 
-`--accent*` tokens are **roles**, not “make the text gold.” They exist so
 ported UI kit chrome (nav, list selection, sidebar) can keep semantic class
 names (`bg-accent-subtle`, `text-accent-foreground`, …) without inventing
 mappings to `--brand`.
@@ -205,8 +228,8 @@ empty stub, and tenant themes arrive at serve time via `theme.css`.
   `--color-*` entries in the `@theme` block of `src/globals.css`) are
   still hardcoded warm hexes used throughout components — they bypass the
   token seam and won't respond to a tenant stylesheet (ISS-20260610-008).
-  Note the generic `--brand` (#7a4f10) is gold-800, not the gold-500
-  accent — the palette→token migration is a usage sweep, not a rename.
+  Note the generic `--brand` is the blue semantic accent — the
+  palette→token migration is a usage sweep, not a rename.
 - The `.dark dialog::backdrop` scrim keeps its own constant (the dark
   `--alpha-dark` triplet is a text scale, not a scrim color); light
   backdrop, shadows, radii, and brand/status colors are token-driven now.

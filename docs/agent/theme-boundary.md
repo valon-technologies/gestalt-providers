@@ -93,6 +93,16 @@ When `PageHeader` or another Registry primitive needs `text-display-sm`:
 3. Open a **separate change** in the deployment repo to override values in
    `deploy/ui/theme.css`.
 4. Verify locally with `GESTALT_THEME_FILE` pointing at the deployment stylesheet.
+5. Run the tenant-theme contract test (agents: grep `tenant-theme.contract`):
+
+```bash
+cd app/default
+GESTALT_THEME_FILE=/path/to/deploy/ui/theme.css \
+  bun test src/lib/tenant-theme.contract.test.ts
+```
+
+Manifest of required explicit overrides:
+[`app/default/shared/tenant-theme-manifest.json`](../app/default/shared/tenant-theme-manifest.json).
 
 ## Detection (manual / review)
 
