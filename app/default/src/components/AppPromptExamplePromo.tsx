@@ -93,9 +93,9 @@ export default function AppPromptExamplePromo({
       <CardContent className="relative flex min-h-40 items-center justify-center px-4 py-10 pb-14 sm:px-8 sm:py-12 sm:pb-16">
         <div
           data-testid="app-prompt-card"
-          className="mx-auto flex w-fit max-w-2xl gap-3 rounded-2xl bg-card px-4 py-2.5 text-sm shadow-lg sm:px-5"
+          className="mx-auto flex w-fit max-w-2xl gap-3 rounded-2xl bg-card px-4 py-2.5 text-sm text-card-foreground shadow-lg sm:px-5"
         >
-          <p className="min-w-0 text-pretty leading-relaxed text-foreground">
+          <p className="min-w-0 text-pretty leading-relaxed">
             <span className="font-semibold">{handle}</span>
             {body.trim() ? ` ${body.trim()}` : null}
           </p>
