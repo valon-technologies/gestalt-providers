@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { AppAdminAutoDeployToggle } from "@/features/registry/app-admin-auto-deploy-toggle";
 import { useAppAdminRegistryContext } from "@/features/registry/app-admin-registry-context";
@@ -113,6 +113,17 @@ export default function AppAdminSnapshotsPage() {
     () => historyQuery.data?.pages.flatMap((page) => page.revisions) ?? [],
     [historyQuery.data?.pages],
   );
+
+  useEffect(() => {
+    if (historyQuery.hasNextPage && !historyQuery.isFetchingNextPage) {
+      void historyQuery.fetchNextPage();
+    }
+  }, [
+    historyQuery.data?.pages,
+    historyQuery.fetchNextPage,
+    historyQuery.hasNextPage,
+    historyQuery.isFetchingNextPage,
+  ]);
 
   const autoDeployEnabled = registry.autoDeploy?.enabled ?? false;
   const rolloutActive = Boolean(

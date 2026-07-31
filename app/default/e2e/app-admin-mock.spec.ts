@@ -134,9 +134,10 @@ test.describe("app admin registry UI", () => {
 
   test("card click opens app detail for managed apps", async ({ page }) => {
     await mockIntegrations(page, [MANAGED_INTEGRATION, UNMANAGED_INTEGRATION]);
+    await mockAppAdminRegistry(page, APP, installedRegistryState());
     await page.goto("/apps");
 
-    await page.getByTestId("integration-card-example-app").click();
+    await page.getByRole("link", { name: "Example App" }).click();
     await page.waitForURL("**/apps/example-app");
     await expect(
       page.getByRole("heading", { level: 1, name: "Example App" }),
@@ -393,7 +394,7 @@ test.describe("app admin registry UI", () => {
     });
     await page.goto(`/apps/${APP}/admin`);
 
-    await expect(page.getByText(/No version is live on the fleet yet/i)).toBeVisible();
+    await expect(page.getByText(/No version is serving on the fleet yet/i)).toBeVisible();
     await expect(page.getByTestId("snapshot-row-published")).toHaveCount(1);
   });
 

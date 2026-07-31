@@ -3,222 +3,106 @@
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
 
-import * as React from "react";
-import { cva, type VariantProps } from "class-variance-authority";
+import {
+  createHeaderChrome,
+  createHeaderChromeScale,
+  type HeaderChromeTierTable,
+} from "./header-chrome";
 
-import { cn } from "@/lib/cn";
+type PageHeaderSize = "sm" | "default" | "md" | "lg" | "xl" | "entity";
 
-const pageHeaderVariants = cva("flex w-full gap-x-4 gap-y-3", {
-  variants: {
-    align: {
-      between: "flex-col sm:flex-row sm:items-end sm:justify-between",
-      center:
-        "flex-col items-center text-center [&_[data-slot=page-header-content]]:items-center [&_[data-slot=page-header-actions]]:justify-center",
-    },
+/**
+ * Canonical page-header tier table. Keep the complete Tailwind literals here;
+ * `createHeaderChromeScale` derives all cva maps and row selectors from it.
+ */
+const PAGE_HEADER_TIERS = {
+  sm: {
+    contentGapY: "gap-y-1.5",
+    stackedRowGapY:
+      "[&:has([data-slot=page-header-content][data-size=sm])]:gap-y-1.5",
+    title: "font-sans text-heading-md",
+    description: "text-xs",
+    icon: "[&_svg:not([class*='size-'])]:size-5",
   },
-  defaultVariants: {
-    align: "between",
+  default: {
+    contentGapY: "gap-y-2",
+    stackedRowGapY:
+      "[&:has([data-slot=page-header-content][data-size=default])]:gap-y-2",
+    title: "font-display text-heading-lg tracking-heading",
+    description: "text-sm",
+    icon: "[&_svg:not([class*='size-'])]:size-6",
   },
+  md: {
+    contentGapY: "gap-y-2.5",
+    stackedRowGapY:
+      "[&:has([data-slot=page-header-content][data-size=md])]:gap-y-2.5",
+    title: "font-display text-heading-xl tracking-display",
+    description: "text-base",
+    icon: "[&_svg:not([class*='size-'])]:size-8",
+  },
+  lg: {
+    contentGapY: "gap-y-3",
+    stackedRowGapY:
+      "[&:has([data-slot=page-header-content][data-size=lg])]:gap-y-3",
+    title: "font-display text-display-sm tracking-display",
+    description: "text-body-lg",
+    icon: "[&_svg:not([class*='size-'])]:size-10",
+  },
+  xl: {
+    contentGapY: "gap-y-5",
+    stackedRowGapY:
+      "[&:has([data-slot=page-header-content][data-size=xl])]:gap-y-5",
+    title: "font-display text-display-xl tracking-display-tight",
+    description: "text-heading-lg",
+    icon: "[&_svg:not([class*='size-'])]:size-12",
+  },
+  entity: {
+    contentGapY: "gap-y-3",
+    stackedRowGapY:
+      "[&:has([data-slot=page-header-content][data-size=entity])]:gap-y-3",
+    title: "font-display text-display-sm tracking-display",
+    description: "text-body-lg",
+    icon: "[&_svg:not([class*='size-'])]:size-10",
+  },
+} as const satisfies HeaderChromeTierTable<PageHeaderSize>;
+
+const PAGE_HEADER_ALIGN_CENTER =
+  "[&_[data-slot=page-header-content]]:items-center [&_[data-slot=page-header-actions]]:justify-center";
+
+const PAGE_HEADER_SCALE = createHeaderChromeScale(PAGE_HEADER_TIERS);
+
+const {
+  Header: PageHeader,
+  Content: PageHeaderContent,
+  Icon: PageHeaderIcon,
+  Title: PageHeaderTitle,
+  Description: PageHeaderDescription,
+  Actions: PageHeaderActions,
+  headerVariants: pageHeaderVariants,
+  contentVariants: pageHeaderContentVariants,
+  iconVariants: pageHeaderIconVariants,
+  titleVariants: pageHeaderTitleVariants,
+  descriptionVariants: pageHeaderDescriptionVariants,
+} = createHeaderChrome<"header", PageHeaderSize>({
+  slotPrefix: "page-header",
+  rootElement: "header",
+  alignBetweenItems: "sm:items-end",
+  alignCenterClasses: PAGE_HEADER_ALIGN_CENTER,
+  defaultSize: "default",
+  title: { kind: "page" },
+  ...PAGE_HEADER_SCALE,
 });
-
-interface PageHeaderProps
-  extends React.ComponentProps<"header">,
-    VariantProps<typeof pageHeaderVariants> {}
-
-function PageHeader({ className, align, ...props }: PageHeaderProps) {
-  return (
-    <header
-      data-slot="page-header"
-      className={cn(pageHeaderVariants({ align }), className)}
-      {...props}
-    />
-  );
-}
-
-// Product roles map onto the brand type scale (heading/display tokens).
-// Everyday defaults stay Melange Heading; Season (`font-display`) is opt-in on
-// lg / xl / entity at Display SM+ (44px) only. Display compounds pin `font-normal`
-// so Season stays Regular — Melange `entity` keeps semibold when display is off.
-const pageHeaderTitleVariants = cva(
-  "font-sans font-normal text-balance text-foreground",
-  {
-    variants: {
-      size: {
-        /** Heading MD — Melange; dense nested pages. */
-        sm: "text-heading-md",
-        /** Heading LG — Melange; everyday app page title. */
-        default: "text-heading-lg tracking-heading",
-        /** Heading XL — Registry `md` (medium app page title). */
-        md: "font-display text-heading-xl tracking-display",
-        /** Display SM — Season; intentional display (Colors-block scale). */
-        lg: "text-display-sm tracking-display",
-        /** Display XL — Season; landing / hero. */
-        xl: "text-display-xl tracking-display-tight",
-        /** Detail record title — Display SM; Melange semibold when display off. */
-        entity: "text-display-sm tracking-display font-semibold",
-      },
-      display: {
-        true: "",
-        false: "",
-      },
-    },
-    compoundVariants: [
-      { size: "lg", display: true, class: "font-display font-normal" },
-      { size: "xl", display: true, class: "font-display font-normal" },
-      { size: "entity", display: true, class: "font-display font-normal" },
-    ],
-    defaultVariants: {
-      size: "default",
-      display: true,
-    },
-  },
-);
-
-type PageHeaderSize = NonNullable<VariantProps<typeof pageHeaderTitleVariants>["size"]>;
-
-/** Content owns the title→description→gap scale. Title/Description read it. */
-const PageHeaderScaleContext = React.createContext<PageHeaderSize>("default");
-
-// Title→description rhythm anchored on the brand type scale Colors (44px → 18px / 12px gap).
-// Larger title tiers step description and gap up together.
-const pageHeaderContentVariants = cva("flex min-w-0 flex-col", {
-  variants: {
-    size: {
-      sm: "gap-1.5",
-      default: "gap-2",
-      md: "gap-2.5",
-      lg: "gap-3",
-      xl: "gap-5",
-      entity: "gap-3",
-    },
-  },
-  defaultVariants: {
-    size: "default",
-  },
-});
-
-interface PageHeaderContentProps
-  extends React.ComponentProps<"div">,
-    VariantProps<typeof pageHeaderContentVariants> {}
-
-function PageHeaderContent({ className, size = "default", ...props }: PageHeaderContentProps) {
-  const resolved = size ?? "default";
-  return (
-    <PageHeaderScaleContext.Provider value={resolved}>
-      <div
-        data-slot="page-header-content"
-        data-size={resolved}
-        className={cn(pageHeaderContentVariants({ size: resolved }), className)}
-        {...props}
-      />
-    </PageHeaderScaleContext.Provider>
-  );
-}
-
-interface PageHeaderTitleProps
-  extends Omit<React.ComponentProps<"h1">, "onClick">,
-    VariantProps<typeof pageHeaderTitleVariants> {
-  /** When set, the title text is an in-header link (SPA or full navigation). */
-  href?: string;
-  /** When set (and `href` is absent), the title text is an in-header button. */
-  onNavigate?: () => void;
-}
-
-const pageHeaderTitleInteractiveClassName =
-  "cursor-pointer border-0 bg-transparent p-0 text-left font-[inherit] text-inherit no-underline hover:text-inherit focus-ring rounded-sm";
-
-function PageHeaderTitle({
-  className,
-  size: sizeProp,
-  display,
-  href,
-  onNavigate,
-  children,
-  ...props
-}: PageHeaderTitleProps) {
-  const scale = React.useContext(PageHeaderScaleContext);
-  const size = sizeProp ?? scale;
-
-  let body = children;
-  if (href) {
-    body = (
-      <a href={href} className={pageHeaderTitleInteractiveClassName}>
-        {children}
-      </a>
-    );
-  } else if (onNavigate) {
-    body = (
-      <button type="button" className={pageHeaderTitleInteractiveClassName} onClick={onNavigate}>
-        {children}
-      </button>
-    );
-  }
-
-  return (
-    <h1
-      data-slot="page-header-title"
-      data-size={size}
-      className={cn(pageHeaderTitleVariants({ size, display }), className)}
-      {...props}
-    >
-      {body}
-    </h1>
-  );
-}
-
-const pageHeaderDescriptionVariants = cva(
-  // Pin font-normal so app body weight (e.g. Instrument Sans 435) cannot
-  // thicken Registry description copy — same contract as FieldDescription.
-  "max-w-xl text-balance font-normal text-muted-foreground",
-  {
-    variants: {
-      size: {
-        sm: "text-xs",
-        default: "text-sm",
-        md: "text-base",
-        /** Colors block: Body LG under Display SM. */
-        lg: "text-body-lg",
-        xl: "text-heading-lg",
-        entity: "text-body-lg",
-      },
-    },
-    defaultVariants: {
-      size: "default",
-    },
-  },
-);
-
-/** Secondary ink via `--muted-foreground` (theme ink-alpha at 60%). */
-function PageHeaderDescription({ className, ...props }: React.ComponentProps<"p">) {
-  const size = React.useContext(PageHeaderScaleContext);
-  return (
-    <p
-      data-slot="page-header-description"
-      data-size={size}
-      className={cn(pageHeaderDescriptionVariants({ size }), className)}
-      {...props}
-    />
-  );
-}
-
-function PageHeaderActions({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="page-header-actions"
-      className={cn("flex shrink-0 items-center gap-2", className)}
-      {...props}
-    />
-  );
-}
 
 export {
   PageHeader,
   PageHeaderContent,
+  PageHeaderIcon,
   PageHeaderTitle,
   PageHeaderDescription,
   PageHeaderActions,
   pageHeaderVariants,
   pageHeaderContentVariants,
+  pageHeaderIconVariants,
   pageHeaderTitleVariants,
   pageHeaderDescriptionVariants,
 };

@@ -10,7 +10,7 @@ describe("snapshotRowStatusPresentation", () => {
   test("maps stable ids to distinct badge variants for current vs ready", () => {
     const current = snapshotRowStatusPresentation("current");
     const ready = snapshotRowStatusPresentation("ready_to_deploy");
-    expect(current.label).toBe("Deployed");
+    expect(current.label).toBe("Deployed Version");
     expect(current.badgeVariant).toBe("info");
     expect(ready.label).toBe("Ready to deploy");
     expect(ready.badgeVariant).toBe("success");
