@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   PageHeader,
+  PageHeaderActions,
   PageHeaderContent,
   PageHeaderDescription,
   PageHeaderTitle,
@@ -113,6 +114,21 @@ export default function AppWorkspaceOverviewPage() {
                 )}
               </PageHeaderDescription>
             </PageHeaderContent>
+            {connectLabel ? (
+              <PageHeaderActions>
+                <Button
+                  type="button"
+                  onClick={() =>
+                    void navigate({
+                      to: "/apps/$app/connection",
+                      params: { app },
+                    })
+                  }
+                >
+                  {connectLabel}
+                </Button>
+              </PageHeaderActions>
+            ) : null}
           </PageHeader>
           <div className="flex flex-wrap items-center gap-2">
             <Badge
@@ -133,19 +149,6 @@ export default function AppWorkspaceOverviewPage() {
             ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {connectLabel ? (
-              <Button
-                type="button"
-                onClick={() =>
-                  void navigate({
-                    to: "/apps/$app/connection",
-                    params: { app },
-                  })
-                }
-              >
-                {connectLabel}
-              </Button>
-            ) : null}
             {mountedPath ? (
               <Button
                 type="button"

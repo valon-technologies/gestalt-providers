@@ -34,7 +34,40 @@ test.describe("App prompt example", () => {
     await expect(stage).toContainText(
       `@${DISPLAY_NAME} ${CONFIGURED_PROMPT}`,
     );
+    await expect(stage).toContainText(
+      "Copy this in your favorite LLM and try it.",
+    );
+    await expect(
+      stage.getByRole("button", { name: "Copy example prompt" }),
+    ).toContainText("Copy");
     await expect(stage).toHaveCSS("background-image", /radial-gradient/);
+    await expect(page.getByTestId("app-prompt-card")).toHaveCSS(
+      "border-top-width",
+      "0px",
+    );
+    await expect(page.getByTestId("app-prompt-card")).not.toHaveCSS(
+      "box-shadow",
+      "none",
+    );
+  });
+
+  test("places Connect in the PageHeader action slot", async ({
+    authenticatedPage: page,
+  }) => {
+    await mockIntegrations(page, [
+      integration({
+        status: "needs_user_connection",
+        credentialState: "missing",
+        actions: ["connect"],
+      }),
+    ]);
+
+    await page.goto(`/apps/${APP}`);
+
+    const pageHeader = page.locator('[data-slot="page-header"]');
+    await expect(
+      pageHeader.locator('[data-slot="page-header-actions"]'),
+    ).toContainText("Connect");
   });
 
   test("renders the generic fallback for an MCP app", async ({

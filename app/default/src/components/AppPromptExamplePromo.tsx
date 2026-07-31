@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { CheckIcon, ChevronRightIcon, SpinnerIcon } from "@/components/icons";
+import { CheckIcon, CopyIcon, SpinnerIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
@@ -57,7 +57,7 @@ export default function AppPromptExamplePromo({
         ? "Prompt copied. Paste it into your AI client."
         : copyState === "error"
           ? "Couldn’t copy the prompt. Try again."
-          : "";
+          : "Copy this in your favorite LLM and try it.";
   const copyButtonLabel =
     copyState === "copying"
       ? "Copying prompt"
@@ -66,6 +66,14 @@ export default function AppPromptExamplePromo({
         : copyState === "error"
           ? "Retry copying example prompt"
           : "Copy example prompt";
+  const copyButtonText =
+    copyState === "copying"
+      ? "Copying…"
+      : copyState === "copied"
+        ? "Copied"
+        : copyState === "error"
+          ? "Try again"
+          : "Copy";
 
   return (
     <Card
@@ -76,46 +84,40 @@ export default function AppPromptExamplePromo({
         className,
       )}
     >
-      <CardContent className="px-4 py-10 sm:px-8 sm:py-12">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={handleCopy}
-          disabled={copyState === "copying"}
-          title={copyButtonLabel}
-          aria-label={copyButtonLabel}
-          className={cn(
-            "mx-auto h-auto w-full max-w-2xl justify-start gap-3 whitespace-normal rounded-full",
-            "border-border bg-card px-5 py-3.5 text-left text-foreground",
-            "hover:bg-neutral-hover",
-          )}
+      <CardContent className="flex flex-col items-center px-4 py-10 sm:px-8 sm:py-12">
+        <div
+          data-testid="app-prompt-card"
+          className="mx-auto flex w-full max-w-2xl flex-col items-center gap-5 rounded-2xl bg-card px-5 py-6 text-center shadow-lg sm:px-8"
         >
-          <span className="min-w-0 flex-1 text-sm leading-snug">
+          <p className="max-w-xl text-sm leading-relaxed text-foreground">
             <span className="font-semibold">{handle}</span>
             {body.trim() ? ` ${body.trim()}` : null}
-          </span>
-          <span
-            className={cn(
-              "flex size-8 shrink-0 items-center justify-center rounded-full",
-              "border border-border bg-card text-foreground",
-            )}
-            aria-hidden
+          </p>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={handleCopy}
+            disabled={copyState === "copying"}
+            title={copyButtonLabel}
+            aria-label={copyButtonLabel}
           >
             {copyState === "copying" ? (
               <SpinnerIcon className="size-4 motion-safe:animate-spin" />
             ) : copyState === "copied" ? (
               <CheckIcon className="size-4" />
             ) : (
-              <ChevronRightIcon className="size-4" />
+              <CopyIcon className="size-4" />
             )}
-          </span>
-        </Button>
+            {copyButtonText}
+          </Button>
+        </div>
         <p
           role="status"
           aria-live="polite"
           aria-atomic="true"
           className={cn(
-            "mx-auto mt-3 min-h-5 max-w-2xl text-center text-xs",
+            "mt-3 min-h-5 max-w-2xl text-center text-xs",
             copyState === "error"
               ? "text-destructive"
               : "text-muted-foreground",
