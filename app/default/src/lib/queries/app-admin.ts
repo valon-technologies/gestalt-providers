@@ -8,8 +8,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   APP_ADMIN_BOOTSTRAP_POLL_MS,
-  APP_ADMIN_POLL_INTERVAL_MS,
-  shouldPollAppAdminRegistry,
+  appAdminRegistryPollInterval,
 } from "@/features/registry/polling";
 import { snapshotRegistryPollEqual } from "@/features/registry/stable-snapshot-registry";
 import type { AppAdminRegistryResponse } from "@/lib/api";
@@ -49,12 +48,7 @@ export function useAppAdminRegistryQuery(appName: string) {
       void bootstrapPollEpoch;
       const registry = query.state.data;
       if (!registry) return false;
-      if (
-        shouldPollAppAdminRegistry(registry, bootstrapPollUntilRef.current)
-      ) {
-        return APP_ADMIN_POLL_INTERVAL_MS;
-      }
-      return false;
+      return appAdminRegistryPollInterval(registry, bootstrapPollUntilRef.current);
     },
   });
 
