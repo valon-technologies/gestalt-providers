@@ -31,7 +31,6 @@ import {
   type AppAdminRegistryContextValue,
 } from "@/features/registry/app-admin-registry-context";
 import { isActiveRegistryRollout } from "@/features/registry/format";
-import { RolloutBadge } from "@/features/registry/rollout-badge";
 import { RegistryCode } from "@/features/registry/registry-code";
 import {
   adminSurfaceForPathname,
@@ -69,6 +68,9 @@ export default function AppWorkspaceLayout() {
 
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const isAdminPath = pathname.includes(`/apps/${app}/admin`);
+  const isVersionsPath =
+    pathname === `/apps/${app}/versions` ||
+    pathname.startsWith(`/apps/${app}/versions/`);
   const canManageRegistry = Boolean(integration && canManageApp(integration));
   const registryQuery = useAppAdminRegistryQuery(app);
   const membersQuery = useAppAuthorizationMembersQuery(app);
@@ -106,12 +108,7 @@ export default function AppWorkspaceLayout() {
       workflows,
       authorization,
     };
-  }, [
-    authorizationAdmin,
-    canManageRegistry,
-    registryForbidden,
-    registryQuery.isSuccess,
-  ]);
+  }, [authorizationAdmin, registryQuery.isSuccess]);
 
   const adminCapabilitiesReady =
     authorizationProbeDone &&
@@ -120,9 +117,9 @@ export default function AppWorkspaceLayout() {
   const error =
     integrationsQuery.error
       ? userFacingError(integrationsQuery.error, "Unable to load this app. Try again.")
-      : !loading && integrationsQuery.data && !integration && !isAdminPath
-          ? `App “${app}” was not found in this workspace.`
-          : null;
+      : !loading && integrationsQuery.data && !integration && !isAdminPath && !isVersionsPath
+        ? `App “${app}” was not found in this workspace.`
+        : null;
 
   const mountedPath = integration?.mountedPath?.trim();
   const deployConflict =
@@ -174,8 +171,8 @@ export default function AppWorkspaceLayout() {
     onDeployVersion,
     registry,
     registryQuery.checkForNewVersions,
-    registryQuery.isCheckingForNewVersions,
     registryQuery.dataUpdatedAt,
+    registryQuery.isCheckingForNewVersions,
     registryQuery.isFetched,
   ]);
 
@@ -217,9 +214,10 @@ export default function AppWorkspaceLayout() {
     ? isActiveRegistryRollout(registry.rollout.state)
     : false;
 
-  const requiredAdminSurface = isAdminPath
-    ? adminSurfaceForPathname(pathname, app)
-    : null;
+  const requiredAdminSurface =
+    isAdminPath || isVersionsPath
+      ? adminSurfaceForPathname(pathname, app)
+      : null;
   const adminSurfaceReady =
     !requiredAdminSurface ||
     (authorizationProbeDone &&
@@ -232,6 +230,8 @@ export default function AppWorkspaceLayout() {
       adminSurfaceReady &&
       !hasAdminSurface(capabilities, requiredAdminSurface),
   );
+  const showFleetState =
+    (isAdminPath || isVersionsPath) && capabilities.registry && registry;
 
   const content = (
     <AppWorkspaceProvider value={workspaceValue}>
@@ -270,7 +270,7 @@ export default function AppWorkspaceLayout() {
           </div>
         ) : null}
 
-        {(integration || isAdminPath) ? (
+        {(integration || isAdminPath || isVersionsPath) ? (
           <div className="grid gap-10 lg:grid-cols-[11rem_minmax(0,1fr)]">
             <aside className="min-w-0 w-44 shrink-0">
               <div className="lg:sticky lg:top-24">
@@ -284,31 +284,7 @@ export default function AppWorkspaceLayout() {
             </aside>
 
             <div className="min-w-0 space-y-8">
-              {capabilities.registry && registry ? (
-                <div className="hidden flex-wrap items-start justify-between gap-4 border-b border-border pb-6 lg:flex">
-                  <div className="min-w-0 space-y-1">
-                    <p className="text-sm text-muted-foreground">
-                      Registry: {registry.registry}
-                    </p>
-                    {registry.desiredVersion ? (
-                      <p className="text-sm text-muted-foreground">
-                        Deployed version:{" "}
-                        <RegistryCode>{registry.desiredVersion}</RegistryCode>
-                      </p>
-                    ) : null}
-                  </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Last rollout
-                    </span>
-                    <RolloutBadge app={registry} />
-                  </div>
-                </div>
-              ) : null}
-
-              {isAdminPath && capabilities.registry && registry ? (
-                <AppAdminFleetState registry={registry} />
-              ) : null}
+              {showFleetState ? <AppAdminFleetState registry={registry} /> : null}
 
               {rolloutActive && registry?.rollout ? (
                 <p

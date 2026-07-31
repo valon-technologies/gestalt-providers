@@ -3,12 +3,16 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  replaceEqualDeep,
 } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   APP_ADMIN_BOOTSTRAP_POLL_MS,
-  appAdminRegistryPollInterval,
+  APP_ADMIN_POLL_INTERVAL_MS,
+  shouldPollAppAdminRegistry,
 } from "@/features/registry/polling";
+import { snapshotRegistryPollEqual } from "@/features/registry/stable-snapshot-registry";
+import type { AppAdminRegistryResponse } from "@/lib/api";
 import {
   getAppAdminRegistry,
   getAppAdminRegistryHistory,
@@ -28,19 +32,29 @@ export function useAppAdminRegistryQuery(appName: string) {
     setBootstrapPollEpoch((epoch) => epoch + 1);
   }, [appName]);
 
-  const { refetch, ...query } = useQuery({
+  const { refetch, ...query } = useQuery<AppAdminRegistryResponse, Error>({
     queryKey: queryKeys.appAdmin.registry(appName),
     queryFn: () => getAppAdminRegistry(appName),
     retry: (failureCount, error) =>
       !isAPIErrorStatus(error, 403) && failureCount < 1,
+    structuralSharing: (oldData, newData) => {
+      const previous = oldData as AppAdminRegistryResponse | undefined;
+      const next = newData as AppAdminRegistryResponse;
+      if (previous && snapshotRegistryPollEqual(previous, next)) {
+        return previous;
+      }
+      return replaceEqualDeep(oldData, newData);
+    },
     refetchInterval: (query) => {
       void bootstrapPollEpoch;
       const registry = query.state.data;
       if (!registry) return false;
-      return appAdminRegistryPollInterval(
-        registry,
-        bootstrapPollUntilRef.current,
-      );
+      if (
+        shouldPollAppAdminRegistry(registry, bootstrapPollUntilRef.current)
+      ) {
+        return APP_ADMIN_POLL_INTERVAL_MS;
+      }
+      return false;
     },
   });
 

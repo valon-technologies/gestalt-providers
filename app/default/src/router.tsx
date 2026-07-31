@@ -16,7 +16,6 @@ import {
   WorkflowsDocsPage,
 } from "@/docs/DocsContent";
 import { useDocumentTitle } from "@/hooks/use-document-title";
-import AppAdminHistoryPage from "@/pages/app-admin-history";
 import AppAdminSnapshotsPage from "@/pages/app-admin-snapshots";
 import AppAdminWorkflowsPage from "@/pages/app-admin-workflows";
 import AppWorkspaceLayout from "@/pages/app-workspace-layout";
@@ -178,12 +177,18 @@ const appOperationsRoute = createRoute({
   component: AppWorkspaceOperationsPage,
 });
 
+const appVersionsRoute = createRoute({
+  getParentRoute: () => appWorkspaceLayoutRoute,
+  path: "/versions",
+  component: AppAdminSnapshotsPage,
+});
+
 const appAdminIndexRoute = createRoute({
   getParentRoute: () => appWorkspaceLayoutRoute,
   path: "/admin",
   beforeLoad: ({ params }) => {
     throw redirect({
-      to: "/apps/$app/admin/snapshots",
+      to: "/apps/$app/versions",
       params: { app: params.app },
     });
   },
@@ -192,13 +197,23 @@ const appAdminIndexRoute = createRoute({
 const appAdminSnapshotsRoute = createRoute({
   getParentRoute: () => appWorkspaceLayoutRoute,
   path: "/admin/snapshots",
-  component: AppAdminSnapshotsPage,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: "/apps/$app/versions",
+      params: { app: params.app },
+    });
+  },
 });
 
 const appAdminHistoryRoute = createRoute({
   getParentRoute: () => appWorkspaceLayoutRoute,
   path: "/admin/history",
-  component: AppAdminHistoryPage,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: "/apps/$app/versions",
+      params: { app: params.app },
+    });
+  },
 });
 
 const appAdminWorkflowsRoute = createRoute({
@@ -377,6 +392,7 @@ const routeTree = rootRoute.addChildren([
     appOverviewRoute,
     appConnectionRoute,
     appOperationsRoute,
+    appVersionsRoute,
     appAdminIndexRoute,
     appAdminSnapshotsRoute,
     appAdminHistoryRoute,

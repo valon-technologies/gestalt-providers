@@ -116,25 +116,6 @@ function installedRegistryState(): AppAdminRegistryResponse {
 }
 
 const APP_ADMIN_FIXED_TIME = new Date("2026-07-23T15:00:00Z");
-const SOURCE_VERSION = "4f71afddf31d2c452ecd248779a04c905a7b9988";
-
-function fleetState(
-  overrides: Partial<NonNullable<AppAdminRegistryResponse["fleetState"]>> = {},
-): NonNullable<AppAdminRegistryResponse["fleetState"]> {
-  return {
-    state: "healthy",
-    sourceVersion: SOURCE_VERSION,
-    desiredVersion: PUBLISHED_LEGACY.version,
-    minimumHealthyInstances: 5,
-    liveInstances: 5,
-    runningDesiredVersion: 5,
-    mismatched: 0,
-    errors: 0,
-    heartbeatTtlSeconds: 45,
-    evaluatedAt: "2026-07-23T14:59:50Z",
-    ...overrides,
-  };
-}
 
 test.describe("app admin registry UI", () => {
   test.beforeEach(async ({ page }) => {
@@ -151,145 +132,6 @@ test.describe("app admin registry UI", () => {
     await mockAuthSession(page);
   });
 
-  test("keeps healthy fleet recovery separate from a failed rollout and history outcome", async ({
-    page,
-  }) => {
-    const recovery = {
-      recoveredAt: "2026-07-23T14:58:00Z",
-      sourceVersion: SOURCE_VERSION,
-      liveInstances: 5,
-      minimumHealthyInstances: 5,
-    };
-    await mockAppAdminRegistry(page, APP, {
-      ...installedRegistryState(),
-      rollout: {
-        version: PUBLISHED_LEGACY.version,
-        state: "failed",
-        targetSourceVersion: SOURCE_VERSION,
-      },
-      fleetState: fleetState(),
-      recovery,
-    });
-    await mockAppAdminRegistryHistory(page, APP, {
-      app: APP,
-      fleetState: fleetState(),
-      revisions: [
-        {
-          id: "rev-recovered",
-          version: PUBLISHED_LEGACY.version,
-          previousVersion: PUBLISHED_NEW.version,
-          deployedAt: "2026-07-23T14:30:00Z",
-          deployedBy: "user:alice@valon.com",
-          rolloutState: "failed",
-          rolloutDurationSeconds: 900,
-          rolloutFailedAt: "2026-07-23T14:45:00Z",
-          recovery,
-        },
-      ],
-    });
-
-    await page.goto(`/apps/${APP}/admin`);
-
-    const fleet = page.getByTestId("app-admin-fleet-state");
-    await expect(fleet.getByTestId("fleet-state-badge")).toHaveText("Healthy");
-    await expect(fleet.getByTestId("fleet-live-instances")).toHaveText("5");
-    await expect(fleet.getByTestId("fleet-minimum-instances")).toHaveText("5");
-    await expect(fleet.getByTestId("fleet-running-desired")).toHaveText("5");
-    await expect(fleet.getByTestId("fleet-desired-version")).toContainText(
-      PUBLISHED_LEGACY.version,
-    );
-    await expect(fleet.getByTestId("fleet-source-version")).toHaveText("4f71afd");
-    await expect(fleet.getByTestId("fleet-evaluated-at")).toHaveText(
-      "Evaluated 10 seconds ago",
-    );
-    await expect(fleet).toContainText("Heartbeats are fresh for 45s");
-    await expect(fleet.getByTestId("recovered-after-failed-rollout")).toContainText(
-      "Recovered after failed rollout",
-    );
-    await expect(page.getByText("Last rollout")).toBeVisible();
-    await expect(page.getByTestId("rollout-badge")).toHaveText("Deploy failed");
-    await page.getByTestId("app-admin-nav-snapshots").click();
-    const snapshotRow = page.getByTestId("snapshot-row-published").filter({
-      hasText: PUBLISHED_LEGACY.version.slice(0, 20),
-    });
-    await expect(
-      snapshotRow.getByTestId(`deploy-version-${PUBLISHED_LEGACY.version}`),
-    ).toHaveCount(0);
-
-    await page.getByTestId("app-admin-nav-history").click();
-    const row = page.getByTestId("revision-history-row");
-    await expect(row.getByTestId("revision-rollout-status")).toHaveText(
-      "Deploy failed",
-    );
-    await expect(row).toContainText("Deploy failed after 15m");
-    await expect(row.getByTestId("revision-recovery")).toContainText(
-      "Recovered after failed rollout",
-    );
-    await expect(row.getByTestId("revision-recovery")).toContainText(
-      "13m after failure",
-    );
-  });
-
-  test("shows unknown when live capacity is below the minimum", async ({ page }) => {
-    await mockAppAdminRegistry(page, APP, {
-      ...installedRegistryState(),
-      fleetState: fleetState({
-        state: "unknown",
-        liveInstances: 4,
-        runningDesiredVersion: 4,
-      }),
-    });
-
-    await page.goto(`/apps/${APP}/admin`);
-
-    const fleet = page.getByTestId("app-admin-fleet-state");
-    await expect(fleet.getByTestId("fleet-state-badge")).toHaveText("Unknown");
-    await expect(fleet).toContainText(
-      "not enough fresh heartbeats to determine current fleet health",
-    );
-    await expect(fleet.getByTestId("fleet-live-instances")).toHaveText("4");
-    await expect(fleet.getByTestId("fleet-minimum-instances")).toHaveText("5");
-    await expect(fleet).not.toContainText("Every live replica");
-  });
-
-  test("shows degraded mismatch and error observations", async ({ page }) => {
-    await mockAppAdminRegistry(page, APP, {
-      ...installedRegistryState(),
-      fleetState: fleetState({
-        state: "degraded",
-        runningDesiredVersion: 3,
-        mismatched: 1,
-        errors: 1,
-      }),
-    });
-
-    await page.goto(`/apps/${APP}/admin`);
-
-    const fleet = page.getByTestId("app-admin-fleet-state");
-    await expect(fleet.getByTestId("fleet-state-badge")).toHaveText("Degraded");
-    await expect(fleet.getByTestId("fleet-running-desired")).toHaveText("3");
-    await expect(fleet.getByTestId("fleet-mismatched")).toHaveText("1");
-    await expect(fleet.getByTestId("fleet-errors")).toHaveText("1");
-    await expect(fleet).toContainText(
-      "one or more runtime observations are unhealthy",
-    );
-  });
-
-  test("treats absent heartbeat fields as unknown during mixed-version rollout", async ({
-    page,
-  }) => {
-    await mockAppAdminRegistry(page, APP, installedRegistryState());
-
-    await page.goto(`/apps/${APP}/admin`);
-
-    const fleet = page.getByTestId("app-admin-fleet-state");
-    await expect(fleet.getByTestId("fleet-state-badge")).toHaveText("Unknown");
-    await expect(fleet).toContainText("Runtime heartbeat data is unavailable");
-    await expect(fleet.getByTestId("fleet-live-instances")).toHaveCount(0);
-    await expect(fleet).not.toContainText("Healthy");
-    await expect(page.getByTestId("recovered-after-failed-rollout")).toHaveCount(0);
-  });
-
   test("card click opens app detail for managed apps", async ({ page }) => {
     await mockIntegrations(page, [MANAGED_INTEGRATION, UNMANAGED_INTEGRATION]);
     await page.goto("/apps");
@@ -299,7 +141,7 @@ test.describe("app admin registry UI", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: "Example App" }),
     ).toBeVisible();
-    await expect(page.getByTestId("app-admin-nav-snapshots")).toBeVisible();
+    await expect(page.getByTestId("app-admin-nav-versions")).toBeVisible();
     await expect(page.getByRole("button", { name: "Manage app" })).toHaveCount(0);
   });
 
@@ -389,7 +231,7 @@ test.describe("app admin registry UI", () => {
     await expect(publishingBadge).toHaveCSS("color", "oklch(0.858 0.075 82)");
   });
 
-  test("available snapshots use registry badge status surfaces", async ({ page }) => {
+  test("available snapshots use registry status indicator surfaces", async ({ page }) => {
     await page.route("**/theme.css", (route) =>
       route.fulfill({
         contentType: "text/css",
@@ -400,17 +242,22 @@ test.describe("app admin registry UI", () => {
         `,
       }),
     );
-    await mockAppAdminRegistry(page, APP, installedRegistryState());
+    await mockAppAdminRegistry(page, APP, {
+      ...installedRegistryState(),
+      publishedVersions: [
+        {
+          ...PUBLISHED_NEW,
+          publishDurationSeconds: 111,
+        },
+        PUBLISHED_LEGACY,
+      ],
+    });
     await page.goto(`/apps/${APP}/admin`);
 
     const availableRow = page
       .getByTestId("snapshot-row-published")
       .filter({ hasText: PUBLISHED_NEW.version.slice(0, 20) });
-    await expect(availableRow.getByTestId("snapshot-status")).toHaveText("Ready to deploy");
-    await expect(availableRow.getByTestId("snapshot-status")).toHaveAttribute(
-      "data-variant",
-      "success",
-    );
+    await expect(availableRow.getByTestId("snapshot-status")).toHaveCount(0);
     await expect(availableRow.getByTestId("table-status-indicator")).toHaveAttribute(
       "data-variant",
       "success",
@@ -450,14 +297,15 @@ test.describe("app admin registry UI", () => {
     await mockAppAdminRegistry(page, APP, installedRegistryState());
     await page.goto(`/apps/${APP}/admin`);
 
-    const deployedBadge = page
+    const deployedRow = page
       .getByTestId("snapshot-row-published")
-      .filter({ hasText: PUBLISHED_LEGACY.version.slice(0, 20) })
-      .getByTestId("deployed-version-badge");
+      .filter({ hasText: PUBLISHED_LEGACY.version.slice(0, 20) });
+    const deployedBadge = deployedRow.getByTestId("deployed-version-badge");
     await expect(deployedBadge).toHaveText("Deployed Version");
     await expect(deployedBadge).toHaveCSS("background-color", "oklch(0.928 0.035 248)");
     await expect(deployedBadge).toHaveCSS("color", "oklch(0.408 0.105 248)");
     await expect(deployedBadge).not.toHaveAttribute("style", /./);
+    await expect(deployedRow).not.toHaveClass(/bg-success\/10/);
 
     const liveIndicatorShell = page
       .getByTestId("snapshot-row-published")
@@ -562,7 +410,7 @@ test.describe("app admin registry UI", () => {
     });
     await page.goto(`/apps/${APP}/admin`);
 
-    await expect(page.getByTestId("rollout-badge")).toHaveText("Rolling out");
+    await expect(page.getByTestId("rollout-active-banner")).toBeVisible();
     const rolloutRow = page.getByTestId("snapshot-row-published").filter({
       hasText: PUBLISHED_NEW.version.slice(0, 20),
     });
@@ -595,7 +443,7 @@ test.describe("app admin registry UI", () => {
 
     await page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`).click();
 
-    await expect(page.getByTestId("rollout-badge")).toHaveText("Rolling out");
+    await expect(page.getByTestId("rollout-active-banner")).toBeVisible();
     const rolloutRow = page.getByTestId("snapshot-row-published").filter({
       hasText: PUBLISHED_NEW.version.slice(0, 20),
     });
@@ -673,8 +521,8 @@ test.describe("app admin registry UI", () => {
     await expect(page.getByText("example-registry")).toHaveCount(0);
   });
 
-  test("loads revision history lazily and paginates older rows", async ({ page }) => {
-    const firstPageRevision = {
+  test("combines version history into the versions table", async ({ page }) => {
+    const revision = {
       id: "rev-3",
       version: PUBLISHED_NEW.version,
       previousVersion: PUBLISHED_LEGACY.version,
@@ -684,60 +532,34 @@ test.describe("app admin registry UI", () => {
       current: true,
       publication: PUBLISHED_NEW.publication,
     };
-    const olderRevisions = [
-      {
-        id: "rev-2",
-        version: PUBLISHED_LEGACY.version,
-        previousVersion: PUBLISHED_NEW.version,
-        deployedAt: "2026-07-24T16:42:00Z",
-        deployedBy: "user:alice@example.com",
-        deploymentState: "redeployable",
-        publication: PUBLISHED_LEGACY.publication,
-      },
-      {
-        id: "rev-1",
-        version: PUBLISHED_LEGACY.version,
-        deployedAt: "2026-07-21T12:00:00Z",
-        deployedBy: "user:bob@example.com",
-        deploymentState: "redeployable",
-      },
-    ];
 
     await mockAppAdminRegistry(page, APP, installedRegistryState());
-    await mockAppAdminRegistryHistory(
-      page,
-      APP,
-      { app: APP, revisions: [firstPageRevision], nextCursor: "cursor-1" },
-      {
-        onRequest: (cursor) =>
-          cursor
-            ? { app: APP, revisions: olderRevisions }
-            : { app: APP, revisions: [firstPageRevision], nextCursor: "cursor-1" },
-      },
-    );
+    await mockAppAdminRegistryHistory(page, APP, { app: APP, revisions: [revision] });
     await page.goto(`/apps/${APP}/admin`);
 
-    await expect(page.getByTestId("revision-history-table")).toHaveCount(0);
-    await page.getByTestId("app-admin-nav-history").click();
-
-    const rows = page.getByTestId("revision-history-row");
-    await expect(rows).toHaveCount(1);
-    await expect(rows.first()).toContainText(PUBLISHED_NEW.version.slice(0, 20));
-    await expect(rows.first()).toContainText("alice@example.com");
-
-    await page.getByTestId("revision-history-load-more").click();
-    await expect(rows).toHaveCount(3);
-    await expect(rows.nth(2)).toContainText("First deployment");
-    await expect(rows.nth(2)).toContainText("bob@example.com");
+    await expect(page.getByTestId("app-admin-nav-history")).toHaveCount(0);
+    await expect(page.getByRole("columnheader", { name: "Deployed by" })).toBeVisible();
+    const deployedByAvatar = page
+      .getByTestId("snapshot-row-published")
+      .filter({ hasText: PUBLISHED_NEW.version.slice(0, 20) })
+      .getByTestId("deployed-by-avatar");
+    await expect(deployedByAvatar).toHaveAttribute(
+      "aria-label",
+      "Deployed by alice@example.com",
+    );
+    await deployedByAvatar.hover();
+    await expect(page.getByRole("tooltip")).toHaveText("alice@example.com");
+    await page.waitForTimeout(750);
+    await expect(page.getByRole("tooltip")).toBeVisible();
   });
 
-  test("renders empty revision history state", async ({ page }) => {
+  test("legacy version history route redirects to versions", async ({ page }) => {
     await mockAppAdminRegistry(page, APP, installedRegistryState());
-    await mockAppAdminRegistryHistory(page, APP, { app: APP, revisions: [] });
-    await page.goto(`/apps/${APP}/admin`);
+    await page.goto(`/apps/${APP}/admin/history`);
 
-    await page.getByTestId("app-admin-nav-history").click();
-    await expect(page.getByTestId("revision-history-empty")).toHaveText("No deployments yet");
+    await expect(page).toHaveURL(new RegExp(`/apps/${APP}/versions$`));
+    await expect(page.getByRole("heading", { name: "Versions" })).toBeVisible();
+    await expect(page.getByTestId("app-admin-nav-history")).toHaveCount(0);
   });
 
   test("shows queued for deploy on auto-deploy pending snapshot during rollout", async ({
@@ -771,7 +593,50 @@ test.describe("app admin registry UI", () => {
     await expect(newRow.getByTestId("snapshot-status")).toHaveText("Queued to deploy");
   });
 
-  test("shows system:auto-deploy in revision history", async ({ page }) => {
+  test("explains why manual deploy is disabled during auto-deploy", async ({ page }) => {
+    await mockAppAdminRegistry(page, APP, {
+      ...installedRegistryState(),
+      autoDeploy: { enabled: true },
+    });
+    await page.goto(`/apps/${APP}/admin`);
+
+    const deployButton = page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`);
+    await expect(deployButton).toBeDisabled();
+    await deployButton.locator("..").hover();
+    await expect(page.getByRole("tooltip")).toHaveText(
+      "To deploy a specific version, turn off auto-deploy.",
+    );
+  });
+
+  test("keeps the auto-deploy tooltip open while the table refreshes", async ({ page }) => {
+    await mockAppAdminRegistry(page, APP, {
+      ...installedRegistryState(),
+      autoDeploy: { enabled: true },
+      pendingVersions: [PENDING_VERSION],
+    });
+    await page.goto(`/apps/${APP}/admin`);
+
+    const deployButton = page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`);
+    const deployHint = deployButton.locator("..");
+    await deployHint.hover();
+    await expect(page.getByRole("tooltip")).toHaveText(
+      "To deploy a specific version, turn off auto-deploy.",
+    );
+
+    for (const ms of [1_000, 1_000, 500] as const) {
+      const hoverTarget = await deployHint.boundingBox();
+      await page.clock.runFor(ms);
+      if (hoverTarget) {
+        await page.mouse.move(
+          hoverTarget.x + hoverTarget.width / 2,
+          hoverTarget.y + hoverTarget.height / 2,
+        );
+      }
+      await expect(page.getByRole("tooltip")).toBeVisible();
+    }
+  });
+
+  test("shows system:auto-deploy in the versions table", async ({ page }) => {
     await mockAppAdminRegistry(page, APP, installedRegistryState());
     await mockAppAdminRegistryHistory(page, APP, {
       app: APP,
@@ -786,8 +651,13 @@ test.describe("app admin registry UI", () => {
       ],
     });
     await page.goto(`/apps/${APP}/admin`);
-    await page.getByTestId("app-admin-nav-history").click();
 
-    await expect(page.getByTestId("revision-history-row")).toContainText("system:auto-deploy");
+    const deployedRow = page
+      .getByTestId("snapshot-row-published")
+      .filter({ hasText: PUBLISHED_NEW.version.slice(0, 20) });
+    await expect(deployedRow.getByTestId("auto-deployed-badge")).toHaveText(
+      "Auto-deployed",
+    );
+    await expect(deployedRow.getByTestId("deployed-by-avatar")).toHaveCount(0);
   });
 });

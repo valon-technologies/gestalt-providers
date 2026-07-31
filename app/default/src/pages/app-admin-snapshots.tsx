@@ -1,11 +1,5 @@
+import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  PageHeader,
-  PageHeaderActions,
-  PageHeaderContent,
-  PageHeaderDescription,
-  PageHeaderTitle,
-} from "@/components/ui/page-header";
 import { AppAdminAutoDeployToggle } from "@/features/registry/app-admin-auto-deploy-toggle";
 import { useAppAdminRegistryContext } from "@/features/registry/app-admin-registry-context";
 import { AppAdminSnapshotsTable } from "@/features/registry/app-admin-snapshots-table";
@@ -15,8 +9,74 @@ import {
   formatRegistryTimeShort,
   isActiveRegistryRollout,
 } from "@/features/registry/format";
-import { useUpdateAppAdminAutoDeployMutation } from "@/lib/queries";
+import {
+  useAppAdminRegistryHistoryQuery,
+  useAppAdminRegistryQuery,
+  useUpdateAppAdminAutoDeployMutation,
+} from "@/lib/queries";
 import { Loader2 } from "lucide-react";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+  PageHeader,
+  PageHeaderActions,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
+
+function RegistryRefreshedAt({ appName }: { appName: string }) {
+  const registryQuery = useAppAdminRegistryQuery(appName);
+  const registryUpdatedAt = registryQuery.isFetched
+    ? registryQuery.dataUpdatedAt
+    : null;
+  const registryUpdatedIso = registryUpdatedAt
+    ? new Date(registryUpdatedAt).toISOString()
+    : null;
+
+  if (registryQuery.isCheckingForNewVersions) {
+    return <p className="text-sm text-muted-foreground">Refreshing…</p>;
+  }
+
+  if (!registryUpdatedAt) {
+    return null;
+  }
+
+  return (
+    <p className="text-sm text-muted-foreground" data-testid="registry-refreshed-at">
+      Refreshed at{" "}
+      <time
+        dateTime={registryUpdatedIso ?? undefined}
+        title={registryUpdatedIso ? formatRegistryTime(registryUpdatedIso) : undefined}
+      >
+        {formatRegistryTimeShort(registryUpdatedAt)}
+      </time>
+    </p>
+  );
+}
+
+function RegistryCheckForNewVersionsButton({ appName }: { appName: string }) {
+  const registryQuery = useAppAdminRegistryQuery(appName);
+
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={registryQuery.checkForNewVersions}
+      disabled={registryQuery.isCheckingForNewVersions}
+      data-testid="check-for-new-versions"
+    >
+      {registryQuery.isCheckingForNewVersions ? (
+        <>
+          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+          Checking…
+        </>
+      ) : (
+        "Check for new versions"
+      )}
+    </Button>
+  );
+}
 
 function versionsSubhead({
   autoDeployEnabled,
@@ -46,11 +106,13 @@ export default function AppAdminSnapshotsPage() {
     deployingVersion,
     onDeployVersion,
     deployError,
-    checkForNewVersions,
-    isCheckingForNewVersions,
-    registryUpdatedAt,
   } = useAppAdminRegistryContext();
+  const historyQuery = useAppAdminRegistryHistoryQuery(appName, true);
   const autoDeployMutation = useUpdateAppAdminAutoDeployMutation(appName);
+  const historyRevisions = useMemo(
+    () => historyQuery.data?.pages.flatMap((page) => page.revisions) ?? [],
+    [historyQuery.data?.pages],
+  );
 
   const autoDeployEnabled = registry.autoDeploy?.enabled ?? false;
   const rolloutActive = Boolean(
@@ -61,15 +123,12 @@ export default function AppAdminSnapshotsPage() {
   const autoDeployError = autoDeployMutation.isError
     ? "Couldn't update automatic deploy. Check your connection and try again."
     : null;
-  const registryUpdatedIso = registryUpdatedAt
-    ? new Date(registryUpdatedAt).toISOString()
-    : null;
   const disabledReason = formatRegistryDisabledReason(registry.disabledReason);
 
   return (
     <section aria-label="Versions">
       <PageHeader>
-        <PageHeaderContent>
+        <PageHeaderContent size="md">
           <PageHeaderTitle>Versions</PageHeaderTitle>
           <PageHeaderDescription>
             {versionsSubhead({
@@ -80,36 +139,8 @@ export default function AppAdminSnapshotsPage() {
           </PageHeaderDescription>
         </PageHeaderContent>
         <PageHeaderActions className="flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-4">
-          {isCheckingForNewVersions ? (
-            <p className="text-sm text-muted-foreground">Refreshing…</p>
-          ) : registryUpdatedAt ? (
-            <p className="text-sm text-muted-foreground" data-testid="registry-refreshed-at">
-              Refreshed at{" "}
-              <time
-                dateTime={registryUpdatedIso ?? undefined}
-                title={registryUpdatedIso ? formatRegistryTime(registryUpdatedIso) : undefined}
-              >
-                {formatRegistryTimeShort(registryUpdatedAt)}
-              </time>
-            </p>
-          ) : null}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={checkForNewVersions}
-            disabled={isCheckingForNewVersions}
-            data-testid="check-for-new-versions"
-          >
-            {isCheckingForNewVersions ? (
-              <>
-                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                Checking…
-              </>
-            ) : (
-              "Check for new versions"
-            )}
-          </Button>
+          <RegistryRefreshedAt appName={appName} />
+          <RegistryCheckForNewVersionsButton appName={appName} />
         </PageHeaderActions>
       </PageHeader>
 
@@ -123,12 +154,15 @@ export default function AppAdminSnapshotsPage() {
           onChange={(enabled) => autoDeployMutation.mutate(enabled)}
         />
 
-        <AppAdminSnapshotsTable
-          registry={registry}
-          controlsDisabled={controlsDisabled}
-          deployingVersion={deployingVersion}
-          onDeployVersion={onDeployVersion}
-        />
+        <TooltipProvider>
+          <AppAdminSnapshotsTable
+            registry={registry}
+            historyRevisions={historyRevisions}
+            controlsDisabled={controlsDisabled}
+            deployingVersion={deployingVersion}
+            onDeployVersion={onDeployVersion}
+          />
+        </TooltipProvider>
 
         {registry.selectionDisabled && disabledReason ? (
           <p
