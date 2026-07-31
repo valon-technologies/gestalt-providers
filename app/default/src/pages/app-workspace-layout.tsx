@@ -45,6 +45,7 @@ import {
 } from "@/features/app-workspace/app-workspace-context";
 import { APP_SECTION_CARD } from "@/features/app-workspace/app-workspace-shared";
 import { AppWorkspaceNav } from "@/features/app-workspace/app-workspace-nav";
+import { PageLayout } from "@/components/ui/page-layout";
 import { userFacingError } from "@/lib/user-facing-error";
 import ErrorNotice from "@/components/ErrorNotice";
 import {
@@ -235,55 +236,35 @@ export default function AppWorkspaceLayout() {
 
   const content = (
     <AppWorkspaceProvider value={workspaceValue}>
-      <Container as="main" className="py-12">
-        <div className="mb-6">
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink asChild>
-                  <Link to="/apps">Apps</Link>
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>{label}</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-        </div>
-
-        {loading ? (
-          <p className="flex items-center gap-1.5 text-sm text-muted-foreground-soft">
-            <SpinnerIcon className="size-4 motion-safe:animate-spin" aria-hidden />
-            Loading app…
-          </p>
-        ) : null}
-
-        {error && !integration ? (
-          <div className={APP_SECTION_CARD}>
-            <p className="text-sm text-ember-500">{error}</p>
-            <p className="mt-3 text-sm text-muted-foreground">
-              <Link to="/apps" className="underline">
-                Back to Apps
-              </Link>
-            </p>
-          </div>
-        ) : null}
-
+      <Container className="py-12">
         {(integration || isAdminPath || isVersionsPath) ? (
-          <div className="grid gap-10 lg:grid-cols-[11rem_minmax(0,1fr)]">
-            <aside className="min-w-0 w-44 shrink-0">
-              <div className="lg:sticky lg:top-24">
-                <AppWorkspaceNav
-                  app={app}
-                  userItems={userNavItems}
-                  adminItems={adminNavItems}
-                  adminGroupVisible={adminGroupVisible}
-                />
-              </div>
-            </aside>
-
-            <div className="min-w-0 space-y-8">
+          <PageLayout
+            tracks="compact"
+            header={
+              <Breadcrumb>
+                <BreadcrumbList>
+                  <BreadcrumbItem>
+                    <BreadcrumbLink asChild>
+                      <Link to="/apps">Apps</Link>
+                    </BreadcrumbLink>
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator />
+                  <BreadcrumbItem>
+                    <BreadcrumbPage>{label}</BreadcrumbPage>
+                  </BreadcrumbItem>
+                </BreadcrumbList>
+              </Breadcrumb>
+            }
+            pane={
+              <AppWorkspaceNav
+                app={app}
+                userItems={userNavItems}
+                adminItems={adminNavItems}
+                adminGroupVisible={adminGroupVisible}
+              />
+            }
+          >
+            <div className="space-y-8">
               {showFleetState ? <AppAdminFleetState registry={registry} /> : null}
 
               {rolloutActive && registry?.rollout ? (
@@ -325,8 +306,44 @@ export default function AppWorkspaceLayout() {
                 <Outlet />
               )}
             </div>
-          </div>
-        ) : null}
+          </PageLayout>
+        ) : (
+          <>
+            <div className="mb-6">
+              <Breadcrumb>
+                <BreadcrumbList>
+                  <BreadcrumbItem>
+                    <BreadcrumbLink asChild>
+                      <Link to="/apps">Apps</Link>
+                    </BreadcrumbLink>
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator />
+                  <BreadcrumbItem>
+                    <BreadcrumbPage>{label}</BreadcrumbPage>
+                  </BreadcrumbItem>
+                </BreadcrumbList>
+              </Breadcrumb>
+            </div>
+
+            {loading ? (
+              <p className="flex items-center gap-1.5 text-sm text-muted-foreground-soft">
+                <SpinnerIcon className="size-4 motion-safe:animate-spin" aria-hidden />
+                Loading app…
+              </p>
+            ) : null}
+
+            {error && !integration ? (
+              <div className={APP_SECTION_CARD}>
+                <p className="text-sm text-ember-500">{error}</p>
+                <p className="mt-3 text-sm text-muted-foreground">
+                  <Link to="/apps" className="underline">
+                    Back to Apps
+                  </Link>
+                </p>
+              </div>
+            ) : null}
+          </>
+        )}
       </Container>
     </AppWorkspaceProvider>
   );

@@ -34,16 +34,12 @@ import {
   SectionHeaderTitle,
 } from "@/components/ui/section-header";
 import {
-  Sidebar,
-  SidebarContent,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-} from "@/components/ui/sidebar";
+  NavList,
+  NavListGroup,
+  NavListItem,
+  NavListItemLabel,
+} from "@/components/ui/nav-list";
+import { PageLayout } from "@/components/ui/page-layout";
 import { useScrollSpy } from "@/hooks/use-scroll-spy";
 import { SpinnerIcon } from "@/components/icons";
 import Button from "@/components/Button";
@@ -212,8 +208,53 @@ export default function AppsCatalogPageClient() {
     }
   }
 
+  const catalogPane =
+    catalogNavSections.length > 0 ? (
+      <div data-testid="apps-catalog-toc">
+        <NavList aria-label="App catalog sections">
+        {installed.length > 0 ? (
+          <NavListItem
+            href="#catalog-bucket-installed"
+            active={activeId === "catalog-bucket-installed"}
+            current="location"
+            onClick={(event) => {
+              event.preventDefault();
+              onNavSectionSelect("catalog-bucket-installed");
+            }}
+          >
+            <NavListItemLabel>Installed</NavListItemLabel>
+          </NavListItem>
+        ) : null}
+        {catalogSections.length > 0 ? (
+          <NavListGroup
+            label="Categories"
+            className={installed.length > 0 ? "mt-2" : undefined}
+          >
+            {catalogSections.map(({ bucket }) => {
+              const id = `catalog-bucket-${bucket.id}`;
+              return (
+                <NavListItem
+                  key={bucket.id}
+                  href={`#${id}`}
+                  active={activeId === id}
+                  current="location"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    onNavSectionSelect(id);
+                  }}
+                >
+                  <NavListItemLabel>{bucket.label}</NavListItemLabel>
+                </NavListItem>
+              );
+            })}
+          </NavListGroup>
+        ) : null}
+        </NavList>
+      </div>
+    ) : undefined;
+
   return (
-    <Container as="main" className="pt-12 pb-24">
+    <Container className="pt-12 pb-24">
       {toast && (
         <div className="mb-8 flex items-center justify-between rounded-lg border border-grove-200 bg-grove-50 px-5 py-3.5 text-sm text-grove-700 dark:border-grove-600 dark:bg-grove-700/20 dark:text-grove-200">
           <span>{toast}</span>
@@ -227,169 +268,102 @@ export default function AppsCatalogPageClient() {
         </div>
       )}
 
-      <PageHeader>
-        <PageHeaderContent size="lg">
-          <PageHeaderTitle>Apps</PageHeaderTitle>
-          <PageHeaderDescription>
-            Browse installed apps, then discover more by category. Connect
-            credentials, then open an app to manage access.
-          </PageHeaderDescription>
-        </PageHeaderContent>
-        <PageHeaderActions className="w-full max-w-md sm:w-auto">
-          <PluginSearchBar
-            query={query}
-            onQueryChange={setQuery}
-            disabled={loading || !!error || integrations.length === 0}
-          />
-        </PageHeaderActions>
-      </PageHeader>
-
-      {!loading && !error && needsAttentionCount > 0 ? (
-        <div
-          className="mt-6 rounded-lg border border-amber-200 bg-amber-100 px-5 py-3.5 text-sm text-amber-700 dark:border-amber-600/40 dark:bg-amber-700/20 dark:text-amber-200"
-          role="status"
-          data-testid="apps-needs-attention-callout"
-        >
-          {needsAttentionCount === 1
-            ? "1 app needs attention — it’s listed first below. Open it to reconnect or finish setup."
-            : `${needsAttentionCount} apps need attention — they’re listed first below. Open one to reconnect or finish setup.`}
-        </div>
-      ) : null}
-
-      {loading && (
-        <p className="mt-10 flex items-center gap-1.5 text-sm text-muted-foreground-soft">
-          <SpinnerIcon className="size-4 animate-spin" aria-hidden />
-          Loading...
-        </p>
-      )}
-
-      {error && (
-        <div className="mt-10 flex flex-col items-start gap-3">
-          <p className="text-sm text-ember-500">
-            {error === "Failed to load"
-              ? "Couldn't load apps. Refresh the page and try again."
-              : error}
-          </p>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => {
-              void integrationsQuery.refetch();
-            }}
+      <PageLayout
+        tracks="compact"
+        header={
+          <PageHeader>
+            <PageHeaderContent size="lg">
+              <PageHeaderTitle>Apps</PageHeaderTitle>
+              <PageHeaderDescription>
+                Browse installed apps, then discover more by category. Connect
+                credentials, then open an app to manage access.
+              </PageHeaderDescription>
+            </PageHeaderContent>
+            <PageHeaderActions className="w-full max-w-md sm:w-auto">
+              <PluginSearchBar
+                query={query}
+                onQueryChange={setQuery}
+                disabled={loading || !!error || integrations.length === 0}
+              />
+            </PageHeaderActions>
+          </PageHeader>
+        }
+        pane={catalogPane}
+      >
+        {!loading && !error && needsAttentionCount > 0 ? (
+          <div
+            className="rounded-lg border border-amber-200 bg-amber-100 px-5 py-3.5 text-sm text-amber-700 dark:border-amber-600/40 dark:bg-amber-700/20 dark:text-amber-200"
+            role="status"
+            data-testid="apps-needs-attention-callout"
           >
-            Retry
-          </Button>
-        </div>
-      )}
+            {needsAttentionCount === 1
+              ? "1 app needs attention — it’s listed first below. Open it to reconnect or finish setup."
+              : `${needsAttentionCount} apps need attention — they’re listed first below. Open one to reconnect or finish setup.`}
+          </div>
+        ) : null}
 
-      {!loading && !error && integrations.length === 0 && (
-        <p className="mt-10 text-sm text-muted-foreground-soft">
-          No apps are available yet. Ask your admin if you expected to see ones
-          here.
-        </p>
-      )}
+        {loading && (
+          <p className="flex items-center gap-1.5 text-sm text-muted-foreground-soft">
+            <SpinnerIcon className="size-4 animate-spin" aria-hidden />
+            Loading...
+          </p>
+        )}
 
-      {!loading &&
-        !error &&
-        integrations.length > 0 &&
-        !hasCatalogContent && (
-          <div className="mt-10 flex flex-col items-start gap-3">
-            <p className="text-sm text-muted-foreground-soft">
-              {hasSearchQuery ? (
-                <>
-                  No apps match <span>{`"${query.trim()}"`}</span>. Try a
-                  different search, or clear it.
-                </>
-              ) : (
-                "No apps are available yet. Ask your admin if you expected to see ones here."
-              )}
+        {error && (
+          <div className="flex flex-col items-start gap-3">
+            <p className="text-sm text-ember-500">
+              {error === "Failed to load"
+                ? "Couldn't load apps. Refresh the page and try again."
+                : error}
             </p>
-            {hasSearchQuery ? (
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => setQuery("")}
-              >
-                Clear search
-              </Button>
-            ) : null}
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                void integrationsQuery.refetch();
+              }}
+            >
+              Retry
+            </Button>
           </div>
         )}
 
-      {!loading && !error && hasCatalogContent && (
-        <div className="mt-10 flex gap-8" data-testid="plugin-grid">
-          {catalogNavSections.length > 0 ? (
-            <aside
-              className="hidden w-44 shrink-0 lg:block"
-              data-testid="apps-catalog-toc"
-            >
-              <div className="sticky top-24 h-[calc(100vh-7rem)]">
-                <SidebarProvider
-                  defaultWidth="11rem"
-                  className="h-full min-h-0 w-full"
-                >
-                  <Sidebar collapsible="none" className="h-full">
-                    <SidebarContent className="overflow-visible">
-                      {installed.length > 0 ? (
-                        <SidebarGroup className="p-0">
-                          <SidebarGroupContent>
-                            <SidebarMenu>
-                              <SidebarMenuItem>
-                                <SidebarMenuButton
-                                  isActive={
-                                    activeId === "catalog-bucket-installed"
-                                  }
-                                  onClick={() =>
-                                    onNavSectionSelect(
-                                      "catalog-bucket-installed",
-                                    )
-                                  }
-                                >
-                                  Installed
-                                </SidebarMenuButton>
-                              </SidebarMenuItem>
-                            </SidebarMenu>
-                          </SidebarGroupContent>
-                        </SidebarGroup>
-                      ) : null}
-                      {catalogSections.length > 0 ? (
-                        <SidebarGroup
-                          className={
-                            installed.length > 0 ? "mt-2 p-0" : "p-0"
-                          }
-                        >
-                          <SidebarGroupLabel>Categories</SidebarGroupLabel>
-                          <SidebarGroupContent>
-                            <SidebarMenu>
-                              {catalogSections.map(({ bucket }) => (
-                                <SidebarMenuItem key={bucket.id}>
-                                  <SidebarMenuButton
-                                    isActive={
-                                      activeId ===
-                                      `catalog-bucket-${bucket.id}`
-                                    }
-                                    onClick={() =>
-                                      onNavSectionSelect(
-                                        `catalog-bucket-${bucket.id}`,
-                                      )
-                                    }
-                                  >
-                                    {bucket.label}
-                                  </SidebarMenuButton>
-                                </SidebarMenuItem>
-                              ))}
-                            </SidebarMenu>
-                          </SidebarGroupContent>
-                        </SidebarGroup>
-                      ) : null}
-                    </SidebarContent>
-                  </Sidebar>
-                </SidebarProvider>
-              </div>
-            </aside>
-          ) : null}
+        {!loading && !error && integrations.length === 0 && (
+          <p className="text-sm text-muted-foreground-soft">
+            No apps are available yet. Ask your admin if you expected to see ones
+            here.
+          </p>
+        )}
 
-          <div className="min-w-0 flex-1 space-y-12">
+        {!loading &&
+          !error &&
+          integrations.length > 0 &&
+          !hasCatalogContent && (
+            <div className="flex flex-col items-start gap-3">
+              <p className="text-sm text-muted-foreground-soft">
+                {hasSearchQuery ? (
+                  <>
+                    No apps match <span>{`"${query.trim()}"`}</span>. Try a
+                    different search, or clear it.
+                  </>
+                ) : (
+                  "No apps are available yet. Ask your admin if you expected to see ones here."
+                )}
+              </p>
+              {hasSearchQuery ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setQuery("")}
+                >
+                  Clear search
+                </Button>
+              ) : null}
+            </div>
+          )}
+
+        {!loading && !error && hasCatalogContent ? (
+          <div className="space-y-12" data-testid="plugin-grid">
             {installed.length > 0 ? (
               <section
                 aria-labelledby="catalog-bucket-installed"
@@ -453,8 +427,8 @@ export default function AppsCatalogPageClient() {
               </section>
             ))}
           </div>
-        </div>
-      )}
+        ) : null}
+      </PageLayout>
     </Container>
   );
 }

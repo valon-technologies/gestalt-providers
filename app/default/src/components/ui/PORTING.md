@@ -118,6 +118,20 @@ checks + connectors). Depends on `lib/list-item-interaction.ts` and
 uses controlled `activationMode="jump"` — do not restyle Stepper chrome at the
 call site (layout-only wrappers OK).
 
+## PageLayout / NavList
+
+Registry `page-layout` and `nav-list` are vendored here. `PageLayout` owns
+in-page geometry (header band, start Pane, content, end Aside); `NavList` is
+router-agnostic section navigation for rails, sheets, and flyouts. Set
+`--page-layout-pane-top` / `--page-layout-pane-bottom` and track widths
+(`--page-layout-pane-width` / `--page-layout-aside-width`) in `globals.css` next
+to nav-height tokens — do not scatter `sticky top-*` or hand-roll grid tracks per
+page. Use `tracks="compact"` (11rem pane) for dense section rails; Settings keeps
+the default 13.75rem pane. `NavListItem` defaults to outward `focus-ring`;
+`PageLayoutPane` / `PageLayoutAside` own scrollport padding so rings stay visible.
+Action rows use `actions` plus
+`nestedInteractiveSuppress.selectableRowSiblingControl` from `@/lib/nested-interactive`.
+
 ## SearchHighlight
 
 Registry `search-highlight` + `search-highlight-context` are vendored as
