@@ -274,6 +274,17 @@ export async function mockAppAdminRegistry(
     },
   );
 
+  await page.route(
+    `**/api/v1/apps/${app}/admin/registry/history**`,
+    (route: Route, request) => {
+      if (request.method() === "GET") {
+        route.fulfill({ json: { app, revisions: [] } });
+        return;
+      }
+      route.fallback();
+    },
+  );
+
   return {
     getState: () => state,
     setState: (nextState) => {

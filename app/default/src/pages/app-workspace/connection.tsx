@@ -54,7 +54,7 @@ export default function AppWorkspaceConnectionPage() {
       data-testid="app-admin-connection"
     >
       <PageHeader>
-        <PageHeaderContent>
+        <PageHeaderContent size="md">
           <PageHeaderTitle>Credentials</PageHeaderTitle>
           <PageHeaderDescription>
             Connect or reconnect this app under your user. Disconnect to revoke

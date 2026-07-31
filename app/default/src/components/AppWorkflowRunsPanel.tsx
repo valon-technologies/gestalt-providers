@@ -157,7 +157,7 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
   return (
     <>
       <PageHeader className="mb-6">
-        <PageHeaderContent>
+        <PageHeaderContent size="md">
           <PageHeaderTitle>Workflows</PageHeaderTitle>
           <PageHeaderDescription>
             Review recent workflow runs and the identities, definitions, and

@@ -33,6 +33,57 @@ import { cn } from "@/lib/cn";
 
 export { sortHeaderAriaSort } from "@/components/ui/sort-header-button";
 
+/** Primary text row in registry tables — shared baseline + line box across columns. */
+export const DATA_TABLE_REGISTRY_PRIMARY_LINE_CLASS =
+  "flex min-h-5 items-center text-sm leading-5";
+
+/** Secondary subline in registry tables — timers, metadata below badges. */
+export const DATA_TABLE_REGISTRY_SECONDARY_LINE_CLASS =
+  "text-xs leading-4 text-muted-foreground";
+
+/** Status icon gutter — px-3 + size-5 indicator + px-3 (12px + 20px + 12px). */
+export const DATA_TABLE_REGISTRY_SEVERITY_GUTTER_CLASS = "w-11 px-3";
+
+export function DataTableRegistryPrimaryLine({
+  className,
+  children,
+}: {
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={cn(DATA_TABLE_REGISTRY_PRIMARY_LINE_CLASS, className)}>
+      {children}
+    </div>
+  );
+}
+
+export function DataTableRegistrySecondaryLine({
+  className,
+  children,
+}: {
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={cn(DATA_TABLE_REGISTRY_SECONDARY_LINE_CLASS, className)}>
+      {children}
+    </div>
+  );
+}
+
+export function DataTableRegistryCell({
+  className,
+  children,
+}: {
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={cn("flex min-w-0 flex-col gap-1", className)}>{children}</div>
+  );
+}
+
 interface DataTableColumnHeaderProps<TData, TValue>
   extends React.HTMLAttributes<HTMLDivElement> {
   column: import("@tanstack/react-table").Column<TData, TValue>;
@@ -171,7 +222,11 @@ export function DataTableView<TData>({
                           ? "center"
                           : undefined
                     }
-                    className={header.column.columnDef.meta?.headerClassName}
+                    className={cn(
+                      header.column.columnDef.meta?.severityGutter &&
+                        DATA_TABLE_REGISTRY_SEVERITY_GUTTER_CLASS,
+                      header.column.columnDef.meta?.headerClassName,
+                    )}
                     aria-sort={
                       canSort
                         ? sortHeaderAriaSort(sorted !== false, sortDirection)
@@ -205,7 +260,11 @@ export function DataTableView<TData>({
                           ? "end"
                           : undefined
                       }
-                      className={cell.column.columnDef.meta?.className}
+                      className={cn(
+                        cell.column.columnDef.meta?.severityGutter &&
+                          DATA_TABLE_REGISTRY_SEVERITY_GUTTER_CLASS,
+                        cell.column.columnDef.meta?.className,
+                      )}
                     >
                       {flexRender(
                         cell.column.columnDef.cell,
@@ -236,6 +295,8 @@ declare module "@tanstack/react-table" {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   interface ColumnMeta<TData, TValue> {
     align?: "start" | "center" | "end";
+    /** Registry status-icon gutter — applies shared width/padding; cells stay baseline-aligned. */
+    severityGutter?: boolean;
     /** `TableCell` classes — body alignment (e.g. `align-top`) stays off headers. */
     className?: string;
     /** `TableHead` classes — width/padding for gutter columns, etc. */

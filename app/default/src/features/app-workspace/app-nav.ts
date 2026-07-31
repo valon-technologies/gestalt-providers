@@ -1,8 +1,7 @@
 export type AppUserNavId = "overview" | "connection" | "operations";
 
 export type AppAdminNavId =
-  | "snapshots"
-  | "history"
+  | "versions"
   | "workflows"
   | "members"
   | "agent-identities";
@@ -28,11 +27,16 @@ export const APP_USER_NAV = [
   },
 ] as const;
 
-/** Admin surface required for a pathname under `/apps/:app/admin/*`. */
+/** Admin surface required for app workspace admin routes (including `/versions`). */
 export function adminSurfaceForPathname(
   pathname: string,
   app: string,
 ): AppAdminSurface | null {
+  const versionsPath = `/apps/${app}/versions`;
+  if (pathname === versionsPath || pathname.startsWith(`${versionsPath}/`)) {
+    return "registry";
+  }
+
   const base = `/apps/${app}/admin`;
   if (!pathname.includes(base)) return null;
   if (pathname.includes(`${base}/snapshots`)) return "registry";
@@ -45,15 +49,9 @@ export function adminSurfaceForPathname(
 
 export const APP_ADMIN_NAV = [
   {
-    id: "snapshots" as const,
-    label: "Published snapshots",
-    to: "/apps/$app/admin/snapshots" as const,
-    requires: "registry" as const satisfies AppAdminSurface,
-  },
-  {
-    id: "history" as const,
-    label: "Revision history",
-    to: "/apps/$app/admin/history" as const,
+    id: "versions" as const,
+    label: "Versions",
+    to: "/apps/$app/versions" as const,
     requires: "registry" as const satisfies AppAdminSurface,
   },
   {

@@ -1,11 +1,5 @@
+import { useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  PageHeader,
-  PageHeaderActions,
-  PageHeaderContent,
-  PageHeaderDescription,
-  PageHeaderTitle,
-} from "@/components/ui/page-header";
 import { AppAdminAutoDeployToggle } from "@/features/registry/app-admin-auto-deploy-toggle";
 import { useAppAdminRegistryContext } from "@/features/registry/app-admin-registry-context";
 import { AppAdminSnapshotsTable } from "@/features/registry/app-admin-snapshots-table";
@@ -15,10 +9,76 @@ import {
   formatRegistryTimeShort,
   isActiveRegistryRollout,
 } from "@/features/registry/format";
-import { useUpdateAppAdminAutoDeployMutation } from "@/lib/queries";
+import {
+  useAppAdminRegistryHistoryQuery,
+  useAppAdminRegistryQuery,
+  useUpdateAppAdminAutoDeployMutation,
+} from "@/lib/queries";
 import { Loader2 } from "lucide-react";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+  PageHeader,
+  PageHeaderActions,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
 
-function snapshotsSubhead({
+function RegistryRefreshedAt({ appName }: { appName: string }) {
+  const registryQuery = useAppAdminRegistryQuery(appName);
+  const registryUpdatedAt = registryQuery.isFetched
+    ? registryQuery.dataUpdatedAt
+    : null;
+  const registryUpdatedIso = registryUpdatedAt
+    ? new Date(registryUpdatedAt).toISOString()
+    : null;
+
+  if (registryQuery.isCheckingForNewVersions) {
+    return <p className="text-sm text-muted-foreground">Refreshing…</p>;
+  }
+
+  if (!registryUpdatedAt) {
+    return null;
+  }
+
+  return (
+    <p className="text-sm text-muted-foreground" data-testid="registry-refreshed-at">
+      Refreshed at{" "}
+      <time
+        dateTime={registryUpdatedIso ?? undefined}
+        title={registryUpdatedIso ? formatRegistryTime(registryUpdatedIso) : undefined}
+      >
+        {formatRegistryTimeShort(registryUpdatedAt)}
+      </time>
+    </p>
+  );
+}
+
+function RegistryCheckForNewVersionsButton({ appName }: { appName: string }) {
+  const registryQuery = useAppAdminRegistryQuery(appName);
+
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={registryQuery.checkForNewVersions}
+      disabled={registryQuery.isCheckingForNewVersions}
+      data-testid="check-for-new-versions"
+    >
+      {registryQuery.isCheckingForNewVersions ? (
+        <>
+          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+          Checking…
+        </>
+      ) : (
+        "Check for new versions"
+      )}
+    </Button>
+  );
+}
+
+function versionsSubhead({
   autoDeployEnabled,
   desiredVersion,
   rolloutActive,
@@ -29,14 +89,14 @@ function snapshotsSubhead({
 }): string {
   if (autoDeployEnabled) {
     if (rolloutActive) {
-      return "Automatic deploy is on. New snapshots queue until the current rollout finishes.";
+      return "Automatic deploy is on. New versions queue until the current rollout finishes.";
     }
-    return "Automatic deploy is on. New published snapshots deploy to the fleet without a manual deploy.";
+    return "Automatic deploy is on. New versions deploy to the fleet without a manual deploy.";
   }
   if (desiredVersion) {
-    return "Deploy a published snapshot to change the version running across the fleet.";
+    return "Deploy a version to change what's running across the fleet.";
   }
-  return "No snapshot is serving on the fleet yet. Deploy a published snapshot to start.";
+  return "No version is serving on the fleet yet. Deploy a version to start.";
 }
 
 export default function AppAdminSnapshotsPage() {
@@ -46,11 +106,24 @@ export default function AppAdminSnapshotsPage() {
     deployingVersion,
     onDeployVersion,
     deployError,
-    checkForNewVersions,
-    isCheckingForNewVersions,
-    registryUpdatedAt,
   } = useAppAdminRegistryContext();
+  const historyQuery = useAppAdminRegistryHistoryQuery(appName, true);
   const autoDeployMutation = useUpdateAppAdminAutoDeployMutation(appName);
+  const historyRevisions = useMemo(
+    () => historyQuery.data?.pages.flatMap((page) => page.revisions) ?? [],
+    [historyQuery.data?.pages],
+  );
+
+  useEffect(() => {
+    if (historyQuery.hasNextPage && !historyQuery.isFetchingNextPage) {
+      void historyQuery.fetchNextPage();
+    }
+  }, [
+    historyQuery.data?.pages,
+    historyQuery.fetchNextPage,
+    historyQuery.hasNextPage,
+    historyQuery.isFetchingNextPage,
+  ]);
 
   const autoDeployEnabled = registry.autoDeploy?.enabled ?? false;
   const rolloutActive = Boolean(
@@ -61,18 +134,15 @@ export default function AppAdminSnapshotsPage() {
   const autoDeployError = autoDeployMutation.isError
     ? "Couldn't update automatic deploy. Check your connection and try again."
     : null;
-  const registryUpdatedIso = registryUpdatedAt
-    ? new Date(registryUpdatedAt).toISOString()
-    : null;
   const disabledReason = formatRegistryDisabledReason(registry.disabledReason);
 
   return (
-    <section aria-label="Published snapshots">
+    <section aria-label="Versions">
       <PageHeader>
-        <PageHeaderContent>
-          <PageHeaderTitle>Published snapshots</PageHeaderTitle>
+        <PageHeaderContent size="md">
+          <PageHeaderTitle>Versions</PageHeaderTitle>
           <PageHeaderDescription>
-            {snapshotsSubhead({
+            {versionsSubhead({
               autoDeployEnabled,
               desiredVersion: registry.desiredVersion,
               rolloutActive,
@@ -80,36 +150,8 @@ export default function AppAdminSnapshotsPage() {
           </PageHeaderDescription>
         </PageHeaderContent>
         <PageHeaderActions className="flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-4">
-          {isCheckingForNewVersions ? (
-            <p className="text-sm text-muted-foreground">Refreshing…</p>
-          ) : registryUpdatedAt ? (
-            <p className="text-sm text-muted-foreground" data-testid="registry-refreshed-at">
-              Refreshed at{" "}
-              <time
-                dateTime={registryUpdatedIso ?? undefined}
-                title={registryUpdatedIso ? formatRegistryTime(registryUpdatedIso) : undefined}
-              >
-                {formatRegistryTimeShort(registryUpdatedAt)}
-              </time>
-            </p>
-          ) : null}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={checkForNewVersions}
-            disabled={isCheckingForNewVersions}
-            data-testid="check-for-new-versions"
-          >
-            {isCheckingForNewVersions ? (
-              <>
-                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                Checking…
-              </>
-            ) : (
-              "Check for new versions"
-            )}
-          </Button>
+          <RegistryRefreshedAt appName={appName} />
+          <RegistryCheckForNewVersionsButton appName={appName} />
         </PageHeaderActions>
       </PageHeader>
 
@@ -123,12 +165,15 @@ export default function AppAdminSnapshotsPage() {
           onChange={(enabled) => autoDeployMutation.mutate(enabled)}
         />
 
-        <AppAdminSnapshotsTable
-          registry={registry}
-          controlsDisabled={controlsDisabled}
-          deployingVersion={deployingVersion}
-          onDeployVersion={onDeployVersion}
-        />
+        <TooltipProvider>
+          <AppAdminSnapshotsTable
+            registry={registry}
+            historyRevisions={historyRevisions}
+            controlsDisabled={controlsDisabled}
+            deployingVersion={deployingVersion}
+            onDeployVersion={onDeployVersion}
+          />
+        </TooltipProvider>
 
         {registry.selectionDisabled && disabledReason ? (
           <p

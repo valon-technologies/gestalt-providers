@@ -19,12 +19,12 @@ function parseRolloutLastError(message: string): string | null {
   return match?.[1]?.trim() ?? null;
 }
 
-function SnapshotVersionChip({ version }: { version: string }) {
+function VersionChip({ version }: { version: string }) {
   return (
     <CopyableCode
       value={version}
       className={SNAPSHOT_CHIP_CLASS}
-      tooltip="Copy snapshot version"
+      tooltip="Copy version"
     >
       {version}
     </CopyableCode>
@@ -51,10 +51,10 @@ export function AppAdminAutoDeployToggle({
   const rolloutFailedVersion = lastError ? parseRolloutLastError(lastError) : null;
   const mutationError = updateError?.trim();
   const description = autoDeploy.enabled && rolloutInProgress
-    ? "A rollout is in progress. New snapshots queue until it finishes."
+    ? "A rollout is in progress. New versions queue until it finishes."
     : autoDeploy.enabled
-      ? "When a new snapshot is published, deploy it across the fleet automatically."
-      : "Deploy snapshots from the table below. Turn on to deploy new snapshots automatically.";
+      ? "When a new version is published, deploy it across the fleet automatically."
+      : "Deploy versions from the table below. Turn on to deploy new versions automatically.";
 
   return (
     <div className="space-y-2">
@@ -67,7 +67,7 @@ export function AppAdminAutoDeployToggle({
         <div className="min-w-0 grow basis-64 space-y-0.5">
           <AlertTitle className="line-clamp-none">
             <label htmlFor={toggleId} className="cursor-pointer">
-              Automatically deploy new snapshots
+              Automatically deploy new versions
             </label>
           </AlertTitle>
           <AlertDescription>{description}</AlertDescription>
@@ -106,7 +106,7 @@ export function AppAdminAutoDeployToggle({
               <AlertDescription className="space-y-2">
                 <p>
                   Couldn&apos;t roll out{" "}
-                  <SnapshotVersionChip version={rolloutFailedVersion} />
+                  <VersionChip version={rolloutFailedVersion} />
                   to the fleet.
                 </p>
                 {autoDeploy.enabled ? (
@@ -116,7 +116,7 @@ export function AppAdminAutoDeployToggle({
                       failure.
                     </p>
                     <p>
-                      Use Retry deploy on the failed snapshot in the table below.
+                      Use Retry deploy on the failed version in the table below.
                     </p>
                   </>
                 ) : null}
