@@ -19,8 +19,8 @@ export default function DocsShell({
   return (
     <Container as="main" className="py-16">
       <div className="grid gap-10 xl:grid-cols-[11rem_minmax(0,1fr)_240px]">
-        <aside className="hidden w-44 shrink-0 xl:block">
-          <div className="sticky top-24">
+        <div className="hidden w-44 shrink-0 xl:block">
+          <div className="sticky top-[var(--page-layout-pane-top)]">
             <NavList aria-label="Documentation">
               {docsNavItems.map((item) => (
                 <NavListItem
@@ -35,12 +35,12 @@ export default function DocsShell({
               ))}
             </NavList>
           </div>
-        </aside>
+        </div>
 
         <article className="min-w-0">{children}</article>
 
-        <aside className="hidden xl:block">
-          <div className="sticky top-24 space-y-6">
+        <div className="hidden xl:block">
+          <div className="sticky top-[var(--page-layout-pane-top)] space-y-6">
             {activeItem.subsections.length > 0 && (
               <NavList aria-label="On This Page">
                 <NavListGroup label="On This Page">
@@ -56,7 +56,7 @@ export default function DocsShell({
               </NavList>
             )}
           </div>
-        </aside>
+        </div>
       </div>
     </Container>
   );

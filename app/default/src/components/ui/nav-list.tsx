@@ -138,14 +138,14 @@ const navListItemVariants = cva(
 );
 
 interface NavListItemProps
-  extends Omit<React.ComponentProps<"a">, "children">,
+  extends Omit<React.ComponentProps<"a">, "children" | "aria-current">,
     VariantProps<typeof navListItemVariants> {
   /** Project the treatment onto a router link. */
   asChild?: boolean;
   /** Optional trailing content rendered as a sibling of the destination link. */
   actions?: React.ReactNode;
   /**
-   * Current destination. Emits `aria-current="page"` and the selected wash.
+   * Current destination. Emits `aria-current` and the selected wash.
    *
    * The consumer computes this from their router; the component owns the ARIA and
    * the paint. Marked by *presence* of `data-selected`, never `data-selected="false"` —
@@ -153,6 +153,11 @@ interface NavListItemProps
    * (selectable-rows.md), so a `false` string would leak the idle gray.
    */
   active?: boolean;
+  /**
+   * `aria-current` value when `active`. Route changes use `page`; in-page section
+   * anchors (TOC, scroll-spy) use `location`.
+   */
+  current?: "page" | "location";
   children?: React.ReactNode;
 }
 
@@ -169,6 +174,7 @@ function NavListItem({
   className,
   asChild = false,
   active = false,
+  current = "page",
   pointer,
   focusRing,
   actions,
@@ -191,7 +197,7 @@ function NavListItem({
       <Comp
         data-slot="nav-list-item-link"
         data-selected={active ? "" : undefined}
-        aria-current={active ? "page" : undefined}
+        aria-current={active ? current : undefined}
         className={cn(
           navListItemVariants({ pointer, focusRing, actionRow: Boolean(actions) }),
           !actions && listItemInteraction({ pointer }),

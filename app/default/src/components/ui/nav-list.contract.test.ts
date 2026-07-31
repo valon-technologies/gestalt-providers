@@ -28,7 +28,8 @@ describe("NavList selection contract", () => {
   });
 
   test("derives aria-current from the same `active` prop", () => {
-    expect(SOURCE).toContain(`aria-current={active ? "page" : undefined}`);
+    expect(SOURCE).toContain(`aria-current={active ? current : undefined}`);
+    expect(SOURCE).toContain('current?: "page" | "location"');
   });
 
   test("consumes the shared role ladder rather than authoring fills", () => {

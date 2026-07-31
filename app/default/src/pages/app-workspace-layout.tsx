@@ -272,8 +272,8 @@ export default function AppWorkspaceLayout() {
 
         {(integration || isAdminPath || isVersionsPath) ? (
           <div className="grid gap-10 lg:grid-cols-[11rem_minmax(0,1fr)]">
-            <aside className="min-w-0 w-44 shrink-0">
-              <div className="lg:sticky lg:top-24">
+            <div className="min-w-0 w-44 shrink-0">
+              <div className="lg:sticky lg:top-[var(--page-layout-pane-top)] lg:max-h-[calc(100svh-var(--page-layout-pane-top)-var(--page-layout-pane-bottom))] lg:overflow-y-auto lg:overscroll-contain lg:p-1">
                 <AppWorkspaceNav
                   app={app}
                   userItems={userNavItems}
@@ -281,7 +281,7 @@ export default function AppWorkspaceLayout() {
                   adminGroupVisible={adminGroupVisible}
                 />
               </div>
-            </aside>
+            </div>
 
             <div className="min-w-0 space-y-8">
               {showFleetState ? <AppAdminFleetState registry={registry} /> : null}

@@ -314,21 +314,18 @@ export default function AppsCatalogPageClient() {
       {!loading && !error && hasCatalogContent && (
         <div className="mt-10 flex gap-8" data-testid="plugin-grid">
           {catalogNavSections.length > 0 ? (
-            <aside
+            <div
               className="hidden w-44 shrink-0 lg:block"
               data-testid="apps-catalog-toc"
             >
-              <div className="sticky top-24 h-[calc(100vh-7rem)]">
+              <div className="sticky top-[var(--page-layout-pane-top)] max-h-[calc(100svh-var(--page-layout-pane-top)-var(--page-layout-pane-bottom))] overflow-y-auto overscroll-contain p-1">
                 <NavList aria-label="App catalog sections">
                   {installed.length > 0 ? (
                     <NavListItem
                       href="#catalog-bucket-installed"
                       active={activeId === "catalog-bucket-installed"}
-                      aria-current={
-                        activeId === "catalog-bucket-installed"
-                          ? "location"
-                          : undefined
-                      }
+                      current="location"
+                      focusRing="inset"
                       onClick={(event) => {
                         event.preventDefault();
                         onNavSectionSelect("catalog-bucket-installed");
@@ -349,9 +346,8 @@ export default function AppsCatalogPageClient() {
                             key={bucket.id}
                             href={`#${id}`}
                             active={activeId === id}
-                            aria-current={
-                              activeId === id ? "location" : undefined
-                            }
+                            current="location"
+                            focusRing="inset"
                             onClick={(event) => {
                               event.preventDefault();
                               onNavSectionSelect(id);
@@ -365,7 +361,7 @@ export default function AppsCatalogPageClient() {
                   ) : null}
                 </NavList>
               </div>
-            </aside>
+            </div>
           ) : null}
 
           <div className="min-w-0 flex-1 space-y-12">
