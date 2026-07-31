@@ -70,6 +70,26 @@ describe("PageLayout track width contract", () => {
   });
 });
 
+const GLOBALS_CSS = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "../../globals.css"),
+  "utf8",
+);
+
+function extractCssTokenValue(css: string, token: string): string {
+  const match = css.match(
+    new RegExp(`${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:\\s*([^;]+);`),
+  );
+  expect(match).not.toBeNull();
+  return match![1].trim();
+}
+
+describe("PageLayout theme contract", () => {
+  test("defines track width tokens in globals.css", () => {
+    expect(extractCssTokenValue(GLOBALS_CSS, "--page-layout-pane-width")).toBe("13.75rem");
+    expect(extractCssTokenValue(GLOBALS_CSS, "--page-layout-aside-width")).toBe("15rem");
+  });
+});
+
 /**
  * The rails are plain divs. Wrapping them in `<aside>` mints an unlabelled
  * `complementary` landmark around a `<nav>` that already has a name — and these
