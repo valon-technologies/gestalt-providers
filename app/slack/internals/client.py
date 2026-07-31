@@ -12,8 +12,24 @@ from urllib.parse import urlsplit
 from urllib.parse import urlencode
 
 SLACK_BASE_URL = "https://slack.com/api"
-SLACK_FILE_DOWNLOAD_HOSTS = {"files.slack.com"}
-SLACK_FILE_DOWNLOAD_HOST_SUFFIXES = (".slack-files.com",)
+# Slack-owned hostnames that may legitimately serve authenticated file content.
+# Both `files.slack.com` and the bare `slack-files.com` apex appear directly in
+# `url_private` / `url_private_download` values, depending on workspace and
+# file type. The suffix list covers Slack's tenant subdomains
+# (`<workspace>.slack-files.com`) and Slack's CDN (`*.slack-edge.com`), which
+# `files.slack.com` 302s into for many tenants.
+SLACK_FILE_DOWNLOAD_HOSTS = {
+    "files.slack.com",
+    "slack-files.com",
+}
+# The leading dot on every suffix is load-bearing for the SSRF guard: it forces
+# `str.endswith(tuple)` to require a real subdomain boundary, so adversarial
+# hostnames such as `files.slack.com.attacker.com` or `evilslack-edge.com` do
+# not match. Do not "simplify" the dots away.
+SLACK_FILE_DOWNLOAD_HOST_SUFFIXES = (
+    ".slack-files.com",
+    ".slack-edge.com",
+)
 SLACK_FILE_UPLOAD_HOST = "files.slack.com"
 SLACK_FILE_UPLOAD_PATH_PREFIX = "/upload/v1/"
 MAX_RATE_LIMIT_RETRIES = 2
@@ -109,7 +125,14 @@ def upload_bytes_to_slack_url(
 
 def get_bytes(url: str, token: str, max_bytes: int) -> tuple[bytes, bool]:
     if not is_slack_file_download_url(url):
-        raise SlackClientError("slack file download URL must be a Slack HTTPS file URL")
+        # Allowlist misses are a caller-input problem (a Slack-supplied URL we
+        # do not recognise, or a redirect target that left Slack's host set).
+        # Surface as 4xx so Gestalt does not map this to a 5xx and trip the
+        # provider error monitor on legitimate URL shape changes.
+        raise SlackAPIError(
+            HTTPStatus.BAD_REQUEST,
+            {"error": "slack file download URL must be a Slack HTTPS file URL"},
+        )
     request = urllib.request.Request(
         url=url,
         method="GET",
@@ -135,6 +158,10 @@ def is_slack_file_download_url(url: str) -> bool:
     hostname = parsed.hostname or ""
     if parsed.scheme != "https" or not hostname:
         return False
+    # The suffix tuple's leading dots prevent the classic naive-suffix bypass:
+    # `files.slack.com.attacker.com` does not equal any allowlist host and does
+    # not end with `.slack-files.com` / `.slack-edge.com`, so it still returns
+    # False. Keep the dots when editing the suffix list above.
     return hostname in SLACK_FILE_DOWNLOAD_HOSTS or hostname.endswith(
         SLACK_FILE_DOWNLOAD_HOST_SUFFIXES
     )
@@ -162,7 +189,12 @@ class _SlackFileRedirectHandler(urllib.request.HTTPRedirectHandler):
     ) -> urllib.request.Request | None:
         del fp, msg
         if not is_slack_file_download_url(newurl):
-            raise SlackClientError("slack file download redirected to a non-Slack URL")
+            # Same reasoning as `get_bytes`: a redirect off the Slack host set
+            # is a caller/Slack URL contract problem, not an internal error.
+            raise SlackAPIError(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "slack file download redirected to a non-Slack URL"},
+            )
         authorization = req.get_header("Authorization") or dict(req.header_items()).get(
             "Authorization", ""
         )
