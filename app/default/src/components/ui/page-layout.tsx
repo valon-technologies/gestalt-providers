@@ -1,7 +1,8 @@
-
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
+
+
 
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -50,12 +51,23 @@ function usePageHeadingLevel(): 1 | 2 {
 // Row gap is the vertical rhythm between the header band and the columns; column
 // gap is the gutter between Pane / Content / Aside. One `gap` step drives both so
 // inner and outer rhythm come from one scale (cards.md: padding = grid gap).
+const pageLayoutGapVariants = {
+  default: "gap-8 lg:gap-10",
+  compact: "gap-6 lg:gap-8",
+} as const;
+
 const pageLayoutVariants = cva("grid w-full grid-cols-1", {
   variants: {
-    gap: {
-      default: "gap-8 lg:gap-10",
-      compact: "gap-6 lg:gap-8",
-    },
+    gap: pageLayoutGapVariants,
+  },
+  defaultVariants: {
+    gap: "default",
+  },
+});
+
+const pageLayoutColumnsVariants = cva("grid min-w-0 grid-cols-1", {
+  variants: {
+    gap: pageLayoutGapVariants,
   },
   defaultVariants: {
     gap: "default",
@@ -124,7 +136,10 @@ function PageLayout({
         {header ? <PageLayoutHeader>{header}</PageLayoutHeader> : null}
 
         {paneMobile ? (
-          <div data-slot="page-layout-pane-mobile" className="lg:hidden">
+          <div
+            data-slot="page-layout-pane-mobile"
+            className="w-full min-w-0 overflow-x-auto lg:hidden"
+          >
             {paneMobile}
           </div>
         ) : null}
@@ -138,7 +153,7 @@ function PageLayout({
         <div
           data-slot="page-layout-columns"
           className={cn(
-            "grid min-w-0 grid-cols-1 gap-8 lg:gap-10",
+            pageLayoutColumnsVariants({ gap }),
             pane && aside && "lg:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_240px]",
             pane && !aside && "lg:grid-cols-[220px_minmax(0,1fr)]",
             !pane && aside && "xl:grid-cols-[minmax(0,1fr)_240px]",
@@ -174,7 +189,10 @@ const pageLayoutPaneVariants = cva(
   {
     variants: {
       sticky: {
-        true: "lg:sticky lg:top-(--page-layout-pane-top) lg:max-h-[calc(100svh-var(--page-layout-pane-top)-var(--page-layout-pane-bottom))] lg:overflow-y-auto lg:overscroll-contain",
+        // `overflow-y-auto` computes a non-visible x overflow too, which clips
+        // NavList's standard outward focus ring. Keep one spacing step of
+        // scrollport breathing room so the ring remains fully visible.
+        true: "lg:sticky lg:top-[var(--page-layout-pane-top,0px)] lg:max-h-[calc(100svh-var(--page-layout-pane-top,0px)-var(--page-layout-pane-bottom,0px))] lg:overflow-y-auto lg:overscroll-contain lg:p-1",
         false: "",
       },
     },
@@ -213,7 +231,9 @@ function PageLayoutContent({ className, ...props }: React.ComponentProps<"main">
 const pageLayoutAsideVariants = cva("hidden min-w-0 xl:block", {
   variants: {
     sticky: {
-      true: "xl:sticky xl:top-(--page-layout-pane-top) xl:max-h-[calc(100svh-var(--page-layout-pane-top)-var(--page-layout-pane-bottom))] xl:overflow-y-auto xl:overscroll-contain",
+      // The Aside is the same clipping scrollport as the Pane; keep focus rings
+      // visible for TableOfContents buttons and any other interactive content.
+      true: "xl:sticky xl:top-[var(--page-layout-pane-top,0px)] xl:max-h-[calc(100svh-var(--page-layout-pane-top,0px)-var(--page-layout-pane-bottom,0px))] xl:overflow-y-auto xl:overscroll-contain xl:p-1",
       false: "",
     },
   },

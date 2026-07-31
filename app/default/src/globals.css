@@ -484,6 +484,11 @@ pre.shiki span {
   outline-offset: -3px;
 }
 
+.focus-ring-inset-on-accent:focus-visible {
+  outline: 3px solid var(--accent-vivid-foreground);
+  outline-offset: -3px;
+}
+
 .scrollbar-muted {
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) transparent;

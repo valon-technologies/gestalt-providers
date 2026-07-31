@@ -34,16 +34,11 @@ import {
   SectionHeaderTitle,
 } from "@/components/ui/section-header";
 import {
-  Sidebar,
-  SidebarContent,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-} from "@/components/ui/sidebar";
+  NavList,
+  NavListGroup,
+  NavListItem,
+  NavListItemLabel,
+} from "@/components/ui/nav-list";
 import { useScrollSpy } from "@/hooks/use-scroll-spy";
 import { SpinnerIcon } from "@/components/icons";
 import Button from "@/components/Button";
@@ -324,67 +319,51 @@ export default function AppsCatalogPageClient() {
               data-testid="apps-catalog-toc"
             >
               <div className="sticky top-24 h-[calc(100vh-7rem)]">
-                <SidebarProvider
-                  defaultWidth="11rem"
-                  className="h-full min-h-0 w-full"
-                >
-                  <Sidebar collapsible="none" className="h-full">
-                    <SidebarContent className="overflow-visible">
-                      {installed.length > 0 ? (
-                        <SidebarGroup className="p-0">
-                          <SidebarGroupContent>
-                            <SidebarMenu>
-                              <SidebarMenuItem>
-                                <SidebarMenuButton
-                                  isActive={
-                                    activeId === "catalog-bucket-installed"
-                                  }
-                                  onClick={() =>
-                                    onNavSectionSelect(
-                                      "catalog-bucket-installed",
-                                    )
-                                  }
-                                >
-                                  Installed
-                                </SidebarMenuButton>
-                              </SidebarMenuItem>
-                            </SidebarMenu>
-                          </SidebarGroupContent>
-                        </SidebarGroup>
-                      ) : null}
-                      {catalogSections.length > 0 ? (
-                        <SidebarGroup
-                          className={
-                            installed.length > 0 ? "mt-2 p-0" : "p-0"
-                          }
-                        >
-                          <SidebarGroupLabel>Categories</SidebarGroupLabel>
-                          <SidebarGroupContent>
-                            <SidebarMenu>
-                              {catalogSections.map(({ bucket }) => (
-                                <SidebarMenuItem key={bucket.id}>
-                                  <SidebarMenuButton
-                                    isActive={
-                                      activeId ===
-                                      `catalog-bucket-${bucket.id}`
-                                    }
-                                    onClick={() =>
-                                      onNavSectionSelect(
-                                        `catalog-bucket-${bucket.id}`,
-                                      )
-                                    }
-                                  >
-                                    {bucket.label}
-                                  </SidebarMenuButton>
-                                </SidebarMenuItem>
-                              ))}
-                            </SidebarMenu>
-                          </SidebarGroupContent>
-                        </SidebarGroup>
-                      ) : null}
-                    </SidebarContent>
-                  </Sidebar>
-                </SidebarProvider>
+                <NavList aria-label="App catalog sections">
+                  {installed.length > 0 ? (
+                    <NavListItem
+                      href="#catalog-bucket-installed"
+                      active={activeId === "catalog-bucket-installed"}
+                      aria-current={
+                        activeId === "catalog-bucket-installed"
+                          ? "location"
+                          : undefined
+                      }
+                      onClick={(event) => {
+                        event.preventDefault();
+                        onNavSectionSelect("catalog-bucket-installed");
+                      }}
+                    >
+                      <NavListItemLabel>Installed</NavListItemLabel>
+                    </NavListItem>
+                  ) : null}
+                  {catalogSections.length > 0 ? (
+                    <NavListGroup
+                      label="Categories"
+                      className={installed.length > 0 ? "mt-2" : undefined}
+                    >
+                      {catalogSections.map(({ bucket }) => {
+                        const id = `catalog-bucket-${bucket.id}`;
+                        return (
+                          <NavListItem
+                            key={bucket.id}
+                            href={`#${id}`}
+                            active={activeId === id}
+                            aria-current={
+                              activeId === id ? "location" : undefined
+                            }
+                            onClick={(event) => {
+                              event.preventDefault();
+                              onNavSectionSelect(id);
+                            }}
+                          >
+                            <NavListItemLabel>{bucket.label}</NavListItemLabel>
+                          </NavListItem>
+                        );
+                      })}
+                    </NavListGroup>
+                  ) : null}
+                </NavList>
               </div>
             </aside>
           ) : null}

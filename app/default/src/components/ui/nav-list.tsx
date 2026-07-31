@@ -1,7 +1,8 @@
-
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
+
+
 
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
@@ -9,6 +10,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/cn";
 import { listItemInteraction } from "@/lib/list-item-interaction";
+import { nestedInteractiveSuppress } from "@/lib/nested-interactive";
 import { eyebrowVariants } from "@/components/ui/eyebrow";
 import { Separator } from "@/components/ui/separator";
 
@@ -88,7 +90,7 @@ function NavListGroupLabel({ className, ...props }: React.ComponentProps<"div">)
     <div
       data-slot="nav-list-group-label"
       className={cn(
-        eyebrowVariants({ size: "sm", tone: "muted" }),
+        eyebrowVariants({ size: "sm", tone: "secondary" }),
         "px-3 pt-4 pb-1.5",
         className,
       )}
@@ -99,11 +101,12 @@ function NavListGroupLabel({ className, ...props }: React.ComponentProps<"div">)
 
 const navListItemVariants = cva(
   [
-    // Grid so media and actions hold their columns and only the label truncates.
+    // Grid so media hold their columns and only the label truncates. Action-mode
+    // rows add a separate outer column for the sibling action slot below.
     "grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2",
     "rounded-md px-3 py-2 text-sm text-muted-foreground",
-    // Inset ring: the Pane is a scrollport, so an outward ring would be clipped.
-    "outline-none focus-ring-inset",
+    // Focus geometry is selected by `focusRing`; outward is the default, while
+    // clipped rails can opt into an inset ring at the placement boundary.
     // Nav links carry no resting underline — the treatment is the wash (links.md).
     "no-underline",
     // Single-line labels in a rail truncate rather than wrap (harden.md).
@@ -117,9 +120,19 @@ const navListItemVariants = cva(
         css: "",
         "css-group": "",
       },
+      focusRing: {
+        outward: "focus-ring",
+        inset: "focus-ring-inset",
+        "inset-on-accent": "focus-ring-inset-on-accent",
+      },
+      actionRow: {
+        true: "rounded-none text-inherit",
+        false: "",
+      },
     },
     defaultVariants: {
       pointer: "css",
+      focusRing: "outward",
     },
   },
 );
@@ -129,6 +142,8 @@ interface NavListItemProps
     VariantProps<typeof navListItemVariants> {
   /** Project the treatment onto a router link. */
   asChild?: boolean;
+  /** Optional trailing content rendered as a sibling of the destination link. */
+  actions?: React.ReactNode;
   /**
    * Current destination. Emits `aria-current="page"` and the selected wash.
    *
@@ -155,25 +170,39 @@ function NavListItem({
   asChild = false,
   active = false,
   pointer,
+  focusRing,
+  actions,
   children,
   ...props
 }: NavListItemProps) {
   const Comp = asChild ? Slot : "a";
   return (
-    <li data-slot="nav-list-item" className="min-w-0">
+    <li
+      data-slot="nav-list-item"
+      data-selected={actions && active ? "" : undefined}
+      className={cn(
+        "min-w-0",
+        actions &&
+          "grid min-w-0 grid-cols-[minmax(0,1fr)_auto] rounded-md text-muted-foreground",
+        actions && listItemInteraction({ pointer }),
+        actions && nestedInteractiveSuppress.selectableRowSiblingControl,
+      )}
+    >
       <Comp
         data-slot="nav-list-item-link"
         data-selected={active ? "" : undefined}
         aria-current={active ? "page" : undefined}
         className={cn(
-          navListItemVariants({ pointer }),
-          listItemInteraction({ pointer }),
+          navListItemVariants({ pointer, focusRing, actionRow: Boolean(actions) }),
+          !actions && listItemInteraction({ pointer }),
+          actions && "col-start-1 row-start-1",
           className,
         )}
         {...props}
       >
         {children}
       </Comp>
+      {actions ? <NavListItemActions>{actions}</NavListItemActions> : null}
     </li>
   );
 }
@@ -204,18 +233,16 @@ function NavListItemLabel({ className, ...props }: React.ComponentProps<"span">)
   );
 }
 
-/**
- * Trailing slot for a count Badge or a control.
- *
- * A real control here is nested-interactive inside a link — give it
- * `data-no-row-click` and the suppression preset from `nested-interactive.md`, or
- * the link swallows its click.
- */
+/** Trailing sibling slot for static metadata or an independent control. */
 function NavListItemActions({ className, ...props }: React.ComponentProps<"span">) {
   return (
     <span
       data-slot="nav-list-item-actions"
-      className={cn("col-start-3 flex shrink-0 items-center gap-1", className)}
+      data-no-row-click
+      className={cn(
+        "col-start-2 row-start-1 flex shrink-0 items-center gap-1 px-3",
+        className,
+      )}
       {...props}
     />
   );
