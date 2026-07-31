@@ -104,6 +104,16 @@ GESTALT_THEME_FILE=/path/to/deploy/ui/theme.css \
 Manifest of required explicit overrides:
 [`app/default/shared/tenant-theme-manifest.json`](../app/default/shared/tenant-theme-manifest.json).
 
+## PR scope (collateral files)
+
+Ephemeral PR demo drivers (`record-pr-demo`, `record-scap.sh`) must **not** be
+committed under `app/default/scripts/`. Use `app/default/.local/record-pr-demo-driver.mjs`
+(gitignored) or the skill-owned driver in `record-pr-demo`.
+
+Machine-readable rules:
+[`docs/agent/pr-scope-manifest.json`](pr-scope-manifest.json). CI validates via
+[`app/default/src/lib/pr-scope.contract.test.ts`](../app/default/src/lib/pr-scope.contract.test.ts).
+
 ## Detection (manual / review)
 
 ```bash

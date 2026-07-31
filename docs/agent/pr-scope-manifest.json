@@ -1,0 +1,25 @@
+{
+  "description": "Paths and globs that must not appear in committed product source unless the PR explicitly owns that infrastructure.",
+  "agentTest": {
+    "file": "app/default/src/lib/pr-scope.contract.test.ts",
+    "command": "cd app/default && bun test src/lib/pr-scope.contract.test.ts"
+  },
+  "forbiddenCommittedPaths": [
+    {
+      "glob": "app/default/scripts/record-*-demo.mjs",
+      "reason": "Ephemeral record-pr-demo Playwright drivers belong in app/default/.local/ (gitignored), not committed scripts/. Permanent demo infra uses e2e/record-*-demo.spec.ts + scripts/record-*-demo.sh."
+    },
+    {
+      "glob": "app/default/.local/**",
+      "reason": "Local-only artifacts must stay gitignored."
+    },
+    {
+      "glob": "app/default/.prod-remote-manifest.yaml",
+      "reason": "Local prod-dev remote manifest — not a shipped contract."
+    }
+  ],
+  "ephemeralDemoDriver": {
+    "preferredPath": "app/default/.local/record-pr-demo-driver.mjs",
+    "gitignored": true
+  }
+}
