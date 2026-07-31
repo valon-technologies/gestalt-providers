@@ -78,11 +78,21 @@ A tenant theme is one stylesheet that re-declares any subset of these tokens
 
 ### Required explicit overrides (validation)
 
-Some bundle defaults **alias** one semantic token to another (e.g.
-`--card: var(--surface)`, `--popover: var(--surface-raised)`). Registry and
-product themes often map those roles independently (cards and flyouts → paper,
-not inset/raised cream). If a tenant theme sets `--surface` / `--surface-raised`
-but not `--card` / `--popover`, overlay surfaces silently inherit the wrong color.
+Some bundle defaults **alias** one semantic token to another. Registry and
+product themes map those roles independently; relying on the bundle default
+silently mis-colors UI.
+
+| Trap | Bundle default | Product intent |
+| --- | --- | --- |
+| `--card` | `var(--surface)` | Paper / white cards, not cream surface |
+| `--popover` | `var(--surface-raised)` | Paper flyouts, not raised cream |
+| `--accent-vivid` | `var(--brand-soft)` | Bright gold selected fills (nav, sidebar) |
+| `--accent-solid` / `--accent-strong` / `--ring` | `var(--brand)` | Mid gold focus + links, not dark brand-800 |
+| `--sidebar` | `var(--surface)` | Neutral chrome, not cream surface |
+| `--neutral-hover` | `var(--surface-raised)` | Neutral hover on muted chrome |
+
+If a tenant theme sets palette + surfaces but omits these, nav selection, links,
+focus rings, sidebar chrome, and cards inherit the wrong colors.
 
 [`shared/tenant-theme-manifest.json`](shared/tenant-theme-manifest.json)
 lists tokens deployment themes must declare explicitly in **both** `:root` and

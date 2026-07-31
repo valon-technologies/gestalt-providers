@@ -1,5 +1,5 @@
 {
-  "description": "Tenant themes must declare these tokens explicitly in :root and .dark. The bundle supplies :where() defaults, but some alias to a different semantic role than Registry / product intent — relying on the default silently mis-maps overlay surfaces.",
+  "description": "Tenant themes must declare these tokens explicitly in :root and .dark. The bundle supplies :where() defaults, but some alias to a different semantic role than Registry / product intent — relying on the default silently mis-maps surfaces, selection fills, links, and focus.",
   "agentTest": {
     "file": "app/default/src/lib/tenant-theme.contract.test.ts",
     "command": "cd app/default && GESTALT_THEME_FILE=/path/to/deploy/ui/theme.css bun test src/lib/tenant-theme.contract.test.ts"
@@ -10,25 +10,49 @@
       "--card",
       "--card-foreground",
       "--popover",
-      "--popover-foreground"
+      "--popover-foreground",
+      "--accent-vivid",
+      "--accent-solid",
+      "--accent-strong",
+      "--ring",
+      "--sidebar",
+      "--neutral-hover"
     ],
     ".dark": [
       "--card",
       "--card-foreground",
       "--popover",
-      "--popover-foreground"
+      "--popover-foreground",
+      "--accent-vivid",
+      "--accent-solid",
+      "--accent-strong",
+      "--ring",
+      "--sidebar",
+      "--neutral-hover"
     ]
   },
   "forbiddenValues": {
     "--card": ["var(--surface)"],
     "--card-foreground": ["var(--foreground)"],
     "--popover": ["var(--surface-raised)"],
-    "--popover-foreground": ["var(--foreground)"]
+    "--popover-foreground": ["var(--foreground)"],
+    "--accent-vivid": ["var(--brand-soft)"],
+    "--accent-solid": ["var(--brand)"],
+    "--accent-strong": ["var(--brand)"],
+    "--ring": ["var(--brand)"],
+    "--sidebar": ["var(--surface)"],
+    "--neutral-hover": ["var(--surface-raised)"]
   },
   "notes": {
     "--card": "Bundle default is var(--surface). Cards should map to page paper, not inset surface cream.",
     "--card-foreground": "Bundle default is var(--foreground). Declare explicit ink alongside --card.",
     "--popover": "Bundle default is var(--surface-raised). Flyouts should map to page paper / card surface, not raised surface.",
-    "--popover-foreground": "Bundle default is var(--foreground). Declare an explicit ink token alongside --popover."
+    "--popover-foreground": "Bundle default is var(--foreground). Declare an explicit ink token alongside --popover.",
+    "--accent-vivid": "Bundle default is var(--brand-soft). Selected nav/sidebar fills need bright gold-300, not peach brand-soft.",
+    "--accent-solid": "Bundle default is var(--brand). Focus rings and solid chrome need gold-400, not dark brand-800.",
+    "--accent-strong": "Bundle default is var(--brand). Link text aliases accent-strong; needs gold-500, not brand-800.",
+    "--ring": "Bundle default is var(--brand). Keyboard focus on controls should use mid gold, not dark brand.",
+    "--sidebar": "Bundle default is var(--surface). Sidebar chrome should use neutral-100, not cream surface fill.",
+    "--neutral-hover": "Bundle default is var(--surface-raised). Muted-chrome hovers need neutral-100, not raised cream."
   }
 }

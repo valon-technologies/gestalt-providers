@@ -103,6 +103,23 @@ test("bundle overlay surface defaults are alias traps (documented in manifest)",
   expect(manifest.required[":root"]).toContain("--popover");
 });
 
+test("bundle interaction defaults are alias traps (documented in manifest)", () => {
+  expect(extractCssTokenValue(bundleTheme, "--accent-vivid")).toBe(
+    "var(--brand-soft)",
+  );
+  expect(extractCssTokenValue(bundleTheme, "--accent-solid")).toBe("var(--brand)");
+  expect(extractCssTokenValue(bundleTheme, "--accent-strong")).toBe("var(--brand)");
+  expect(extractCssTokenValue(bundleTheme, "--ring")).toBe("var(--brand)");
+  expect(extractCssTokenValue(bundleTheme, "--sidebar")).toBe("var(--surface)");
+  expect(extractCssTokenValue(bundleTheme, "--neutral-hover")).toBe(
+    "var(--surface-raised)",
+  );
+  expect(manifest.required[":root"]).toContain("--accent-vivid");
+  expect(manifest.required[":root"]).toContain("--accent-solid");
+  expect(manifest.required[":root"]).toContain("--ring");
+  expect(manifest.required[":root"]).toContain("--sidebar");
+});
+
 test("index.html boot script stays aligned with theme-source constants", () => {
   expect(indexHtml).toContain('data-theme-source="tenant"');
   expect(indexHtml).toContain(THEME_SOURCE_STORAGE_KEY);
