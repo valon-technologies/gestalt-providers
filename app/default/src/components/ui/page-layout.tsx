@@ -2,8 +2,6 @@
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
 
-
-
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 
@@ -25,6 +23,10 @@ import { cn } from "@/lib/cn";
 // The column itself (mx-auto w-full max-w-*) is NOT owned here — per
 // guidelines/container.md the registry ships no Container primitive and no
 // content-width token, so the consuming app wraps PageLayout in its own column.
+//
+// Track widths read `--page-layout-pane-width` / `--page-layout-aside-width`
+// (defaults in globals.css). `tracks="compact"` narrows the Pane to 11rem for
+// dense section rails; Settings keeps the default 13.75rem (220px).
 
 /** Where the header sits relative to the Pane. */
 type PageLayoutHeaderPlacement = "above" | "content";
@@ -65,6 +67,18 @@ const pageLayoutVariants = cva("grid w-full grid-cols-1", {
   },
 });
 
+const pageLayoutTrackVariants = cva("", {
+  variants: {
+    tracks: {
+      default: "",
+      compact: "[--page-layout-pane-width:11rem]",
+    },
+  },
+  defaultVariants: {
+    tracks: "default",
+  },
+});
+
 const pageLayoutColumnsVariants = cva("grid min-w-0 grid-cols-1", {
   variants: {
     gap: pageLayoutGapVariants,
@@ -74,9 +88,30 @@ const pageLayoutColumnsVariants = cva("grid min-w-0 grid-cols-1", {
   },
 });
 
+const PAGE_LAYOUT_COLUMN_TEMPLATES = {
+  paneAndAside:
+    "lg:grid-cols-[var(--page-layout-pane-width)_minmax(0,1fr)] xl:grid-cols-[var(--page-layout-pane-width)_minmax(0,1fr)_var(--page-layout-aside-width)]",
+  paneOnly: "lg:grid-cols-[var(--page-layout-pane-width)_minmax(0,1fr)]",
+  asideOnly: "xl:grid-cols-[minmax(0,1fr)_var(--page-layout-aside-width)]",
+} as const;
+
+function pageLayoutColumnsTracksClassName({
+  pane,
+  aside,
+}: {
+  pane?: React.ReactNode;
+  aside?: React.ReactNode;
+}) {
+  if (pane && aside) return PAGE_LAYOUT_COLUMN_TEMPLATES.paneAndAside;
+  if (pane) return PAGE_LAYOUT_COLUMN_TEMPLATES.paneOnly;
+  if (aside) return PAGE_LAYOUT_COLUMN_TEMPLATES.asideOnly;
+  return "";
+}
+
 interface PageLayoutProps
   extends Omit<React.ComponentProps<"div">, "children">,
-    VariantProps<typeof pageLayoutVariants> {
+    VariantProps<typeof pageLayoutVariants>,
+    VariantProps<typeof pageLayoutTrackVariants> {
   /**
    * Full-width band above the columns — normally a `PageHeader`.
    *
@@ -111,6 +146,7 @@ interface PageLayoutProps
 function PageLayout({
   className,
   gap,
+  tracks,
   header,
   pane,
   paneMobile,
@@ -130,7 +166,12 @@ function PageLayout({
       <div
         data-slot="page-layout"
         data-header-placement={headerPlacement}
-        className={cn(pageLayoutVariants({ gap }), className)}
+        data-tracks={tracks ?? "default"}
+        className={cn(
+          pageLayoutVariants({ gap }),
+          pageLayoutTrackVariants({ tracks }),
+          className,
+        )}
         {...props}
       >
         {header ? <PageLayoutHeader>{header}</PageLayoutHeader> : null}
@@ -154,9 +195,7 @@ function PageLayout({
           data-slot="page-layout-columns"
           className={cn(
             pageLayoutColumnsVariants({ gap }),
-            pane && aside && "lg:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_240px]",
-            pane && !aside && "lg:grid-cols-[220px_minmax(0,1fr)]",
-            !pane && aside && "xl:grid-cols-[minmax(0,1fr)_240px]",
+            pageLayoutColumnsTracksClassName({ pane, aside }),
           )}
         >
           {pane ? <PageLayoutPane>{pane}</PageLayoutPane> : null}
@@ -276,6 +315,8 @@ export {
   PageLayoutFooter,
   usePageHeadingLevel,
   pageLayoutVariants,
+  pageLayoutTrackVariants,
   pageLayoutPaneVariants,
   pageLayoutAsideVariants,
+  PAGE_LAYOUT_COLUMN_TEMPLATES,
 };

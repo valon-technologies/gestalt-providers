@@ -336,6 +336,10 @@
        repeated per page. */
     --page-layout-pane-top: 6rem;
     --page-layout-pane-bottom: 2rem;
+    /* Track widths for PageLayout column templates — `tracks="compact"` overrides
+       pane width on the layout root; aside stays at the default end-rail width. */
+    --page-layout-pane-width: 13.75rem;
+    --page-layout-aside-width: 15rem;
   }
 
   html {

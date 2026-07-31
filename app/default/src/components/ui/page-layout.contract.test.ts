@@ -42,13 +42,31 @@ describe("PageLayout document-flow contract", () => {
  * 1024 − 48 − 220 − 240 − 80 = 436px of prose, below a readable measure.
  */
 describe("PageLayout breakpoint contract", () => {
-  test("unlocks the pane at lg and the aside at xl", () => {
-    expect(SOURCE).toContain("lg:grid-cols-[220px_minmax(0,1fr)]");
-    expect(SOURCE).toContain("xl:grid-cols-[220px_minmax(0,1fr)_240px]");
+  test("unlocks the pane at lg and the aside at xl via track width tokens", () => {
+    expect(SOURCE).toContain("var(--page-layout-pane-width)");
+    expect(SOURCE).toContain("var(--page-layout-aside-width)");
+    expect(SOURCE).toContain(
+      "lg:grid-cols-[var(--page-layout-pane-width)_minmax(0,1fr)]",
+    );
+    expect(SOURCE).toContain(
+      "xl:grid-cols-[var(--page-layout-pane-width)_minmax(0,1fr)_var(--page-layout-aside-width)]",
+    );
   });
 
   test("never puts a three-track template on lg", () => {
-    expect(SOURCE).not.toMatch(/lg:grid-cols-\[220px_minmax\(0,1fr\)_240px\]/);
+    expect(SOURCE).not.toMatch(
+      /lg:grid-cols-\[var\(--page-layout-pane-width\)_minmax\(0,1fr\)_var\(--page-layout-aside-width\)\]/,
+    );
+  });
+});
+
+describe("PageLayout track width contract", () => {
+  test("exposes semantic track tiers backed by CSS custom properties", () => {
+    expect(SOURCE).toContain("pageLayoutTrackVariants");
+    expect(SOURCE).toContain('tracks: {');
+    expect(SOURCE).toContain('default: ""');
+    expect(SOURCE).toContain('compact: "[--page-layout-pane-width:11rem]"');
+    expect(SOURCE).toContain('data-tracks={tracks ?? "default"}');
   });
 });
 
