@@ -1079,34 +1079,3 @@ export async function deleteManagedIdentityGrant(
     { method: "DELETE" },
   );
 }
-
-export async function getManagedIdentityTokens(
-  id: string,
-): Promise<APIToken[]> {
-  return fetchAPI(`${managedSubjectPath(id)}/tokens`);
-}
-
-export async function createManagedIdentityToken(
-  id: string,
-  name: string,
-  permissions?: AccessPermission[],
-): Promise<CreateTokenResponse> {
-  const body: { name: string; permissions?: AccessPermission[] } = { name };
-  if (permissions !== undefined) {
-    body.permissions = permissions;
-  }
-  return fetchAPI(`${managedSubjectPath(id)}/tokens`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-}
-
-export async function revokeManagedIdentityToken(
-  id: string,
-  tokenId: string,
-): Promise<void> {
-  await fetchAPI(
-    `${managedSubjectPath(id)}/tokens/${encodeURIComponent(tokenId)}`,
-    { method: "DELETE" },
-  );
-}

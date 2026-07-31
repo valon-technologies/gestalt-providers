@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
 import {
   createManagedIdentity,
-  createManagedIdentityToken,
   deleteManagedIdentity,
   deleteManagedIdentityGrant,
   deleteManagedIdentityMember,
@@ -11,12 +10,9 @@ import {
   getManagedIdentityGrants,
   getManagedIdentityIntegrations,
   getManagedIdentityMembers,
-  getManagedIdentityTokens,
   putManagedIdentityGrant,
   putManagedIdentityMember,
-  revokeManagedIdentityToken,
   updateManagedIdentity,
-  type AccessPermission,
   type ManagedIdentityGrant,
 } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
@@ -53,14 +49,6 @@ export function useManagedIdentityGrantsQuery(identityId: string | null) {
   });
 }
 
-export function useManagedIdentityTokensQuery(identityId: string | null) {
-  return useQuery({
-    queryKey: queryKeys.managedIdentities.tokens(identityId ?? ""),
-    queryFn: () => getManagedIdentityTokens(identityId!),
-    enabled: !!identityId,
-  });
-}
-
 export function useManagedIdentityIntegrationsQuery(identityId: string | null) {
   return useQuery({
     queryKey: queryKeys.managedIdentities.integrations(identityId ?? ""),
@@ -79,9 +67,6 @@ function invalidateManagedIdentity(queryClient: QueryClient, id: string) {
   });
   void queryClient.invalidateQueries({
     queryKey: queryKeys.managedIdentities.grants(id),
-  });
-  void queryClient.invalidateQueries({
-    queryKey: queryKeys.managedIdentities.tokens(id),
   });
   void queryClient.invalidateQueries({
     queryKey: queryKeys.managedIdentities.integrations(id),
@@ -163,20 +148,3 @@ export function useDeleteManagedIdentityGrantMutation(identityId: string) {
   });
 }
 
-export function useCreateManagedIdentityTokenMutation(identityId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { name: string; permissions?: AccessPermission[] }) =>
-      createManagedIdentityToken(identityId, input.name, input.permissions),
-    onSuccess: () => invalidateManagedIdentity(queryClient, identityId),
-  });
-}
-
-export function useRevokeManagedIdentityTokenMutation(identityId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (tokenId: string) =>
-      revokeManagedIdentityToken(identityId, tokenId),
-    onSuccess: () => invalidateManagedIdentity(queryClient, identityId),
-  });
-}

@@ -124,7 +124,7 @@ export default function SettingsIdentitiesList() {
 
   return (
     <section className="scroll-mt-24 space-y-8" aria-label="Managed identities">
-      <IdentitiesSectionHeader description="Create shared service-account subjects, grant app roles, and mint subject-owned API tokens for automation." />
+      <IdentitiesSectionHeader description="Create shared service-account subjects and grant app roles for automation." />
 
       <form
         onSubmit={handleCreate}
