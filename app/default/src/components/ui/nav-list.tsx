@@ -3,7 +3,6 @@
  */
 
 
-
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -197,7 +196,6 @@ function NavListItem({
       <Comp
         data-slot="nav-list-item-link"
         data-selected={active ? "" : undefined}
-        aria-current={active ? current : undefined}
         className={cn(
           navListItemVariants({ pointer, focusRing, actionRow: Boolean(actions) }),
           !actions && listItemInteraction({ pointer }),
@@ -205,6 +203,7 @@ function NavListItem({
           className,
         )}
         {...props}
+        aria-current={active ? current : undefined}
       >
         {children}
       </Comp>

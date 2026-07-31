@@ -2,6 +2,7 @@
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
 
+
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 
@@ -25,8 +26,8 @@ import { cn } from "@/lib/cn";
 // content-width token, so the consuming app wraps PageLayout in its own column.
 //
 // Track widths read `--page-layout-pane-width` / `--page-layout-aside-width`
-// (defaults in globals.css). `tracks="compact"` narrows the Pane to 11rem for
-// dense section rails; Settings keeps the default 13.75rem (220px).
+// (defaults in globals.css). `tracks="compact"` narrows the Pane to 11rem for dense
+// section rails; the default tier keeps a 13.75rem (220px) pane.
 
 /** Where the header sits relative to the Pane. */
 type PageLayoutHeaderPlacement = "above" | "content";
@@ -112,6 +113,11 @@ interface PageLayoutProps
   extends Omit<React.ComponentProps<"div">, "children">,
     VariantProps<typeof pageLayoutVariants>,
     VariantProps<typeof pageLayoutTrackVariants> {
+  /**
+   * Pane track width tier. Default keeps a 13.75rem pane (Settings); compact
+   * narrows the pane to 11rem for dense section rails (docs, catalog, workspace).
+   */
+  tracks?: "default" | "compact";
   /**
    * Full-width band above the columns — normally a `PageHeader`.
    *

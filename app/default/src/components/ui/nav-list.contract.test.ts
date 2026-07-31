@@ -30,6 +30,13 @@ describe("NavList selection contract", () => {
   test("derives aria-current from the same `active` prop", () => {
     expect(SOURCE).toContain(`aria-current={active ? current : undefined}`);
     expect(SOURCE).toContain('current?: "page" | "location"');
+    expect(SOURCE).toContain('current = "page"');
+  });
+
+  test("owns aria-current and forbids callers from overriding it", () => {
+    expect(SOURCE).toContain('Omit<React.ComponentProps<"a">, "children" | "aria-current">');
+    expect(SOURCE).toMatch(/current = "page",\s*\n\s*pointer,/);
+    expect(SOURCE).toMatch(/\{\.\.\.props\}\s*\n\s*aria-current=\{active \? current : undefined\}/);
   });
 
   test("consumes the shared role ladder rather than authoring fills", () => {
