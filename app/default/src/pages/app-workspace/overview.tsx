@@ -6,7 +6,7 @@ import {
   getAppSurfaces,
   primaryConnectLabel,
 } from "@/lib/catalogFilters";
-import { getAppPromptExamples } from "@/lib/appPromptExamples";
+import { getAppPromptExample } from "@/lib/appPromptExamples";
 import { normalizeIntegrationStatus } from "@/lib/integrationStatus";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import { resolveMountedAppHref } from "@/lib/mount";
@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   PageHeader,
+  PageHeaderActions,
   PageHeaderContent,
   PageHeaderDescription,
   PageHeaderTitle,
@@ -53,9 +54,9 @@ export default function AppWorkspaceOverviewPage() {
   if (!integration) return null;
 
   const label = getIntegrationLabel(integration);
-  const promptExample = getAppPromptExamples(app, label)[0]!;
   const status = normalizeIntegrationStatus(integration, "current_user");
   const surfaces = getAppSurfaces(integration);
+  const promptExample = getAppPromptExample(integration, surfaces.hasMcp);
   const connectLabel = primaryConnectLabel(integration, "current_user");
   const mountedPath = integration.mountedPath?.trim();
 
@@ -89,7 +90,7 @@ export default function AppWorkspaceOverviewPage() {
   }, [status, surfaces]);
 
   return (
-    <section aria-label="Overview">
+    <section aria-label="Overview" className="flex flex-col gap-8">
       <div className="flex flex-col gap-4">
         <IntegrationIcon
           iconSvg={integration.iconSvg}
@@ -113,6 +114,21 @@ export default function AppWorkspaceOverviewPage() {
                 )}
               </PageHeaderDescription>
             </PageHeaderContent>
+            {connectLabel ? (
+              <PageHeaderActions>
+                <Button
+                  type="button"
+                  onClick={() =>
+                    void navigate({
+                      to: "/apps/$app/connection",
+                      params: { app },
+                    })
+                  }
+                >
+                  {connectLabel}
+                </Button>
+              </PageHeaderActions>
+            ) : null}
           </PageHeader>
           <div className="flex flex-wrap items-center gap-2">
             <Badge
@@ -133,19 +149,6 @@ export default function AppWorkspaceOverviewPage() {
             ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {connectLabel ? (
-              <Button
-                type="button"
-                onClick={() =>
-                  void navigate({
-                    to: "/apps/$app/connection",
-                    params: { app },
-                  })
-                }
-              >
-                {connectLabel}
-              </Button>
-            ) : null}
             {mountedPath ? (
               <Button
                 type="button"
@@ -162,12 +165,11 @@ export default function AppWorkspaceOverviewPage() {
         </div>
       </div>
 
-      <div className={overviewSectionClass}>
-        <AppPromptExamplePromo
-          displayName={promptExample.displayName}
-          body={promptExample.body}
-        />
-      </div>
+      {promptExample ? (
+        <div className={overviewSectionClass}>
+          <AppPromptExamplePromo displayName={label} body={promptExample} />
+        </div>
+      ) : null}
 
       <div className={overviewSectionClass}>
         <SectionHeader>

@@ -13,6 +13,7 @@ build:
 run:
   - [bun, run, gestalt, run, ., './provider.ts#provider']
 spec:
+  configSchemaPath: schemas/config.schema.yaml
   connections:
     default:
       auth:

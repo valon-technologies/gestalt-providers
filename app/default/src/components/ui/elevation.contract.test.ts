@@ -25,11 +25,12 @@ const NONE_SHADOW = "0 0 #0000";
 const WARM_INK = "color-mix(in oklab, var(--foreground)";
 
 function extractCssTokenValue(css: string, token: string): string {
-  const match = css.match(
-    new RegExp(`${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:\\s*([^;]+);`),
+  const escapedToken = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const values = [...css.matchAll(new RegExp(`${escapedToken}:\\s*([^;]+);`, "g"))].map(
+    (match) => match[1].trim(),
   );
-  expect(match).not.toBeNull();
-  return match![1].trim();
+  expect(values, `${token} must be declared exactly once`).toHaveLength(1);
+  return values[0]!;
 }
 
 test("elevation shadow primitives use warm foreground ink in shared/theme.css", () => {
