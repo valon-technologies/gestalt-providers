@@ -37,9 +37,15 @@ test.describe("App prompt example", () => {
     await expect(stage).toContainText(
       "Copy this in your favorite LLM and try it.",
     );
-    await expect(
-      stage.getByRole("button", { name: "Copy example prompt" }),
-    ).toContainText("Copy");
+    const copyButton = stage.getByRole("button", {
+      name: "Copy example prompt",
+    });
+    await expect(copyButton).toHaveAttribute(
+      "aria-label",
+      "Copy example prompt",
+    );
+    await copyButton.hover();
+    await expect(page.getByRole("tooltip")).toHaveText("Copy prompt");
     await expect(stage).toHaveCSS("background-image", /radial-gradient/);
     await expect(page.getByTestId("app-prompt-card")).toHaveCSS(
       "border-top-width",

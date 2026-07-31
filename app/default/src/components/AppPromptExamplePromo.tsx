@@ -2,6 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { CheckIcon, CopyIcon, SpinnerIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/cn";
 import {
   createPromptCopyController,
@@ -66,14 +72,14 @@ export default function AppPromptExamplePromo({
         : copyState === "error"
           ? "Retry copying example prompt"
           : "Copy example prompt";
-  const copyButtonText =
+  const copyTooltip =
     copyState === "copying"
-      ? "Copying…"
+      ? "Copying prompt"
       : copyState === "copied"
         ? "Copied"
         : copyState === "error"
-          ? "Try again"
-          : "Copy";
+          ? "Try copying again"
+          : "Copy prompt";
 
   return (
     <Card
@@ -93,24 +99,30 @@ export default function AppPromptExamplePromo({
             <span className="font-semibold">{handle}</span>
             {body.trim() ? ` ${body.trim()}` : null}
           </p>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            onClick={handleCopy}
-            disabled={copyState === "copying"}
-            title={copyButtonLabel}
-            aria-label={copyButtonLabel}
-          >
-            {copyState === "copying" ? (
-              <SpinnerIcon className="size-4 motion-safe:animate-spin" />
-            ) : copyState === "copied" ? (
-              <CheckIcon className="size-4" />
-            ) : (
-              <CopyIcon className="size-4" />
-            )}
-            {copyButtonText}
-          </Button>
+          <TooltipProvider delayDuration={0}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleCopy}
+                  disabled={copyState === "copying"}
+                  aria-label={copyButtonLabel}
+                  className="text-muted-foreground"
+                >
+                  {copyState === "copying" ? (
+                    <SpinnerIcon className="size-4 motion-safe:animate-spin" />
+                  ) : copyState === "copied" ? (
+                    <CheckIcon className="size-4" />
+                  ) : (
+                    <CopyIcon className="size-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{copyTooltip}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
         <p
           role="status"
