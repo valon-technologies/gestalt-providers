@@ -90,12 +90,12 @@ export default function AppPromptExamplePromo({
         className,
       )}
     >
-      <CardContent className="flex flex-col items-center px-4 py-10 sm:px-8 sm:py-12">
+      <CardContent className="relative flex min-h-40 items-center justify-center px-4 py-10 pb-14 sm:px-8 sm:py-12 sm:pb-16">
         <div
           data-testid="app-prompt-card"
-          className="mx-auto flex w-full max-w-2xl flex-col items-center gap-5 rounded-2xl bg-card px-5 py-6 text-center shadow-lg sm:px-8"
+          className="mx-auto flex w-fit max-w-2xl items-center justify-center gap-3 rounded-2xl bg-card px-4 py-2.5 text-center shadow-lg sm:px-5"
         >
-          <p className="max-w-xl text-sm leading-relaxed text-foreground">
+          <p className="text-sm leading-relaxed text-foreground">
             <span className="font-semibold">{handle}</span>
             {body.trim() ? ` ${body.trim()}` : null}
           </p>
@@ -105,18 +105,18 @@ export default function AppPromptExamplePromo({
                 <Button
                   type="button"
                   variant="ghost"
-                  size="icon"
+                  size="icon-xs"
                   onClick={handleCopy}
                   disabled={copyState === "copying"}
                   aria-label={copyButtonLabel}
-                  className="text-muted-foreground"
+                  className="shrink-0 text-muted-foreground"
                 >
                   {copyState === "copying" ? (
-                    <SpinnerIcon className="size-4 motion-safe:animate-spin" />
+                    <SpinnerIcon className="motion-safe:animate-spin" />
                   ) : copyState === "copied" ? (
-                    <CheckIcon className="size-4" />
+                    <CheckIcon />
                   ) : (
-                    <CopyIcon className="size-4" />
+                    <CopyIcon />
                   )}
                 </Button>
               </TooltipTrigger>
@@ -129,7 +129,7 @@ export default function AppPromptExamplePromo({
           aria-live="polite"
           aria-atomic="true"
           className={cn(
-            "mt-3 min-h-5 max-w-2xl text-center text-xs",
+            "absolute inset-x-0 bottom-6 mx-auto min-h-5 max-w-2xl px-4 text-center text-xs sm:bottom-8",
             copyState === "error"
               ? "text-destructive"
               : "text-muted-foreground",

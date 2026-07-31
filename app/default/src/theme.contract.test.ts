@@ -17,10 +17,12 @@ function tokenValues(css: string, token: string): string[] {
 test("promo stage has semantic light and dark theme definitions", () => {
   const definitions = tokenValues(THEME, "--promo-stage-background");
   expect(definitions).toHaveLength(2);
-  expect(definitions[0]).toContain("var(--accent)");
-  expect(definitions[0]).toContain("var(--background)");
-  expect(definitions[1]).toContain("var(--accent-strong)");
-  expect(definitions[1]).toContain("var(--card)");
+  expect(definitions[0]).toContain("var(--promo-stage-stop-bottom)");
+  expect(definitions[0]).toContain("var(--promo-stage-stop-mid)");
+  expect(definitions[0]).toContain("var(--promo-stage-stop-top)");
+  expect(definitions[1]).toContain("var(--promo-stage-stop-bottom)");
+  expect(definitions[1]).toContain("var(--promo-stage-stop-mid)");
+  expect(definitions[1]).toContain("var(--promo-stage-stop-top)");
   for (const definition of definitions) {
     expect(definition).not.toMatch(/#[0-9a-f]{3,8}|rgba?\(|oklch\(/i);
   }
