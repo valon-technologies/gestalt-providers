@@ -1,7 +1,5 @@
 import { expect, mockAuthInfo, test } from "./fixtures";
 import type {
-  AccessPermission,
-  APIToken,
   Integration,
   ManagedIdentity,
   ManagedIdentityGrant,
@@ -13,7 +11,6 @@ type IdentityState = {
   identities: ManagedIdentity[];
   membersByIdentityID: Record<string, ManagedIdentityMember[]>;
   grantsByIdentityID: Record<string, ManagedIdentityGrant[]>;
-  tokensByIdentityID: Record<string, APIToken[]>;
   visibleIntegrations: Integration[];
   managedIntegrationsByIdentityID: Record<string, Integration[]>;
 };
@@ -27,7 +24,6 @@ async function wireIdentityRoutes(
   page: import("@playwright/test").Page,
   state: IdentityState,
   opts?: {
-    onCreateToken?: (body: Record<string, unknown>) => void;
     onManagedConnect?: (body: Record<string, unknown>) => void;
     onManagedDisconnect?: (integration: string) => void;
     wrapGrantResponse?: boolean;
@@ -69,7 +65,6 @@ async function wireIdentityRoutes(
         },
       ];
       state.grantsByIdentityID[identity.subjectId] = [];
-      state.tokensByIdentityID[identity.subjectId] = [];
       state.managedIntegrationsByIdentityID[identity.subjectId] = createManagedIdentityIntegrations();
       await route.fulfill({ status: 201, json: identity });
       return;
@@ -163,44 +158,6 @@ async function wireIdentityRoutes(
         state.grantsByIdentityID[identityID] =
           (state.grantsByIdentityID[identityID] || []).filter((grant) => grant.plugin !== plugin);
         await route.fulfill({ json: { status: "deleted" } });
-        return;
-      }
-    }
-
-    if (parts[5] === "tokens") {
-      if (parts.length === 6 && request.method() === "GET") {
-        await route.fulfill({ json: state.tokensByIdentityID[identityID] || [] });
-        return;
-      }
-      if (parts.length === 6 && request.method() === "POST") {
-        const body = request.postDataJSON() as {
-          name: string;
-          permissions?: AccessPermission[];
-        };
-        opts?.onCreateToken?.(body as Record<string, unknown>);
-        const token: APIToken = {
-          id: `tok-${(state.tokensByIdentityID[identityID] || []).length + 1}`,
-          name: body.name,
-          permissions: body.permissions,
-          createdAt: isoDate(60),
-        };
-        state.tokensByIdentityID[identityID] = [...(state.tokensByIdentityID[identityID] || []), token];
-        await route.fulfill({
-          status: 201,
-          json: {
-            id: token.id,
-            name: token.name,
-            token: "gst_api_identity_secret",
-            permissions: token.permissions,
-          },
-        });
-        return;
-      }
-      if (parts.length === 7 && request.method() === "DELETE") {
-        const tokenID = decodeURIComponent(parts[6]);
-        state.tokensByIdentityID[identityID] =
-          (state.tokensByIdentityID[identityID] || []).filter((token) => token.id !== tokenID);
-        await route.fulfill({ json: { status: "revoked" } });
         return;
       }
     }
@@ -346,9 +303,6 @@ function createBaseState(role: ManagedIdentityMember["role"]): IdentityState {
         },
       ],
     },
-    tokensByIdentityID: {
-      [subjectId]: [],
-    },
     visibleIntegrations: [
       {
         name: "github",
@@ -448,47 +402,19 @@ test.describe("Managed identities", () => {
 
   test("renders a viewer detail page as read-only", async ({ authenticatedPage: page }) => {
     const state = createBaseState("viewer");
-    state.tokensByIdentityID["service_account:agent-1"] = [
-      {
-        id: "tok-1",
-        name: "viewer-token",
-        permissions: [{ plugin: "slack", operations: ["channels.read"] }],
-        createdAt: isoDate(3),
-      },
-      {
-        id: "tok-2",
-        name: "action-token",
-        permissions: [{ plugin: "github", actions: ["provider_dev.attach"] }],
-        createdAt: isoDate(4),
-      },
-      {
-        id: "tok-3",
-        name: "mixed-token",
-        permissions: [{
-          plugin: "github",
-          operations: ["issues.read"],
-          actions: ["provider_dev.attach"],
-        }],
-        createdAt: isoDate(5),
-      },
-    ];
     await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
     await wireIdentityRoutes(page, state);
 
     await page.goto("/settings/identities/agent-1");
     await expect(page.getByRole("heading", { name: "Release Bot" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Create Token" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Delete Identity" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Add or Update Member" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Save App Access" })).toHaveCount(0);
-    await expect(page.getByRole("cell", { name: "github: actions: provider_dev.attach" })).toBeVisible();
-    await expect(page.getByRole("cell", { name: "github: issues.read; actions: provider_dev.attach" })).toBeVisible();
     await page.getByRole("button", { name: "Slack settings" }).click();
     await expect(page.getByRole("dialog").getByRole("button", { name: "Connect" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Revoke" })).toHaveCount(0);
   });
 
-  test("lets an admin update sharing, grants, and tokens", async ({ authenticatedPage: page }) => {
+  test("lets an admin update sharing and grants", async ({ authenticatedPage: page }) => {
     const state = createBaseState("admin");
     await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
     await wireIdentityRoutes(page, state);
@@ -497,8 +423,6 @@ test.describe("Managed identities", () => {
     await expect(page.getByRole("heading", { name: "Identity App Access" })).toBeVisible();
     await expect(page.getByText(/Grants are identity-level roles/)).toBeVisible();
     await expect(page.getByText(/Connections store OAuth or manual credentials/)).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Identity API Keys" })).toBeVisible();
-    await expect(page.getByText(/API keys authenticate as this identity/)).toBeVisible();
 
     await page.getByLabel("Display name").fill("Release Automation");
     await page.getByRole("button", { name: "Rename" }).click();
@@ -518,17 +442,9 @@ test.describe("Managed identities", () => {
       has: page.getByRole("cell", { name: "github" }),
     });
     await expect(githubGrantRow.getByRole("cell", { name: "viewer" })).toBeVisible();
-
-    await page.getByLabel("Token name").fill("release-token");
-    await page.getByRole("radio", { name: /Restrict this token/ }).check();
-    await page.getByLabel("Operations for slack").fill("channels.read");
-    await page.getByRole("button", { name: "Create Token" }).click();
-    await expect(page.getByText("Copy this token now")).toBeVisible();
-    await expect(page.getByText("gst_api_identity_secret")).toBeVisible();
-    await expect(page.getByText("release-token")).toBeVisible();
   });
 
-  test("lets an admin remove members, grants, tokens, and identities", async ({ authenticatedPage: page }) => {
+  test("lets an admin remove members, grants, and identities", async ({ authenticatedPage: page }) => {
     const state = createBaseState("admin");
     state.membersByIdentityID["service_account:agent-1"] = [
       ...state.membersByIdentityID["service_account:agent-1"],
@@ -536,14 +452,6 @@ test.describe("Managed identities", () => {
         subjectId: "user:viewer@example.test",
         email: "viewer@example.test",
         role: "viewer",
-      },
-    ];
-    state.tokensByIdentityID["service_account:agent-1"] = [
-      {
-        id: "tok-1",
-        name: "cleanup-token",
-        permissions: [{ plugin: "slack" }],
-        createdAt: isoDate(3),
       },
     ];
 
@@ -567,149 +475,8 @@ test.describe("Managed identities", () => {
       has: page.getByRole("cell", { name: "slack", exact: true }),
     })).toHaveCount(0);
 
-    const tokenRow = page.getByRole("row").filter({
-      has: page.getByRole("cell", { name: "cleanup-token", exact: true }),
-    });
-    await tokenRow.getByRole("button", { name: "Revoke" }).click();
-    await expect(page.getByRole("cell", { name: "cleanup-token", exact: true })).toHaveCount(0);
-
     await page.getByRole("button", { name: "Delete Identity" }).click();
     await expect(page).toHaveURL(/\/settings\/identities$/);
     await expect(page.getByText("Release Bot")).toHaveCount(0);
-  });
-
-  test("creates all-authorized tokens without visible app grants", async ({ authenticatedPage: page }) => {
-    const state = createBaseState("admin");
-    state.grantsByIdentityID["service_account:agent-1"] = [];
-    let createTokenBody: Record<string, unknown> | null = null;
-
-    await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
-    await wireIdentityRoutes(page, state, {
-      onCreateToken: (body) => {
-        createTokenBody = body;
-      },
-    });
-
-    await page.goto("/settings/identities/agent-1");
-    await expect(page.getByText(/No identity-level app access grants/)).toBeVisible();
-    await expect(page.getByRole("radio", { name: /All authorized access/ })).toBeChecked();
-    await page.getByLabel("Token name").fill("brain-ingest");
-    await page.getByRole("button", { name: "Create Token" }).click();
-
-    await expect.poll(() => createTokenBody).toEqual({
-      name: "brain-ingest",
-    });
-    const tokenRow = page.getByRole("row").filter({
-      has: page.getByRole("cell", { name: "brain-ingest", exact: true }),
-    });
-    await expect(tokenRow.getByRole("cell", { name: "All authorized access" })).toBeVisible();
-  });
-
-  test("ignores stale token limits when all-authorized access is selected", async ({ authenticatedPage: page }) => {
-    const state = createBaseState("admin");
-    let createTokenBody: Record<string, unknown> | null = null;
-
-    await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
-    await wireIdentityRoutes(page, state, {
-      onCreateToken: (body) => {
-        createTokenBody = body;
-      },
-    });
-
-    await page.goto("/settings/identities/agent-1");
-    await page.getByLabel("Token name").fill("all-token");
-    await page.getByRole("radio", { name: /Restrict this token/ }).check();
-    await page.getByLabel("Operations for slack").fill("channels.read");
-    await page.getByRole("radio", { name: /All authorized access/ }).check();
-    await page.getByRole("button", { name: "Create Token" }).click();
-
-    await expect.poll(() => createTokenBody).toEqual({
-      name: "all-token",
-    });
-  });
-
-  test("does not post empty permissions in restricted mode", async ({ authenticatedPage: page }) => {
-    const state = createBaseState("admin");
-    let createTokenBody: Record<string, unknown> | null = null;
-
-    await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
-    await wireIdentityRoutes(page, state, {
-      onCreateToken: (body) => {
-        createTokenBody = body;
-      },
-    });
-
-    await page.goto("/settings/identities/agent-1");
-    await page.getByLabel("Token name").fill("empty-restricted-token");
-    await page.getByRole("radio", { name: /Restrict this token/ }).check();
-    await page.getByRole("button", { name: "Create Token" }).click();
-
-    await expect(page.getByText("Choose at least one token limit")).toBeVisible();
-    expect(createTokenBody).toBeNull();
-  });
-
-  test("allows operation-scoped tokens from role-based app grants", async ({ authenticatedPage: page }) => {
-    const state = createBaseState("admin");
-    state.grantsByIdentityID["service_account:agent-1"] = [
-      {
-        plugin: "github",
-        role: "viewer",
-        source: "dynamic",
-        mutable: true,
-      },
-    ];
-    let createTokenBody: Record<string, unknown> | null = null;
-
-    await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
-    await wireIdentityRoutes(page, state, {
-      onCreateToken: (body) => {
-        createTokenBody = body;
-      },
-    });
-
-    await page.goto("/settings/identities/agent-1");
-    await page.getByLabel("Token name").fill("github-token");
-    await page.getByRole("radio", { name: /Restrict this token/ }).check();
-    await page.getByLabel("Operations for github").fill("issues.read, repos.read");
-    await page.getByRole("button", { name: "Create Token" }).click();
-
-    await expect.poll(() => createTokenBody).toEqual({
-      name: "github-token",
-      permissions: [
-        {
-          plugin: "github",
-          operations: ["issues.read", "repos.read"],
-        },
-      ],
-    });
-    await expect(page.getByText("gst_api_identity_secret")).toBeVisible();
-  });
-
-  test("allows app-level tokens from role-based app grants", async ({ authenticatedPage: page }) => {
-    const state = createBaseState("admin");
-    let createTokenBody: Record<string, unknown> | null = null;
-
-    await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
-    await wireIdentityRoutes(page, state, {
-      onCreateToken: (body) => {
-        createTokenBody = body;
-      },
-    });
-
-    await page.goto("/settings/identities/agent-1");
-    await page.getByLabel("Token name").fill("slack-token");
-    await page.getByRole("radio", { name: /Restrict this token/ }).check();
-    await page.getByRole("checkbox", { name: "Limit this token to all authorized slack operations" }).check();
-    await page.getByRole("button", { name: "Create Token" }).click();
-
-    await expect.poll(() => createTokenBody).toEqual({
-      name: "slack-token",
-      permissions: [
-        {
-          plugin: "slack",
-        },
-      ],
-    });
-    await expect(page.getByText("gst_api_identity_secret")).toBeVisible();
   });
 });

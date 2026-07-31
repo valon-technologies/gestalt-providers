@@ -20,7 +20,6 @@ export const queryKeys = {
     detail: (id: string) => ["managed-identities", "detail", id] as const,
     members: (id: string) => ["managed-identities", id, "members"] as const,
     grants: (id: string) => ["managed-identities", id, "grants"] as const,
-    tokens: (id: string) => ["managed-identities", id, "tokens"] as const,
     integrations: (id: string) =>
       ["managed-identities", id, "integrations"] as const,
   },

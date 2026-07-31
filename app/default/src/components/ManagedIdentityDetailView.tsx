@@ -36,7 +36,6 @@ import {
   useManagedIdentityIntegrationsQuery,
   useManagedIdentityMembersQuery,
   useManagedIdentityQuery,
-  useManagedIdentityTokensQuery,
   usePutManagedIdentityGrantMutation,
   usePutManagedIdentityMemberMutation,
   useUpdateManagedIdentityMutation,
@@ -57,8 +56,6 @@ import {
   SectionHeaderDescription,
   SectionHeaderTitle,
 } from "@/components/ui/section-header";
-import IdentityTokenCreateForm from "./IdentityTokenCreateForm";
-import IdentityTokenTable from "./IdentityTokenTable";
 import { SearchIcon } from "./icons";
 
 const SECTION_CARD =
@@ -134,7 +131,6 @@ export default function ManagedIdentityDetailView({
   const identityQuery = useManagedIdentityQuery(identityID);
   const membersQuery = useManagedIdentityMembersQuery(identityID);
   const grantsQuery = useManagedIdentityGrantsQuery(identityID);
-  const tokensQuery = useManagedIdentityTokensQuery(identityID);
   const visibleIntegrationsQuery = useIntegrationsQuery();
   const managedIntegrationsQuery = useManagedIdentityIntegrationsQuery(identityID);
   const updateIdentity = useUpdateManagedIdentityMutation(identityID);
@@ -148,7 +144,6 @@ export default function ManagedIdentityDetailView({
   const identity = identityQuery.data ?? null;
   const members = membersQuery.data ?? [];
   const grants = grantsQuery.data ?? [];
-  const tokens = tokensQuery.data ?? [];
   const visibleIntegrations = visibleIntegrationsQuery.data ?? [];
   const managedIntegrations = managedIntegrationsQuery.data ?? [];
   const managedIntegrationError = managedIntegrationsQuery.error
@@ -159,8 +154,7 @@ export default function ManagedIdentityDetailView({
   const loading =
     identityQuery.isPending ||
     membersQuery.isPending ||
-    grantsQuery.isPending ||
-    tokensQuery.isPending;
+    grantsQuery.isPending;
   const [error, setError] = useState<string | null>(null);
   const [selectedGrantPlugin, setSelectedGrantPlugin] = useState("");
   const [grantPluginQuery, setGrantPluginQuery] = useState("");
@@ -468,7 +462,7 @@ export default function ManagedIdentityDetailView({
                 <Eyebrow tone="secondary">Authorization</Eyebrow>
                 <SectionHeaderTitle>Identity app access</SectionHeaderTitle>
                 <SectionHeaderDescription>
-                  Grants are identity-level roles for apps that enforce authorization. API keys do not create these grants; they only authenticate as this identity.
+                  Grants are identity-level roles for apps that enforce authorization.
                 </SectionHeaderDescription>
               </SectionHeaderContent>
             </SectionHeader>
@@ -565,7 +559,7 @@ export default function ManagedIdentityDetailView({
             ) : null}
             {grants.length === 0 ? (
               <p className="mt-6 text-sm text-muted-foreground">
-                No identity-level app access grants. Protected apps need a grant here; API keys can still be created below.
+                No identity-level app access grants. Protected apps need a grant here.
               </p>
             ) : (
               <div className="mt-6 overflow-x-auto rounded-lg border border-border">
@@ -609,7 +603,7 @@ export default function ManagedIdentityDetailView({
                 <Eyebrow tone="secondary">Connections</Eyebrow>
                 <SectionHeaderTitle>App connections</SectionHeaderTitle>
                 <SectionHeaderDescription>
-                  Connections store OAuth or manual credentials for this identity. They do not add app roles or change API-key limits.
+                  Connections store OAuth or manual credentials for this identity. They do not add app roles.
                 </SectionHeaderDescription>
               </SectionHeaderContent>
             </SectionHeader>
@@ -675,35 +669,6 @@ export default function ManagedIdentityDetailView({
                 ))}
               </div>
             )}
-          </section>
-
-          <section className={SECTION_CARD}>
-            <SectionHeader>
-              <SectionHeaderContent size="sm">
-                <Eyebrow tone="secondary">API access</Eyebrow>
-                <SectionHeaderTitle>Identity API keys</SectionHeaderTitle>
-                <SectionHeaderDescription>
-                  API keys authenticate as this identity. By default, a key follows managed identity app access and connector credentials at use time; token limits only narrow one key.
-                </SectionHeaderDescription>
-              </SectionHeaderContent>
-            </SectionHeader>
-            {canAdmin ? (
-              <IdentityTokenCreateForm
-                identityID={identityID}
-                grants={grants}
-              />
-            ) : (
-              <p className="mt-6 text-sm text-muted-foreground">
-                Only identity admins can create subject-owned API tokens.
-              </p>
-            )}
-            <div className="mt-8">
-              <IdentityTokenTable
-                identityID={identityID}
-                tokens={tokens}
-                canRevoke={canAdmin}
-              />
-            </div>
           </section>
         </div>
       ) : null}
