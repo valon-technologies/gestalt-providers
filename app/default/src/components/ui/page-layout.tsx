@@ -2,7 +2,6 @@
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
 
-
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 
