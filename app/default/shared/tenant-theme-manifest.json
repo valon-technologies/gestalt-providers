@@ -4,12 +4,17 @@
     "file": "app/default/src/lib/tenant-theme.contract.test.ts",
     "command": "cd app/default && GESTALT_THEME_FILE=/path/to/deploy/ui/theme.css bun test src/lib/tenant-theme.contract.test.ts"
   },
+  "fixture": "shared/fixtures/example-tenant-theme.css",
   "required": {
     ":root": ["--popover", "--popover-foreground"],
     ".dark": ["--popover", "--popover-foreground"]
   },
+  "forbiddenValues": {
+    "--popover": ["var(--surface-raised)"],
+    "--popover-foreground": ["var(--foreground)"]
+  },
   "notes": {
-    "--popover": "Bundle default is var(--surface-raised). Registry flyouts use page paper (light) / card surface (dark), not raised cream.",
-    "--popover-foreground": "Bundle default is var(--foreground). Declare alongside --popover so dark-mode pairs stay explicit."
+    "--popover": "Bundle default is var(--surface-raised). Flyouts should map to page paper / card surface, not raised surface.",
+    "--popover-foreground": "Bundle default is var(--foreground). Declare an explicit ink token alongside --popover."
   }
 }

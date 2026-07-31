@@ -96,12 +96,16 @@ GESTALT_THEME_FILE=/path/to/deploy/ui/theme.css \
   bun test src/lib/tenant-theme.contract.test.ts
 ```
 
-Without `GESTALT_THEME_FILE`, only bundle/manifest integrity checks run. This
+Without `GESTALT_THEME_FILE`, CI still validates
+[`shared/fixtures/example-tenant-theme.css`](shared/fixtures/example-tenant-theme.css).
+Set `VITE_THEME_SWITCHER_TENANT_LABEL` locally when you want a custom dev label
+for the runtime theme option (never commit deployment org names to source). This
 is a **CSS contract test**, not oxlint — oxlint covers TS/TSX invariants (e.g.
 selected-row ink rules), not cross-repo stylesheet coverage.
 
 ### Interaction roles (accent fill vs on-fill ink)
 
+`--accent*` tokens are **roles**, not “make the text gold.” They exist so
 ported UI kit chrome (nav, list selection, sidebar) can keep semantic class
 names (`bg-accent-subtle`, `text-accent-foreground`, …) without inventing
 mappings to `--brand`.

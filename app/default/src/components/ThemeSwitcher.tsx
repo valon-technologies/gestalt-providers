@@ -9,35 +9,17 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  DEFAULT_TENANT_THEME_LABEL,
+  type ThemeSource,
+  applyThemeSource,
+  readThemeSource,
+  THEME_SOURCE_STORAGE_KEY,
+} from "@/lib/theme-source";
 
-const THEME_SOURCE_STORAGE_KEY = "gestalt-theme-source";
-const TENANT_THEME_SELECTOR = 'link[data-theme-source="tenant"]';
 const tenantThemeLabel =
-  import.meta.env.VITE_THEME_SWITCHER_TENANT_LABEL?.trim() || "Valon";
-
-type ThemeSource = "default" | "tenant";
-
-function readThemeSource(): ThemeSource {
-  if (typeof window === "undefined") return "tenant";
-  return localStorage.getItem(THEME_SOURCE_STORAGE_KEY) === "default"
-    ? "default"
-    : "tenant";
-}
-
-function applyThemeSource(source: ThemeSource) {
-  const stylesheet = document.querySelector<HTMLLinkElement>(
-    TENANT_THEME_SELECTOR,
-  );
-  if (!stylesheet) return;
-
-  if (source === "default") {
-    stylesheet.disabled = true;
-    stylesheet.setAttribute("disabled", "");
-  } else {
-    stylesheet.disabled = false;
-    stylesheet.removeAttribute("disabled");
-  }
-}
+  import.meta.env.VITE_THEME_SWITCHER_TENANT_LABEL?.trim() ||
+  DEFAULT_TENANT_THEME_LABEL;
 
 /** Development-only preview control for the generic and runtime tenant themes. */
 export function ThemeSwitcher() {

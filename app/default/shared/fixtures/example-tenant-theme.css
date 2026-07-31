@@ -1,0 +1,32 @@
+/*
+ * Fictional tenant theme fixture — validates required explicit overrides in CI.
+ * Palette names are generic; no deployment org identity.
+ */
+
+:root {
+  --example-paper: oklch(100% 0 0);
+  --example-surface: oklch(98% 0.01 247);
+  --example-surface-raised: oklch(96.5% 0.018 247);
+  --example-ink: oklch(23% 0.04 255);
+
+  --background: var(--example-paper);
+  --surface: var(--example-surface);
+  --surface-raised: var(--example-surface-raised);
+  --foreground: var(--example-ink);
+  --popover: var(--example-paper);
+  --popover-foreground: var(--example-ink);
+}
+
+.dark {
+  --example-night: oklch(19.5% 0.03 255);
+  --example-night-100: oklch(23% 0.035 255);
+  --example-night-200: oklch(28% 0.05 252);
+  --example-ink-soft: oklch(92.7% 0.02 245);
+
+  --background: var(--example-night);
+  --surface: var(--example-night-100);
+  --surface-raised: var(--example-night-200);
+  --foreground: var(--example-ink-soft);
+  --popover: var(--example-night-100);
+  --popover-foreground: var(--example-ink-soft);
+}
