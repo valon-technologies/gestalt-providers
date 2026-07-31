@@ -10,7 +10,7 @@ import {
   APP_ADMIN_BOOTSTRAP_POLL_MS,
   appAdminRegistryPollInterval,
 } from "@/features/registry/polling";
-import { snapshotRegistryPollEqual } from "@/features/registry/stable-snapshot-registry";
+import { reconcileSnapshotRegistryPoll } from "@/features/registry/stable-snapshot-registry";
 import type { AppAdminRegistryResponse } from "@/lib/api";
 import {
   getAppAdminRegistry,
@@ -39,10 +39,11 @@ export function useAppAdminRegistryQuery(appName: string) {
     structuralSharing: (oldData, newData) => {
       const previous = oldData as AppAdminRegistryResponse | undefined;
       const next = newData as AppAdminRegistryResponse;
-      if (previous && snapshotRegistryPollEqual(previous, next)) {
-        return previous;
+      const reconciled = reconcileSnapshotRegistryPoll(previous, next);
+      if (reconciled === next) {
+        return replaceEqualDeep(oldData, newData);
       }
-      return replaceEqualDeep(oldData, newData);
+      return reconciled;
     },
     refetchInterval: (query) => {
       void bootstrapPollEpoch;

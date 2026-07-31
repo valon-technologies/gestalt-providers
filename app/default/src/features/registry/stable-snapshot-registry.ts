@@ -118,3 +118,28 @@ export function snapshotRegistryPollEqual(
 
   return true;
 }
+
+/**
+ * When the versions-table slice is poll-equal, keep stable references for
+ * table-driving fields while applying fresh fleet, recovery, and catalog data.
+ */
+export function reconcileSnapshotRegistryPoll(
+  previous: AppAdminRegistryResponse | undefined,
+  next: AppAdminRegistryResponse,
+): AppAdminRegistryResponse {
+  if (!previous || !snapshotRegistryPollEqual(previous, next)) {
+    return next;
+  }
+
+  return {
+    ...next,
+    publishedVersions: previous.publishedVersions,
+    pendingVersions: previous.pendingVersions,
+    failedVersions: previous.failedVersions,
+    desiredVersion: previous.desiredVersion,
+    rollout: previous.rollout,
+    selectionDisabled: previous.selectionDisabled,
+    disabledReason: previous.disabledReason,
+    autoDeploy: previous.autoDeploy,
+  };
+}

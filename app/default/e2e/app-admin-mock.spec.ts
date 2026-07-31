@@ -116,6 +116,25 @@ function installedRegistryState(): AppAdminRegistryResponse {
 }
 
 const APP_ADMIN_FIXED_TIME = new Date("2026-07-23T15:00:00Z");
+const SOURCE_VERSION = "4f71afddf31d2c452ecd248779a04c905a7b9988";
+
+function fleetState(
+  overrides: Partial<NonNullable<AppAdminRegistryResponse["fleetState"]>> = {},
+): NonNullable<AppAdminRegistryResponse["fleetState"]> {
+  return {
+    state: "healthy",
+    sourceVersion: SOURCE_VERSION,
+    desiredVersion: PUBLISHED_LEGACY.version,
+    minimumHealthyInstances: 5,
+    liveInstances: 5,
+    runningDesiredVersion: 5,
+    mismatched: 0,
+    errors: 0,
+    heartbeatTtlSeconds: 45,
+    evaluatedAt: "2026-07-23T14:59:50Z",
+    ...overrides,
+  };
+}
 
 test.describe("app admin registry UI", () => {
   test.beforeEach(async ({ page }) => {
@@ -130,6 +149,128 @@ test.describe("app admin registry UI", () => {
       );
     });
     await mockAuthSession(page);
+  });
+
+  test("keeps healthy fleet recovery separate from a failed rollout", async ({ page }) => {
+    const recovery = {
+      recoveredAt: "2026-07-23T14:58:00Z",
+      sourceVersion: SOURCE_VERSION,
+      liveInstances: 5,
+      minimumHealthyInstances: 5,
+    };
+    await mockAppAdminRegistry(page, APP, {
+      ...installedRegistryState(),
+      rollout: {
+        version: PUBLISHED_LEGACY.version,
+        state: "failed",
+        targetSourceVersion: SOURCE_VERSION,
+      },
+      fleetState: fleetState(),
+      recovery,
+    });
+    await mockAppAdminRegistryHistory(page, APP, {
+      app: APP,
+      fleetState: fleetState(),
+      revisions: [
+        {
+          id: "rev-recovered",
+          version: PUBLISHED_LEGACY.version,
+          previousVersion: PUBLISHED_NEW.version,
+          deployedAt: "2026-07-23T14:30:00Z",
+          deployedBy: "user:alice@example.com",
+          rolloutState: "failed",
+          rolloutDurationSeconds: 900,
+          rolloutFailedAt: "2026-07-23T14:45:00Z",
+          recovery,
+        },
+      ],
+    });
+
+    await page.goto(`/apps/${APP}/versions`);
+
+    const fleet = page.getByTestId("app-admin-fleet-state");
+    await expect(fleet.getByTestId("fleet-state-badge")).toHaveText("Healthy");
+    await expect(fleet.getByTestId("fleet-live-instances")).toHaveText("5");
+    await expect(fleet.getByTestId("fleet-minimum-instances")).toHaveText("5");
+    await expect(fleet.getByTestId("fleet-running-desired")).toHaveText("5");
+    await expect(fleet.getByTestId("fleet-desired-version")).toContainText(
+      PUBLISHED_LEGACY.version,
+    );
+    await expect(fleet.getByTestId("fleet-source-version")).toHaveText("4f71afd");
+    await expect(fleet.getByTestId("fleet-evaluated-at")).toHaveText(
+      "Evaluated 10 seconds ago",
+    );
+    await expect(fleet).toContainText("Heartbeats are fresh for 45s");
+    await expect(fleet.getByTestId("recovered-after-failed-rollout")).toContainText(
+      "Recovered after failed rollout",
+    );
+
+    const snapshotRow = page.getByTestId("snapshot-row-published").filter({
+      hasText: PUBLISHED_LEGACY.version.slice(0, 20),
+    });
+    await expect(
+      snapshotRow.getByTestId(`deploy-version-${PUBLISHED_LEGACY.version}`),
+    ).toHaveCount(0);
+  });
+
+  test("shows unknown when live capacity is below the minimum", async ({ page }) => {
+    await mockAppAdminRegistry(page, APP, {
+      ...installedRegistryState(),
+      fleetState: fleetState({
+        state: "unknown",
+        liveInstances: 4,
+        runningDesiredVersion: 4,
+      }),
+    });
+
+    await page.goto(`/apps/${APP}/versions`);
+
+    const fleet = page.getByTestId("app-admin-fleet-state");
+    await expect(fleet.getByTestId("fleet-state-badge")).toHaveText("Unknown");
+    await expect(fleet).toContainText(
+      "not enough fresh heartbeats to determine current fleet health",
+    );
+    await expect(fleet.getByTestId("fleet-live-instances")).toHaveText("4");
+    await expect(fleet.getByTestId("fleet-minimum-instances")).toHaveText("5");
+    await expect(fleet).not.toContainText("Every live replica");
+  });
+
+  test("shows degraded mismatch and error observations", async ({ page }) => {
+    await mockAppAdminRegistry(page, APP, {
+      ...installedRegistryState(),
+      fleetState: fleetState({
+        state: "degraded",
+        runningDesiredVersion: 3,
+        mismatched: 1,
+        errors: 1,
+      }),
+    });
+
+    await page.goto(`/apps/${APP}/versions`);
+
+    const fleet = page.getByTestId("app-admin-fleet-state");
+    await expect(fleet.getByTestId("fleet-state-badge")).toHaveText("Degraded");
+    await expect(fleet.getByTestId("fleet-running-desired")).toHaveText("3");
+    await expect(fleet.getByTestId("fleet-mismatched")).toHaveText("1");
+    await expect(fleet.getByTestId("fleet-errors")).toHaveText("1");
+    await expect(fleet).toContainText(
+      "one or more runtime observations are unhealthy",
+    );
+  });
+
+  test("treats absent heartbeat fields as unknown during mixed-version rollout", async ({
+    page,
+  }) => {
+    await mockAppAdminRegistry(page, APP, installedRegistryState());
+
+    await page.goto(`/apps/${APP}/versions`);
+
+    const fleet = page.getByTestId("app-admin-fleet-state");
+    await expect(fleet.getByTestId("fleet-state-badge")).toHaveText("Unknown");
+    await expect(fleet).toContainText("Runtime heartbeat data is unavailable");
+    await expect(fleet.getByTestId("fleet-live-instances")).toHaveCount(0);
+    await expect(fleet).not.toContainText("Healthy");
+    await expect(page.getByTestId("recovered-after-failed-rollout")).toHaveCount(0);
   });
 
   test("card click opens app detail for managed apps", async ({ page }) => {

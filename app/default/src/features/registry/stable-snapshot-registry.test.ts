@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 
-import { snapshotRegistryPollEqual } from "@/features/registry/stable-snapshot-registry";
+import {
+  reconcileSnapshotRegistryPoll,
+  snapshotRegistryPollEqual,
+} from "@/features/registry/stable-snapshot-registry";
 import type { AppAdminRegistryResponse } from "@/features/registry/types";
 
 const BASE_REGISTRY: AppAdminRegistryResponse = {
@@ -51,5 +54,54 @@ describe("snapshotRegistryPollEqual", () => {
     };
 
     expect(snapshotRegistryPollEqual(BASE_REGISTRY, next)).toBe(false);
+  });
+});
+
+describe("reconcileSnapshotRegistryPoll", () => {
+  test("applies fleet updates when the table slice is poll-equal", () => {
+    const previous: AppAdminRegistryResponse = {
+      ...BASE_REGISTRY,
+      fleetState: {
+        state: "healthy",
+        sourceVersion: "abc123",
+        desiredVersion: BASE_REGISTRY.desiredVersion!,
+        minimumHealthyInstances: 5,
+        liveInstances: 5,
+        runningDesiredVersion: 5,
+        mismatched: 0,
+        errors: 0,
+        heartbeatTtlSeconds: 45,
+        evaluatedAt: "2026-07-23T14:59:50Z",
+      },
+    };
+    const next: AppAdminRegistryResponse = {
+      ...previous,
+      pendingVersions: [
+        {
+          ...BASE_REGISTRY.pendingVersions![0],
+          updatedAt: "2026-07-23T15:00:00Z",
+          publishingForSeconds: 360,
+        },
+      ],
+      fleetState: {
+        ...previous.fleetState!,
+        liveInstances: 4,
+        runningDesiredVersion: 4,
+      },
+      knownVersions: [
+        {
+          version: BASE_REGISTRY.desiredVersion!,
+          installedAt: "2026-07-21T13:00:00Z",
+        },
+      ],
+    };
+
+    const reconciled = reconcileSnapshotRegistryPoll(previous, next);
+
+    expect(snapshotRegistryPollEqual(previous, reconciled)).toBe(true);
+    expect(reconciled.fleetState?.liveInstances).toBe(4);
+    expect(reconciled.knownVersions).toEqual(next.knownVersions);
+    expect(reconciled.publishedVersions).toBe(previous.publishedVersions);
+    expect(reconciled.pendingVersions).toBe(previous.pendingVersions);
   });
 });
