@@ -79,6 +79,14 @@
   --accent-strong-pressed: oklch(from var(--accent-strong) calc(l - var(--interaction-step-ink-confirm-press)) c h);
   --accent-highlight: oklch(93.6% 0.053 81.8);
 
+  /* Radial wash behind agent prompt example stages (AppPromptExamplePromo). */
+  --promo-stage-background: radial-gradient(
+    140% 90% at 50% 100%,
+    var(--accent) 0%,
+    var(--background) 50%,
+    var(--accent-wash) 80%
+  );
+
   --link: var(--accent-strong);
   --link-hover: var(--accent-strong-hover);
   --link-pressed: var(--accent-strong-pressed);
@@ -244,6 +252,12 @@
   --accent-strong-pressed: oklch(from var(--accent-strong) calc(l - var(--interaction-step-ink-confirm-press)) c h);
   --accent-highlight: oklch(38.46% 0.075 71.86);
 
+  --promo-stage-background: radial-gradient(
+    140% 90% at 50% 100%,
+    var(--accent-strong) 0%,
+    var(--background) 50%,
+    var(--card) 80%
+  );
   --link: var(--accent-strong);
   --link-hover: var(--accent-strong-hover);
   --link-pressed: var(--accent-strong-pressed);

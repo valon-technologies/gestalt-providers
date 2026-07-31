@@ -85,6 +85,13 @@ export interface Integration {
   credentialState?: CredentialState;
   healthState?: HealthState;
   actions?: IntegrationAction[];
+  /** Curated prompts projected from the root app's deployment config. */
+  prompts?: IntegrationPrompt[];
+}
+
+export interface IntegrationPrompt {
+  id: string;
+  text: string;
 }
 
 export interface AppAdminPublicationPullRequest {

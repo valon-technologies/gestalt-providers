@@ -4,7 +4,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const projectDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const outDir = path.join(projectDir, "out");
+const outDir = process.env.PLAYWRIGHT_STATIC_DIR
+  ? path.resolve(projectDir, process.env.PLAYWRIGHT_STATIC_DIR)
+  : path.join(projectDir, "out");
 const port = Number(process.env.PORT || process.env.API_PORT || 8080);
 const testMountPath = "/portal";
 

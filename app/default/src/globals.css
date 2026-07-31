@@ -166,6 +166,7 @@
   --color-error: var(--error);
   --color-error-foreground: var(--error-foreground);
   --color-code-line-emphasis: var(--code-line-emphasis);
+  --background-image-promo-stage: var(--promo-stage-background);
 
   --color-brand: var(--brand);
   --color-brand-foreground: var(--brand-foreground);

@@ -1,0 +1,25 @@
+type: object
+properties:
+  prompts:
+    type: object
+    description: Curated prompt definitions keyed by app name.
+    additionalProperties:
+      type: array
+      maxItems: 5
+      items:
+        type: object
+        required:
+          - id
+          - text
+        properties:
+          id:
+            type: string
+            minLength: 1
+            pattern: "\\S"
+          text:
+            type: string
+            minLength: 1
+            maxLength: 280
+            pattern: "\\S"
+        additionalProperties: false
+additionalProperties: false

@@ -373,4 +373,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun run lint
-
+      - name: Install prompt browser test
+        run: bunx playwright install --with-deps chromium
+      - name: Test prompt workspace
+        run: bun run test:e2e:prompt
