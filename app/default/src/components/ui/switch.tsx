@@ -11,7 +11,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/cn";
 
 // Sliding on/off Switch (Radix `role="switch"`): track + thumb. Checked fill is
-// `accent-solid` (gold-400 mid-tone — same as Radio checked border / Tabs
+// `accent-solid` (brand control tone — same as Radio checked border / Tabs
 // underline), never `primary` (that reads as the view's one primary action).
 // Track color SNAP (transitions.md); only the thumb's transform eases. Thumb
 // travel uses `duration-overshoot` + `ease-out-back` — soft is only ~0.8px of

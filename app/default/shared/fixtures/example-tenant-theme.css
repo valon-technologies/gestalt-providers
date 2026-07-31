@@ -1,0 +1,64 @@
+/*
+ * Fictional tenant theme fixture — validates required explicit overrides in CI.
+ * Palette names are generic; no deployment org identity.
+ */
+
+:root {
+  --example-paper: oklch(100% 0 0);
+  --example-surface: oklch(98% 0.01 247);
+  --example-surface-raised: oklch(96.5% 0.018 247);
+  --example-chrome: oklch(97.2% 0.008 247);
+  --example-ink: oklch(23% 0.04 255);
+  --example-brand-dark: oklch(46% 0.09 70);
+  --example-brand-soft: oklch(93% 0.05 82);
+  --example-gold-vivid: oklch(86% 0.11 82);
+  --example-gold-solid: oklch(79% 0.14 80);
+  --example-gold-strong: oklch(73% 0.15 73);
+
+  --background: var(--example-paper);
+  --surface: var(--example-surface);
+  --surface-raised: var(--example-surface-raised);
+  --foreground: var(--example-ink);
+  --brand: var(--example-brand-dark);
+  --brand-soft: var(--example-brand-soft);
+  --card: var(--example-paper);
+  --card-foreground: var(--example-ink);
+  --popover: var(--example-paper);
+  --popover-foreground: var(--example-ink);
+  --accent-vivid: var(--example-gold-vivid);
+  --accent-solid: var(--example-gold-solid);
+  --accent-strong: var(--example-gold-strong);
+  --ring: var(--example-gold-strong);
+  --sidebar: var(--example-chrome);
+  --neutral-hover: var(--example-chrome);
+}
+
+.dark {
+  --example-night: oklch(19.5% 0.03 255);
+  --example-night-100: oklch(23% 0.035 255);
+  --example-night-200: oklch(28% 0.05 252);
+  --example-ink-soft: oklch(92.7% 0.02 245);
+  --example-brand-dark: oklch(86% 0.11 82);
+  --example-brand-soft: oklch(38% 0.075 72);
+  --example-gold-vivid: oklch(77% 0.125 80);
+  --example-gold-solid: oklch(67% 0.135 78);
+  --example-gold-strong: oklch(57% 0.12 76);
+  --example-chrome: oklch(28% 0.05 252);
+
+  --background: var(--example-night);
+  --surface: var(--example-night-100);
+  --surface-raised: var(--example-night-200);
+  --foreground: var(--example-ink-soft);
+  --brand: var(--example-brand-dark);
+  --brand-soft: var(--example-brand-soft);
+  --card: var(--example-night-100);
+  --card-foreground: var(--example-ink-soft);
+  --popover: var(--example-night-100);
+  --popover-foreground: var(--example-ink-soft);
+  --accent-vivid: var(--example-gold-vivid);
+  --accent-solid: var(--example-gold-solid);
+  --accent-strong: var(--example-gold-strong);
+  --ring: var(--example-brand-dark);
+  --sidebar: var(--example-night);
+  --neutral-hover: var(--example-chrome);
+}
