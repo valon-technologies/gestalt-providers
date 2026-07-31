@@ -23,6 +23,7 @@ from .config import get_github_config
 from .constants import (
     GITHUB_DEFAULT_WEB_BASE_URL,
     GITHUB_REPOSITORY_ACTION_BOT,
+    GITHUB_REPOSITORY_ACTION_READ,
     GITHUB_REPOSITORY_RESOURCE_TYPE,
     MAX_GITHUB_PATCH_CHARS,
 )
@@ -741,16 +742,17 @@ def commit_files(
         include_bot=request.include_bot_coauthor,
         client=github,
     )
+    permissions = {"contents": "write"}
+    if pull_request_permissions:
+        permissions["pull_requests"] = "write"
     installation_id = scoped_installation_id(
         subject,
         owner=validated.owner,
         repo=validated.repo,
+        permissions=permissions,
         authorization=authorization,
         client=github,
     )
-    permissions = {"contents": "write"}
-    if pull_request_permissions:
-        permissions["pull_requests"] = "write"
     token = github.installation_token(
         installation_id, repositories=[validated.repo], permissions=permissions
     )
@@ -925,6 +927,7 @@ def open_pull_request(
         subject,
         owner=owner,
         repo=repo,
+        permissions=PULL_REQUEST_CREATE_PERMISSIONS,
         authorization=authorization,
         client=github,
     )
@@ -963,6 +966,7 @@ def close_pull_request(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"pull_requests": "write"},
         authorization=authorization,
         client=github,
     )
@@ -1081,6 +1085,7 @@ def create_issue(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"issues": "write"},
         authorization=authorization,
         client=github,
     )
@@ -1121,6 +1126,7 @@ def update_issue(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"issues": "write"},
         authorization=authorization,
         client=github,
     )
@@ -1150,6 +1156,7 @@ def get_issue(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"issues": "read"},
         authorization=authorization,
         client=github,
     )
@@ -1185,6 +1192,7 @@ def list_issues(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"issues": "read"},
         authorization=authorization,
         client=github,
     )
@@ -1215,6 +1223,7 @@ def create_issue_comment(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"issues": "write"},
         authorization=authorization,
         client=github,
     )
@@ -1267,6 +1276,7 @@ def add_reaction(
         subject,
         owner=owner,
         repo=repo,
+        permissions=permissions,
         authorization=authorization,
         client=github,
     )
@@ -1296,6 +1306,7 @@ def add_labels(
         subject,
         owner=owner,
         repo=repo,
+        permissions=permissions,
         authorization=authorization,
         client=github,
     )
@@ -1331,6 +1342,7 @@ def remove_labels(
         subject,
         owner=owner,
         repo=repo,
+        permissions=permissions,
         authorization=authorization,
         client=github,
     )
@@ -1369,6 +1381,7 @@ def request_reviewers(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"pull_requests": "write"},
         authorization=authorization,
         client=github,
     )
@@ -1404,6 +1417,7 @@ def create_pull_request_conversation_comment(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"pull_requests": "write"},
         authorization=authorization,
         client=github,
     )
@@ -1438,6 +1452,7 @@ def create_pull_request_review(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"pull_requests": "write"},
         authorization=authorization,
         client=github,
     )
@@ -1474,6 +1489,7 @@ def list_pull_request_reviews(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"pull_requests": "read"},
         authorization=authorization,
         client=github,
     )
@@ -1512,6 +1528,7 @@ def list_pull_request_review_threads(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"pull_requests": "read"},
         authorization=authorization,
         client=github,
     )
@@ -1576,6 +1593,7 @@ def resolve_pull_request_review_thread(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"pull_requests": "write"},
         authorization=authorization,
         client=github,
     )
@@ -1631,6 +1649,7 @@ def get_pull_request(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"pull_requests": "read"},
         authorization=authorization,
         client=github,
     )
@@ -1660,6 +1679,7 @@ def list_pull_request_files(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"pull_requests": "read"},
         authorization=authorization,
         client=github,
     )
@@ -1695,6 +1715,7 @@ def list_pull_request_commits(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"pull_requests": "read"},
         authorization=authorization,
         client=github,
     )
@@ -1726,6 +1747,7 @@ def get_repository(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"contents": "read"},
         authorization=authorization,
         client=github,
     )
@@ -1756,6 +1778,7 @@ def search_code(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"contents": "read"},
         authorization=authorization,
         client=github,
     )
@@ -1790,6 +1813,7 @@ def list_commits(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"contents": "read"},
         authorization=authorization,
         client=github,
     )
@@ -1821,6 +1845,7 @@ def compare_refs(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"contents": "read"},
         authorization=authorization,
         client=github,
     )
@@ -1850,6 +1875,7 @@ def get_file_text_at_ref(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"contents": "read"},
         authorization=authorization,
         client=github,
     )
@@ -1928,6 +1954,7 @@ def create_check_run(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"checks": "write"},
         authorization=authorization,
         client=github,
     )
@@ -1966,6 +1993,7 @@ def update_check_run(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"checks": "write"},
         authorization=authorization,
         client=github,
     )
@@ -1995,6 +2023,7 @@ def get_check_run(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"checks": "read"},
         authorization=authorization,
         client=github,
     )
@@ -2054,6 +2083,7 @@ def _list_repository_check_runs(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"checks": "read"},
         authorization=authorization,
         client=github,
     )
@@ -2116,6 +2146,7 @@ def list_check_run_annotations(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"checks": "read"},
         authorization=authorization,
         client=github,
     )
@@ -2152,6 +2183,7 @@ def get_workflow_run(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"actions": "read"},
         authorization=authorization,
         client=github,
     )
@@ -2183,6 +2215,7 @@ def list_workflow_run_jobs(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"actions": "read"},
         authorization=authorization,
         client=github,
     )
@@ -2227,6 +2260,7 @@ def list_workflow_runs(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"actions": "read"},
         authorization=authorization,
         client=github,
     )
@@ -2260,6 +2294,7 @@ def get_workflow_job_logs(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"actions": "read"},
         authorization=authorization,
         client=github,
     )
@@ -2287,6 +2322,7 @@ def list_issue_comments(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"issues": "read"},
         authorization=authorization,
         client=github,
     )
@@ -2320,6 +2356,7 @@ def search_pull_requests(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"pull_requests": "read", "contents": "read"},
         authorization=authorization,
         client=github,
     )
@@ -2378,6 +2415,7 @@ def get_merge_queue(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"contents": "read"},
         authorization=authorization,
         client=github,
     )
@@ -2433,6 +2471,7 @@ def list_pull_requests(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"pull_requests": "read"},
         authorization=authorization,
         client=github,
     )
@@ -2463,6 +2502,7 @@ def list_pull_requests_for_commit(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"pull_requests": "read"},
         authorization=authorization,
         client=github,
     )
@@ -2505,6 +2545,7 @@ def list_org_members(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"members": "read"},
         authorization=authorization,
         client=github,
     )
@@ -2539,6 +2580,7 @@ def list_repo_contributors(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"metadata": "read"},
         authorization=authorization,
         client=github,
     )
@@ -2568,6 +2610,7 @@ def get_user(
         subject,
         owner=owner,
         repo=repo,
+        permissions={"metadata": "read"},
         authorization=authorization,
         client=github,
     )
@@ -2807,11 +2850,23 @@ def pull_request_review_comment_payload(
     return payload
 
 
+def repository_authorization_action(
+    permissions: Mapping[str, str] | None,
+) -> str:
+    if not permissions:
+        return GITHUB_REPOSITORY_ACTION_BOT
+    for value in permissions.values():
+        if value != "read":
+            return GITHUB_REPOSITORY_ACTION_BOT
+    return GITHUB_REPOSITORY_ACTION_READ
+
+
 def scoped_installation_id(
     subject: gestalt.Subject,
     *,
     owner: str,
     repo: str,
+    permissions: Mapping[str, str],
     authorization: gestalt.Authorization | None = None,
     client: GitHubAPIClient | None = None,
 ) -> int:
@@ -2820,6 +2875,7 @@ def scoped_installation_id(
         subject=subject,
         owner=owner,
         repo=repo,
+        permissions=permissions,
     )
     try:
         return github_client(client).repository_installation_id(owner, repo)
@@ -2837,17 +2893,19 @@ def require_repository_authorization(
     subject: gestalt.Subject,
     owner: str,
     repo: str,
+    permissions: Mapping[str, str] | None = None,
 ) -> None:
     subject_id = subject.id.strip()
     if not subject_id:
         raise GitHubAuthorizationError(
             "GitHub bot operations require an authenticated subject"
         )
+    action = repository_authorization_action(permissions)
     try:
         decision = (authorization or gestalt.Authorization.connect()).check_access(
             gestalt.CheckAccessRequest(
                 subject=gestalt.AuthorizationSubject(type="subject", id=subject_id),
-                action=gestalt.AuthorizationAction(name=GITHUB_REPOSITORY_ACTION_BOT),
+                action=gestalt.AuthorizationAction(name=action),
                 resource=gestalt.AuthorizationResource(
                     type=GITHUB_REPOSITORY_RESOURCE_TYPE,
                     id=github_repository_resource_id(owner, repo),
@@ -2860,7 +2918,7 @@ def require_repository_authorization(
         ) from err
     if not decision.allowed:
         raise GitHubAuthorizationError(
-            f"{subject_id} is not authorized for {GITHUB_REPOSITORY_ACTION_BOT} on {owner}/{repo}"
+            f"{subject_id} is not authorized for {action} on {owner}/{repo}"
         )
 
 

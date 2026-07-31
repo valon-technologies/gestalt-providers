@@ -126,3 +126,20 @@ can retry delivery.
 - `bot.listCheckRunAnnotations`
 - `bot.getWorkflowRun`
 - `bot.listWorkflowRunJobs`
+
+## Repository authorization
+
+GitHub bot operations authorize against `app/github/repository` before resolving
+the GitHub App installation or creating an installation token. The requested
+action is derived from the installation-token permissions:
+
+- All permissions are exactly `read` → authorize `read`.
+- Empty, unknown, or any write-capable permission → authorize `bot` (fail closed).
+
+Grant `reader` on a repository for read-only CI/CD sync and inspection. Grant
+`bot` for mutation (commits, PR edits, check-run updates, reactions, labels).
+Reader grants expose the same GitHub App installation credential as bot grants,
+including metadata such as workflow job logs, org members, and user profiles
+required for CI/CD materialization.
+
+## Fixture capture
