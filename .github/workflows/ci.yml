@@ -3,6 +3,7 @@ name: Validate Plugins
 on:
   pull_request:
     paths:
+      - '.engineering-playbook/**'
       - '.github/workflows/**'
       - '.github/scripts/**'
       - '.github/gestalt-ref'
@@ -24,6 +25,7 @@ on:
     branches:
       - main
     paths:
+      - '.engineering-playbook/**'
       - '.github/workflows/**'
       - '.github/scripts/**'
       - '.github/gestalt-ref'
@@ -156,6 +158,8 @@ jobs:
               for path in changed_files:
                   if not path:
                       continue
+                  if path == ".engineering-playbook/local-dev.json":
+                      selected.add("app/default")
                   if path in shared_paths or path.startswith(shared_prefixes):
                       run_all = True
                       break
@@ -366,6 +370,9 @@ jobs:
         working-directory: app/default
     steps:
       - uses: actions/checkout@v4
+      - name: Validate local development profile JSON
+        working-directory: .
+        run: python3 -m json.tool .engineering-playbook/local-dev.json >/dev/null
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.11

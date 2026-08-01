@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run gestalt run . ./provider.ts#provider & vite",
+    "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "lint": "oxlint .",

@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "name": "gestalt-providers-default",
+  "port_range": [8200, 8399],
+  "services": [
+    {
+      "id": "backend",
+      "cwd": ".",
+      "command": [
+        "gestaltd",
+        "serve",
+        "--port",
+        "{port}",
+        "app/default"
+      ],
+      "env": {
+        "GESTALT_PROVIDERS_DIR": "",
+        "TMPDIR": "{repo_root}/.local"
+      },
+      "env_from": [],
+      "ready_timeout_seconds": 300
+    },
+    {
+      "id": "frontend",
+      "cwd": "app/default",
+      "command": [
+        "bun",
+        "run",
+        "dev",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+        "--strictPort"
+      ],
+      "env": {
+        "GESTALT_API_PROXY_TARGET": "http://{host}:{service_backend_port}",
+        "VITE_GESTALT_PUBLIC_ORIGIN": "http://{host}:{service_backend_port}"
+      },
+      "env_from": [],
+      "health_url": "http://{host}:{port}/",
+      "ready_timeout_seconds": 60
+    }
+  ]
+}
