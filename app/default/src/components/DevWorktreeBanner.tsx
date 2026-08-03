@@ -6,9 +6,6 @@ import {
 } from "@/components/ui/alert";
 import { readDevWorktreeName } from "@/lib/dev-worktree-name";
 
-export { readDevWorktreeName } from "@/lib/dev-worktree-name";
-export { DEV_WORKTREE_NAME_ENV } from "@/lib/dev-worktree-name";
-
 /** Development-only strip naming the active git worktree (prod-remote). */
 export function DevWorktreeBanner() {
   const name = readDevWorktreeName();

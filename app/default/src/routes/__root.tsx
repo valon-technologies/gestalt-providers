@@ -13,7 +13,7 @@ function RootLayout() {
   return (
     <div className="min-h-screen">
       <div className="sticky top-0 z-50">
-        <DevWorktreeBanner />
+        {import.meta.env.DEV ? <DevWorktreeBanner /> : null}
         <Nav />
       </div>
       <AuthGuard>
