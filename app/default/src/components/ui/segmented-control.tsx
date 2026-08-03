@@ -63,7 +63,9 @@ export type SegmentedControlProps<V extends string = string> = {
   value: V;
   onValueChange: (value: V) => void;
   // Accessible name for the radiogroup — required so the set is announced as one.
+  // Prefer `labelledBy` when a visible label already names the control.
   label: string;
+  labelledBy?: string;
   orientation?: "horizontal" | "vertical";
   showLabels?: boolean;
   tooltips?: boolean;
@@ -88,6 +90,7 @@ export function SegmentedControl<V extends string>({
   value,
   onValueChange,
   label,
+  labelledBy,
   orientation = "horizontal",
   showLabels = false,
   tooltips = true,
@@ -177,7 +180,9 @@ export function SegmentedControl<V extends string>({
     <div
       ref={containerRef}
       role="radiogroup"
-      aria-label={label}
+      {...(labelledBy
+        ? { "aria-labelledby": labelledBy }
+        : { "aria-label": label })}
       onKeyDown={onKeyDown}
       className={cn(
         "relative inline-flex rounded-lg border border-border bg-muted",

@@ -160,6 +160,7 @@ test.describe("Navigation", () => {
   test("nav links work", async ({ authenticatedPage: page }) => {
     await page.goto("/apps");
     await page.getByRole("button", { name: "Open user menu" }).click();
+    await expect(page.getByRole("menuitem", { name: "Docs" })).toBeVisible();
     await page.getByRole("menuitem", { name: "Settings" }).click();
     await expect(page).toHaveURL(/\/settings/);
     await expect(
@@ -170,6 +171,20 @@ test.describe("Navigation", () => {
     await expect(
       page.getByRole("heading", { name: "Apps" }),
     ).toBeVisible();
+  });
+
+  test("account menu exposes Docs for signed-in users", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.goto("/apps");
+    await expect(
+      page.getByRole("navigation", { name: "Primary" }).getByRole("link", {
+        name: "Docs",
+      }),
+    ).toHaveCount(0);
+    await page.getByRole("button", { name: "Open user menu" }).click();
+    await page.getByRole("menuitem", { name: "Docs" }).click();
+    await expect(page).toHaveURL(/\/docs/);
   });
 
   test("apps nav label uses the apps route", async ({ authenticatedPage: page }) => {

@@ -17,20 +17,21 @@ const THEME_OPTIONS: ReadonlyArray<SegmentedControlOption<Theme>> = [
   { value: "system", label: "System", icon: MonitorIcon },
 ];
 
-/** Surface that hosts the toggle — drives discoverability defaults. */
+/** Surface that hosts the toggle — call sites declare which chrome owns it. */
 export type ThemeTogglePlacement = "header" | "menu";
+
+/** Shared icon+tooltip presentation until a placement needs distinct defaults. */
+const ICON_TOOLTIP_PRESENTATION = {
+  showLabels: false,
+  tooltips: true,
+} as const;
 
 const PLACEMENT_DEFAULTS: Record<
   ThemeTogglePlacement,
   { showLabels: boolean; tooltips: boolean; className?: string }
 > = {
-  // Compact chrome: icons + hover names.
-  header: { showLabels: false, tooltips: true },
-  // Account menu: icons + tooltips under a Theme section label.
-  menu: {
-    showLabels: false,
-    tooltips: true,
-  },
+  header: ICON_TOOLTIP_PRESENTATION,
+  menu: ICON_TOOLTIP_PRESENTATION,
 };
 
 export type ThemeToggleProps = {
@@ -43,6 +44,8 @@ export type ThemeToggleProps = {
   tooltips?: boolean;
   size?: "xs" | "sm" | "default";
   label?: string;
+  /** Prefer over `label` when a visible section label already names the control. */
+  labelledBy?: string;
   className?: string;
 };
 
@@ -54,6 +57,7 @@ export function ThemeToggle({
   tooltips,
   size = "default",
   label = "Theme",
+  labelledBy,
   className,
 }: ThemeToggleProps) {
   const { theme, setTheme } = useTheme();
@@ -64,6 +68,7 @@ export function ThemeToggle({
       value={theme}
       onValueChange={setTheme}
       label={label}
+      labelledBy={labelledBy}
       orientation={orientation}
       showLabels={showLabels ?? defaults.showLabels}
       tooltips={tooltips ?? defaults.tooltips}

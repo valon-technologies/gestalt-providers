@@ -12,6 +12,21 @@ import {
 } from "./ui/dropdown-menu";
 import { ThemeToggle } from "./ui/theme-toggle";
 
+/** Stable id for the visible Theme section label → radiogroup `aria-labelledby`. */
+export const ACCOUNT_MENU_THEME_LABEL_ID = "account-menu-theme-label";
+
+/** Visible section label (and accessible name source for the theme control). */
+export const ACCOUNT_MENU_THEME_SECTION_LABEL = "Theme";
+
+/**
+ * Signed-in utilities in the account flyout.
+ * Docs is account-gated (docs routes require auth); not shown in guest chrome.
+ */
+export const ACCOUNT_MENU_UTILITY_LINKS = [
+  { to: DOCS_PATH, label: "Docs" },
+  { to: "/settings", label: "Settings" },
+] as const;
+
 export type AccountMenuProps = {
   displayLabel: string;
   email?: string | null;
@@ -57,26 +72,32 @@ export function AccountMenu({
         <DropdownMenuSeparator />
 
         <DropdownMenuGroup>
-          <DropdownMenuItem asChild>
-            <Link to={DOCS_PATH}>Docs</Link>
-          </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <Link to="/settings">Settings</Link>
-          </DropdownMenuItem>
+          {ACCOUNT_MENU_UTILITY_LINKS.map((link) => (
+            <DropdownMenuItem key={link.to} asChild>
+              <Link to={link.to}>{link.label}</Link>
+            </DropdownMenuItem>
+          ))}
         </DropdownMenuGroup>
 
         <DropdownMenuSeparator />
 
         <DropdownMenuGroup>
-          <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
-            Theme
+          <DropdownMenuLabel
+            id={ACCOUNT_MENU_THEME_LABEL_ID}
+            className="text-xs font-medium text-muted-foreground"
+          >
+            {ACCOUNT_MENU_THEME_SECTION_LABEL}
           </DropdownMenuLabel>
           <div
             className="px-2 pb-1.5"
             // Keep the menu open while interacting with the segmented control.
             onPointerDown={(event) => event.preventDefault()}
           >
-            <ThemeToggle placement="menu" size="sm" />
+            <ThemeToggle
+              placement="menu"
+              size="sm"
+              labelledBy={ACCOUNT_MENU_THEME_LABEL_ID}
+            />
           </div>
         </DropdownMenuGroup>
 
