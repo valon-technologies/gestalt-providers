@@ -1,20 +1,12 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { logout } from "@/lib/api";
 import { clearSession, sessionDisplayLabel, sessionInitials } from "@/lib/auth";
-import { BUILD_PATH, DOCS_PATH } from "@/lib/constants";
+import { BUILD_PATH } from "@/lib/constants";
 import { serverLoginURL } from "@/lib/authReturn";
 import { appPath } from "@/lib/mount";
 import { useAuthInfoQuery, useAuthSessionQuery } from "@/lib/queries";
+import { AccountMenu } from "./AccountMenu";
 import Container from "./Container";
-import { Avatar, AvatarFallback } from "./ui/avatar";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "./ui/dropdown-menu";
 import {
   NavigationMenu,
   NavigationMenuItem,
@@ -26,7 +18,6 @@ import { ThemeToggle } from "./ui/theme-toggle";
 const links = [
   { href: "/apps", label: "Apps" },
   { href: BUILD_PATH, label: "Build" },
-  { href: DOCS_PATH, label: "Docs" },
 ];
 
 export default function Nav() {
@@ -78,40 +69,16 @@ export default function Nav() {
         </NavigationMenu>
 
         <div className="flex items-center justify-self-end gap-3 self-center">
-          <ThemeToggle size="sm" />
+          {/* Theme lives in AccountMenu when signed in; header access for guests. */}
+          {!displayLabel && <ThemeToggle placement="header" size="sm" />}
           {displayLabel && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="focus-ring rounded-full"
-                  aria-label="Open user menu"
-                >
-                  <Avatar size="xl" variant="solid" aria-hidden>
-                    <AvatarFallback>{initials}</AvatarFallback>
-                  </Avatar>
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel>
-                  <p className="truncate font-semibold">{displayLabel}</p>
-                  {session?.email && session.email !== displayLabel && (
-                    <p className="mt-0.5 truncate text-xs font-normal text-muted-foreground">
-                      {session.email}
-                    </p>
-                  )}
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link to="/settings">Settings</Link>
-                </DropdownMenuItem>
-                {loginSupported && (
-                  <DropdownMenuItem onClick={() => void handleLogout()}>
-                    Log out
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <AccountMenu
+              displayLabel={displayLabel}
+              email={session?.email}
+              initials={initials}
+              loginSupported={loginSupported}
+              onLogout={handleLogout}
+            />
           )}
         </div>
       </Container>

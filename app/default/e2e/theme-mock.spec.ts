@@ -4,6 +4,10 @@ import {
   mockIntegrations,
   mockTokens,
 } from "./fixtures";
+import {
+  accountMenuThemeControl,
+  openAccountMenuThemeSection,
+} from "./account-menu";
 
 const hasBackend =
   !!process.env.PLAYWRIGHT_BASE_URL || !!process.env.GESTALT_BASE_URL;
@@ -93,7 +97,8 @@ test.describe("Theme", () => {
       primaryForeground: "rgb(22, 23, 24)",
     });
 
-    await page.getByRole("radio", { name: "Dark" }).click();
+    await openAccountMenuThemeSection(page);
+    await accountMenuThemeControl(page).getByRole("radio", { name: "Dark" }).click();
     await expectSemanticColors({
       background: "rgb(25, 26, 27)",
       foreground: "rgb(28, 29, 30)",
@@ -154,11 +159,13 @@ test.describe("Theme", () => {
 
     await page.goto("/apps");
 
-    await expect(page.getByRole("radio", { name: "Light" })).toHaveAttribute(
+    await openAccountMenuThemeSection(page);
+    const theme = accountMenuThemeControl(page);
+    await expect(theme.getByRole("radio", { name: "Light" })).toHaveAttribute(
       "aria-checked",
       "true",
     );
-    await page.getByRole("radio", { name: "Dark" }).click();
+    await theme.getByRole("radio", { name: "Dark" }).click();
 
     await expect
       .poll(async () => page.evaluate(() => localStorage.getItem("theme")))
