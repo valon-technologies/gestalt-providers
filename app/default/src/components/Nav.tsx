@@ -45,7 +45,7 @@ export default function Nav() {
   }
 
   return (
-    <header className="border-b border-border py-3 bg-background/80 backdrop-blur-xs sticky top-0 z-50">
+    <header className="border-b border-border py-3 bg-background/80 backdrop-blur-xs">
       <Container className="grid grid-cols-[1fr_auto_1fr] items-baseline gap-x-4">
         <div className="justify-self-start">
           <Link
