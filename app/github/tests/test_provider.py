@@ -22,7 +22,11 @@ from gestalt.authorization import RelationshipTargetSubject
 import internals.client as client_module
 import internals.operations as operations_module
 from internals.config import GitHubBotIdentity, GitHubUserIdentity
-from internals.errors import GitHubAPIError
+from internals.constants import (
+    GITHUB_REPOSITORY_ACTION_BOT,
+    GITHUB_REPOSITORY_ACTION_READ,
+)
+from internals.errors import GitHubAPIError, GitHubAuthorizationError
 from internals.operations import MERGE_QUEUE_QUERY, SEARCH_PULL_REQUESTS_QUERY
 import provider as provider_module
 
@@ -4623,6 +4627,89 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIsInstance(result, gestalt.Response)
         response = cast(gestalt.Response[dict[str, str]], result)
         self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
+
+
+class RepositoryAuthorizationTests(unittest.TestCase):
+    def test_repository_authorization_action_all_read(self) -> None:
+        self.assertEqual(
+            operations_module.repository_authorization_action({"actions": "read"}),
+            GITHUB_REPOSITORY_ACTION_READ,
+        )
+        self.assertEqual(
+            operations_module.repository_authorization_action(
+                {"pull_requests": "read", "contents": "read"}
+            ),
+            GITHUB_REPOSITORY_ACTION_READ,
+        )
+
+    def test_repository_authorization_action_empty_fails_closed_to_bot(self) -> None:
+        self.assertEqual(
+            operations_module.repository_authorization_action(None),
+            GITHUB_REPOSITORY_ACTION_BOT,
+        )
+        self.assertEqual(
+            operations_module.repository_authorization_action({}),
+            GITHUB_REPOSITORY_ACTION_BOT,
+        )
+
+    def test_repository_authorization_action_write_fails_closed_to_bot(self) -> None:
+        self.assertEqual(
+            operations_module.repository_authorization_action({"contents": "write"}),
+            GITHUB_REPOSITORY_ACTION_BOT,
+        )
+        self.assertEqual(
+            operations_module.repository_authorization_action(
+                {"contents": "read", "pull_requests": "write"}
+            ),
+            GITHUB_REPOSITORY_ACTION_BOT,
+        )
+
+    def test_read_operation_checks_read_action(self) -> None:
+        auth = FakeAuthorization(allowed=True)
+        client = RecordingGitHubClient()
+        operations_module.scoped_installation_id(
+            gestalt.Subject(id="user:reader"),
+            owner="acme",
+            repo="widgets",
+            permissions={"actions": "read"},
+            authorization=auth,
+            client=client,
+        )
+        self.assertEqual(len(auth.check_access_requests), 1)
+        self.assertEqual(
+            auth.check_access_requests[0].action.name, GITHUB_REPOSITORY_ACTION_READ
+        )
+
+    def test_write_operation_checks_bot_action(self) -> None:
+        auth = FakeAuthorization(allowed=True)
+        client = RecordingGitHubClient()
+        operations_module.scoped_installation_id(
+            gestalt.Subject(id="user:bot"),
+            owner="acme",
+            repo="widgets",
+            permissions={"pull_requests": "write"},
+            authorization=auth,
+            client=client,
+        )
+        self.assertEqual(len(auth.check_access_requests), 1)
+        self.assertEqual(
+            auth.check_access_requests[0].action.name, GITHUB_REPOSITORY_ACTION_BOT
+        )
+
+    def test_unauthorized_read_skips_installation_lookup(self) -> None:
+        auth = FakeAuthorization(allowed=False)
+        client = RecordingGitHubClient()
+        with self.assertRaises(GitHubAuthorizationError):
+            operations_module.scoped_installation_id(
+                gestalt.Subject(id="user:reader"),
+                owner="acme",
+                repo="widgets",
+                permissions={"actions": "read"},
+                authorization=auth,
+                client=client,
+            )
+        self.assertEqual(client.requests, [])
+        self.assertEqual(auth.check_access_requests[0].action.name, GITHUB_REPOSITORY_ACTION_READ)
 
 
 class ExtendedSummaryTests(unittest.TestCase):
