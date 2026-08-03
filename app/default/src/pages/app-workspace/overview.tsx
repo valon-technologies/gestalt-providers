@@ -1,4 +1,4 @@
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { getAuthSession, type AuthSession } from "@/lib/api";
 import {
@@ -10,10 +10,13 @@ import { getAppPromptExample } from "@/lib/appPromptExamples";
 import { normalizeIntegrationStatus } from "@/lib/integrationStatus";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import { resolveMountedAppHref } from "@/lib/mount";
+import { useIntegrationOperationsQuery } from "@/lib/queries";
+import { catalogEntriesFromOperations } from "@/features/app-workspace/operations";
 import AppPromptExamplePromo from "@/components/AppPromptExamplePromo";
 import IntegrationIcon from "@/components/IntegrationIcon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Link as UiLink } from "@/components/ui/link";
 import { SelectionCheck } from "@/components/ui/selection-check";
 import {
   PageHeader,
@@ -29,6 +32,11 @@ const overviewSectionClass = "border-t border-border pt-8";
 export default function AppWorkspaceOverviewPage() {
   const navigate = useNavigate();
   const { app, integration } = useAppWorkspace();
+  const operationsQuery = useIntegrationOperationsQuery(app);
+  const operationCount = useMemo(
+    () => catalogEntriesFromOperations(operationsQuery.data ?? []).length,
+    [operationsQuery.data],
+  );
   const [session, setSession] = useState<AuthSession | null>(null);
 
   useEffect(() => {
@@ -160,6 +168,27 @@ export default function AppWorkspaceOverviewPage() {
       {promptExample ? (
         <div className={overviewSectionClass}>
           <AppPromptExamplePromo displayName={label} body={promptExample} />
+        </div>
+      ) : null}
+
+      {operationCount > 0 || surfaces.hasMcp ? (
+        <div className={overviewSectionClass} data-testid="overview-operations-handoff">
+          <h2 className="text-lg font-heading text-foreground">Operations</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {operationCount > 0 ? (
+              <>
+                Browse {operationCount} callable operation
+                {operationCount === 1 ? "" : "s"} for agents and the CLI.
+              </>
+            ) : (
+              <>Browse callable operations for agents and the CLI.</>
+            )}{" "}
+            <UiLink asChild className="text-sm">
+              <Link to="/apps/$app/operations" params={{ app }}>
+                View operations
+              </Link>
+            </UiLink>
+          </p>
         </div>
       ) : null}
 

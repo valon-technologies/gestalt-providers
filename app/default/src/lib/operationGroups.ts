@@ -1,5 +1,9 @@
 import type { IntegrationOperation } from "@/lib/api";
-import { textContainsAllSearchTokens } from "@/lib/search-highlight";
+import {
+  getCatalogSearchHaystack,
+  matchesCatalogSearchQuery,
+  toCatalogEntry,
+} from "@/features/app-workspace/operations/catalog";
 
 export type OperationResourceGroup = {
   prefix: string;
@@ -55,26 +59,16 @@ export function groupOperationsByResource(
     }));
 }
 
+/** Delegates to the catalog presentation haystack (displayable fields only). */
 export function getOperationSearchHaystack(operation: IntegrationOperation): string {
-  return [
-    operation.id,
-    operation.title,
-    operation.description,
-    operation.tags?.join(" "),
-    operation.method,
-    operation.path,
-    operation.transport,
-    operation.allowedRoles?.join(" "),
-  ]
-    .filter(Boolean)
-    .join(" ");
+  return getCatalogSearchHaystack(toCatalogEntry(operation));
 }
 
 export function matchesOperationSearchQuery(
   operation: IntegrationOperation,
   rawQuery: string,
 ): boolean {
-  return textContainsAllSearchTokens(getOperationSearchHaystack(operation), rawQuery);
+  return matchesCatalogSearchQuery(toCatalogEntry(operation), rawQuery);
 }
 
 export function filterOperations(
