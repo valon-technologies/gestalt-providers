@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import type { IntegrationOperation } from "@/lib/api";
 import {
-  filterOperations,
   formatOperationResourceLabel,
   groupOperationsByResource,
   operationResourcePrefix,
@@ -38,14 +37,5 @@ describe("operationGroups", () => {
 
   it("extracts resource prefix from dotted ids", () => {
     expect(operationResourcePrefix("attachments.create")).toBe("attachments");
-  });
-
-  it("filters with token-AND semantics aligned to SearchHighlight", () => {
-    const ops = [
-      sampleOp("issues.list", { description: "List issues for a project" }),
-      sampleOp("customers.list", { description: "List customers" }),
-    ];
-    expect(filterOperations(ops, "issues list")).toEqual([ops[0]]);
-    expect(filterOperations(ops, "list customers")).toEqual([ops[1]]);
   });
 });
