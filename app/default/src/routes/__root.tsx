@@ -1,5 +1,6 @@
 import { Outlet, createRootRoute } from "@tanstack/react-router";
 import AuthGuard from "@/components/AuthGuard";
+import { DevWorktreeBanner } from "@/components/DevWorktreeBanner";
 import Nav from "@/components/Nav";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 
@@ -11,7 +12,10 @@ export const rootRoute = createRootRoute({
 function RootLayout() {
   return (
     <div className="min-h-screen">
-      <Nav />
+      <div className="sticky top-0 z-50">
+        {import.meta.env.DEV ? <DevWorktreeBanner /> : null}
+        <Nav />
+      </div>
       <AuthGuard>
         <Outlet />
       </AuthGuard>
