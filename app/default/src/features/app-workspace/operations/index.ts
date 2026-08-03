@@ -18,7 +18,6 @@ export {
 export {
   AUTHORIZATION_DOCS_PATH,
   INVOKE_DOCS_PATH,
-  operationDeepLinkHref,
   operationDeepLinkPath,
   operationInvokeCliCommand,
 } from "./handoffs";

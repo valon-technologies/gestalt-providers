@@ -139,7 +139,7 @@ function OperationIdCell({
         </div>
       ) : null}
       {entry.path ? (
-        <p className="mt-1 font-mono text-xs text-faint">
+        <p className="mt-1 font-mono text-xs text-muted-foreground">
           <SearchHighlight
             text={entry.path}
             query={highlightQuery}
@@ -148,7 +148,7 @@ function OperationIdCell({
         </p>
       ) : null}
       {entry.readOnly ? (
-        <p className="mt-1 text-xs text-faint">Read-only</p>
+        <p className="mt-1 text-xs text-muted-foreground">Read-only</p>
       ) : null}
     </div>
   );
@@ -186,9 +186,8 @@ function OperationHandoffs({
   return (
     <CopyIconButton
       value={() => operationInvokeCliCommand(appName, operationId)}
-      tooltip="Copy CLI invoke"
-      copiedLabel="CLI copied"
-      aria-label={`Copy CLI invoke for ${operationId}`}
+      tooltip={`Copy invoke command for ${operationId}`}
+      copiedLabel={`Copied invoke command for ${operationId}`}
       data-testid={`ops-copy-cli-${operationId}`}
     />
   );
@@ -209,8 +208,9 @@ function OperationRow({
     <TableRow
       id={appOperationElementId(entry.id)}
       data-operation-id={entry.id}
+      tabIndex={-1}
       className={cn(
-        "scroll-mt-28 transition-[background-color,box-shadow] duration-reveal",
+        "scroll-mt-28 transition-[background-color,box-shadow] duration-reveal outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-solid",
         highlightedOperationId === entry.id &&
           "bg-accent-subtle ring-2 ring-inset ring-accent-solid",
       )}
@@ -338,7 +338,7 @@ function FocusNotice({
         </AlertDescription>
         <AlertActions>
           <Button type="button" variant="outline" size="sm" onClick={onClearHash}>
-            Dismiss
+            Clear link
           </Button>
         </AlertActions>
       </Alert>
@@ -391,6 +391,7 @@ export default function AppWorkspaceOperationsPage() {
   const [operationHash, setOperationHash] = useState<string | null>(() =>
     readOperationHash(),
   );
+  const [highlightAnnouncement, setHighlightAnnouncement] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const lastScrolledFocusKey = useRef<string | null>(null);
 
@@ -497,18 +498,20 @@ export default function AppWorkspaceOperationsPage() {
     if (lastScrolledFocusKey.current === focusKey) return;
     lastScrolledFocusKey.current = focusKey;
 
-    const el = document.querySelector(
+    const el = document.querySelector<HTMLElement>(
       `[data-operation-id="${CSS.escape(focus.operationId)}"]`,
     );
     if (!el) return;
 
     activate(focus.sectionId);
     el.scrollIntoView({ block: "start", behavior: "smooth" });
+    el.focus({ preventScroll: true });
     setHighlightedOperationId(focus.operationId);
-    const timer = window.setTimeout(
-      () => setHighlightedOperationId(null),
-      HIGHLIGHT_MS,
-    );
+    setHighlightAnnouncement(`Showing operation ${focus.operationId}`);
+    const timer = window.setTimeout(() => {
+      setHighlightedOperationId(null);
+      setHighlightAnnouncement("");
+    }, HIGHLIGHT_MS);
     return () => window.clearTimeout(timer);
   }, [activate, focus]);
 
@@ -517,12 +520,15 @@ export default function AppWorkspaceOperationsPage() {
 
   return (
     <section aria-label="Operations">
+      <div className="sr-only" aria-live="polite">
+        {highlightAnnouncement}
+      </div>
       <PageHeader>
         <PageHeaderContent size="md">
           <PageHeaderTitle>Operations</PageHeaderTitle>
           <PageHeaderDescription className="text-pretty">
             Callable operations for {appLabel} — grouped by resource, with
-            methods, roles, and links for agents and the CLI.
+            methods, roles, and CLI commands for agents.
           </PageHeaderDescription>
           <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
             <UiLink asChild>

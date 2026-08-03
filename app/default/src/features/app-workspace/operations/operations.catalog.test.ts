@@ -154,11 +154,11 @@ describe("resolveOperationFocus", () => {
 
 describe("operation handoffs", () => {
   it("builds deep link paths and CLI invoke commands", () => {
-    expect(operationDeepLinkPath("talent-team", "candidates.list")).toBe(
-      "/apps/talent-team/operations#candidates.list",
+    expect(operationDeepLinkPath("example-app", "items.list")).toBe(
+      "/apps/example-app/operations#items.list",
     );
-    expect(operationInvokeCliCommand("talent-team", "candidates.list")).toBe(
-      "gestalt apps invoke talent-team candidates.list",
+    expect(operationInvokeCliCommand("example-app", "items.list")).toBe(
+      "gestalt apps invoke example-app items.list",
     );
   });
 });
