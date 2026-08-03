@@ -5,6 +5,7 @@ import {
   startIntegrationOAuth,
   connectManualIntegration,
   disconnectIntegration,
+  selectPreferredInstance,
 } from "@/lib/api";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import type { Integration } from "@/lib/api";
@@ -49,6 +50,12 @@ type DisconnectFn = (
   connection?: string,
 ) => Promise<void>;
 
+type SelectInstanceFn = (
+  integration: string,
+  instance: string,
+  connection?: string,
+) => Promise<unknown>;
+
 export function useIntegrationConnection({
   integration,
   onConnected,
@@ -57,6 +64,7 @@ export function useIntegrationConnection({
   startOAuth = startIntegrationOAuth,
   connectManual = connectManualIntegration,
   disconnect = disconnectIntegration,
+  selectInstance = selectPreferredInstance,
   returnPath,
   onFlowComplete,
 }: {
@@ -67,6 +75,7 @@ export function useIntegrationConnection({
   startOAuth?: StartOAuthFn;
   connectManual?: ConnectManualFn;
   disconnect?: DisconnectFn;
+  selectInstance?: SelectInstanceFn;
   returnPath?: string;
   /** Called after connect/disconnect completes (e.g. close modal). */
   onFlowComplete?: () => void;
@@ -74,6 +83,7 @@ export function useIntegrationConnection({
   const label = getIntegrationLabel(integration);
   const [loading, setLoading] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [selectingInstance, setSelectingInstance] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [pendingOAuthTarget, setPendingOAuthTarget] = useState<ConnectionTarget>(
@@ -175,6 +185,21 @@ export function useIntegrationConnection({
     }
   }
 
+  async function handleSelectInstance(instance: string, connection?: string) {
+    setSelectingInstance(true);
+    setError(null);
+    try {
+      await selectInstance(integration.name, instance, connection);
+      onStatusMessage?.(`${label} account updated.`);
+      onConnected?.();
+      onFlowComplete?.();
+    } catch (err) {
+      setError(userFacingError(err, "Couldn't choose that account. Try again."));
+    } finally {
+      setSelectingInstance(false);
+    }
+  }
+
   function clearError() {
     setError(null);
   }
@@ -182,6 +207,7 @@ export function useIntegrationConnection({
   return {
     loading,
     disconnecting,
+    selectingInstance,
     submitting,
     error,
     pendingSelection,
@@ -189,6 +215,7 @@ export function useIntegrationConnection({
     handleStartOAuth,
     handleSubmitToken,
     handleDisconnect,
+    handleSelectInstance,
     clearError,
   };
 }

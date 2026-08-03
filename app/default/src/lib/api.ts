@@ -17,6 +17,8 @@ export interface CredentialFieldDef {
 export interface InstanceInfo {
   name: string;
   connection?: string;
+  /** True when this instance is the subject's preferred account for the connection. */
+  preferred?: boolean;
 }
 
 export type AuthType = "oauth" | "manual";
@@ -70,6 +72,7 @@ export interface ConnectionDefInfo {
   credentialMode?: CredentialMode;
   ownerKind?: OwnerKind;
   instances?: InstanceInfo[];
+  preferredInstance?: string;
   mcpPassthrough?: boolean;
 }
 
@@ -882,6 +885,27 @@ export async function disconnectIntegration(
       method: "DELETE",
     },
   );
+}
+
+export type SelectPreferredInstanceResult = {
+  status: string;
+  integration?: string;
+  connection?: string;
+  instance?: string;
+};
+
+/** Set the active account for an app connection (server-owned preferred instance). */
+export async function selectPreferredInstance(
+  name: string,
+  instance: string,
+  connection?: string,
+): Promise<SelectPreferredInstanceResult> {
+  const body: Record<string, string> = { instance };
+  if (connection) body.connection = connection;
+  return fetchAPI(`/api/v1/apps/${encodeURIComponent(name)}/preferred-instance`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
 }
 
 import {

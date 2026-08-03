@@ -1,3 +1,5 @@
+import { CONNECTION_SURFACE_NAV_LABEL } from "./connection-surface-copy";
+
 export type AppUserNavId = "overview" | "connection" | "operations";
 
 export type AppAdminNavId =
@@ -16,9 +18,10 @@ export const APP_USER_NAV = [
   },
   {
     id: "connection" as const,
-    label: "Connection",
+    label: CONNECTION_SURFACE_NAV_LABEL,
     to: "/apps/$app/connection" as const,
-    when: "hasConnection" as const,
+    /** Shown only when {@link appShowsCredentialSurface} is true. */
+    when: "hasCredentialSurface" as const,
   },
   {
     id: "operations" as const,

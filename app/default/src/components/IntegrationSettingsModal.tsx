@@ -15,8 +15,13 @@ interface IntegrationSettingsModalProps {
     connection?: string,
   ) => void;
   onDisconnect: (instance?: string, connection?: string) => void;
+  onSelectInstance?: (
+    instance: string,
+    connection?: string,
+  ) => void | Promise<void>;
   reconnecting: boolean;
   disconnecting: boolean;
+  selectingInstance?: boolean;
   submitting: boolean;
   error: string | null;
   readOnly?: boolean;

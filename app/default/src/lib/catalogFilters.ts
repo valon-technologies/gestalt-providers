@@ -1,5 +1,6 @@
 import type { Integration } from "@/lib/api";
 import {
+  hasCredentialSurface,
   normalizeIntegrationStatus,
   type ConnectionContext,
   type NormalizedIntegrationStatus,
@@ -90,6 +91,22 @@ export function badgeVariantFromTone(
       return "destructive";
     case "neutral":
       return "muted";
+  }
+}
+
+/** Map status tone onto Registry `Alert` variants (inline notice). */
+export function alertVariantFromTone(
+  tone: StatusTone,
+): "success" | "warning" | "destructive" | "default" {
+  switch (tone) {
+    case "success":
+      return "success";
+    case "warning":
+      return "warning";
+    case "danger":
+      return "destructive";
+    case "neutral":
+      return "default";
   }
 }
 
@@ -201,10 +218,21 @@ export function countNeedsAttention(
   integrations: Integration[],
   context: ConnectionContext = "current_user",
 ): number {
-  return integrations.filter(
-    (integration) =>
-      connectionSetupBucket(integration, context) === "needs_attention",
-  ).length;
+  return listNeedsAttention(integrations, context).length;
+}
+
+/** Apps in `needs_attention`, in catalog sort order (listed first in the grid). */
+export function listNeedsAttention(
+  integrations: Integration[],
+  context: ConnectionContext = "current_user",
+): Integration[] {
+  return sortCatalogIntegrations(
+    integrations.filter(
+      (integration) =>
+        connectionSetupBucket(integration, context) === "needs_attention",
+    ),
+    context,
+  );
 }
 
 export function filterCatalogIntegrations(
@@ -252,6 +280,17 @@ export function primaryConnectLabel(
   return null;
 }
 
+/**
+ * App-workspace Connection nav / page — SoT for credential-surface visibility.
+ * Prefer this over `connected` or raw `connections.length`.
+ */
+export function appShowsCredentialSurface(
+  integration: Integration,
+  context: ConnectionContext = "current_user",
+): boolean {
+  return hasCredentialSurface(normalizeIntegrationStatus(integration, context));
+}
+
 /** User can administer this app (server omits managementPath otherwise). */
 export function canManageApp(integration: Integration): boolean {
   return Boolean(integration.managementPath?.trim());
@@ -290,14 +329,29 @@ export function appDetailPath(integration: Integration): string {
 }
 
 /**
- * Whole-card activate target — always app detail for catalog tiles.
- * Product launch uses the explicit Open app control on the card.
+ * Whole-card activate target — always app detail (overview) for catalog tiles.
+ * Product launch uses the explicit Open app control on the card; connect /
+ * remove use the Add / More controls.
  */
 export function catalogCardActivateTarget(
   _integration: Integration,
   _context: ConnectionContext = "current_user",
 ): "detail" {
   return "detail";
+}
+
+/** Route params for the whole-card stretch link — SoT for catalog tile navigation. */
+export function catalogCardActivateRoute(integration: Integration): {
+  to: "/apps/$app";
+  params: { app: string };
+} {
+  switch (catalogCardActivateTarget(integration)) {
+    case "detail":
+      return {
+        to: "/apps/$app",
+        params: { app: integration.name },
+      };
+  }
 }
 
 /** Show Open app on the catalog card when the mounted UI is reachable. */

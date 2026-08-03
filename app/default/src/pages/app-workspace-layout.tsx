@@ -2,12 +2,11 @@ import { Link, Outlet, useParams, useRouterState } from "@tanstack/react-router"
 import { Info } from "lucide-react";
 import { useCallback, useMemo } from "react";
 import { isAPIErrorStatus } from "@/lib/api";
-import { canManageApp, primaryConnectLabel } from "@/lib/catalogFilters";
-import { getIntegrationLabel } from "@/lib/integrationSearch";
 import {
-  shouldShowIntegrationSettings,
-  normalizeIntegrationStatus,
-} from "@/lib/integrationStatus";
+  appShowsCredentialSurface,
+  canManageApp,
+} from "@/lib/catalogFilters";
+import { getIntegrationLabel } from "@/lib/integrationSearch";
 import {
   useAppAdminRegistryQuery,
   useAppAuthorizationMembersQuery,
@@ -52,6 +51,7 @@ import {
   type AppWorkspaceCapabilities,
 } from "@/features/app-workspace/app-workspace-context";
 import { APP_SECTION_CARD } from "@/features/app-workspace/app-workspace-shared";
+import { AppWorkspaceMobileNav } from "@/features/app-workspace/app-workspace-mobile-nav";
 import { AppWorkspaceNav } from "@/features/app-workspace/app-workspace-nav";
 import { PageLayout } from "@/components/ui/page-layout";
 import { userFacingError } from "@/lib/user-facing-error";
@@ -91,21 +91,8 @@ export default function AppWorkspaceLayout() {
   const authorizationAdmin = membersQuery.isSuccess;
   const authorizationProbeDone = membersQuery.isFetched;
 
-  const status = integration
-    ? normalizeIntegrationStatus(integration, "current_user")
-    : null;
-  const connectLabel = integration
-    ? primaryConnectLabel(integration, "current_user")
-    : null;
-  const showManageConnection = Boolean(
-    status &&
-      !connectLabel &&
-      (status.connected || shouldShowIntegrationSettings(status, false)),
-  );
   const showConnectionNav = Boolean(
-    connectLabel ||
-      showManageConnection ||
-      (integration?.connections?.length ?? 0) > 0,
+    integration && appShowsCredentialSurface(integration, "current_user"),
   );
 
   const capabilities = useMemo<AppWorkspaceCapabilities>(() => {
@@ -211,7 +198,9 @@ export default function AppWorkspaceLayout() {
   );
 
   const userNavItems = APP_USER_NAV.filter((item) =>
-    "when" in item ? item.when !== "hasConnection" || showConnectionNav : true,
+    "when" in item
+      ? item.when !== "hasCredentialSurface" || showConnectionNav
+      : true,
   );
   const adminNavItems = APP_ADMIN_NAV.filter((item) =>
     hasAdminSurface(capabilities, item.requires),
@@ -276,6 +265,15 @@ export default function AppWorkspaceLayout() {
             pane={
               <AppWorkspaceNav
                 app={app}
+                userItems={userNavItems}
+                adminItems={adminNavItems}
+                adminGroupVisible={adminGroupVisible}
+              />
+            }
+            paneMobile={
+              <AppWorkspaceMobileNav
+                app={app}
+                pathname={pathname}
                 userItems={userNavItems}
                 adminItems={adminNavItems}
                 adminGroupVisible={adminGroupVisible}

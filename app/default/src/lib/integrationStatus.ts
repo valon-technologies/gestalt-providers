@@ -193,6 +193,41 @@ export function shouldShowIntegrationSettings(
   return normalized.hasActionableConnections || normalized.hasUsefulStatusDetail;
 }
 
+/**
+ * Whether the app workspace should expose a Connection (credentials) surface.
+ *
+ * Distinct from `connected`: `not_required` / mount-only apps count as ready for
+ * launch, but they have nothing to connect, reconnect, or disconnect. Using
+ * `connected` (or `connections.length`) for nav visibility falsely sells a
+ * credential step for those apps.
+ */
+export function hasCredentialSurface(
+  normalized: NormalizedIntegrationStatus,
+): boolean {
+  if (normalized.credentialState === "not_required") {
+    return normalized.connections.some(
+      (connection) =>
+        !connection.isNoAuth &&
+        (connection.canConnect ||
+          connection.canDisconnect ||
+          connection.canReconnect ||
+          connection.canAddInstance ||
+          connection.canSelectInstance ||
+          connection.instances.length > 0 ||
+          connection.usefulStatusDetail),
+    );
+  }
+
+  return (
+    normalized.status === "needs_user_connection" ||
+    normalized.credentialState === "missing" ||
+    normalized.credentialState === "invalid" ||
+    normalized.hasActionableConnections ||
+    normalized.connections.length > 0 ||
+    normalized.hasUsefulStatusDetail
+  );
+}
+
 export function statusTone(
   status: IntegrationStatus,
   credentialState: CredentialState,

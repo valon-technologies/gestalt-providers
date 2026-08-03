@@ -37,6 +37,14 @@ describe("AppWorkspaceOverviewPage prompt wiring", () => {
     expect(OVERVIEW).toContain("<AppPromptExamplePromo");
     expect(OVERVIEW).not.toContain("promptExamples.map");
     expect(OVERVIEW).toContain("<PageHeaderActions>");
+    expect(OVERVIEW).toContain('data-testid="open-app-detail"');
     expect(OVERVIEW).toContain("{connectLabel}");
+    // Open app lives in the header actions slot, not under the badge row.
+    const actionsIdx = OVERVIEW.indexOf("<PageHeaderActions>");
+    const openAppIdx = OVERVIEW.indexOf('data-testid="open-app-detail"');
+    const actionsEndIdx = OVERVIEW.indexOf("</PageHeaderActions>");
+    expect(actionsIdx).toBeGreaterThan(-1);
+    expect(openAppIdx).toBeGreaterThan(actionsIdx);
+    expect(openAppIdx).toBeLessThan(actionsEndIdx);
   });
 });
