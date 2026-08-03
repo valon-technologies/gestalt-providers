@@ -58,20 +58,49 @@ const SIZE_STYLES = {
   },
 } as const;
 
+export type SegmentedControlNameProps =
+  | {
+      /** Visible label id — preferred when a section label already names the control. */
+      labelledBy: string;
+      label?: never;
+    }
+  | {
+      /** Accessible name when no visible label is associated. */
+      label: string;
+      labelledBy?: never;
+    };
+
 export type SegmentedControlProps<V extends string = string> = {
   options: ReadonlyArray<SegmentedControlOption<V>>;
   value: V;
   onValueChange: (value: V) => void;
-  // Accessible name for the radiogroup — required so the set is announced as one.
-  // Prefer `labelledBy` when a visible label already names the control.
-  label: string;
-  labelledBy?: string;
   orientation?: "horizontal" | "vertical";
   showLabels?: boolean;
   tooltips?: boolean;
   size?: "xs" | "sm" | "default";
   className?: string;
-};
+} & SegmentedControlNameProps;
+
+/** Exactly one non-empty accessible name — mirrors Registry / Slider thumb enforcement. */
+export function resolveSegmentedControlNameProps(
+  props: SegmentedControlNameProps,
+): { "aria-labelledby": string } | { "aria-label": string } {
+  const labelledBy =
+    "labelledBy" in props && typeof props.labelledBy === "string"
+      ? props.labelledBy.trim()
+      : "";
+  if (labelledBy) {
+    return { "aria-labelledby": labelledBy };
+  }
+  const label =
+    "label" in props && typeof props.label === "string" ? props.label.trim() : "";
+  if (label) {
+    return { "aria-label": label };
+  }
+  throw new Error(
+    "SegmentedControl requires an accessible name via `label` or `labelledBy`",
+  );
+}
 
 type PillRect = { left: number; top: number; width: number; height: number };
 
@@ -176,13 +205,17 @@ export function SegmentedControl<V extends string>({
   const withTooltips = tooltips && !showLabels;
   const tooltipSide = isVertical ? "right" : "top";
 
+  const nameProps = resolveSegmentedControlNameProps(
+    labelledBy !== undefined
+      ? { labelledBy }
+      : { label: label as string },
+  );
+
   const control = (
     <div
       ref={containerRef}
       role="radiogroup"
-      {...(labelledBy
-        ? { "aria-labelledby": labelledBy }
-        : { "aria-label": label })}
+      {...nameProps}
       onKeyDown={onKeyDown}
       className={cn(
         "relative inline-flex rounded-lg border border-border bg-muted",

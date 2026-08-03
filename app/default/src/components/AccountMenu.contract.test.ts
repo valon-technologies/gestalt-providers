@@ -43,8 +43,14 @@ describe("ThemeToggle placement contract", () => {
   });
 
   test("supports labelledBy for a visible section label", () => {
-    expect(THEME_TOGGLE).toContain("labelledBy?: string");
-    expect(THEME_TOGGLE).toContain("labelledBy={labelledBy}");
+    expect(THEME_TOGGLE).toContain("export type ThemeToggleNameProps");
+    expect(THEME_TOGGLE).toContain(
+      'Extract<SegmentedControlNameProps, { labelledBy: string }>',
+    );
+    expect(THEME_TOGGLE).toContain('label: label?.trim() || "Theme"');
+    expect(THEME_TOGGLE).toContain("{...nameProps}");
+    expect(THEME_TOGGLE).not.toContain("labelledBy={labelledBy}");
+    expect(THEME_TOGGLE).not.toContain("label={label}");
   });
 });
 

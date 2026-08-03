@@ -1,12 +1,16 @@
 
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ *
+ * Local extension: `placement` (`header` | `menu`) for chrome-specific defaults.
+ * Accessible-name contract matches Registry (label XOR labelledBy).
  */
 
 import { MonitorIcon, MoonIcon, SunIcon } from "@/components/icons";
 import { useTheme, type Theme } from "@/hooks/use-theme";
 import {
   SegmentedControl,
+  type SegmentedControlNameProps,
   type SegmentedControlOption,
 } from "@/components/ui/segmented-control";
 import { cn } from "@/lib/cn";
@@ -34,6 +38,14 @@ const PLACEMENT_DEFAULTS: Record<
   menu: ICON_TOOLTIP_PRESENTATION,
 };
 
+/** Same ownership as SegmentedControl; `label` defaults to `"Theme"` when omitted. */
+export type ThemeToggleNameProps =
+  | Extract<SegmentedControlNameProps, { labelledBy: string }>
+  | {
+      labelledBy?: never;
+      label?: string;
+    };
+
 export type ThemeToggleProps = {
   /** Presentation surface. Defaults encode header vs menu discoverability. */
   placement?: ThemeTogglePlacement;
@@ -43,11 +55,8 @@ export type ThemeToggleProps = {
   /** Overrides placement default when set. */
   tooltips?: boolean;
   size?: "xs" | "sm" | "default";
-  label?: string;
-  /** Prefer over `label` when a visible section label already names the control. */
-  labelledBy?: string;
   className?: string;
-};
+} & ThemeToggleNameProps;
 
 /** Light / Dark / System switcher — sliding pill over icon segments. */
 export function ThemeToggle({
@@ -56,24 +65,28 @@ export function ThemeToggle({
   showLabels,
   tooltips,
   size = "default",
-  label = "Theme",
+  label,
   labelledBy,
   className,
 }: ThemeToggleProps) {
   const { theme, setTheme } = useTheme();
   const defaults = PLACEMENT_DEFAULTS[placement];
+  // ThemeToggle owns the default product name; SegmentedControl owns aria emission.
+  const nameProps: SegmentedControlNameProps =
+    typeof labelledBy === "string" && labelledBy.trim() !== ""
+      ? { labelledBy: labelledBy.trim() }
+      : { label: label?.trim() || "Theme" };
   return (
     <SegmentedControl
       options={THEME_OPTIONS}
       value={theme}
       onValueChange={setTheme}
-      label={label}
-      labelledBy={labelledBy}
       orientation={orientation}
       showLabels={showLabels ?? defaults.showLabels}
       tooltips={tooltips ?? defaults.tooltips}
       size={size}
       className={cn(defaults.className, className)}
+      {...nameProps}
     />
   );
 }
