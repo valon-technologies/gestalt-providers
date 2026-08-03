@@ -1,9 +1,4 @@
 import type { IntegrationOperation } from "@/lib/api";
-import {
-  getCatalogSearchHaystack,
-  matchesCatalogSearchQuery,
-  toCatalogEntry,
-} from "@/features/app-workspace/operations/catalog";
 
 export type OperationResourceGroup = {
   prefix: string;
@@ -34,6 +29,7 @@ export function formatOperationResourceLabel(prefix: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
+/** Group operations by id prefix for section headings / TOC. */
 export function groupOperationsByResource(
   operations: IntegrationOperation[],
 ): OperationResourceGroup[] {
@@ -57,28 +53,4 @@ export function groupOperationsByResource(
       sectionId: operationResourceSectionId(prefix),
       operations: [...ops].sort((a, b) => a.id.localeCompare(b.id)),
     }));
-}
-
-/** Delegates to the catalog presentation haystack (displayable fields only). */
-export function getOperationSearchHaystack(operation: IntegrationOperation): string {
-  return getCatalogSearchHaystack(toCatalogEntry(operation));
-}
-
-export function matchesOperationSearchQuery(
-  operation: IntegrationOperation,
-  rawQuery: string,
-): boolean {
-  return matchesCatalogSearchQuery(toCatalogEntry(operation), rawQuery);
-}
-
-export function filterOperations(
-  operations: IntegrationOperation[],
-  query: string,
-): IntegrationOperation[] {
-  const trimmed = query.trim();
-  if (!trimmed) return operations;
-
-  return operations.filter((operation) =>
-    matchesOperationSearchQuery(operation, trimmed),
-  );
 }
