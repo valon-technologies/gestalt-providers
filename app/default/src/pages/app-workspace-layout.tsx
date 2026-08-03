@@ -36,6 +36,7 @@ import {
   adminSurfaceForPathname,
   APP_ADMIN_NAV,
   APP_USER_NAV,
+  isAppVersionsAdminPath,
 } from "@/features/app-workspace/app-nav";
 import {
   AppWorkspaceProvider,
@@ -128,14 +129,14 @@ export default function AppWorkspaceLayout() {
   const deployFailed = deployMutation.isError && !deployConflict;
   const deployError =
     deployFailed && registry
-      ? userFacingError(deployMutation.error, "Unable to deploy this version. Try again.")
+      ? userFacingError(deployMutation.error, "Couldn't deploy this version. Try again.")
       : null;
 
   const registryError =
     registryQuery.isError && !registryForbidden
       ? userFacingError(
           registryQuery.error,
-          "Unable to load deployment versions. Try again.",
+          "Couldn't load versions. Try again.",
         )
       : null;
 
@@ -232,7 +233,9 @@ export default function AppWorkspaceLayout() {
       !hasAdminSurface(capabilities, requiredAdminSurface),
   );
   const showFleetState =
-    (isAdminPath || isVersionsPath) && capabilities.registry && registry;
+    isAppVersionsAdminPath(pathname, app) &&
+    capabilities.registry &&
+    registry;
 
   const content = (
     <AppWorkspaceProvider value={workspaceValue}>
@@ -267,7 +270,7 @@ export default function AppWorkspaceLayout() {
             <div className="space-y-8">
               {showFleetState ? <AppAdminFleetState registry={registry} /> : null}
 
-              {rolloutActive && registry?.rollout ? (
+              {showFleetState && rolloutActive && registry?.rollout ? (
                 <p
                   className="rounded-lg border border-info-foreground/40 bg-info px-4 py-3 text-sm text-info-foreground"
                   data-testid="rollout-active-banner"
@@ -279,9 +282,36 @@ export default function AppWorkspaceLayout() {
               ) : null}
 
               {adminSurfaceLoading ? (
-                <p className="text-sm text-muted-foreground">
-                  Loading app admin…
-                </p>
+                <section
+                  aria-busy="true"
+                  aria-label={isVersionsPath ? "Versions" : "App admin"}
+                  data-testid="app-admin-surface-loading"
+                >
+                  {isVersionsPath ? (
+                    <div className="space-y-6">
+                      <PageHeader>
+                        <PageHeaderContent size="md">
+                          <PageHeaderTitle>Versions</PageHeaderTitle>
+                          <PageHeaderDescription>
+                            Loading deployment status…
+                          </PageHeaderDescription>
+                        </PageHeaderContent>
+                      </PageHeader>
+                      <div
+                        className="h-16 animate-pulse rounded-lg bg-muted"
+                        aria-hidden="true"
+                      />
+                      <div
+                        className="h-40 animate-pulse rounded-lg bg-muted"
+                        aria-hidden="true"
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Loading app admin…
+                    </p>
+                  )}
+                </section>
               ) : adminSurfaceError ? (
                 <ErrorNotice
                   message={adminSurfaceError}

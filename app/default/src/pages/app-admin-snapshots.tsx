@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { AppAdminAutoDeployToggle } from "@/features/registry/app-admin-auto-deploy-toggle";
 import { useAppAdminRegistryContext } from "@/features/registry/app-admin-registry-context";
 import { AppAdminSnapshotsTable } from "@/features/registry/app-admin-snapshots-table";
+import { versionsSurfacePresentation } from "@/features/registry/deploy-mode";
 import {
   formatRegistryDisabledReason,
   formatRegistryTime,
@@ -24,7 +25,13 @@ import {
   PageHeaderTitle,
 } from "@/components/ui/page-header";
 
-function RegistryRefreshedAt({ appName }: { appName: string }) {
+function RegistryRefreshedAt({
+  appName,
+  checkingLabel,
+}: {
+  appName: string;
+  checkingLabel: string;
+}) {
   const registryQuery = useAppAdminRegistryQuery(appName);
   const registryUpdatedAt = registryQuery.isFetched
     ? registryQuery.dataUpdatedAt
@@ -34,7 +41,11 @@ function RegistryRefreshedAt({ appName }: { appName: string }) {
     : null;
 
   if (registryQuery.isCheckingForNewVersions) {
-    return <p className="text-sm text-muted-foreground">Refreshing…</p>;
+    return (
+      <p className="text-sm text-muted-foreground" aria-live="polite">
+        {checkingLabel}
+      </p>
+    );
   }
 
   if (!registryUpdatedAt) {
@@ -43,7 +54,7 @@ function RegistryRefreshedAt({ appName }: { appName: string }) {
 
   return (
     <p className="text-sm text-muted-foreground" data-testid="registry-refreshed-at">
-      Refreshed at{" "}
+      Last checked{" "}
       <time
         dateTime={registryUpdatedIso ?? undefined}
         title={registryUpdatedIso ? formatRegistryTime(registryUpdatedIso) : undefined}
@@ -54,7 +65,15 @@ function RegistryRefreshedAt({ appName }: { appName: string }) {
   );
 }
 
-function RegistryCheckForNewVersionsButton({ appName }: { appName: string }) {
+function RegistryCheckForNewVersionsButton({
+  appName,
+  idleLabel,
+  pendingLabel,
+}: {
+  appName: string;
+  idleLabel: string;
+  pendingLabel: string;
+}) {
   const registryQuery = useAppAdminRegistryQuery(appName);
 
   return (
@@ -69,34 +88,13 @@ function RegistryCheckForNewVersionsButton({ appName }: { appName: string }) {
       {registryQuery.isCheckingForNewVersions ? (
         <>
           <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-          Checking…
+          {pendingLabel}
         </>
       ) : (
-        "Check for new versions"
+        idleLabel
       )}
     </Button>
   );
-}
-
-function versionsSubhead({
-  autoDeployEnabled,
-  desiredVersion,
-  rolloutActive,
-}: {
-  autoDeployEnabled: boolean;
-  desiredVersion?: string;
-  rolloutActive: boolean;
-}): string {
-  if (autoDeployEnabled) {
-    if (rolloutActive) {
-      return "Automatic deploy is on. New versions queue until the current rollout finishes.";
-    }
-    return "Automatic deploy is on. New versions deploy to the fleet without a manual deploy.";
-  }
-  if (desiredVersion) {
-    return "Deploy a version to change what's running across the fleet.";
-  }
-  return "No version is serving on the fleet yet. Deploy a version to start.";
 }
 
 export default function AppAdminSnapshotsPage() {
@@ -129,8 +127,13 @@ export default function AppAdminSnapshotsPage() {
   const rolloutActive = Boolean(
     registry.rollout && isActiveRegistryRollout(registry.rollout.state),
   );
+  const surface = versionsSurfacePresentation({
+    autoDeployEnabled,
+    rolloutActive,
+    hasDesiredVersion: Boolean(registry.desiredVersion),
+  });
   const controlsDisabled =
-    registry.selectionDisabled || deployingVersion !== null || autoDeployEnabled;
+    registry.selectionDisabled || deployingVersion !== null;
   const autoDeployError = autoDeployMutation.isError
     ? "Couldn't update automatic deploy. Check your connection and try again."
     : null;
@@ -141,27 +144,29 @@ export default function AppAdminSnapshotsPage() {
       <PageHeader>
         <PageHeaderContent size="md">
           <PageHeaderTitle>Versions</PageHeaderTitle>
-          <PageHeaderDescription>
-            {versionsSubhead({
-              autoDeployEnabled,
-              desiredVersion: registry.desiredVersion,
-              rolloutActive,
-            })}
-          </PageHeaderDescription>
+          <PageHeaderDescription>{surface.pageDescription}</PageHeaderDescription>
         </PageHeaderContent>
         <PageHeaderActions className="flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-4">
-          <RegistryRefreshedAt appName={appName} />
-          <RegistryCheckForNewVersionsButton appName={appName} />
+          <RegistryRefreshedAt
+            appName={appName}
+            checkingLabel={surface.checkForNewVersionsPendingLabel}
+          />
+          <RegistryCheckForNewVersionsButton
+            appName={appName}
+            idleLabel={surface.checkForNewVersionsLabel}
+            pendingLabel={surface.checkForNewVersionsPendingLabel}
+          />
         </PageHeaderActions>
       </PageHeader>
 
       <div className="mt-6 space-y-8">
         <AppAdminAutoDeployToggle
           autoDeploy={registry.autoDeploy ?? { enabled: false }}
+          title={surface.toggleTitle}
+          description={surface.toggleDescription}
           disabled={autoDeployMutation.isPending}
           updating={autoDeployMutation.isPending}
           updateError={autoDeployError}
-          rolloutInProgress={rolloutActive}
           onChange={(enabled) => autoDeployMutation.mutate(enabled)}
         />
 
@@ -170,6 +175,10 @@ export default function AppAdminSnapshotsPage() {
             registry={registry}
             historyRevisions={historyRevisions}
             controlsDisabled={controlsDisabled}
+            offerManualDeploy={surface.offerManualDeploy}
+            manualDeployBlockedReason={surface.manualDeployBlockedReason}
+            emptyTitle={surface.emptyTitle}
+            emptyHint={surface.emptyHint}
             deployingVersion={deployingVersion}
             onDeployVersion={onDeployVersion}
           />

@@ -150,6 +150,17 @@ export interface AppAdminAutoDeploy {
   lastError?: string;
 }
 
+export interface AppAdminFleetReplica {
+  instanceId: string;
+  startedAt?: string;
+  heartbeatAt: string;
+  appState: string;
+  runningVersion?: string;
+  observedDesiredVersion?: string;
+  lastError?: string;
+  class: string;
+}
+
 export interface AppAdminFleetState {
   state: string;
   sourceVersion?: string;
@@ -161,6 +172,7 @@ export interface AppAdminFleetState {
   errors: number;
   heartbeatTtlSeconds: number;
   evaluatedAt: string;
+  replicas?: AppAdminFleetReplica[];
 }
 
 export interface AppAdminRecovery {

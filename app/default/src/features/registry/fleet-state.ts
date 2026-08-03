@@ -18,7 +18,7 @@ export type FleetStatePresentation = {
 const UNKNOWN_FLEET: FleetStatePresentation = {
   label: "Unknown",
   description:
-    "Runtime heartbeat data is unavailable, so current fleet health cannot be determined.",
+    "Replica report data is unavailable, so fleet health can't be determined.",
   badgeVariant: "muted",
 };
 
@@ -35,21 +35,21 @@ export function fleetStatePresentation(
     case "converging":
       return {
         label: "Converging",
-        description: "The live fleet is still converging on the desired version.",
+        description: "Replicas are still rolling to the desired version.",
         badgeVariant: "warning",
       };
     case "degraded":
       return {
         label: "Degraded",
         description:
-          "Enough replicas are live, but one or more runtime observations are unhealthy.",
+          "Enough replicas are live, but at least one has a version mismatch or error.",
         badgeVariant: "destructive",
       };
     case "unknown":
       return {
         label: "Unknown",
         description:
-          "There are not enough fresh heartbeats to determine current fleet health.",
+          "Not enough fresh replica reports to determine fleet health.",
         badgeVariant: "muted",
       };
     default:

@@ -52,6 +52,7 @@ export function formatRegistryTime(value?: string | null): string {
 
 export function formatRegistryTimeShort(
   value?: string | number | Date | null,
+  options?: { second?: boolean },
 ): string {
   if (value === null || value === undefined) return "—";
   const date = value instanceof Date ? value : new Date(value);
@@ -59,6 +60,7 @@ export function formatRegistryTimeShort(
   return date.toLocaleTimeString(undefined, {
     hour: "numeric",
     minute: "2-digit",
+    ...(options?.second ? { second: "2-digit" as const } : {}),
   });
 }
 

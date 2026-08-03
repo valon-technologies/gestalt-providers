@@ -33,28 +33,25 @@ function VersionChip({ version }: { version: string }) {
 
 export function AppAdminAutoDeployToggle({
   autoDeploy,
+  title,
+  description,
   disabled,
   updating,
   updateError = null,
-  rolloutInProgress = false,
   onChange,
 }: {
   autoDeploy: AppAdminAutoDeploy;
+  title: string;
+  description: string | null;
   disabled?: boolean;
   updating?: boolean;
   updateError?: string | null;
-  rolloutInProgress?: boolean;
   onChange: (enabled: boolean) => void;
 }) {
   const toggleId = "app-admin-auto-deploy-toggle";
   const lastError = autoDeploy.lastError?.trim();
   const rolloutFailedVersion = lastError ? parseRolloutLastError(lastError) : null;
   const mutationError = updateError?.trim();
-  const description = autoDeploy.enabled && rolloutInProgress
-    ? "A rollout is in progress. New versions queue until it finishes."
-    : autoDeploy.enabled
-      ? "When a new version is published, deploy it across the fleet automatically."
-      : "Deploy versions from the table below. Turn on to deploy new versions automatically.";
 
   return (
     <div className="space-y-2">
@@ -67,10 +64,10 @@ export function AppAdminAutoDeployToggle({
         <div className="min-w-0 grow basis-64 space-y-0.5">
           <AlertTitle className="line-clamp-none">
             <label htmlFor={toggleId} className="cursor-pointer">
-              Automatically deploy new versions
+              {title}
             </label>
           </AlertTitle>
-          <AlertDescription>{description}</AlertDescription>
+          {description ? <AlertDescription>{description}</AlertDescription> : null}
         </div>
         <AlertActions className="self-center">
           {updating ? (

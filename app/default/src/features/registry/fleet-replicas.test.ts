@@ -1,0 +1,53 @@
+import { describe, expect, test } from "vitest";
+import {
+  groupFleetReplicasByRunningVersion,
+  replicaClassLabel,
+  shortInstanceId,
+} from "@/features/registry/fleet-replicas";
+import type { AppAdminFleetReplica } from "@/features/registry/types";
+
+function replica(
+  overrides: Partial<AppAdminFleetReplica> & Pick<AppAdminFleetReplica, "instanceId">,
+): AppAdminFleetReplica {
+  return {
+    appState: "running",
+    class: "on_desired",
+    heartbeatAt: "2026-08-03T19:00:00Z",
+    ...overrides,
+  };
+}
+
+describe("groupFleetReplicasByRunningVersion", () => {
+  test("groups and sorts by running version", () => {
+    const groups = groupFleetReplicasByRunningVersion([
+      replica({ instanceId: "b", runningVersion: "v2", class: "on_desired" }),
+      replica({ instanceId: "a", runningVersion: "v1", class: "mismatched" }),
+      replica({ instanceId: "c", runningVersion: "v2", class: "on_desired" }),
+      replica({ instanceId: "d", class: "error" }),
+    ]);
+    expect(groups.map((g) => g.version)).toEqual(["v2", "v1", ""]);
+    expect(groups[0]?.replicas.map((r) => r.instanceId)).toEqual(["b", "c"]);
+  });
+
+  test("empty input", () => {
+    expect(groupFleetReplicasByRunningVersion(undefined)).toEqual([]);
+    expect(groupFleetReplicasByRunningVersion([])).toEqual([]);
+  });
+});
+
+describe("shortInstanceId", () => {
+  test("keeps short ids and truncates uuids", () => {
+    expect(shortInstanceId("abc")).toBe("abc");
+    expect(shortInstanceId("8dfcdc5b-cea7-4869-a2e8-5a51d29e8996")).toBe(
+      "8dfcdc5b",
+    );
+  });
+});
+
+describe("replicaClassLabel", () => {
+  test("maps known classes", () => {
+    expect(replicaClassLabel("on_desired")).toBe("On desired version");
+    expect(replicaClassLabel("mismatched")).toBe("Wrong version");
+    expect(replicaClassLabel("error")).toBe("Unhealthy");
+  });
+});

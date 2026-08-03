@@ -189,6 +189,17 @@ export function DataTableSearchShell({
   );
 }
 
+const DATA_TABLE_HIDE_BELOW_CLASS = {
+  md: "hidden md:table-cell",
+  lg: "hidden lg:table-cell",
+} as const;
+
+function dataTableHideBelowClass(
+  hideBelow: "md" | "lg" | undefined,
+): string | undefined {
+  return hideBelow ? DATA_TABLE_HIDE_BELOW_CLASS[hideBelow] : undefined;
+}
+
 export function DataTableView<TData>({
   table,
   testId,
@@ -203,7 +214,7 @@ export function DataTableView<TData>({
   const columns = table.getVisibleLeafColumns();
 
   return (
-    <div className="overflow-hidden rounded-md border" data-testid={testId}>
+    <div className="overflow-x-auto rounded-md border" data-testid={testId}>
       <Table>
         <TableHeader>
           {table.getHeaderGroups().map((headerGroup) => (
@@ -226,6 +237,9 @@ export function DataTableView<TData>({
                       header.column.columnDef.meta?.severityGutter &&
                         DATA_TABLE_REGISTRY_SEVERITY_GUTTER_CLASS,
                       header.column.columnDef.meta?.headerClassName,
+                      dataTableHideBelowClass(
+                        header.column.columnDef.meta?.hideBelow,
+                      ),
                     )}
                     aria-sort={
                       canSort
@@ -264,6 +278,9 @@ export function DataTableView<TData>({
                         cell.column.columnDef.meta?.severityGutter &&
                           DATA_TABLE_REGISTRY_SEVERITY_GUTTER_CLASS,
                         cell.column.columnDef.meta?.className,
+                        dataTableHideBelowClass(
+                          cell.column.columnDef.meta?.hideBelow,
+                        ),
                       )}
                     >
                       {flexRender(
@@ -301,5 +318,7 @@ declare module "@tanstack/react-table" {
     className?: string;
     /** `TableHead` classes — width/padding for gutter columns, etc. */
     headerClassName?: string;
+    /** Hide this column below the given breakpoint (still in the DOM for a11y/search). */
+    hideBelow?: "md" | "lg";
   }
 }
