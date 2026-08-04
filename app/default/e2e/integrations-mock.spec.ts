@@ -552,15 +552,16 @@ test.describe("Integrations", () => {
     const panel = await openAppConnection(page, "oauth-svc");
     await panel.getByRole("button", { name: "Disconnect" }).click();
 
-    await expect(panel.getByText("Disconnect OAuth Service?")).toBeVisible();
+    const confirm = page.getByRole("alertdialog");
+    await expect(confirm.getByText("Disconnect Account?")).toBeVisible();
     await expect(
-      panel.getByText(
-        "This will remove your connection to OAuth Service. You can reconnect at any time.",
+      confirm.getByText(
+        "This disconnects Account from OAuth Service in this workspace. You can sign in again anytime.",
       ),
     ).toBeVisible();
 
-    await panel.getByRole("button", { name: "Cancel" }).click();
-    await expect(panel.getByRole("button", { name: "Add connection" })).toBeVisible();
+    await confirm.getByRole("button", { name: "Cancel" }).click();
+    await expect(panel.getByRole("button", { name: "Add account" })).toBeVisible();
   });
 
   test("disconnect calls API and refreshes list", async ({
@@ -594,7 +595,7 @@ test.describe("Integrations", () => {
 
     const panel = await openAppConnection(page, "oauth-svc");
     await panel.getByRole("button", { name: "Disconnect" }).click();
-    await panel.getByRole("button", { name: "Disconnect" }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Disconnect" }).click();
 
     await expect.poll(() => disconnected).toBe(true);
     const refreshedPanel = await openAppConnection(page, "oauth-svc");

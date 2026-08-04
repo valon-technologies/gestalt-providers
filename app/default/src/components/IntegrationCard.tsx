@@ -499,11 +499,16 @@ export default function IntegrationCard({
           selectingInstance={connection.selectingInstance}
           submitting={connection.submitting}
           error={connection.error}
+          onClearError={connection.clearError}
           readOnly={readOnly}
           connectionContext={connectionContext}
           initialView={settingsInitialView}
           destructiveActionLabel={destructiveActionLabel}
           presentation="modal"
+          onDisconnectDialogClose={() => {
+            setSettingsInitialView("default");
+            setDestructiveActionLabel("Disconnect");
+          }}
         />
       )}
     </div>

@@ -5,11 +5,16 @@ import { normalizeIntegrationStatus } from "@/lib/integrationStatus";
 import {
   CONNECTION_SURFACE_TITLE,
   connectionSurfaceCopy,
+  connectionSurfaceCopyForStatus,
   connectionSurfaceMode,
   humanizeConnectionName,
   overviewConnectionAttention,
   connectionPanelAttention,
   accountInitials,
+  accountRelationshipLabel,
+  addAccountFormCopy,
+  disconnectConfirmCopy,
+  ADD_ACCOUNT_LABEL,
   USE_ACCOUNT_LABEL,
   DEFAULT_ACCOUNT_LABEL,
 } from "./connection-surface-copy";
@@ -43,7 +48,9 @@ describe("connection surface copy", () => {
       }),
     );
     expect(connectionSurfaceMode(status)).toBe("manage");
-    expect(connectionSurfaceCopy("manage").description).toMatch(/Manage/);
+    expect(connectionSurfaceCopy("manage").description).toMatch(/Only one is in use/);
+    expect(connectionSurfaceCopy("manage").description).toMatch(/in use/i);
+    expect(connectionSurfaceCopy("manage").trustNote).toMatch(/In use/);
     expect(connectionSurfaceCopy("manage").trustNote).not.toMatch(/privacy policy/i);
   });
 
@@ -101,12 +108,34 @@ describe("connection surface copy", () => {
     expect(status.connections[0]?.connected).toBe(false);
     const notice = overviewConnectionAttention(status);
     expect(notice?.title).toBe("Choose an account");
-    expect(notice?.actionLabel).toMatch(/Connection/);
+    expect(notice?.actionLabel).toBe("Choose an account");
     expect(notice?.description).toMatch(/not connected/i);
 
     const panelNotice = connectionPanelAttention(status.connections[0]!);
     expect(panelNotice?.title).toBe("Choose an account");
     expect(panelNotice?.description).toMatch(/not connected/i);
+
+    const surface = connectionSurfaceCopyForStatus(status);
+    expect(surface.trustNote).toMatch(/once you choose/i);
+    expect(surface.trustNote).not.toMatch(/while connected/i);
+    expect(accountRelationshipLabel({
+      preferred: false,
+      needsInstanceSelection: true,
+    })).toBe("Available");
+    expect(accountRelationshipLabel({
+      preferred: true,
+      needsInstanceSelection: true,
+    })).toBe("In use");
+  });
+
+  test("disconnect confirm names the account when provided", () => {
+    const copy = disconnectConfirmCopy({
+      displayName: "Gmail",
+      accountLabel: "hello",
+    });
+    expect(copy.heading).toBe("Disconnect hello?");
+    expect(copy.body).toMatch(/hello/);
+    expect(copy.body).toMatch(/Gmail/);
   });
 
   test("overview attention is omitted for first-time connect", () => {
@@ -147,6 +176,25 @@ describe("connection surface copy", () => {
       }),
     );
     expect(overviewConnectionAttention(status)).toBeNull();
+  });
+
+  test("account relationship and add-account form copy", () => {
+    expect(accountRelationshipLabel({
+      preferred: false,
+      needsInstanceSelection: false,
+    })).toBe("Not in use");
+    expect(accountRelationshipLabel({
+      preferred: true,
+      needsInstanceSelection: false,
+    })).toBe("In use");
+
+    const form = addAccountFormCopy();
+    expect(form.title).toBe("Add account");
+    expect(form.label).toBe("Account label");
+    expect(form.description).toMatch(/authenticate/i);
+    expect(form.fieldDescription).toMatch(/tell this account apart/i);
+    expect(form.placeholder).toMatch(/work, personal/);
+    expect(ADD_ACCOUNT_LABEL).toBe("Add account");
   });
 
   test("account initials and use-account label", () => {

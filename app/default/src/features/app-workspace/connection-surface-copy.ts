@@ -10,13 +10,24 @@ import type { Integration } from "@/lib/api";
 /**
  * User-facing vocabulary for the app-workspace Connection surface.
  *
- * Domain spine: **Connection** (nav, page title, CTAs, empty states).
- * "Credentials" is reserved for technical/status copy from the status model
- * (e.g. "No credentials required") — never for page chrome.
+ * Domain model (one meaning each):
+ * - **Connection** — the surface (nav / page) for managing linked accounts.
+ * - **Account** — a linked provider identity (OAuth/API instance) in the list.
+ * - **Account label** — the name the operator chooses before sign-in; shown on
+ *   the account card so multiple sign-ins are distinguishable.
+ * - **In use** — the preferred account this workspace acts through (one at a time).
+ * - **Not in use** — linked but not the preferred account.
+ * - **Available** — linked while the workspace still needs an active choice.
+ *
+ * "Credentials" stays technical/status-only (e.g. "No credentials required") —
+ * never page chrome or catalog lead copy.
  */
 export const CONNECTION_SURFACE_TITLE = "Connection" as const;
 
 export const CONNECTION_SURFACE_NAV_LABEL = "Connection" as const;
+
+/** Primary CTA to link another provider identity. */
+export const ADD_ACCOUNT_LABEL = "Add account" as const;
 
 export type ConnectionSurfaceMode = "connect" | "manage" | "none";
 
@@ -61,26 +72,45 @@ export function connectionSurfaceCopy(
       return {
         title: CONNECTION_SURFACE_TITLE,
         description:
-          "This app does not require a connection. Open it when you are ready to work.",
+          "This app does not require a linked account. Open it when you are ready to work.",
         trustNote: null,
       };
     case "connect":
       return {
         title: CONNECTION_SURFACE_TITLE,
         description:
-          "Connect this app under your user. Disconnect later to revoke access.",
+          "Link an account so this workspace can use the app. Disconnect later to revoke access.",
         trustNote:
-          "Connecting lets this workspace use the app on your behalf.",
+          "Linking lets this workspace use the app on your behalf.",
       };
     case "manage":
       return {
         title: CONNECTION_SURFACE_TITLE,
         description:
-          "Manage this app’s connection under your user. Disconnect to revoke access, or add another connection.",
+          "Accounts linked to this app. Only one is in use at a time — switch below, disconnect to revoke access, or add another account.",
         trustNote:
-          "This workspace can use the app on your behalf while connected.",
+          "This workspace acts through the account marked In use.",
       };
   }
+}
+
+/**
+ * Header copy owned by integration status — not mode alone.
+ * Multi-account without a chosen account must not promise “while connected”.
+ */
+export function connectionSurfaceCopyForStatus(
+  status: NormalizedIntegrationStatus,
+): ConnectionSurfaceCopy {
+  if (status.status === "needs_instance_selection") {
+    return {
+      title: CONNECTION_SURFACE_TITLE,
+      description:
+        "More than one account is linked. Choose which one this workspace should use, or disconnect any account you no longer want.",
+      trustNote:
+        "This app can act on your behalf here once you choose an account.",
+    };
+  }
+  return connectionSurfaceCopy(connectionSurfaceMode(status));
 }
 
 export function connectionSurfaceCopyForIntegration(
@@ -88,7 +118,90 @@ export function connectionSurfaceCopyForIntegration(
   context: ConnectionContext = "current_user",
 ): ConnectionSurfaceCopy {
   const status = normalizeIntegrationStatus(integration, context);
-  return connectionSurfaceCopy(connectionSurfaceMode(status));
+  return connectionSurfaceCopyForStatus(status);
+}
+
+/**
+ * Copy for the pre-OAuth (or pre-token) account-label step.
+ * Owns dialog promise + field guidance — do not hardcode these in the panel.
+ */
+export type AddAccountFormCopy = {
+  title: string;
+  /** Dialog-level path framing (under the title). */
+  description: string;
+  label: string;
+  /** Field-local naming guidance (after the input). */
+  fieldDescription: string;
+  placeholder: string;
+  continueLabel: string;
+  cancelLabel: string;
+};
+
+export function addAccountFormCopy(args?: {
+  connectionKeyLabel?: string | null;
+}): AddAccountFormCopy {
+  const key = args?.connectionKeyLabel?.trim();
+  return {
+    title: key ? `Add ${key} account` : "Add account",
+    description:
+      "You’ll authenticate with the provider on the next step.",
+    label: "Account label",
+    fieldDescription:
+      "Pick a short name so you can tell this account apart in the list.",
+    placeholder: "e.g. work, personal",
+    continueLabel: "Continue",
+    cancelLabel: "Cancel",
+  };
+}
+
+/**
+ * Per-account relationship to the workspace.
+ * Only the preferred account is “In use”; others stay linked as “Not in use”.
+ */
+export function accountRelationshipLabel(args: {
+  preferred?: boolean;
+  needsInstanceSelection: boolean;
+  connectionKeyLabel?: string | null;
+}): string {
+  if (args.preferred) return "In use";
+  if (args.needsInstanceSelection) return "Available";
+  if (args.connectionKeyLabel) return args.connectionKeyLabel;
+  return "Not in use";
+}
+
+export function disconnectConfirmCopy(args: {
+  displayName: string;
+  accountLabel?: string | null;
+  context?: ConnectionContext;
+  removeApp?: boolean;
+}): { heading: string; body: string } {
+  const context = args.context ?? "current_user";
+  if (args.removeApp) {
+    return {
+      heading: `Remove ${args.displayName}?`,
+      body:
+        context === "managed_subject"
+          ? `This will remove this identity's access to ${args.displayName}. It can be reconnected later.`
+          : `This will remove ${args.displayName} from this workspace. You can reconnect at any time.`,
+    };
+  }
+  const account = args.accountLabel?.trim();
+  if (account) {
+    return {
+      heading: `Disconnect ${account}?`,
+      body:
+        context === "managed_subject"
+          ? `This disconnects ${account} from ${args.displayName} for this identity. It can be reconnected later.`
+          : `This disconnects ${account} from ${args.displayName} in this workspace. You can sign in again anytime.`,
+    };
+  }
+  return {
+    heading: `Disconnect ${args.displayName}?`,
+    body:
+      context === "managed_subject"
+        ? `This will remove this identity's connection to ${args.displayName}. It can be reconnected later.`
+        : `This will remove your connection to ${args.displayName}. You can reconnect at any time.`,
+  };
 }
 
 /**
@@ -109,7 +222,7 @@ export const DEFAULT_ACCOUNT_LABEL = "Account" as const;
 
 /** Overview blurb when the app has a credential/connection surface. */
 export const CONNECTION_ACCESS_BLURB =
-  "How you’re connected to this app under the signed-in user." as const;
+  "Manage linked accounts and which one this workspace uses." as const;
 
 /** Overview secondary CTA when already connected (no Connect/Reconnect). */
 export const MANAGE_CONNECTION_LABEL = "Manage connection" as const;
@@ -155,8 +268,8 @@ export function overviewConnectionAttention(
       return {
         title: status.summaryLabel,
         description:
-          "This app has more than one account available. Pick which one this workspace should use on Connection — until then it is not connected.",
-        actionLabel: "Choose on Connection",
+          "More than one account is available. Pick which one this workspace should use — until then this app is not connected.",
+        actionLabel: "Choose an account",
       };
     case "needs_admin_configuration":
       return {
@@ -219,7 +332,7 @@ export function connectionPanelAttention(
       return {
         title: connection.summaryLabel,
         description:
-          "More than one account is available. Choose which one this workspace should use — until then this app is not connected.",
+          "More than one account is available. Pick which one this workspace should use — until then this app is not connected.",
       };
     case "needs_admin_configuration":
       return {

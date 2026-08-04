@@ -372,8 +372,9 @@ test.describe("Managed identities", () => {
     await page.getByRole("button", { name: "Slack settings" }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("button", { name: "Disconnect" }).click();
-    await expect(dialog.getByRole("heading", { name: "Disconnect Slack?" })).toBeVisible();
-    await dialog.getByRole("button", { name: "Disconnect" }).click();
+    const confirm = page.getByRole("alertdialog");
+    await expect(confirm.getByRole("heading", { name: "Disconnect Slack?" })).toBeVisible();
+    await confirm.getByRole("button", { name: "Disconnect" }).click();
 
     await expect.poll(() => managedDisconnects).toEqual(["slack"]);
     await page.getByRole("button", { name: "Slack settings" }).click();

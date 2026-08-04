@@ -24,11 +24,13 @@ interface IntegrationSettingsModalProps {
   selectingInstance?: boolean;
   submitting: boolean;
   error: string | null;
+  onClearError?: () => void;
   readOnly?: boolean;
   connectionContext?: ConnectionContext;
   initialView?: ConnectionPanelView;
   destructiveActionLabel?: "Disconnect" | "Remove app";
   presentation?: "modal" | "inline";
+  onDisconnectDialogClose?: () => void;
 }
 
 /** @deprecated Prefer IntegrationConnectionPanel — dialog wrapper for catalog/modal flows. */

@@ -1,6 +1,6 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { ExternalLink } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   appDetailConnectionPath,
   appShowsCredentialSurface,
@@ -8,6 +8,12 @@ import {
 import { normalizeIntegrationStatus } from "@/lib/integrationStatus";
 import { resolveMountedAppHref } from "@/lib/mount";
 import IntegrationConnectionPanel from "@/components/IntegrationConnectionPanel";
+import { CheckCircleIcon, CloseIcon } from "@/components/icons";
+import {
+  Alert,
+  AlertActions,
+  AlertTitle,
+} from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   PageHeader,
@@ -21,6 +27,7 @@ import { useAppWorkspace } from "@/features/app-workspace/app-workspace-context"
 import {
   CONNECTION_SURFACE_TITLE,
   connectionSurfaceCopy,
+  connectionSurfaceCopyForStatus,
   connectionSurfaceMode,
 } from "@/features/app-workspace/connection-surface-copy";
 
@@ -34,6 +41,11 @@ export default function AppWorkspaceConnectionPage() {
   >("default");
   const [removeAppConfirm, setRemoveAppConfirm] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [headerActions, setHeaderActions] = useState<ReactNode>(null);
+  const handleHeaderActionsChange = useCallback((actions: ReactNode | null) => {
+    setHeaderActions(actions);
+  }, []);
+
 
   const connectionFlow = useIntegrationConnection({
     integration: integration ?? { name: app },
@@ -112,7 +124,7 @@ export default function AppWorkspaceConnectionPage() {
     );
   }
 
-  const copy = connectionSurfaceCopy(mode);
+  const copy = connectionSurfaceCopyForStatus(status);
 
   return (
     <section
@@ -128,11 +140,29 @@ export default function AppWorkspaceConnectionPage() {
           <PageHeaderTitle>{copy.title}</PageHeaderTitle>
           <PageHeaderDescription>{copy.description}</PageHeaderDescription>
         </PageHeaderContent>
+        {headerActions ? (
+          <PageHeaderActions>{headerActions}</PageHeaderActions>
+        ) : null}
       </PageHeader>
       {statusMessage ? (
-        <p className="text-sm text-success-foreground" role="status">
-          {statusMessage}
-        </p>
+        <Alert
+          variant="success"
+          data-testid="connection-status-flash"
+        >
+          <CheckCircleIcon aria-hidden />
+          <AlertTitle>{statusMessage}</AlertTitle>
+          <AlertActions>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Dismiss notification"
+              onClick={() => setStatusMessage(null)}
+            >
+              <CloseIcon className="size-4" />
+            </Button>
+          </AlertActions>
+        </Alert>
       ) : null}
       {copy.trustNote ? (
         <p className="text-xs text-muted-foreground-soft">{copy.trustNote}</p>
@@ -148,10 +178,17 @@ export default function AppWorkspaceConnectionPage() {
         selectingInstance={connectionFlow.selectingInstance}
         submitting={connectionFlow.submitting}
         error={connectionFlow.error}
+        onClearError={connectionFlow.clearError}
         initialView={connectionPanelView}
         destructiveActionLabel={removeAppConfirm ? "Remove app" : "Disconnect"}
         variant="inline"
         showHeader={false}
+        omitSectionHeader
+        onHeaderActionsChange={handleHeaderActionsChange}
+        onDisconnectDialogClose={() => {
+          setConnectionPanelView("default");
+          setRemoveAppConfirm(false);
+        }}
       />
       {connectionFlow.pendingSelection ? (
         <form

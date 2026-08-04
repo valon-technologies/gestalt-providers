@@ -329,7 +329,7 @@ export default function AppsCatalogPageClient() {
               <PageHeaderTitle>Apps</PageHeaderTitle>
               <PageHeaderDescription>
                 Browse installed apps, then discover more by category. Connect
-                credentials, then open an app to manage access.
+                an account, then open an app to manage access.
               </PageHeaderDescription>
             </PageHeaderContent>
             <PageHeaderActions className="w-full max-w-md sm:w-auto">
