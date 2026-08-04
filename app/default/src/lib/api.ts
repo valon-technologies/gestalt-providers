@@ -73,6 +73,11 @@ export interface ConnectionDefInfo {
   ownerKind?: OwnerKind;
   instances?: InstanceInfo[];
   preferredInstance?: string;
+  /**
+   * True only when a chosen account exists (valid preferred, or a single valid
+   * instance). Stored credentials without a chosen account leave this false.
+   */
+  connected?: boolean;
   mcpPassthrough?: boolean;
 }
 

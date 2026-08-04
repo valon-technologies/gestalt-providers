@@ -155,7 +155,7 @@ export function overviewConnectionAttention(
       return {
         title: status.summaryLabel,
         description:
-          "This app has more than one account available. Pick which one this workspace should use on Connection.",
+          "This app has more than one account available. Pick which one this workspace should use on Connection — until then it is not connected.",
         actionLabel: "Choose on Connection",
       };
     case "needs_admin_configuration":
@@ -219,7 +219,7 @@ export function connectionPanelAttention(
       return {
         title: connection.summaryLabel,
         description:
-          "More than one account is connected. Choose which one this workspace should use.",
+          "More than one account is available. Choose which one this workspace should use — until then this app is not connected.",
       };
     case "needs_admin_configuration":
       return {

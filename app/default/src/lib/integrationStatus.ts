@@ -127,6 +127,8 @@ type RawConnection = {
   credentialMode?: CredentialMode;
   ownerKind?: OwnerKind;
   instances?: InstanceInfo[];
+  preferredInstance?: string;
+  connected?: boolean;
   mcpPassthrough?: boolean;
 };
 
@@ -149,10 +151,8 @@ export function normalizeIntegrationStatus(
     validHealthState(integration.healthState) ??
     aggregateHealthState(connections);
   const connected =
-    credentialState === "connected" ||
-    credentialState === "configured" ||
-    credentialState === "not_required" ||
-    connections.some((connection) => connection.connected);
+    connections.some((connection) => connection.connected) ||
+    (credentialState === "not_required" && status === "ready");
   const hasActionableConnections = connections.some(
     (connection) =>
       connection.canConnect ||
@@ -335,11 +335,9 @@ function normalizeConnection(
   const disconnectable =
     inferredActions.includes("disconnect");
   const connected =
-    credentialState === "connected" ||
-    credentialState === "configured" ||
-    credentialState === "not_required" ||
-    status === "ready" ||
-    status === "degraded";
+    typeof raw.connected === "boolean"
+      ? raw.connected
+      : productConnectedFromStatus(status, credentialState);
   const connectable =
     inferredActions.some((action) =>
       action === "connect" ||
@@ -505,6 +503,22 @@ function resolveOwnerKind(
   if (explicit) return explicit;
   if (credentialMode === "none") return "none";
   return context === "managed_subject" ? "service_account" : "current_user";
+}
+
+function productConnectedFromStatus(
+  status: IntegrationStatus,
+  credentialState: CredentialState,
+): boolean {
+  // Chosen-account invariant: accounts without a selection are not connected.
+  if (status === "needs_instance_selection") return false;
+  if (status === "needs_user_connection") return false;
+  if (credentialState === "not_required") return true;
+  return (
+    status === "ready" ||
+    status === "degraded" ||
+    credentialState === "connected" ||
+    credentialState === "configured"
+  );
 }
 
 function inferConnectionCredentialState(

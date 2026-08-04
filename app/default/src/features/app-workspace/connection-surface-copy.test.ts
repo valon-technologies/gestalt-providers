@@ -86,6 +86,7 @@ describe("connection surface copy", () => {
             name: "default",
             status: "needs_instance_selection",
             credentialState: "connected",
+            connected: false,
             authTypes: ["oauth"],
             actions: ["select_instance"],
             instances: [
@@ -96,14 +97,16 @@ describe("connection surface copy", () => {
         ],
       }),
     );
+    expect(status.connected).toBe(false);
+    expect(status.connections[0]?.connected).toBe(false);
     const notice = overviewConnectionAttention(status);
     expect(notice?.title).toBe("Choose an account");
     expect(notice?.actionLabel).toMatch(/Connection/);
-    expect(notice?.description).toMatch(/account/i);
+    expect(notice?.description).toMatch(/not connected/i);
 
     const panelNotice = connectionPanelAttention(status.connections[0]!);
     expect(panelNotice?.title).toBe("Choose an account");
-    expect(panelNotice?.description).toMatch(/Choose which one/i);
+    expect(panelNotice?.description).toMatch(/not connected/i);
   });
 
   test("overview attention is omitted for first-time connect", () => {
