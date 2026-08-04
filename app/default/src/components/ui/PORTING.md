@@ -70,6 +70,24 @@ Registry `code` is vendored as `ui/code.tsx` (`Code` / `codeVariants`). Use for
 inline identifiers / paths / flags in UI copy — not `CodeBlock`, not `Kbd`.
 Do not hand-roll `bg-muted font-mono` at call sites.
 
+## AppTopBar / AppLogo
+
+Registry `app-top-bar` + `app-logo` are vendored here. Console `Nav` composes
+`AppTopBar` slots (Start / Center / End) with `AppTopBarBrand` for the product
+wordmark (`font-display` via `AppLogoName`). Do not hand-roll header chrome or
+put `font-heading` / `font-bold` on the wordmark.
+
+`AppLogoName` size scale is chrome-local (`default` / `md` / `lg` → heading-sm /
+heading-lg / heading-xl). It is not PageHeader's display tiers — do not put
+`text-display-*` back on the wordmark. Console Nav uses `size="lg"`.
+
+**Console adaptations (keep when syncing):**
+
+- Sticky stacking stays on `__root.tsx` (`DevWorktreeBanner` + chrome) — omit
+  Registry `sticky top-0 z-50` on `AppTopBar`.
+- Column clamp matches `Container` (`max-w-7xl px-6`), not Registry
+  `px-4 md:px-6`, so the bar and pages stay aligned.
+
 ## Brand type scale
 
 Registry `header-chrome`, `PageHeader`, and `SectionHeader` are vendored here.

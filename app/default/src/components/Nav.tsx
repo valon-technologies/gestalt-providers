@@ -1,4 +1,4 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { logout } from "@/lib/api";
 import { clearSession, sessionDisplayLabel, sessionInitials } from "@/lib/auth";
 import { BUILD_PATH } from "@/lib/constants";
@@ -6,7 +6,14 @@ import { serverLoginURL } from "@/lib/authReturn";
 import { appPath } from "@/lib/mount";
 import { useAuthInfoQuery, useAuthSessionQuery } from "@/lib/queries";
 import { AccountMenu } from "./AccountMenu";
-import Container from "./Container";
+import {
+  AppTopBar,
+  AppTopBarBrand,
+  AppTopBarCenter,
+  AppTopBarEnd,
+  AppTopBarInner,
+  AppTopBarStart,
+} from "./ui/app-top-bar";
 import {
   NavigationMenu,
   NavigationMenuItem,
@@ -21,6 +28,7 @@ const links = [
 ];
 
 export default function Nav() {
+  const navigate = useNavigate();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const sessionQuery = useAuthSessionQuery();
   const session = sessionQuery.data ?? null;
@@ -36,39 +44,39 @@ export default function Nav() {
   }
 
   return (
-    <header className="border-b border-border py-3 bg-background/80 backdrop-blur-xs">
-      <Container className="grid grid-cols-[1fr_auto_1fr] items-baseline gap-x-4">
-        <div className="justify-self-start">
-          <Link
-            to="/apps"
-            className="font-heading text-2xl font-bold leading-none text-foreground"
-          >
+    <AppTopBar>
+      <AppTopBarInner>
+        <AppTopBarStart>
+          <AppTopBarBrand size="lg" onNavigate={() => void navigate({ to: "/apps" })}>
             Gestalt
-          </Link>
-        </div>
+          </AppTopBarBrand>
+        </AppTopBarStart>
 
-        <NavigationMenu
-          viewport={false}
-          size="lg"
-          aria-label="Primary"
-          className="max-w-none flex-none justify-self-center"
-        >
-          <NavigationMenuList>
-            {links.map((link) => {
-              const isActive =
-                pathname === link.href || pathname.startsWith(link.href + "/");
-              return (
-                <NavigationMenuItem key={link.href}>
-                  <NavigationMenuLink asChild active={isActive}>
-                    <Link to={link.href}>{link.label}</Link>
-                  </NavigationMenuLink>
-                </NavigationMenuItem>
-              );
-            })}
-          </NavigationMenuList>
-        </NavigationMenu>
+        {/* Two primary destinations — keep visible below lg (no Sheet mobile nav yet). */}
+        <AppTopBarCenter className="flex">
+          <NavigationMenu
+            viewport={false}
+            size="lg"
+            aria-label="Primary"
+            className="max-w-none flex-none"
+          >
+            <NavigationMenuList>
+              {links.map((link) => {
+                const isActive =
+                  pathname === link.href || pathname.startsWith(link.href + "/");
+                return (
+                  <NavigationMenuItem key={link.href}>
+                    <NavigationMenuLink asChild active={isActive}>
+                      <Link to={link.href}>{link.label}</Link>
+                    </NavigationMenuLink>
+                  </NavigationMenuItem>
+                );
+              })}
+            </NavigationMenuList>
+          </NavigationMenu>
+        </AppTopBarCenter>
 
-        <div className="flex items-center justify-self-end gap-3 self-center">
+        <AppTopBarEnd className="gap-3">
           {/* Theme lives in AccountMenu when signed in; header access for guests. */}
           {!displayLabel && <ThemeToggle placement="header" size="sm" />}
           {displayLabel && (
@@ -80,8 +88,8 @@ export default function Nav() {
               onLogout={handleLogout}
             />
           )}
-        </div>
-      </Container>
-    </header>
+        </AppTopBarEnd>
+      </AppTopBarInner>
+    </AppTopBar>
   );
 }
