@@ -70,7 +70,7 @@ export function AccountMenu({
             aria-hidden
             className={cn(
               "bg-neutral-hover transition-[background-color] duration-hover-out ease-out-quart group-hover:duration-hover-in",
-              "group-hover:bg-neutral-dark-hover",
+              "group-hover:group-not-data-[state=open]:bg-neutral-dark-hover",
               "group-active:bg-neutral-dark-pressed",
               "group-data-[state=open]:bg-neutral-dark-pressed",
             )}

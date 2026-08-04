@@ -108,7 +108,7 @@ describe("AccountMenu beat-order contract", () => {
       "data-[state=open]:after:opacity-[var(--state-overlay-press,0.14)]",
     );
     expect(ACCOUNT_MENU).toContain("bg-neutral-hover");
-    expect(ACCOUNT_MENU).toContain("group-hover:bg-neutral-dark-hover");
+    expect(ACCOUNT_MENU).toContain("group-hover:group-not-data-[state=open]:bg-neutral-dark-hover");
     expect(ACCOUNT_MENU).toContain("group-active:bg-neutral-dark-pressed");
     expect(ACCOUNT_MENU).toContain("group-data-[state=open]:bg-neutral-dark-pressed");
   });
