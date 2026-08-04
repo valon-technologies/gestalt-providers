@@ -223,7 +223,6 @@ const SnapshotDeployedByCell = memo(function SnapshotDeployedByCell({
             data-testid="deployed-by-avatar"
             role="img"
             aria-label={`Deployed by ${displayLabel}`}
-            tabIndex={0}
           >
             <Avatar
               size="lg"
@@ -871,5 +870,13 @@ function snapshotTablePropsAreEqual(
   if (prev.deployingVersion !== next.deployingVersion) return false;
   if (prev.onDeployVersion !== next.onDeployVersion) return false;
   if (prev.historyRevisions !== next.historyRevisions) return false;
+  // Poll-equal omits fleet so reconcile can keep stable version refs while
+  // refreshing replicas. The table presents those replicas — compare them here.
+  if (
+    fleetReplicasPollKey(prev.registry.fleetState?.replicas) !==
+    fleetReplicasPollKey(next.registry.fleetState?.replicas)
+  ) {
+    return false;
+  }
   return snapshotRegistryPollEqual(prev.registry, next.registry);
 }

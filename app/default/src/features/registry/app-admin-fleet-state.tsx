@@ -11,7 +11,6 @@ import {
   formatRegistryTime,
   formatRegistryTimeShort,
   shortenSourceRef,
-  toolshedSourceCommitUrl,
 } from "@/features/registry/format";
 import {
   presentFleetStatus,
@@ -48,28 +47,17 @@ function DesiredVersionRef({
   );
 }
 
-function ToolshedSourceRef({ sourceVersion }: { sourceVersion: string }) {
+/** Platform SOURCE_VERSION — display only; no tenant/org commit URL in this bundle. */
+function SourceVersionRef({ sourceVersion }: { sourceVersion: string }) {
   const short = shortenSourceRef(sourceVersion);
-  const href = toolshedSourceCommitUrl(sourceVersion);
-  if (!href) {
-    return (
-      <span className="font-mono text-sm" title={sourceVersion}>
-        {short}
-      </span>
-    );
-  }
   return (
-    <Link
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      underlineVariant="always"
+    <span
       className="font-mono text-sm"
       title={sourceVersion}
-      data-testid="fleet-source-version-link"
+      data-testid="fleet-source-version-ref"
     >
       {short}
-    </Link>
+    </span>
   );
 }
 
@@ -183,7 +171,7 @@ function FleetStripBody({
               <dt className="text-muted-foreground">Runtime commit</dt>
               <dd className="mt-1" data-testid="fleet-source-version">
                 {view.sourceVersion ? (
-                  <ToolshedSourceRef sourceVersion={view.sourceVersion} />
+                  <SourceVersionRef sourceVersion={view.sourceVersion} />
                 ) : (
                   "—"
                 )}
@@ -218,7 +206,7 @@ function FleetStripBody({
           {view.recovery.sourceVersion ? (
             <p className="mt-2 text-xs text-muted-foreground">
               Runtime commit{" "}
-              <ToolshedSourceRef sourceVersion={view.recovery.sourceVersion} />
+              <SourceVersionRef sourceVersion={view.recovery.sourceVersion} />
             </p>
           ) : null}
         </div>

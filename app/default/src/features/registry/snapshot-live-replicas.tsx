@@ -54,7 +54,7 @@ function ReplicaHoverFacts({ replica }: { replica: AppAdminFleetReplica }) {
   ];
   if (replica.observedDesiredVersion?.trim()) {
     facts.push({
-      label: "Observed desired",
+      label: "Reported desired version",
       value: (
         <RegistryCode title={replica.observedDesiredVersion}>
           {replica.observedDesiredVersion}

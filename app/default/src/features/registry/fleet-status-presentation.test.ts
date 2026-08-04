@@ -44,9 +44,19 @@ describe("presentFleetStatus", () => {
     expect(view.summaryLine).toBeNull();
     expect(view.showDesiredVersion).toBe(false);
     expect(view.showSourceVersion).toBe(false);
-    expect(view.ownsActiveRolloutHeadline).toBe(false);
+    expect(view.ownsActiveRolloutHeadline).toBe(true);
     expect(view.showFreshnessWindow).toBe(false);
     expect(view.recovery).toBeNull();
+  });
+
+  test("healthy still owns the headline when rollout state is stale enrolling", () => {
+    const view = presentFleetStatus({
+      desiredVersion: BASE_FLEET.desiredVersion,
+      fleetState: BASE_FLEET,
+      rollout: { version: "0.0.0-snapshot.gnew", state: "enrolling" },
+    });
+    expect(view.density).toBe("quiet");
+    expect(view.ownsActiveRolloutHeadline).toBe(true);
   });
 
   test("converging with replica chips: summary owns proof, strip owns rollout headline", () => {

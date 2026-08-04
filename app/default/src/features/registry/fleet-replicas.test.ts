@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import {
-  groupFleetReplicasByRunningVersion,
   partitionFleetReplicasForSnapshotTable,
   replicaClassDotClass,
   replicaClassMarkTone,
@@ -20,24 +19,6 @@ function replica(
     ...overrides,
   };
 }
-
-describe("groupFleetReplicasByRunningVersion", () => {
-  test("groups and sorts by running version", () => {
-    const groups = groupFleetReplicasByRunningVersion([
-      replica({ instanceId: "b", runningVersion: "v2", class: "on_desired" }),
-      replica({ instanceId: "a", runningVersion: "v1", class: "mismatched" }),
-      replica({ instanceId: "c", runningVersion: "v2", class: "on_desired" }),
-      replica({ instanceId: "d", class: "error" }),
-    ]);
-    expect(groups.map((g) => g.version)).toEqual(["v2", "v1", ""]);
-    expect(groups[0]?.replicas.map((r) => r.instanceId)).toEqual(["b", "c"]);
-  });
-
-  test("empty input", () => {
-    expect(groupFleetReplicasByRunningVersion(undefined)).toEqual([]);
-    expect(groupFleetReplicasByRunningVersion([])).toEqual([]);
-  });
-});
 
 describe("partitionFleetReplicasForSnapshotTable", () => {
   test("joins matching versions and keeps orphans out of invented rows", () => {

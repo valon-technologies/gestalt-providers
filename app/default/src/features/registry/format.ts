@@ -141,13 +141,6 @@ export function shortenSourceRef(sourceRef?: string): string {
   return ref.length > 7 ? ref.slice(0, 7) : ref;
 }
 
-/** GitHub commit URL for a Toolshed / gestaltd `SOURCE_VERSION` SHA. */
-export function toolshedSourceCommitUrl(sourceVersion?: string): string | null {
-  const sha = sourceVersion?.trim();
-  if (!sha || !/^[0-9a-fA-F]{7,40}$/.test(sha)) return null;
-  return `https://github.com/valon-technologies/toolshed/commit/${sha}`;
-}
-
 /**
  * Best external href for a snapshot version string: app source, PR, commit, or
  * workflow run — matching how the Versions table surfaces provenance.

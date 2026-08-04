@@ -15,14 +15,11 @@ const BRAND_SPINNER_STEP_DEG = 360 / BRAND_SPINNER_PIECE_COUNT;
 
 /*
  * Brand / identity loading experience (RES-20260804-002). Implementation today
- * is the Gestalt mark: one arm is a "V" (V for Valon), drawn as an open
- * centerline stroke: left tip → bottom apex → right tip. The eight pieces are
- * this base V rotated about the center in 45° steps (pieceIndex = clockwise
- * position). Each V renders twice: a static muted "track" so the whole mark
- * stays legible, and an accent "trail" path that fades the whole V on then off.
- * Staggered by --piece-index, each V snaps on as a unit and hands off around
- * the ring — a bright head with a tapering fade behind it, never a stroke
- * crawling inside a single V.
+ * is the Gestalt mark: an open V centerline (left tip → bottom apex → right tip)
+ * rotated about the center in 45° steps (pieceIndex = clockwise position). Each
+ * V renders twice: a static muted "track" so the whole mark stays legible, and
+ * an accent "trail" path that fades the whole V on then off. Staggered by
+ * --piece-index, each V snaps on as a unit and hands off around the ring.
  *
  * The API is BrandSpinner (role: brand moment), not the glyph — swap the
  * artwork later without renaming the component. For routine busy (buttons,

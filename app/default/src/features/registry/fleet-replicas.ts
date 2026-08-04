@@ -1,10 +1,5 @@
 import type { AppAdminFleetReplica } from "@/features/registry/types";
 
-export type FleetReplicaVersionGroup = {
-  version: string;
-  replicas: AppAdminFleetReplica[];
-};
-
 /** Shorten a UUID-like instance id for table/tree display. */
 export function shortInstanceId(instanceId: string): string {
   const id = instanceId.trim();
@@ -83,33 +78,6 @@ export function replicaStatusIndicatorKind(
 
 function sortReplicas(replicas: AppAdminFleetReplica[]): AppAdminFleetReplica[] {
   return [...replicas].sort((a, b) => a.instanceId.localeCompare(b.instanceId));
-}
-
-/**
- * Group live replicas by observed running version.
- * Empty / missing runningVersion sorts last under "".
- */
-export function groupFleetReplicasByRunningVersion(
-  replicas: AppAdminFleetReplica[] | undefined,
-): FleetReplicaVersionGroup[] {
-  if (!replicas?.length) return [];
-  const byVersion = new Map<string, AppAdminFleetReplica[]>();
-  for (const replica of replicas) {
-    const version = replica.runningVersion?.trim() || "";
-    const bucket = byVersion.get(version);
-    if (bucket) bucket.push(replica);
-    else byVersion.set(version, [replica]);
-  }
-  const groups = [...byVersion.entries()].map(([version, rows]) => ({
-    version,
-    replicas: sortReplicas(rows),
-  }));
-  groups.sort((a, b) => {
-    if (!a.version && b.version) return 1;
-    if (a.version && !b.version) return -1;
-    return b.replicas.length - a.replicas.length || a.version.localeCompare(b.version);
-  });
-  return groups;
 }
 
 export type FleetReplicasForSnapshotTable = {

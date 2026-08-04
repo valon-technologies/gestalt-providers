@@ -221,8 +221,9 @@ export function presentFleetStatus(
       showFreshnessWindow: false,
       heartbeatTtlSeconds: fleetState.heartbeatTtlSeconds,
       recovery,
-      // Healthy strip does not narrate an in-progress deploy.
-      ownsActiveRolloutHeadline: false,
+      // Healthy owns the Versions headline so a stale enrolling/restarting
+      // rollout cannot also show a contradictory layout "Rolling out" banner.
+      ownsActiveRolloutHeadline: true,
       failingReplica: null,
       pathHint: null,
     };

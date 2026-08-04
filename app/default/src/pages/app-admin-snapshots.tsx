@@ -17,7 +17,6 @@ import {
   useAppAdminRegistryQuery,
   useUpdateAppAdminAutoDeployMutation,
 } from "@/lib/queries";
-import { Loader2 } from "lucide-react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   PageHeader,
@@ -77,23 +76,17 @@ function RegistryCheckForNewVersionsButton({
 }) {
   const registryQuery = useAppAdminRegistryQuery(appName);
 
+  const checking = registryQuery.isCheckingForNewVersions;
   return (
     <Button
       type="button"
       variant="outline"
       size="sm"
       onClick={registryQuery.checkForNewVersions}
-      disabled={registryQuery.isCheckingForNewVersions}
+      loading={checking}
       data-testid="check-for-new-versions"
     >
-      {registryQuery.isCheckingForNewVersions ? (
-        <>
-          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-          {pendingLabel}
-        </>
-      ) : (
-        idleLabel
-      )}
+      {checking ? pendingLabel : idleLabel}
     </Button>
   );
 }
