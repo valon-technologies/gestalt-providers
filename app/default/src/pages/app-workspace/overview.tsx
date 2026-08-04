@@ -203,7 +203,8 @@ export default function AppWorkspaceOverviewPage() {
             ? sectionAfterPromptClass
             : overviewSectionClass
         }
-      >        <h2 className="text-lg font-heading text-foreground">Your access</h2>
+      >
+        <h2 className="text-lg font-heading text-foreground">Your access</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Connection and credentials for the signed-in user.
         </p>
