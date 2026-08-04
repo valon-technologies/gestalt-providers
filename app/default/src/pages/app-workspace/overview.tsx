@@ -61,7 +61,9 @@ export default function AppWorkspaceOverviewPage() {
   const promptExamples = getAppPromptExamples(integration, surfaces.hasMcp);
   const connectLabel = primaryConnectLabel(integration, "current_user");
   const mountedPath = integration.mountedPath?.trim();
-
+  const showOperations = operationCount > 0 || surfaces.hasMcp;
+  const sectionAfterPromptClass =
+    promptExamples.length > 0 ? "pt-8" : overviewSectionClass;
   const checklist = useMemo(() => {
     const items: Array<{ id: string; label: string; done: boolean; skip?: boolean }> = [
       {
@@ -166,13 +168,16 @@ export default function AppWorkspaceOverviewPage() {
       </div>
 
       {promptExamples.length > 0 ? (
-        <div className={overviewSectionClass}>
+        <div>
           <AppPromptExamplePromo displayName={label} prompts={promptExamples} />
         </div>
       ) : null}
 
-      {operationCount > 0 || surfaces.hasMcp ? (
-        <div className={overviewSectionClass} data-testid="overview-operations-handoff">
+      {showOperations ? (
+        <div
+          className={sectionAfterPromptClass}
+          data-testid="overview-operations-handoff"
+        >
           <h2 className="text-lg font-heading text-foreground">Operations</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             {operationCount > 0 ? (
@@ -192,8 +197,13 @@ export default function AppWorkspaceOverviewPage() {
         </div>
       ) : null}
 
-      <div className={overviewSectionClass}>
-        <h2 className="text-lg font-heading text-foreground">Your access</h2>
+      <div
+        className={
+          promptExamples.length > 0 && !showOperations
+            ? sectionAfterPromptClass
+            : overviewSectionClass
+        }
+      >        <h2 className="text-lg font-heading text-foreground">Your access</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Connection and credentials for the signed-in user.
         </p>
