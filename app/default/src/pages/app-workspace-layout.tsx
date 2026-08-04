@@ -1,4 +1,5 @@
 import { Link, Outlet, useParams, useRouterState } from "@tanstack/react-router";
+import { Info } from "lucide-react";
 import { useCallback, useMemo } from "react";
 import { isAPIErrorStatus } from "@/lib/api";
 import { canManageApp, primaryConnectLabel } from "@/lib/catalogFilters";
@@ -24,8 +25,14 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { SpinnerIcon } from "@/components/icons";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
 import { useDocumentTitle } from "@/hooks/use-document-title";
-import { AppAdminFleetState } from "@/features/registry/app-admin-fleet-state";
+import { presentFleetStatus } from "@/features/registry/fleet-status-presentation";
+import { ReplicaHoverExclusiveProvider } from "@/features/registry/replica-hover-exclusive";
 import {
   AppAdminRegistryProvider,
   type AppAdminRegistryContextValue,
@@ -236,6 +243,14 @@ export default function AppWorkspaceLayout() {
     isAppVersionsAdminPath(pathname, app) &&
     capabilities.registry &&
     registry;
+  const fleetView = showFleetState && registry ? presentFleetStatus(registry) : null;
+  const showRolloutBanner = Boolean(
+    showFleetState &&
+      rolloutActive &&
+      registry?.rollout &&
+      fleetView &&
+      !fleetView.ownsActiveRolloutHeadline,
+  );
 
   const content = (
     <AppWorkspaceProvider value={workspaceValue}>
@@ -268,17 +283,21 @@ export default function AppWorkspaceLayout() {
             }
           >
             <div className="space-y-8">
-              {showFleetState ? <AppAdminFleetState registry={registry} /> : null}
-
-              {showFleetState && rolloutActive && registry?.rollout ? (
-                <p
-                  className="rounded-lg border border-info-foreground/40 bg-info px-4 py-3 text-sm text-info-foreground"
+              <ReplicaHoverExclusiveProvider>
+              {showRolloutBanner && registry?.rollout ? (
+                <Alert
+                  variant="info"
                   data-testid="rollout-active-banner"
+                  aria-label="Rollout in progress"
                 >
-                  Rolling out{" "}
-                  <RegistryCode>{registry.rollout.version}</RegistryCode> across the
-                  fleet
-                </p>
+                  <Info aria-hidden="true" />
+                  <AlertTitle>Rolling out</AlertTitle>
+                  <AlertDescription className="text-pretty">
+                    Deploying{" "}
+                    <RegistryCode>{registry.rollout.version}</RegistryCode>{" "}
+                    across the fleet.
+                  </AlertDescription>
+                </Alert>
               ) : null}
 
               {adminSurfaceLoading ? (
@@ -335,6 +354,7 @@ export default function AppWorkspaceLayout() {
               ) : (
                 <Outlet />
               )}
+              </ReplicaHoverExclusiveProvider>
             </div>
           </PageLayout>
         ) : (

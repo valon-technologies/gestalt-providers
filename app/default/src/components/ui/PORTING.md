@@ -31,12 +31,19 @@ When lifting a shared UI kit control into `src/components/ui/`:
 
 ## Button / Input / Field / Label
 
-Registry `button`, `input`, `field`, and `label` are vendored here. Theme
-bridges (`--primary`, `--muted`, `--input`, `--disabled*`, `--state-overlay-*`,
-`--control-*`) live in `shared/theme.css` + `globals.css` `@theme inline`.
+Registry `button`, `input`, `field`, `label`, `spinner`, and `brand-spinner` are
+vendored here. Theme bridges (`--primary`, `--muted`, `--input`, `--disabled*`,
+`--state-overlay-*`, `--control-*`) live in `shared/theme.css` + `globals.css`
+`@theme inline`. Spinner motion CSS (`.valon-spinner-trail`, BrandSpinner mark
+keyframes) lives in `globals.css` and maps BrandSpinner strokes to semantic
+tokens (`--border`, `--accent-strong`) — not Registry palette constants.
 Prefer `@/components/ui/button` and `@/components/ui/input` at call sites;
 `@/components/Button` is a legacy adapter (`primary` → `default`,
 `danger` → `destructive`).
+
+`Button` `loading` shows the routine trail `Spinner`, sets `aria-busy` /
+`aria-disabled`, and keeps enabled chrome — never conflate transient busy with
+`disabled`. Use `BrandSpinner` only for rare brand/identity waits.
 
 **One color contract (Registry):** ink is `text-foreground` /
 `text-muted-foreground`; fills are `bg-primary` / `bg-muted` / `bg-secondary`.
@@ -51,7 +58,15 @@ Compose labeled controls with `Field` + `FieldLabel` (+ `FieldDescription` /
 `group` for `InputGroupInput` / `InputGroupTextarea`) so the shell owns the
 focus ring without stacking on the inner control.
 
-## Choice cards (RadioGroup)
+## Avatar
+
+Registry `avatar` is vendored here (`Avatar`, `AvatarImage`, `AvatarFallback`,
+`avatarVariants`). Solid fill is `bg-muted-strong` (not `bg-muted`) so the disc
+stays distinct on Neutral / muted row hover — bridge `--muted-strong` in
+`shared/theme.css` + `globals.css`. Strip `"use client"`. Prefer
+`@/lib/cn` over Registry `@/lib/utils`.
+
+## Choice cards (RadioGroup + Switch)
 
 Do not fork tile chrome at call sites. Import helpers from
 `@/lib/choice-card-chrome`. Primitives come from `@/components/ui/radio-group`:
@@ -63,6 +78,11 @@ Do not fork tile chrome at call sites. Import helpers from
 - Pass `focusRing="none"` on `RadioGroupItem` inside choice cards
 
 Canonical: upstream `choice-card-chrome` + `radio-group` stories. Requires `--accent-solid` in theme.
+
+**Switch Choice Card** (preference toggle): `FieldLabel` wraps `Field` +
+`FieldTitle` + `Switch` — card chrome and neutral checked wash live on
+`FieldLabel`; content-first horizontal `Field` places the Switch top-right.
+See Registry Forms/Switch → ChoiceCard / `guidelines/fields.md`. Not `Alert`.
 
 ## Code (inline)
 

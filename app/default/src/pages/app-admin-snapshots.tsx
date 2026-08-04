@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { AppAdminAutoDeployToggle } from "@/features/registry/app-admin-auto-deploy-toggle";
+import { AppAdminFleetState } from "@/features/registry/app-admin-fleet-state";
 import { useAppAdminRegistryContext } from "@/features/registry/app-admin-registry-context";
 import { AppAdminSnapshotsTable } from "@/features/registry/app-admin-snapshots-table";
 import { versionsSurfacePresentation } from "@/features/registry/deploy-mode";
@@ -10,6 +11,7 @@ import {
   formatRegistryTimeShort,
   isActiveRegistryRollout,
 } from "@/features/registry/format";
+import { presentFleetStatus } from "@/features/registry/fleet-status-presentation";
 import {
   useAppAdminRegistryHistoryQuery,
   useAppAdminRegistryQuery,
@@ -19,7 +21,6 @@ import { Loader2 } from "lucide-react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   PageHeader,
-  PageHeaderActions,
   PageHeaderContent,
   PageHeaderDescription,
   PageHeaderTitle,
@@ -42,7 +43,7 @@ function RegistryRefreshedAt({
 
   if (registryQuery.isCheckingForNewVersions) {
     return (
-      <p className="text-sm text-muted-foreground" aria-live="polite">
+      <p className="text-xs text-muted-foreground" aria-live="polite">
         {checkingLabel}
       </p>
     );
@@ -53,7 +54,7 @@ function RegistryRefreshedAt({
   }
 
   return (
-    <p className="text-sm text-muted-foreground" data-testid="registry-refreshed-at">
+    <p className="text-xs text-muted-foreground" data-testid="registry-refreshed-at">
       Last checked{" "}
       <time
         dateTime={registryUpdatedIso ?? undefined}
@@ -138,6 +139,7 @@ export default function AppAdminSnapshotsPage() {
     ? "Couldn't update automatic deploy. Check your connection and try again."
     : null;
   const disabledReason = formatRegistryDisabledReason(registry.disabledReason);
+  const fleetView = presentFleetStatus(registry);
 
   return (
     <section aria-label="Versions">
@@ -146,24 +148,16 @@ export default function AppAdminSnapshotsPage() {
           <PageHeaderTitle>Versions</PageHeaderTitle>
           <PageHeaderDescription>{surface.pageDescription}</PageHeaderDescription>
         </PageHeaderContent>
-        <PageHeaderActions className="flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-4">
-          <RegistryRefreshedAt
-            appName={appName}
-            checkingLabel={surface.checkForNewVersionsPendingLabel}
-          />
-          <RegistryCheckForNewVersionsButton
-            appName={appName}
-            idleLabel={surface.checkForNewVersionsLabel}
-            pendingLabel={surface.checkForNewVersionsPendingLabel}
-          />
-        </PageHeaderActions>
       </PageHeader>
 
       <div className="mt-6 space-y-8">
+        <AppAdminFleetState registry={registry} view={fleetView} />
+
         <AppAdminAutoDeployToggle
           autoDeploy={registry.autoDeploy ?? { enabled: false }}
           title={surface.toggleTitle}
           description={surface.toggleDescription}
+          adjacentHint={surface.manualDeployBlockedReason}
           disabled={autoDeployMutation.isPending}
           updating={autoDeployMutation.isPending}
           updateError={autoDeployError}
@@ -176,11 +170,23 @@ export default function AppAdminSnapshotsPage() {
             historyRevisions={historyRevisions}
             controlsDisabled={controlsDisabled}
             offerManualDeploy={surface.offerManualDeploy}
-            manualDeployBlockedReason={surface.manualDeployBlockedReason}
             emptyTitle={surface.emptyTitle}
             emptyHint={surface.emptyHint}
             deployingVersion={deployingVersion}
             onDeployVersion={onDeployVersion}
+            toolbarTrailing={
+              <>
+                <RegistryRefreshedAt
+                  appName={appName}
+                  checkingLabel={surface.checkForNewVersionsPendingLabel}
+                />
+                <RegistryCheckForNewVersionsButton
+                  appName={appName}
+                  idleLabel={surface.checkForNewVersionsLabel}
+                  pendingLabel={surface.checkForNewVersionsPendingLabel}
+                />
+              </>
+            }
           />
         </TooltipProvider>
 

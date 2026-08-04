@@ -191,23 +191,20 @@ test.describe("app admin registry UI", () => {
     const fleet = page.getByTestId("app-admin-fleet-state");
     await expect(fleet.getByTestId("fleet-state-badge")).toHaveText("Healthy");
     await expect(fleet).toHaveAttribute("data-fleet-density", "quiet");
-    await expect(fleet.getByTestId("fleet-live-instances")).toHaveText("5");
+    await expect(fleet.getByTestId("fleet-live-instances")).toHaveCount(0);
+    await expect(fleet.getByTestId("fleet-metrics")).toHaveCount(0);
     await expect(fleet.getByTestId("fleet-minimum-instances")).toHaveCount(0);
     await expect(fleet.getByTestId("fleet-running-desired")).toHaveCount(0);
     await expect(fleet.getByTestId("fleet-desired-version")).toHaveCount(0);
     await expect(fleet.getByTestId("fleet-source-version")).toHaveCount(0);
-    await expect(fleet.getByTestId("fleet-evaluated-at")).toHaveText(
-      `Last evaluated ${new Date("2026-07-23T14:59:50Z").toLocaleTimeString(
-        undefined,
-        { hour: "numeric", minute: "2-digit", second: "2-digit" },
-      )}`,
-    );
+    await expect(fleet.getByTestId("fleet-evaluated-at")).toHaveCount(0);
+    await expect(fleet).not.toContainText("Last evaluated");
     await expect(fleet).not.toContainText("Fresh report window");
     await expect(fleet.getByTestId("recovered-after-failed-rollout")).toContainText(
       "Recovered after failed rollout",
     );
     await expect(fleet.getByTestId("recovered-after-failed-rollout")).toContainText(
-      "Running source",
+      "Runtime commit",
     );
     await expect(fleet.getByTestId("recovered-after-failed-rollout")).not.toContainText(
       "5 live / 5 minimum",
@@ -238,7 +235,7 @@ test.describe("app admin registry UI", () => {
     await expect(fleet).toContainText(
       "Not enough fresh replica reports to determine fleet health",
     );
-    await expect(fleet.getByTestId("fleet-live-instances")).toHaveText("4");
+    await expect(fleet.getByTestId("fleet-live-instances")).toHaveCount(0);
     await expect(fleet.getByTestId("fleet-minimum-instances")).toHaveText("5");
     await expect(fleet).toContainText("Fresh report window: 45s");
     await expect(fleet).not.toContainText("Every live replica");
@@ -267,6 +264,7 @@ test.describe("app admin registry UI", () => {
     );
     await expect(fleet.getByTestId("fleet-desired-version")).toBeVisible();
     await expect(fleet.getByTestId("fleet-source-version")).toBeVisible();
+    await expect(fleet).toContainText("Runtime commit");
   });
 
   test("treats absent heartbeat fields as unknown during mixed-version rollout", async ({

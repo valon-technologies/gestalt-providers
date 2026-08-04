@@ -21,4 +21,11 @@ describe("PageHeader", () => {
       "[&:has([data-slot=page-header-content][data-size=lg])]:gap-y-3",
     );
   });
+
+  test("aligns between-mode actions to the content last baseline", () => {
+    expect(SOURCE).toContain(
+      'alignBetweenItems: "sm:[align-items:last_baseline]"',
+    );
+    expect(SOURCE).not.toContain('alignBetweenItems: "sm:items-end"');
+  });
 });

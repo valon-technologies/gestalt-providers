@@ -1,4 +1,7 @@
-import type { AppAdminPublishedVersion } from "@/features/registry/types";
+import type {
+  AppAdminPublishedVersion,
+  AppAdminRegistryResponse,
+} from "@/features/registry/types";
 
 const TIME_AGO_UNITS: Array<{ unit: Intl.RelativeTimeFormatUnit; seconds: number }> = [
   { unit: "year", seconds: 31_536_000 },
@@ -136,6 +139,42 @@ export function shortenSourceRef(sourceRef?: string): string {
   const ref = sourceRef?.trim();
   if (!ref) return "";
   return ref.length > 7 ? ref.slice(0, 7) : ref;
+}
+
+/** GitHub commit URL for a Toolshed / gestaltd `SOURCE_VERSION` SHA. */
+export function toolshedSourceCommitUrl(sourceVersion?: string): string | null {
+  const sha = sourceVersion?.trim();
+  if (!sha || !/^[0-9a-fA-F]{7,40}$/.test(sha)) return null;
+  return `https://github.com/valon-technologies/toolshed/commit/${sha}`;
+}
+
+/**
+ * Best external href for a snapshot version string: app source, PR, commit, or
+ * workflow run — matching how the Versions table surfaces provenance.
+ */
+export function resolveVersionSourceHref(
+  registry: Pick<
+    AppAdminRegistryResponse,
+    "publishedVersions" | "pendingVersions" | "failedVersions"
+  >,
+  version?: string,
+): string | null {
+  const needle = version?.trim();
+  if (!needle) return null;
+  const match = [
+    ...(registry.publishedVersions ?? []),
+    ...(registry.pendingVersions ?? []),
+    ...(registry.failedVersions ?? []),
+  ].find((row) => row.version === needle);
+  if (!match) return null;
+  const publication = match.publication;
+  return (
+    match.sourceUrl?.trim() ||
+    publication?.triggerPullRequest?.url?.trim() ||
+    publication?.triggerCommit?.url?.trim() ||
+    publication?.workflowRunUrl?.trim() ||
+    null
+  );
 }
 
 export function isActiveRegistryRollout(state?: string): boolean {

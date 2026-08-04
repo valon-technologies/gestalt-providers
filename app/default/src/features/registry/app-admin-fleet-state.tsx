@@ -1,256 +1,209 @@
 import { Badge } from "@/components/ui/badge";
+import { Link } from "@/components/ui/link";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  Stat,
+  StatGroup,
+  StatLabel,
+  StatValue,
+} from "@/components/ui/stat";
 import {
   formatDurationSeconds,
   formatRegistryTime,
   formatRegistryTimeShort,
   shortenSourceRef,
+  toolshedSourceCommitUrl,
 } from "@/features/registry/format";
 import {
-  groupFleetReplicasByRunningVersion,
-  replicaClassLabel,
-  shortInstanceId,
-  type FleetReplicaVersionGroup,
-} from "@/features/registry/fleet-replicas";
-import { presentFleetStatus } from "@/features/registry/fleet-status-presentation";
+  presentFleetStatus,
+  type FleetStatusView,
+} from "@/features/registry/fleet-status-presentation";
+import { SnapshotRowLiveReplicas } from "@/features/registry/snapshot-live-replicas";
 import { RegistryCode } from "@/features/registry/registry-code";
 import type { AppAdminRegistryResponse } from "@/features/registry/types";
-import { cn } from "@/lib/cn";
 
-function FleetMetric({
-  label,
-  value,
-  testId,
+function DesiredVersionRef({
+  version,
+  href,
 }: {
-  label: string;
-  value: number;
-  testId: string;
+  version: string;
+  href?: string | null;
 }) {
+  if (!href) {
+    return (
+      <RegistryCode title={version}>{version}</RegistryCode>
+    );
+  }
   return (
-    <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        {label}
-      </dt>
-      <dd
-        className="mt-0.5 text-base font-semibold tabular-nums md:mt-1 md:text-xl"
-        data-testid={testId}
-      >
-        {value}
-      </dd>
-    </div>
-  );
-}
-
-function FleetReplicaTree({
-  groups,
-  bordered,
-}: {
-  groups: FleetReplicaVersionGroup[];
-  bordered?: boolean;
-}) {
-  if (groups.length === 0) return null;
-  return (
-    <div
-      className={cn(bordered && "space-y-3 border-t border-border pt-3")}
-      data-testid="fleet-replica-tree"
+    <Link
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      underlineVariant="always"
+      className="font-mono text-sm break-all"
+      title={version}
+      data-testid="fleet-desired-version-link"
     >
-      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        Live replicas
-      </p>
-      <ul className={cn("space-y-3", !bordered && "mt-3")}>
-        {groups.map((group) => (
-          <li key={group.version || "__none"} className="space-y-1.5">
-            <div className="flex flex-wrap items-baseline gap-2 text-sm">
-              <span className="text-muted-foreground">
-                {group.version ? "Running" : "No running version"}
-              </span>
-              {group.version ? (
-                <RegistryCode title={group.version}>{group.version}</RegistryCode>
-              ) : null}
-              <span className="tabular-nums text-muted-foreground">
-                ({group.replicas.length})
-              </span>
-            </div>
-            <ul className="space-y-1 border-l border-border pl-3">
-              {group.replicas.map((replica) => (
-                <li
-                  key={replica.instanceId}
-                  className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm"
-                  data-testid="fleet-replica-row"
-                  data-replica-class={replica.class}
-                >
-                  <code
-                    className="font-mono text-xs"
-                    title={replica.instanceId}
-                  >
-                    {shortInstanceId(replica.instanceId)}
-                  </code>
-                  <span className="text-muted-foreground">
-                    {replicaClassLabel(replica.class)}
-                  </span>
-                  {replica.lastError ? (
-                    <span
-                      className="text-xs text-destructive"
-                      title={replica.lastError}
-                    >
-                      {replica.lastError}
-                    </span>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </li>
-        ))}
-      </ul>
-    </div>
+      {version}
+    </Link>
   );
 }
 
-export function AppAdminFleetState({
-  registry,
-}: {
-  registry: Pick<
-    AppAdminRegistryResponse,
-    "desiredVersion" | "fleetState" | "recovery" | "rollout"
-  >;
-}) {
-  const view = presentFleetStatus(registry);
-  const quiet = view.density === "quiet";
-  const replicaGroups = groupFleetReplicasByRunningVersion(
-    registry.fleetState?.replicas,
+function ToolshedSourceRef({ sourceVersion }: { sourceVersion: string }) {
+  const short = shortenSourceRef(sourceVersion);
+  const href = toolshedSourceCommitUrl(sourceVersion);
+  if (!href) {
+    return (
+      <span className="font-mono text-sm" title={sourceVersion}>
+        {short}
+      </span>
+    );
+  }
+  return (
+    <Link
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      underlineVariant="always"
+      className="font-mono text-sm"
+      title={sourceVersion}
+      data-testid="fleet-source-version-link"
+    >
+      {short}
+    </Link>
   );
-  const hasBody =
-    view.metrics.length > 0 ||
-    view.showEvaluated ||
-    view.showIdentity ||
-    replicaGroups.length > 0;
-  const evaluatedClock = view.evaluatedAt
-    ? formatRegistryTimeShort(view.evaluatedAt, { second: true })
-    : null;
+}
+
+function FleetStripBody({
+  view,
+  replicas,
+}: {
+  view: FleetStatusView;
+  replicas: NonNullable<
+    AppAdminRegistryResponse["fleetState"]
+  >["replicas"];
+}) {
   const recoveredClock = view.recovery?.recoveredAt
     ? formatRegistryTimeShort(view.recovery.recoveredAt, { second: true })
     : null;
-  const showMetricsBlock =
-    view.metrics.length > 0 || view.showEvaluated || view.showIdentity;
 
   return (
-    <Card
-      data-testid="app-admin-fleet-state"
-      data-fleet-density={view.density}
-    >
-      <CardHeader
-        className={cn(
-          "gap-2 sm:flex-row sm:items-start sm:justify-between sm:space-y-0",
-          quiet ? "py-3 md:py-4" : "py-4 md:gap-3 md:py-6",
-        )}
-      >
-        <div className="space-y-1 md:space-y-1.5">
-          <CardTitle className={cn(quiet ? "text-sm md:text-base" : "text-base md:text-lg")}>
-            Current fleet
-          </CardTitle>
-          <CardDescription>{view.verdict.description}</CardDescription>
-        </div>
-        <Badge
-          variant={view.verdict.badgeVariant}
-          size="lg"
-          data-testid="fleet-state-badge"
-        >
-          {view.verdict.label}
-        </Badge>
-      </CardHeader>
-
-      {hasBody ? (
-        <CardContent
-          className={cn("space-y-3 pt-0", !quiet && "space-y-4 md:space-y-5")}
-        >
-          {view.metrics.length > 0 ? (
-            <dl
-              className={cn(
-                "grid gap-3",
-                view.metrics.length <= 2
-                  ? "grid-cols-2 sm:grid-cols-3"
-                  : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5",
-              )}
+    <>
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <Badge
+            variant={view.verdict.badgeVariant}
+            size="sm"
+            data-testid="fleet-state-badge"
+          >
+            {view.verdict.label}
+          </Badge>
+          {view.summaryLine ? (
+            <p
+              className="text-sm text-muted-foreground"
+              data-testid="fleet-summary-line"
             >
-              {view.metrics.map((fact) => (
-                <FleetMetric
-                  key={fact.id}
-                  label={fact.label}
-                  value={fact.value}
-                  testId={fact.testId}
-                />
-              ))}
-            </dl>
-          ) : null}
-
-          {view.showIdentity ? (
-            <dl className="grid gap-3 text-sm sm:grid-cols-2">
-              <div>
-                <dt className="text-muted-foreground">Desired version</dt>
-                <dd className="mt-1" data-testid="fleet-desired-version">
-                  {view.desiredVersion ? (
-                    <RegistryCode title={view.desiredVersion}>
-                      {view.desiredVersion}
-                    </RegistryCode>
-                  ) : (
-                    "—"
-                  )}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Running source</dt>
-                <dd className="mt-1" data-testid="fleet-source-version">
-                  {view.sourceVersion ? (
-                    <RegistryCode title={view.sourceVersion}>
-                      {shortenSourceRef(view.sourceVersion)}
-                    </RegistryCode>
-                  ) : (
-                    "—"
-                  )}
-                </dd>
-              </div>
-            </dl>
-          ) : null}
-
-          {view.showEvaluated ? (
-            <p className="text-xs text-muted-foreground">
-              {view.evaluatedAt && evaluatedClock ? (
-                <time
-                  dateTime={view.evaluatedAt}
-                  title={formatRegistryTime(view.evaluatedAt)}
-                  data-testid="fleet-evaluated-at"
-                >
-                  Last evaluated {evaluatedClock}
-                </time>
-              ) : (
-                "Evaluation time unavailable"
-              )}
-              {view.showFreshnessWindow && view.heartbeatTtlSeconds > 0
-                ? ` · Fresh report window: ${formatDurationSeconds(
-                    view.heartbeatTtlSeconds,
-                  )}`
-                : null}
+              {view.summaryLine}
             </p>
           ) : null}
+        </div>
 
-          <FleetReplicaTree
-            groups={replicaGroups}
-            bordered={showMetricsBlock}
-          />
-        </CardContent>
+        {view.metrics.length > 0 ? (
+          <StatGroup className="w-full" data-testid="fleet-metrics">
+            {view.metrics.map((fact) => (
+              <Stat
+                key={fact.id}
+                variant="plain"
+                className="w-max max-w-full shrink-0"
+              >
+                <StatLabel>{fact.label}</StatLabel>
+                <StatValue className="tabular-nums" data-testid={fact.testId}>
+                  {fact.value}
+                </StatValue>
+              </Stat>
+            ))}
+          </StatGroup>
+        ) : null}
+
+        {view.verdict.description ? (
+          <p className="text-sm text-muted-foreground">
+            {view.verdict.description}
+          </p>
+        ) : null}
+
+        {view.showReplicaChips && replicas && replicas.length > 0 ? (
+          <div data-testid="fleet-live-replicas">
+            <SnapshotRowLiveReplicas
+              replicas={replicas}
+              className="mt-0"
+              hoverScope="fleet"
+            />
+          </div>
+        ) : null}
+
+        {view.failingReplica ? (
+          <p
+            className="text-sm text-destructive text-pretty"
+            data-testid="fleet-failing-replica"
+          >
+            <span className="font-mono">{view.failingReplica.shortId}</span>
+            {" — "}
+            {view.failingReplica.error}
+          </p>
+        ) : null}
+
+        {view.pathHint ? (
+          <p
+            className="text-sm text-muted-foreground"
+            data-testid="fleet-path-hint"
+          >
+            {view.pathHint}
+          </p>
+        ) : null}
+      </div>
+
+      {view.showDesiredVersion || view.showSourceVersion ? (
+        <dl className="grid gap-3 text-sm sm:grid-cols-2">
+          {view.showDesiredVersion ? (
+            <div>
+              <dt className="text-muted-foreground">Desired version</dt>
+              <dd className="mt-1" data-testid="fleet-desired-version">
+                {view.desiredVersion ? (
+                  <DesiredVersionRef
+                    version={view.desiredVersion}
+                    href={view.desiredVersionHref}
+                  />
+                ) : (
+                  "—"
+                )}
+              </dd>
+            </div>
+          ) : null}
+          {view.showSourceVersion ? (
+            <div>
+              <dt className="text-muted-foreground">Runtime commit</dt>
+              <dd className="mt-1" data-testid="fleet-source-version">
+                {view.sourceVersion ? (
+                  <ToolshedSourceRef sourceVersion={view.sourceVersion} />
+                ) : (
+                  "—"
+                )}
+              </dd>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Runtime commit SHA (not the published snapshot).
+              </p>
+            </div>
+          ) : null}
+        </dl>
+      ) : null}
+
+      {view.showFreshnessWindow && view.heartbeatTtlSeconds > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Fresh report window: {formatDurationSeconds(view.heartbeatTtlSeconds)}
+        </p>
       ) : null}
 
       {view.recovery ? (
-        <div
-          className="border-t border-border px-4 py-3"
-          data-testid="recovered-after-failed-rollout"
-        >
+        <div data-testid="recovered-after-failed-rollout">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="success">Recovered after failed rollout</Badge>
             <time
@@ -264,14 +217,48 @@ export function AppAdminFleetState({
           </div>
           {view.recovery.sourceVersion ? (
             <p className="mt-2 text-xs text-muted-foreground">
-              Running source{" "}
-              <RegistryCode title={view.recovery.sourceVersion}>
-                {shortenSourceRef(view.recovery.sourceVersion)}
-              </RegistryCode>
+              Runtime commit{" "}
+              <ToolshedSourceRef sourceVersion={view.recovery.sourceVersion} />
             </p>
           ) : null}
         </div>
       ) : null}
-    </Card>
+    </>
+  );
+}
+
+export function AppAdminFleetState({
+  registry,
+  view: viewProp,
+}: {
+  registry: Pick<
+    AppAdminRegistryResponse,
+    | "desiredVersion"
+    | "fleetState"
+    | "recovery"
+    | "rollout"
+    | "publishedVersions"
+    | "pendingVersions"
+    | "failedVersions"
+  >;
+  /** Optional precomputed view — layout uses this to gate the rollout banner. */
+  view?: FleetStatusView;
+}) {
+  const view = viewProp ?? presentFleetStatus(registry);
+  const replicas = registry.fleetState?.replicas ?? [];
+
+  if (!registry.fleetState && !view.recovery) {
+    return null;
+  }
+
+  return (
+    <section
+      className="space-y-3"
+      data-testid="app-admin-fleet-state"
+      data-fleet-density={view.density}
+      data-owns-rollout-headline={view.ownsActiveRolloutHeadline ? "true" : "false"}
+    >
+      <FleetStripBody view={view} replicas={replicas} />
+    </section>
   );
 }

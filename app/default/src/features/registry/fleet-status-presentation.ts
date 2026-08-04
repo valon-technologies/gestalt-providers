@@ -1,4 +1,5 @@
 import type {
+  AppAdminFleetReplica,
   AppAdminFleetState,
   AppAdminRecovery,
   AppAdminRegistryResponse,
@@ -8,9 +9,13 @@ import {
   hasRecoveredFailedRollout,
   type FleetStatePresentation,
 } from "@/features/registry/fleet-state";
+import { shortInstanceId } from "@/features/registry/fleet-replicas";
+import {
+  isActiveRegistryRollout,
+  resolveVersionSourceHref,
+} from "@/features/registry/format";
 
 export type FleetMetricId =
-  | "live"
   | "minimum"
   | "onDesired"
   | "wrongVersion"
@@ -25,31 +30,51 @@ export type FleetMetricFact = {
 
 export type FleetStatusDensity = "quiet" | "diagnostic" | "unknown";
 
+export type FleetFailingReplicaCallout = {
+  instanceId: string;
+  shortId: string;
+  error: string;
+};
+
+/**
+ * Canonical Versions runtime strip — one lead beat, one proof channel, explicit
+ * ownership so the layout does not narrate the same rollout again.
+ */
 export type FleetStatusView = {
   density: FleetStatusDensity;
   verdict: FleetStatePresentation;
+  /** Compact proof when replica chips are present (counts would duplicate chips). */
+  summaryLine: string | null;
+  /** Tabular metrics only when there is no per-replica proof channel. */
   metrics: FleetMetricFact[];
-  showIdentity: boolean;
+  showReplicaChips: boolean;
+  showDesiredVersion: boolean;
+  /** Published snapshot currently selected as desired, when known. */
   desiredVersion?: string;
+  /** Runtime binary commit — diagnostic degraded only, not during convergence. */
+  showSourceVersion: boolean;
   sourceVersion?: string;
-  showEvaluated: boolean;
+  /** External href for the desired snapshot (source / PR / workflow), when known. */
+  desiredVersionHref?: string | null;
+  /** Freshness TTL copy for unknown — page-level "Last checked" owns clock time. */
   showFreshnessWindow: boolean;
-  evaluatedAt?: string;
   heartbeatTtlSeconds: number;
   recovery: AppAdminRecovery | null;
+  /**
+   * When true, the fleet strip owns the active-rollout headline — layout must
+   * not render a second "Rolling out" alert.
+   */
+  ownsActiveRolloutHeadline: boolean;
+  failingReplica: FleetFailingReplicaCallout | null;
+  pathHint: string | null;
 };
 
 const METRIC: Record<
   FleetMetricId,
   { label: string; testId: string; value: (fleet: AppAdminFleetState) => number }
 > = {
-  live: {
-    label: "Live replicas",
-    testId: "fleet-live-instances",
-    value: (fleet) => fleet.liveInstances,
-  },
   minimum: {
-    label: "Minimum live replicas",
+    label: "Required minimum",
     testId: "fleet-minimum-instances",
     value: (fleet) => fleet.minimumHealthyInstances,
   },
@@ -87,6 +112,63 @@ function metricsFor(
   return ids.map((id) => metric(id, fleet));
 }
 
+/** One-line convergence proof — replaces a StatGroup when chips are visible. */
+export function formatFleetConvergenceSummary(fleet: AppAdminFleetState): string {
+  const parts = [
+    `${fleet.runningDesiredVersion} of ${fleet.liveInstances} on desired`,
+  ];
+  if (fleet.mismatched > 0) {
+    parts.push(
+      `${fleet.mismatched} wrong`,
+    );
+  }
+  if (fleet.errors > 0) {
+    parts.push(
+      `${fleet.errors} unhealthy`,
+    );
+  }
+  if (fleet.liveInstances < fleet.minimumHealthyInstances) {
+    parts.push(`need ${fleet.minimumHealthyInstances} minimum`);
+  }
+  return parts.join(" · ");
+}
+
+function pickFailingReplica(
+  replicas: AppAdminFleetReplica[],
+): FleetFailingReplicaCallout | null {
+  const failing = replicas.find(
+    (replica) =>
+      replica.class === "error" && Boolean(replica.lastError?.trim()),
+  );
+  if (!failing?.lastError?.trim()) return null;
+  return {
+    instanceId: failing.instanceId,
+    shortId: shortInstanceId(failing.instanceId),
+    error: failing.lastError.trim(),
+  };
+}
+
+function emptyView(
+  verdict: FleetStatePresentation,
+  recovery: AppAdminRecovery | null,
+): FleetStatusView {
+  return {
+    density: "unknown",
+    verdict,
+    summaryLine: null,
+    metrics: [],
+    showReplicaChips: false,
+    showDesiredVersion: false,
+    showSourceVersion: false,
+    showFreshnessWindow: false,
+    heartbeatTtlSeconds: 0,
+    recovery,
+    ownsActiveRolloutHeadline: false,
+    failingReplica: null,
+    pathHint: null,
+  };
+}
+
 /**
  * State-gated runtime truth for the Versions surface.
  * Which facts appear is a function of fleet health — not a fixed dashboard.
@@ -94,7 +176,13 @@ function metricsFor(
 export function presentFleetStatus(
   registry: Pick<
     AppAdminRegistryResponse,
-    "desiredVersion" | "fleetState" | "recovery" | "rollout"
+    | "desiredVersion"
+    | "fleetState"
+    | "recovery"
+    | "rollout"
+    | "publishedVersions"
+    | "pendingVersions"
+    | "failedVersions"
   >,
 ): FleetStatusView {
   const { fleetState } = registry;
@@ -102,55 +190,75 @@ export function presentFleetStatus(
   const recovery = hasRecoveredFailedRollout(registry)
     ? (registry.recovery ?? null)
     : null;
+  const rolloutActive = Boolean(
+    registry.rollout && isActiveRegistryRollout(registry.rollout.state),
+  );
 
   if (!fleetState) {
-    return {
-      density: "unknown",
-      verdict,
-      metrics: [],
-      showIdentity: false,
-      showEvaluated: false,
-      showFreshnessWindow: false,
-      heartbeatTtlSeconds: 0,
-      recovery,
-    };
+    return emptyView(verdict, recovery);
   }
 
   const desiredVersion =
     fleetState.desiredVersion || registry.desiredVersion || undefined;
+  const desiredVersionHref = resolveVersionSourceHref(registry, desiredVersion);
   const sourceVersion = fleetState.sourceVersion || undefined;
+  const replicas = fleetState.replicas ?? [];
+  const hasReplicaProof = replicas.length > 0;
   const state = fleetState.state;
 
   if (state === "healthy") {
     return {
       density: "quiet",
       verdict,
-      metrics: metricsFor(["live"], fleetState),
-      showIdentity: false,
-      showEvaluated: true,
+      summaryLine: null,
+      metrics: [],
+      showReplicaChips: false,
+      showDesiredVersion: false,
+      showSourceVersion: false,
+      desiredVersion,
+      desiredVersionHref,
+      sourceVersion,
       showFreshnessWindow: false,
-      evaluatedAt: fleetState.evaluatedAt || undefined,
       heartbeatTtlSeconds: fleetState.heartbeatTtlSeconds,
       recovery,
+      // Healthy strip does not narrate an in-progress deploy.
+      ownsActiveRolloutHeadline: false,
+      failingReplica: null,
+      pathHint: null,
     };
   }
 
   if (state === "converging") {
-    const ids: FleetMetricId[] = ["live", "minimum", "onDesired"];
-    if (fleetState.mismatched > 0) ids.push("wrongVersion");
-    if (fleetState.errors > 0) ids.push("unhealthy");
     return {
       density: "diagnostic",
       verdict,
-      metrics: metricsFor(ids, fleetState),
-      showIdentity: true,
+      summaryLine: hasReplicaProof
+        ? formatFleetConvergenceSummary(fleetState)
+        : null,
+      metrics: hasReplicaProof
+        ? []
+        : metricsFor(
+            [
+              "onDesired",
+              ...(fleetState.mismatched > 0
+                ? (["wrongVersion"] as const)
+                : []),
+              ...(fleetState.errors > 0 ? (["unhealthy"] as const) : []),
+            ],
+            fleetState,
+          ),
+      showReplicaChips: hasReplicaProof,
+      showDesiredVersion: true,
+      showSourceVersion: false,
       desiredVersion,
+      desiredVersionHref,
       sourceVersion,
-      showEvaluated: true,
       showFreshnessWindow: false,
-      evaluatedAt: fleetState.evaluatedAt || undefined,
       heartbeatTtlSeconds: fleetState.heartbeatTtlSeconds,
       recovery,
+      ownsActiveRolloutHeadline: true,
+      failingReplica: pickFailingReplica(replicas),
+      pathHint: "Wait for replicas to finish updating.",
     };
   }
 
@@ -158,18 +266,29 @@ export function presentFleetStatus(
     return {
       density: "diagnostic",
       verdict,
-      metrics: metricsFor(
-        ["live", "minimum", "onDesired", "wrongVersion", "unhealthy"],
-        fleetState,
-      ),
-      showIdentity: true,
+      summaryLine: hasReplicaProof
+        ? formatFleetConvergenceSummary(fleetState)
+        : null,
+      metrics: hasReplicaProof
+        ? []
+        : metricsFor(
+            ["onDesired", "wrongVersion", "unhealthy"],
+            fleetState,
+          ),
+      showReplicaChips: hasReplicaProof,
+      showDesiredVersion: true,
+      showSourceVersion: true,
       desiredVersion,
+      desiredVersionHref,
       sourceVersion,
-      showEvaluated: true,
       showFreshnessWindow: false,
-      evaluatedAt: fleetState.evaluatedAt || undefined,
       heartbeatTtlSeconds: fleetState.heartbeatTtlSeconds,
       recovery,
+      ownsActiveRolloutHeadline: rolloutActive,
+      failingReplica: pickFailingReplica(replicas),
+      pathHint: fleetState.errors > 0
+        ? "Inspect the unhealthy replica."
+        : "Inspect replicas on the wrong version.",
     };
   }
 
@@ -177,12 +296,19 @@ export function presentFleetStatus(
   return {
     density: "unknown",
     verdict,
-    metrics: metricsFor(["live", "minimum"], fleetState),
-    showIdentity: false,
-    showEvaluated: true,
+    summaryLine: null,
+    metrics: metricsFor(["minimum"], fleetState),
+    showReplicaChips: false,
+    showDesiredVersion: false,
+    showSourceVersion: false,
+    desiredVersion,
+    desiredVersionHref,
+    sourceVersion,
     showFreshnessWindow: fleetState.heartbeatTtlSeconds > 0,
-    evaluatedAt: fleetState.evaluatedAt || undefined,
     heartbeatTtlSeconds: fleetState.heartbeatTtlSeconds,
     recovery,
+    ownsActiveRolloutHeadline: false,
+    failingReplica: null,
+    pathHint: null,
   };
 }

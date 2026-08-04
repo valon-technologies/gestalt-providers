@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 
-import { presentFleetStatus } from "@/features/registry/fleet-status-presentation";
+import {
+  formatFleetConvergenceSummary,
+  presentFleetStatus,
+} from "@/features/registry/fleet-status-presentation";
 import type { AppAdminFleetState } from "@/features/registry/types";
 
 const BASE_FLEET: AppAdminFleetState = {
@@ -16,22 +19,85 @@ const BASE_FLEET: AppAdminFleetState = {
   evaluatedAt: "2026-07-30T13:52:20Z",
 };
 
+describe("formatFleetConvergenceSummary", () => {
+  test("joins on-desired, wrong, and unhealthy counts", () => {
+    expect(
+      formatFleetConvergenceSummary({
+        ...BASE_FLEET,
+        runningDesiredVersion: 3,
+        mismatched: 1,
+        errors: 1,
+      }),
+    ).toBe("3 of 5 on desired · 1 wrong · 1 unhealthy");
+  });
+});
+
 describe("presentFleetStatus", () => {
-  test("healthy is a quiet strip: live + evaluated, no zeros or hashes", () => {
+  test("healthy is a quiet strip: verdict only, no counters or hashes", () => {
     const view = presentFleetStatus({
       desiredVersion: BASE_FLEET.desiredVersion,
       fleetState: BASE_FLEET,
       rollout: { version: "0.0.0-snapshot.gabc", state: "complete" },
     });
     expect(view.density).toBe("quiet");
-    expect(view.metrics.map((metric) => metric.id)).toEqual(["live"]);
-    expect(view.showIdentity).toBe(false);
+    expect(view.metrics).toEqual([]);
+    expect(view.summaryLine).toBeNull();
+    expect(view.showDesiredVersion).toBe(false);
+    expect(view.showSourceVersion).toBe(false);
+    expect(view.ownsActiveRolloutHeadline).toBe(false);
     expect(view.showFreshnessWindow).toBe(false);
-    expect(view.showEvaluated).toBe(true);
     expect(view.recovery).toBeNull();
   });
 
-  test("converging opens capacity and convergence facts", () => {
+  test("converging with replica chips: summary owns proof, strip owns rollout headline", () => {
+    const view = presentFleetStatus({
+      desiredVersion: BASE_FLEET.desiredVersion,
+      publishedVersions: [
+        {
+          version: BASE_FLEET.desiredVersion!,
+          publishedAt: "2026-07-30T13:00:00Z",
+          sourceUrl: "https://github.com/example/app/commit/abc",
+        },
+      ],
+      fleetState: {
+        ...BASE_FLEET,
+        state: "converging",
+        runningDesiredVersion: 3,
+        mismatched: 2,
+        replicas: [
+          {
+            instanceId: "a",
+            heartbeatAt: "2026-08-03T19:00:00Z",
+            appState: "running",
+            class: "on_desired",
+            runningVersion: "v1",
+          },
+          {
+            instanceId: "b",
+            heartbeatAt: "2026-08-03T19:00:00Z",
+            appState: "running",
+            class: "mismatched",
+            runningVersion: "v0",
+          },
+        ],
+      },
+      rollout: { version: "0.0.0-snapshot.gabc", state: "rolling" },
+    });
+    expect(view.density).toBe("diagnostic");
+    expect(view.verdict.label).toBe("Rolling out");
+    expect(view.summaryLine).toBe("3 of 5 on desired · 2 wrong");
+    expect(view.metrics).toEqual([]);
+    expect(view.showReplicaChips).toBe(true);
+    expect(view.showDesiredVersion).toBe(true);
+    expect(view.desiredVersionHref).toBe(
+      "https://github.com/example/app/commit/abc",
+    );
+    expect(view.showSourceVersion).toBe(false);
+    expect(view.ownsActiveRolloutHeadline).toBe(true);
+    expect(view.pathHint).toBe("Wait for replicas to finish updating.");
+  });
+
+  test("converging without replicas falls back to metrics (no chip duplication)", () => {
     const view = presentFleetStatus({
       desiredVersion: BASE_FLEET.desiredVersion,
       fleetState: {
@@ -42,19 +108,17 @@ describe("presentFleetStatus", () => {
       },
       rollout: { version: "0.0.0-snapshot.gabc", state: "rolling" },
     });
-    expect(view.density).toBe("diagnostic");
+    expect(view.showReplicaChips).toBe(false);
+    expect(view.summaryLine).toBeNull();
     expect(view.metrics.map((metric) => metric.id)).toEqual([
-      "live",
-      "minimum",
       "onDesired",
       "wrongVersion",
     ]);
-    expect(view.showIdentity).toBe(true);
-    expect(view.desiredVersion).toBe(BASE_FLEET.desiredVersion);
+    expect(view.ownsActiveRolloutHeadline).toBe(true);
   });
 
-  test("degraded includes the full diagnostic counter set", () => {
-    const view = presentFleetStatus({
+  test("degraded with replicas: summary + runtime commit, owns headline only while rollout active", () => {
+    const withRollout = presentFleetStatus({
       desiredVersion: BASE_FLEET.desiredVersion,
       fleetState: {
         ...BASE_FLEET,
@@ -62,19 +126,45 @@ describe("presentFleetStatus", () => {
         runningDesiredVersion: 3,
         mismatched: 1,
         errors: 1,
+        replicas: [
+          {
+            instanceId: "e5d4c3b2",
+            heartbeatAt: "2026-08-03T19:00:00Z",
+            appState: "error",
+            class: "error",
+            lastError: "provider failed to start",
+          },
+        ],
+      },
+      rollout: { version: "0.0.0-snapshot.gabc", state: "restarting" },
+    });
+    expect(withRollout.summaryLine).toContain("1 unhealthy");
+    expect(withRollout.showSourceVersion).toBe(true);
+    expect(withRollout.ownsActiveRolloutHeadline).toBe(true);
+    expect(withRollout.failingReplica).toMatchObject({
+      shortId: "e5d4c3b2",
+      error: "provider failed to start",
+    });
+    expect(withRollout.pathHint).toBe("Inspect the unhealthy replica.");
+
+    const withoutRollout = presentFleetStatus({
+      desiredVersion: BASE_FLEET.desiredVersion,
+      fleetState: {
+        ...BASE_FLEET,
+        state: "degraded",
+        mismatched: 1,
+        errors: 1,
       },
     });
-    expect(view.metrics.map((metric) => metric.id)).toEqual([
-      "live",
-      "minimum",
+    expect(withoutRollout.ownsActiveRolloutHeadline).toBe(false);
+    expect(withoutRollout.metrics.map((m) => m.id)).toEqual([
       "onDesired",
       "wrongVersion",
       "unhealthy",
     ]);
-    expect(view.showIdentity).toBe(true);
   });
 
-  test("unknown with payload keeps capacity + freshness window", () => {
+  test("unknown with payload keeps required-minimum + freshness window", () => {
     const view = presentFleetStatus({
       desiredVersion: BASE_FLEET.desiredVersion,
       fleetState: {
@@ -85,8 +175,9 @@ describe("presentFleetStatus", () => {
       },
     });
     expect(view.density).toBe("unknown");
-    expect(view.metrics.map((metric) => metric.id)).toEqual(["live", "minimum"]);
-    expect(view.showIdentity).toBe(false);
+    expect(view.metrics.map((metric) => metric.id)).toEqual(["minimum"]);
+    expect(view.metrics[0]?.label).toBe("Required minimum");
+    expect(view.showDesiredVersion).toBe(false);
     expect(view.showFreshnessWindow).toBe(true);
   });
 
@@ -97,7 +188,7 @@ describe("presentFleetStatus", () => {
     expect(view.density).toBe("unknown");
     expect(view.metrics).toEqual([]);
     expect(view.verdict.label).toBe("Unknown");
-    expect(view.showEvaluated).toBe(false);
+    expect(view.showFreshnessWindow).toBe(false);
   });
 
   test("recovery is orthogonal to the live verdict", () => {

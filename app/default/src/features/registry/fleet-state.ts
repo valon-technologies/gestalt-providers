@@ -34,8 +34,9 @@ export function fleetStatePresentation(
       };
     case "converging":
       return {
-        label: "Converging",
-        description: "Replicas are still rolling to the desired version.",
+        label: "Rolling out",
+        // Strip summary + path hint own the explanation — no restating sentence.
+        description: "",
         badgeVariant: "warning",
       };
     case "degraded":

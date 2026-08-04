@@ -164,11 +164,14 @@ export function DataTableSearchShell({
   search,
   onSearchChange,
   searchPlaceholder = "Search",
+  trailing,
   children,
 }: {
   search: string;
   onSearchChange: (value: string) => void;
   searchPlaceholder?: string;
+  /** Optional end-aligned toolbar content (same baseline as the search field). */
+  trailing?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const deferredSearchHighlightQuery = React.useDeferredValue(search);
@@ -176,12 +179,17 @@ export function DataTableSearchShell({
   return (
     <SearchHighlightQueryContext.Provider value={deferredSearchHighlightQuery}>
       <div className="space-y-3">
-        <div className="flex justify-end">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
           <DataTableSearchField
             value={search}
             onChange={onSearchChange}
             placeholder={searchPlaceholder}
           />
+          {trailing ? (
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2">
+              {trailing}
+            </div>
+          ) : null}
         </div>
         {children}
       </div>
