@@ -33,7 +33,9 @@ describe("AppLogo wordmark contract", () => {
   });
 
   test("onNavigate is not overridable by a caller onClick prop", () => {
-    expect(SOURCE).toContain('Omit<React.ComponentProps<"div">, "onClick">');
+    expect(SOURCE).toContain(
+      'Omit<React.HTMLAttributes<HTMLElement>, "onClick">',
+    );
   });
 
   test("AppLogoName size scale stays on heading tokens (chrome, not PageHeader display)", () => {

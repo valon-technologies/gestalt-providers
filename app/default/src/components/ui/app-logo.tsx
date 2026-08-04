@@ -55,7 +55,12 @@ const markSizeFromNameSize = (size: AppLogoNameSize): AppLogoMarkSize =>
 const appLogoInteractiveClassName =
   "cursor-pointer border-0 bg-transparent p-0 text-left font-[inherit] text-inherit no-underline hover:text-inherit focus-ring rounded-sm";
 
-interface AppLogoProps extends Omit<React.ComponentProps<"div">, "onClick"> {
+/**
+ * Polymorphic chrome root (div | a | button | Slot). Shared attrs are typed on
+ * HTMLElement so href/onNavigate branches do not fight div-only refs/props.
+ * `onClick` stays owned by `onNavigate` (not overridable at the call site).
+ */
+interface AppLogoProps extends Omit<React.HTMLAttributes<HTMLElement>, "onClick"> {
   asChild?: boolean;
   /** When set, the lockup is an in-header link (SPA or full navigation). */
   href?: string;
