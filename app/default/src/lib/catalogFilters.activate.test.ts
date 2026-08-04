@@ -12,11 +12,11 @@ function stubIntegration(name: string): Integration {
 
 describe("catalogCardActivateRoute", () => {
   test("whole-card activate is always app overview", () => {
-    const integration = stubIntegration("g-issues");
+    const integration = stubIntegration("example-app");
     expect(catalogCardActivateTarget(integration)).toBe("detail");
     expect(catalogCardActivateRoute(integration)).toEqual({
       to: "/apps/$app",
-      params: { app: "g-issues" },
+      params: { app: "example-app" },
     });
   });
 });

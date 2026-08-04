@@ -323,13 +323,14 @@ export default function IntegrationConnectionPanel({
   onHeaderActionsChange,
   onDisconnectDialogClose,
 }: IntegrationConnectionPanelProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const wasDisconnectingRef = useRef(false);
+  const disconnectSeededRef = useRef(false);
   const [view, setView] = useState<ConnectionPanelView>(
     initialView === "disconnect" ? "default" : initialView,
   );
   const [disconnectTarget, setDisconnectTarget] = useState<ConnectionTarget>({});
   const [pendingAction, setPendingAction] = useState<PendingAuthAction | undefined>();
+  const [settingsOpen, setSettingsOpen] = useState(true);
   const isDialog = variant === "dialog";
 
   const displayName = integration.displayName || integration.name;
@@ -357,11 +358,15 @@ export default function IntegrationConnectionPanel({
 
   useEffect(() => {
     if (initialView === "disconnect") {
-      const target = firstDisconnectableTarget(normalizedStatus.connections);
-      setDisconnectTarget(target ?? {});
       setView("default");
+      if (disconnectSeededRef.current) return;
+      const target = firstDisconnectableTarget(normalizedStatus.connections);
+      if (!target) return;
+      setDisconnectTarget(target);
+      disconnectSeededRef.current = true;
       return;
     }
+    disconnectSeededRef.current = false;
     setView(initialView);
   }, [initialView, integration.name, normalizedStatus.connections]);
 
@@ -371,11 +376,6 @@ export default function IntegrationConnectionPanel({
     }
     wasDisconnectingRef.current = disconnecting;
   }, [disconnecting, error]);
-
-  useEffect(() => {
-    if (!isDialog) return;
-    dialogRef.current?.showModal();
-  }, [isDialog]);
 
   const authActions = buildAuthActions(normalizedStatus.connections);
   const pendingConnection = pendingAction
@@ -475,29 +475,13 @@ export default function IntegrationConnectionPanel({
     return () => onHeaderActionsChange(null);
   }, [headerActionSignature, onHeaderActionsChange]);
 
-  function handleCancel(e: SyntheticEvent<HTMLDialogElement>) {
-    if (disconnecting || submitting || selectingInstance) {
-      e.preventDefault();
-    }
-  }
-
-  function handleBackdropClick(e: MouseEvent<HTMLDialogElement>) {
-    if (
-      e.target === e.currentTarget &&
-      !disconnecting &&
-      !submitting &&
-      !selectingInstance
-    ) {
-      e.currentTarget.close();
-    }
-  }
-
   function closeDialog() {
     if (!isDialog) {
       onClose?.();
       return;
     }
-    dialogRef.current?.close();
+    setSettingsOpen(false);
+    onClose?.();
   }
 
   function handleInstanceSubmit(e: FormEvent<HTMLFormElement>) {
@@ -572,6 +556,8 @@ export default function IntegrationConnectionPanel({
       pendingAction.instance,
       pendingAction.connection,
     );
+    setPendingAction(undefined);
+    setView("default");
   }
 
   function renderStatusBadge(connection: NormalizedConnection) {
@@ -745,10 +731,10 @@ export default function IntegrationConnectionPanel({
                   key={`${connection.key}:${instance.name}`}
                   variant="outline"
                   className="overflow-hidden"
+                  role="listitem"
                   data-testid={`connection-account-${instance.name}`}
                 >
                   <Item
-                    role="listitem"
                     className="items-baseline border-0"
                     data-account-name={instance.name}
                     data-preferred={instance.preferred ? "true" : undefined}
@@ -791,7 +777,9 @@ export default function IntegrationConnectionPanel({
                               disconnecting || selectingInstance || submitting
                             }
                           >
-                            {USE_ACCOUNT_LABEL}
+                            {selectingInstance
+                              ? "Updating..."
+                              : USE_ACCOUNT_LABEL}
                           </Button>
                         ) : null}
                         {connection.canDisconnect ? (
@@ -856,7 +844,9 @@ export default function IntegrationConnectionPanel({
           <AlertDialogTitle>{disconnectConfirm.heading}</AlertDialogTitle>
           <AlertDialogDescription>{disconnectConfirm.body}</AlertDialogDescription>
           {error ? (
-            <p className="text-sm text-destructive">{error}</p>
+            <p className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
           ) : null}
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -911,7 +901,9 @@ export default function IntegrationConnectionPanel({
             <DialogDescription>{addAccountCopy.description}</DialogDescription>
           </DialogHeader>
           {error ? (
-            <p className="text-sm text-destructive">{error}</p>
+            <p className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
           ) : null}
           <Field>
             <FieldLabel htmlFor={`instance-name-${integration.name}`}>
@@ -1036,16 +1028,34 @@ export default function IntegrationConnectionPanel({
 
   return (
     <>
-      <dialog
-        ref={dialogRef}
-        aria-labelledby={headingId}
-        onCancel={handleCancel}
-        onClose={() => onClose?.()}
-        onClick={handleBackdropClick}
-        className="m-auto w-full max-w-lg rounded-lg border border-border bg-card p-0 text-card-foreground shadow-dropdown"
+      <Dialog
+        open={settingsOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            if (disconnecting || submitting || selectingInstance) return;
+            closeDialog();
+          }
+        }}
       >
-        {panel}
-      </dialog>
+        <DialogContent
+          className="max-w-lg gap-0 p-0"
+          showCloseButton={false}
+          aria-labelledby={headingId}
+          data-testid={`integration-connection-${integration.name}`}
+          onPointerDownOutside={(event) => {
+            if (disconnecting || submitting || selectingInstance || addAccountOpen || disconnectOpen) {
+              event.preventDefault();
+            }
+          }}
+          onEscapeKeyDown={(event) => {
+            if (disconnecting || submitting || selectingInstance || addAccountOpen || disconnectOpen) {
+              event.preventDefault();
+            }
+          }}
+        >
+          {panel}
+        </DialogContent>
+      </Dialog>
       {disconnectDialog}
       {addAccountDialog}
     </>

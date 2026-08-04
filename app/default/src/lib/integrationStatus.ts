@@ -394,7 +394,10 @@ function normalizeConnection(
     authTypes,
     connectionParams: raw.connectionParams,
     credentialFields: raw.credentialFields,
-    instances: raw.instances ?? [],
+    instances: normalizeConnectionInstances(
+      raw.instances,
+      raw.preferredInstance,
+    ),
     status,
     credentialState,
     healthState,
@@ -431,6 +434,21 @@ function normalizeAuthTypes(authTypes?: AuthType[]): AuthType[] {
   if (authTypes?.includes("oauth")) normalized.push("oauth");
   if (authTypes?.includes("manual")) normalized.push("manual");
   return normalized;
+}
+
+/** Prefer per-instance `preferred`; fall back to connection-level preferredInstance. */
+function normalizeConnectionInstances(
+  instances: InstanceInfo[] | undefined,
+  preferredInstance?: string,
+): InstanceInfo[] {
+  const list = instances ?? [];
+  const preferredName = preferredInstance?.trim();
+  if (!preferredName) return list;
+  return list.map((instance) => ({
+    ...instance,
+    preferred:
+      instance.preferred === true || instance.name === preferredName,
+  }));
 }
 
 function validStatus(value: unknown): IntegrationStatus | undefined {

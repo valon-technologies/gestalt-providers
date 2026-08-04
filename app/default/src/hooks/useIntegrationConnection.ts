@@ -164,7 +164,7 @@ export function useIntegrationConnection({
         });
       } else {
         onFlowComplete?.();
-        onStatusMessage?.(`${label} connected successfully.`);
+        toast.success(`${label} connected successfully.`);
         onConnected?.();
       }
     } catch (err) {

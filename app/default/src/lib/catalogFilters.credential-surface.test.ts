@@ -16,8 +16,8 @@ describe("appShowsCredentialSurface", () => {
     expect(
       appShowsCredentialSurface(
         stub({
-          name: "g-issues",
-          mountedPath: "/g-issues",
+          name: "example-app",
+          mountedPath: "/example-app",
           status: "ready",
           credentialState: "not_required",
           connections: [],
