@@ -1,6 +1,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent, MouseEvent, ReactNode, SyntheticEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
 import {
   AuthType,
   ConnectionParamDef,
