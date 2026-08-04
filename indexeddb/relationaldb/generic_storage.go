@@ -150,12 +150,27 @@ func buildGenericIndexRows(record gestalt.Record, m *storeMeta, primary encodedK
 }
 
 func (s *Store) loadGenericRecordByHash(ctx context.Context, tx *sql.Tx, store string, hash []byte) (*genericRecordRow, error) {
+	return s.loadGenericRecordByHashWithLock(ctx, tx, store, hash, false)
+}
+
+func (s *Store) loadGenericRecordByHashForUpdate(ctx context.Context, tx *sql.Tx, store string, hash []byte) (*genericRecordRow, error) {
+	return s.loadGenericRecordByHashWithLock(ctx, tx, store, hash, true)
+}
+
+func (s *Store) loadGenericRecordByHashWithLock(ctx context.Context, tx *sql.Tx, store string, hash []byte, forUpdate bool) (*genericRecordRow, error) {
+	table := quoteTableName(s.dialect, s.genericRecordsTable())
+	if forUpdate && s.dialect == dialectSQLServer {
+		table += " WITH (UPDLOCK, HOLDLOCK)"
+	}
 	query := "SELECT " +
 		quoteIdent(s.dialect, "pk_hash") + ", " +
 		quoteIdent(s.dialect, "pk_bytes") + ", " +
 		quoteIdent(s.dialect, "record_blob") +
-		" FROM " + quoteTableName(s.dialect, s.genericRecordsTable()) +
+		" FROM " + table +
 		" WHERE " + quoteIdent(s.dialect, "store_name") + " = ? AND " + quoteIdent(s.dialect, "pk_hash") + " = ?"
+	if forUpdate && s.dialect != dialectSQLite && s.dialect != dialectSQLServer {
+		query += " FOR UPDATE"
+	}
 	row := tx.QueryRowContext(ctx, s.q(query), store, hash)
 	var out genericRecordRow
 	if err := row.Scan(&out.pkHash, &out.pkBytes, &out.recordBlob); err != nil {
@@ -675,8 +690,21 @@ func (s *Store) upsertGenericRecord(ctx context.Context, tx *sql.Tx, store strin
 		" SET " + quoteIdent(s.dialect, "pk_bytes") + " = ?, " + quoteIdent(s.dialect, "record_blob") + " = ?" +
 		" WHERE " + quoteIdent(s.dialect, "store_name") + " = ? AND " + quoteIdent(s.dialect, "pk_hash") + " = ?"
 	if existing != nil {
-		if _, err := tx.ExecContext(ctx, s.q(updateStmt), primary.raw, payload, store, primary.hash); err != nil {
+		result, err := tx.ExecContext(ctx, s.q(updateStmt), primary.raw, payload, store, primary.hash)
+		if err != nil {
 			return status.Errorf(codes.Internal, "update record: %v", err)
+		}
+		if rows, rowsErr := result.RowsAffected(); rowsErr == nil && rows == 0 {
+			current, loadErr := s.loadGenericRecordByHashForUpdate(ctx, tx, store, primary.hash)
+			if loadErr != nil {
+				return loadErr
+			}
+			if current == nil {
+				return status.Error(codes.Aborted, "record was deleted during update")
+			}
+			if !bytes.Equal(current.pkBytes, primary.raw) {
+				return status.Error(codes.Internal, "primary key hash collision")
+			}
 		}
 		return nil
 	}
@@ -723,7 +751,7 @@ func (s *Store) putGeneric(ctx context.Context, store string, m *storeMeta, reco
 		return err
 	}
 	return s.withTx(ctx, func(txCtx context.Context, tx *sql.Tx) error {
-		existing, err := s.loadGenericRecordByHash(txCtx, tx, store, primary.hash)
+		existing, err := s.loadGenericRecordByHashForUpdate(txCtx, tx, store, primary.hash)
 		if err != nil {
 			return err
 		}
@@ -759,18 +787,18 @@ func (s *Store) deleteGenericByValue(ctx context.Context, store string, value an
 		return err
 	}
 	return s.withTx(ctx, func(txCtx context.Context, tx *sql.Tx) error {
-		existing, err := s.loadGenericRecordByHash(txCtx, tx, store, primary.hash)
+		existing, err := s.loadGenericRecordByHashForUpdate(txCtx, tx, store, primary.hash)
 		if err != nil {
 			return err
 		}
-		if existing == nil {
-			return nil
-		}
-		if !bytes.Equal(existing.pkBytes, primary.raw) {
+		if existing != nil && !bytes.Equal(existing.pkBytes, primary.raw) {
 			return status.Error(codes.Internal, "primary key hash collision")
 		}
 		if err := s.deleteGenericIndexRowsByPrimaryKey(txCtx, tx, store, primary.hash); err != nil {
 			return err
+		}
+		if existing == nil {
+			return nil
 		}
 		stmt := "DELETE FROM " + quoteTableName(s.dialect, s.genericRecordsTable()) +
 			" WHERE " + quoteIdent(s.dialect, "store_name") + " = ? AND " + quoteIdent(s.dialect, "pk_hash") + " = ?"
@@ -802,18 +830,18 @@ func (s *Store) deleteGenericEntries(ctx context.Context, store string, entries 
 			}
 			seen[seenKey] = struct{}{}
 
-			existing, err := s.loadGenericRecordByHash(txCtx, tx, store, primary.hash)
+			existing, err := s.loadGenericRecordByHashForUpdate(txCtx, tx, store, primary.hash)
 			if err != nil {
 				return err
 			}
-			if existing == nil {
-				continue
-			}
-			if !bytes.Equal(existing.pkBytes, primary.raw) {
+			if existing != nil && !bytes.Equal(existing.pkBytes, primary.raw) {
 				return status.Error(codes.Internal, "primary key hash collision")
 			}
 			if err := s.deleteGenericIndexRowsByPrimaryKey(txCtx, tx, store, primary.hash); err != nil {
 				return err
+			}
+			if existing == nil {
+				continue
 			}
 			stmt := "DELETE FROM " + quoteTableName(s.dialect, s.genericRecordsTable()) +
 				" WHERE " + quoteIdent(s.dialect, "store_name") + " = ? AND " + quoteIdent(s.dialect, "pk_hash") + " = ?"

@@ -534,6 +534,59 @@ func TestGenericStoreSupportsTypedPrimaryKeyLookup(t *testing.T) {
 	}
 }
 
+func TestDeleteCleansIndexesWhenRecordIsAlreadyMissing(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	schema := widgetsSchema()
+	schema.Indexes = append(schema.Indexes, gestalt.IndexSchema{
+		Name:    "by_title",
+		KeyPath: []string{"title"},
+	})
+	if err := s.CreateObjectStore(ctx, "widgets", schema); err != nil {
+		t.Fatalf("CreateObjectStore: %v", err)
+	}
+	if err := s.Add(ctx, gestalt.IndexedDBRecordRequest{
+		Store: "widgets", Record: makeWidget("w1", "W-001", "Alpha Widget"),
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	primary, err := encodeKeyValue("w1")
+	if err != nil {
+		t.Fatalf("encode primary key: %v", err)
+	}
+	if err := s.withTx(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(txCtx,
+			s.q("DELETE FROM "+quoteTableName(s.dialect, s.genericRecordsTable())+
+				" WHERE "+quoteIdent(s.dialect, "store_name")+" = ? AND "+quoteIdent(s.dialect, "pk_hash")+" = ?"),
+			"widgets",
+			primary.hash,
+		)
+		return err
+	}); err != nil {
+		t.Fatalf("delete record directly: %v", err)
+	}
+
+	assertIndexRows := func(table, index string, want int) {
+		t.Helper()
+		rows, err := s.loadGenericIndexRows(ctx, table, "widgets", index)
+		if err != nil {
+			t.Fatalf("load %s rows: %v", index, err)
+		}
+		if len(rows) != want {
+			t.Fatalf("%s rows = %d, want %d", index, len(rows), want)
+		}
+	}
+	assertIndexRows(s.genericUniqueIndexTable(), "by_code", 1)
+	assertIndexRows(s.genericIndexTable(), "by_title", 1)
+
+	if err := s.Delete(ctx, gestalt.IndexedDBObjectStoreRequest{Store: "widgets", ID: "w1"}); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	assertIndexRows(s.genericUniqueIndexTable(), "by_code", 0)
+	assertIndexRows(s.genericIndexTable(), "by_title", 0)
+}
+
 func TestCreateObjectStoreKeepsGenericRowsWhenSchemaUnchanged(t *testing.T) {
 	ctx := context.Background()
 	s := testStore(t)
