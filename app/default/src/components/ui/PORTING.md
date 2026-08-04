@@ -170,9 +170,17 @@ carry-over is a no-op here).
 
 | Item | Why |
 | --- | --- |
-| **Avatar `xl` size** (`size-10` / 40px) | Nav account chip; Registry stops at `lg` |
 | **TableOfContents `kind: "separator"`** | Apps catalog TOC divider between groups |
 | **`AGENT_CONSOLE_THEME_CODEX` / `_CURSOR` exports** (optional) | Story palettes only today; Build re-copies them — promote from `agent-console.stories` |
+
+### Avatar (synced)
+
+Vendored with Registry: `sm`/`default`/`lg`/`xl`, `solid` → `bg-muted-strong`,
+baseline-safe fallback (`block` + size-matched `leading-*`). Bundle default for
+`--muted-strong` lives in `shared/theme.css` (tenant-neutral achromatic step);
+bridge in `globals.css` `@theme inline`. Interactive account chips still pin
+`bg-neutral-hover` and climb Neutral-dark — see AccountMenu / Registry AppTopBar
+account-chip recipe.
 
 ### Keep as console adapters (not Registry gaps)
 

@@ -92,6 +92,26 @@ describe("AccountMenu beat-order contract", () => {
   test("documents Docs as signed-in account chrome", () => {
     expect(ACCOUNT_MENU).toMatch(/Docs is account-gated/);
   });
+
+  test("account trigger uses ghost Button for hover and press", () => {
+    expect(ACCOUNT_MENU).toContain('import { Button } from "./ui/button"');
+    expect(ACCOUNT_MENU).toContain('variant="ghost"');
+    expect(ACCOUNT_MENU).toContain('size="icon-lg"');
+    expect(ACCOUNT_MENU).toContain('aria-label="Open user menu"');
+    expect(ACCOUNT_MENU).toContain('className="group rounded-full p-0');
+    // Hover = Neutral-dark fill only; press adds fill + press scrim (no stacked hover scrim).
+    expect(ACCOUNT_MENU).toContain("hover:after:opacity-0");
+    expect(ACCOUNT_MENU).toContain(
+      "active:after:opacity-[var(--state-overlay-press,0.14)]",
+    );
+    expect(ACCOUNT_MENU).toContain(
+      "data-[state=open]:after:opacity-[var(--state-overlay-press,0.14)]",
+    );
+    expect(ACCOUNT_MENU).toContain("bg-neutral-hover");
+    expect(ACCOUNT_MENU).toContain("group-hover:bg-neutral-dark-hover");
+    expect(ACCOUNT_MENU).toContain("group-active:bg-neutral-dark-pressed");
+    expect(ACCOUNT_MENU).toContain("group-data-[state=open]:bg-neutral-dark-pressed");
+  });
 });
 
 describe("Nav account chrome ownership", () => {

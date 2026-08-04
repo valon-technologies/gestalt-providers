@@ -1,6 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import { DOCS_PATH } from "@/lib/constants";
+import { cn } from "@/lib/cn";
 import { Avatar, AvatarFallback } from "./ui/avatar";
+import { Button } from "./ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -49,15 +51,33 @@ export function AccountMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button
+        {/* Interactive account chip (Registry AppTopBar recipe): ghost Button
+            wraps Avatar xl; rest pins Neutral-hover so Neutral-dark can climb
+            (solid's muted-strong is for static / row-hover discs). Hover = fill
+            step only (−0.025 L) — suppress ghost hover scrim. Press/open = further
+            fill (−0.015) plus the ghost press scrim. Stacking fill+scrim on hover
+            made press invisible. */}
+        <Button
           type="button"
-          className="focus-ring rounded-full"
+          variant="ghost"
+          size="icon-lg"
+          className="group rounded-full p-0 hover:after:opacity-0 active:after:opacity-[var(--state-overlay-press,0.14)] data-[state=open]:after:opacity-[var(--state-overlay-press,0.14)]"
           aria-label="Open user menu"
         >
-          <Avatar size="xl" variant="solid" aria-hidden>
+          <Avatar
+            size="xl"
+            variant="solid"
+            aria-hidden
+            className={cn(
+              "bg-neutral-hover transition-[background-color] duration-hover-out ease-out-quart group-hover:duration-hover-in",
+              "group-hover:bg-neutral-dark-hover",
+              "group-active:bg-neutral-dark-pressed",
+              "group-data-[state=open]:bg-neutral-dark-pressed",
+            )}
+          >
             <AvatarFallback>{initials}</AvatarFallback>
           </Avatar>
-        </button>
+        </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel>

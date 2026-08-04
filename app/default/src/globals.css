@@ -94,6 +94,7 @@
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
+  --color-muted-strong: var(--muted-strong);
   --color-muted-foreground: var(--muted-foreground);
   --color-muted-foreground-soft: var(--muted-foreground-soft);
   --color-accent: var(--accent);

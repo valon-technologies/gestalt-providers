@@ -49,6 +49,12 @@
 
   /* ── Supporting UI ───────────────────────────────────────────────────── */
   --muted: var(--surface-raised);
+  /* Quiet filled identity chip (Avatar solid). Achromatic next quiet L-step
+   * below muted so the disc stays visible when tenants alias --muted ≡
+   * --neutral-hover (warm cream). Not an interaction *-hover role — tenants
+   * with a neutral ramp should map this to the next achromatic step
+   * (Registry: oklch(from var(--tenant-neutral-200) l 0 h)). */
+  --muted-strong: oklch(from var(--muted) calc(l - 0.02) 0 h);
   /* Ink-alpha text hierarchy (registry/theme/theme.css, color.md): secondary
    * text is foreground at opacity so the warm undertone holds at every level.
    * 60% = descriptions / placeholders; 40% = eyebrows / captions. */
@@ -240,6 +246,7 @@
   --destructive-foreground: oklch(19.494% 0.0088 52);
 
   --muted: var(--surface-raised);
+  --muted-strong: oklch(from var(--muted) calc(l - 0.02) 0 h);
   /* Same ink-alpha model as light — derives from cream --foreground (registry). */
   --muted-foreground: color-mix(in oklab, var(--foreground) 60%, transparent);
   --muted-foreground-soft: color-mix(in oklab, var(--foreground) 40%, transparent);
