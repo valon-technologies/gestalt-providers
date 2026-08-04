@@ -6,7 +6,7 @@ import {
   getAppSurfaces,
   primaryConnectLabel,
 } from "@/lib/catalogFilters";
-import { getAppPromptExample } from "@/lib/appPromptExamples";
+import { getAppPromptExamples } from "@/lib/appPromptExamples";
 import { normalizeIntegrationStatus } from "@/lib/integrationStatus";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import { resolveMountedAppHref } from "@/lib/mount";
@@ -58,7 +58,7 @@ export default function AppWorkspaceOverviewPage() {
   const label = getIntegrationLabel(integration);
   const status = normalizeIntegrationStatus(integration, "current_user");
   const surfaces = getAppSurfaces(integration);
-  const promptExample = getAppPromptExample(integration, surfaces.hasMcp);
+  const promptExamples = getAppPromptExamples(integration, surfaces.hasMcp);
   const connectLabel = primaryConnectLabel(integration, "current_user");
   const mountedPath = integration.mountedPath?.trim();
 
@@ -165,9 +165,9 @@ export default function AppWorkspaceOverviewPage() {
         </div>
       </div>
 
-      {promptExample ? (
+      {promptExamples.length > 0 ? (
         <div className={overviewSectionClass}>
-          <AppPromptExamplePromo displayName={label} body={promptExample} />
+          <AppPromptExamplePromo displayName={label} prompts={promptExamples} />
         </div>
       ) : null}
 

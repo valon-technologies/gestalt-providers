@@ -1,19 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { getAppPromptExample } from "./appPromptExamples";
+import { getAppPromptExamples } from "./appPromptExamples";
 
-describe("getAppPromptExample", () => {
-  it("prefers the configured prompt even without an MCP surface", () => {
+describe("getAppPromptExamples", () => {
+  it("returns every configured prompt in order", () => {
     expect(
-      getAppPromptExample(
-        { prompts: [{ id: "summarize-inbox", text: "  Summarize my inbox  " }] },
+      getAppPromptExamples(
+        {
+          prompts: [
+            { id: "one", text: "  Draft a reply  " },
+            { id: "two", text: "Find unread threads" },
+          ],
+        },
         false,
       ),
-    ).toBe("Summarize my inbox");
+    ).toEqual([
+      { id: "one", text: "Draft a reply" },
+      { id: "two", text: "Find unread threads" },
+    ]);
   });
 
   it("skips blank projected prompts", () => {
     expect(
-      getAppPromptExample(
+      getAppPromptExamples(
         {
           prompts: [
             { id: "blank", text: "   " },
@@ -22,13 +30,25 @@ describe("getAppPromptExample", () => {
         },
         false,
       ),
-    ).toBe("Show my open work");
+    ).toEqual([{ id: "useful", text: "Show my open work" }]);
   });
 
   it("uses a generic affordance only for MCP apps without configured prompts", () => {
-    expect(getAppPromptExample({ prompts: [] }, true)).toBe(
-      "What can you help me with in this workspace?",
-    );
-    expect(getAppPromptExample({ prompts: [] }, false)).toBeUndefined();
+    expect(getAppPromptExamples({ prompts: [] }, true)).toEqual([
+      {
+        id: "generic-mcp",
+        text: "What can you help me with in this workspace?",
+      },
+    ]);
+    expect(getAppPromptExamples({ prompts: [] }, false)).toEqual([]);
+  });
+
+  it("prefers configured prompts over the MCP fallback", () => {
+    expect(
+      getAppPromptExamples(
+        { prompts: [{ id: "summarize-inbox", text: "  Summarize my inbox  " }] },
+        true,
+      ),
+    ).toEqual([{ id: "summarize-inbox", text: "Summarize my inbox" }]);
   });
 });

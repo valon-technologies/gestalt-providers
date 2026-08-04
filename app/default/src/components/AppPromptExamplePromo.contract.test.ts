@@ -14,7 +14,7 @@ const OVERVIEW = readFileSync(
 );
 
 describe("AppPromptExamplePromo", () => {
-  test("uses semantic promo stage, copy controller, and accessible feedback", () => {
+  test("uses semantic promo stage, stacked pills, and accessible feedback", () => {
     expect(SOURCE).toContain("bg-promo-stage");
     expect(SOURCE).toContain("createPromptCopyController");
     expect(SOURCE).toContain("data-testid=\"app-prompt-example\"");
@@ -22,15 +22,19 @@ describe("AppPromptExamplePromo", () => {
     expect(SOURCE).toContain("text-pretty");
     expect(SOURCE).toContain("role=\"status\"");
     expect(SOURCE).toContain("aria-live=\"polite\"");
+    expect(SOURCE).toContain("prompts.map");
+    expect(SOURCE).toContain("flex-col");
     expect(SOURCE).toContain("aria-label={copyButtonLabel}");
     expect(SOURCE).not.toContain("ChevronRightIcon");
   });
 });
 
 describe("AppWorkspaceOverviewPage prompt wiring", () => {
-  test("renders promo from getAppPromptExample and places connect in PageHeaderActions", () => {
-    expect(OVERVIEW).toContain("getAppPromptExample(integration, surfaces.hasMcp)");
+  test("renders one promo with all prompts and places connect in PageHeaderActions", () => {
+    expect(OVERVIEW).toContain("getAppPromptExamples(integration, surfaces.hasMcp)");
+    expect(OVERVIEW).toContain("prompts={promptExamples}");
     expect(OVERVIEW).toContain("<AppPromptExamplePromo");
+    expect(OVERVIEW).not.toContain("promptExamples.map");
     expect(OVERVIEW).toContain("<PageHeaderActions>");
     expect(OVERVIEW).toContain("{connectLabel}");
   });
