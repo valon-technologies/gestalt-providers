@@ -31,9 +31,9 @@
 
   /* ── Core surfaces (Registry: neutral + paper) ─────────────────────────── */
   --background: oklch(100% 0 0);
-  --foreground: oklch(23% 0.04 255);
-  --surface: oklch(98% 0.01 247);
-  --surface-raised: oklch(96.5% 0.018 247);
+  --foreground: oklch(23% 0.015 255);
+  --surface: oklch(98.5% 0.004 255);
+  --surface-raised: oklch(96.8% 0.006 255);
   --card: var(--surface);
   --card-foreground: var(--foreground);
   --popover: var(--surface-raised);
@@ -60,7 +60,8 @@
    * 60% = descriptions / placeholders; 40% = eyebrows / captions. */
   --muted-foreground: color-mix(in oklab, var(--foreground) 60%, transparent);
   --muted-foreground-soft: color-mix(in oklab, var(--foreground) 40%, transparent);
-  --border: color-mix(in oklab, var(--brand-soft) 48%, var(--background));
+  /* Structural chrome stays neutral — never derive borders from --brand*. */
+  --border: color-mix(in oklab, var(--foreground) 12%, var(--background));
   --input: var(--border);
   --ring: var(--brand);
 
@@ -155,6 +156,13 @@
   --badge-destructive: oklch(58.766% 0.1526 23);
   --badge-destructive-foreground: oklch(100% 0 0);
 
+  /* Status indicator dots (uptime / replica marks) — mid-chroma fills like
+   * Kibo Status. Distinct from soft --success washes and dark *-foreground ink. */
+  --status-indicator-success: oklch(62% 0.19 145);
+  --status-indicator-warning: oklch(75% 0.16 75);
+  --status-indicator-danger: oklch(60% 0.22 25);
+  --status-indicator-muted: oklch(62% 0.015 260);
+
   /* ── Registry UI extensions ──────────────────────────────────────────── */
   --alpha-dark: var(--foreground);
   --base-white: var(--background);
@@ -229,10 +237,10 @@
   --state-overlay-hover: 0.08;
   --state-overlay-press: 0.14;
 
-  --background: oklch(19.5% 0.03 255);
-  --foreground: oklch(92.7% 0.02 245);
-  --surface: oklch(23% 0.035 255);
-  --surface-raised: oklch(28% 0.05 252);
+  --background: oklch(19.5% 0.01 255);
+  --foreground: oklch(92.7% 0.008 255);
+  --surface: oklch(23% 0.012 255);
+  --surface-raised: oklch(28% 0.015 255);
   --card: var(--surface);
   --card-foreground: var(--foreground);
   --popover: var(--surface-raised);
@@ -250,7 +258,8 @@
   /* Same ink-alpha model as light — derives from cream --foreground (registry). */
   --muted-foreground: color-mix(in oklab, var(--foreground) 60%, transparent);
   --muted-foreground-soft: color-mix(in oklab, var(--foreground) 40%, transparent);
-  --border: color-mix(in oklab, var(--brand) 24%, var(--card));
+  /* Structural chrome stays neutral — never derive borders from --brand*. */
+  --border: color-mix(in oklab, var(--foreground) 16%, var(--background));
   --input: var(--border);
   --ring: var(--brand);
 
@@ -322,6 +331,11 @@
   --badge-info-foreground: oklch(85.8% 0.07 248);
   --badge-destructive: oklch(77.8% 0.108 25);
   --badge-destructive-foreground: oklch(19.494% 0.0088 59.1);
+
+  --status-indicator-success: oklch(70% 0.18 145);
+  --status-indicator-warning: oklch(78% 0.15 80);
+  --status-indicator-danger: oklch(68% 0.18 25);
+  --status-indicator-muted: oklch(55% 0.015 260);
 
   --alpha-dark: var(--foreground);
   --base-white: var(--background);

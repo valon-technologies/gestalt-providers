@@ -33,7 +33,7 @@ describe("Avatar surface / size contract", () => {
 
   test("root keeps overflow visible so baseline participates", () => {
     expect(SOURCE).toContain(
-      '"relative inline-flex shrink-0 select-none rounded-full"',
+      '"relative inline-flex aspect-square shrink-0 select-none rounded-full"',
     );
     expect(SOURCE).toMatch(/deliberately has NO overflow-hidden/i);
     expect(SOURCE).not.toMatch(

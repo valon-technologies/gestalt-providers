@@ -1,4 +1,5 @@
 import { Link, Outlet, useParams, useRouterState } from "@tanstack/react-router";
+import { Info } from "lucide-react";
 import { useCallback, useMemo } from "react";
 import { isAPIErrorStatus } from "@/lib/api";
 import { canManageApp, primaryConnectLabel } from "@/lib/catalogFilters";
@@ -24,8 +25,14 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { SpinnerIcon } from "@/components/icons";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
 import { useDocumentTitle } from "@/hooks/use-document-title";
-import { AppAdminFleetState } from "@/features/registry/app-admin-fleet-state";
+import { presentFleetStatus } from "@/features/registry/fleet-status-presentation";
+import { ReplicaHoverExclusiveProvider } from "@/features/registry/replica-hover-exclusive";
 import {
   AppAdminRegistryProvider,
   type AppAdminRegistryContextValue,
@@ -36,6 +43,7 @@ import {
   adminSurfaceForPathname,
   APP_ADMIN_NAV,
   APP_USER_NAV,
+  isAppVersionsAdminPath,
 } from "@/features/app-workspace/app-nav";
 import {
   AppWorkspaceProvider,
@@ -128,14 +136,14 @@ export default function AppWorkspaceLayout() {
   const deployFailed = deployMutation.isError && !deployConflict;
   const deployError =
     deployFailed && registry
-      ? userFacingError(deployMutation.error, "Unable to deploy this version. Try again.")
+      ? userFacingError(deployMutation.error, "Couldn't deploy this version. Try again.")
       : null;
 
   const registryError =
     registryQuery.isError && !registryForbidden
       ? userFacingError(
           registryQuery.error,
-          "Unable to load deployment versions. Try again.",
+          "Couldn't load versions. Try again.",
         )
       : null;
 
@@ -232,7 +240,17 @@ export default function AppWorkspaceLayout() {
       !hasAdminSurface(capabilities, requiredAdminSurface),
   );
   const showFleetState =
-    (isAdminPath || isVersionsPath) && capabilities.registry && registry;
+    isAppVersionsAdminPath(pathname, app) &&
+    capabilities.registry &&
+    registry;
+  const fleetView = showFleetState && registry ? presentFleetStatus(registry) : null;
+  const showRolloutBanner = Boolean(
+    showFleetState &&
+      rolloutActive &&
+      registry?.rollout &&
+      fleetView &&
+      !fleetView.ownsActiveRolloutHeadline,
+  );
 
   const content = (
     <AppWorkspaceProvider value={workspaceValue}>
@@ -265,23 +283,54 @@ export default function AppWorkspaceLayout() {
             }
           >
             <div className="space-y-8">
-              {showFleetState ? <AppAdminFleetState registry={registry} /> : null}
-
-              {rolloutActive && registry?.rollout ? (
-                <p
-                  className="rounded-lg border border-info-foreground/40 bg-info px-4 py-3 text-sm text-info-foreground"
+              <ReplicaHoverExclusiveProvider>
+              {showRolloutBanner && registry?.rollout ? (
+                <Alert
+                  variant="info"
                   data-testid="rollout-active-banner"
+                  aria-label="Rollout in progress"
                 >
-                  Rolling out{" "}
-                  <RegistryCode>{registry.rollout.version}</RegistryCode> across the
-                  fleet
-                </p>
+                  <Info aria-hidden="true" />
+                  <AlertTitle>Rolling out</AlertTitle>
+                  <AlertDescription className="text-pretty">
+                    Deploying{" "}
+                    <RegistryCode>{registry.rollout.version}</RegistryCode>{" "}
+                    across the fleet.
+                  </AlertDescription>
+                </Alert>
               ) : null}
 
               {adminSurfaceLoading ? (
-                <p className="text-sm text-muted-foreground">
-                  Loading app admin…
-                </p>
+                <section
+                  aria-busy="true"
+                  aria-label={isVersionsPath ? "Versions" : "App admin"}
+                  data-testid="app-admin-surface-loading"
+                >
+                  {isVersionsPath ? (
+                    <div className="space-y-6">
+                      <PageHeader>
+                        <PageHeaderContent size="md">
+                          <PageHeaderTitle>Versions</PageHeaderTitle>
+                          <PageHeaderDescription>
+                            Loading deployment status…
+                          </PageHeaderDescription>
+                        </PageHeaderContent>
+                      </PageHeader>
+                      <div
+                        className="h-16 animate-pulse rounded-lg bg-muted"
+                        aria-hidden="true"
+                      />
+                      <div
+                        className="h-40 animate-pulse rounded-lg bg-muted"
+                        aria-hidden="true"
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Loading app admin…
+                    </p>
+                  )}
+                </section>
               ) : adminSurfaceError ? (
                 <ErrorNotice
                   message={adminSurfaceError}
@@ -305,6 +354,7 @@ export default function AppWorkspaceLayout() {
               ) : (
                 <Outlet />
               )}
+              </ReplicaHoverExclusiveProvider>
             </div>
           </PageLayout>
         ) : (

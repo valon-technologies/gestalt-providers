@@ -17,8 +17,8 @@ dark).
 
 | Token | Purpose | Generic default |
 | --- | --- | --- |
-| `--background` / `--surface` / `--surface-raised` | page + card surfaces | white / cool near-white |
-| `--border`, `--foreground`, `--alpha-dark` | lines, text, alpha text/border scale | cool blue neutrals |
+| `--background` / `--surface` / `--surface-raised` | page + card surfaces | white / near-white neutrals |
+| `--border`, `--foreground`, `--alpha-dark` | lines, text, alpha text/border scale | cool gray neutrals (not brand) |
 | `--shadow-ink` | shadow color (RGB triplet) — identical in light and dark by default, so shadows never become glows | `35, 24, 16` |
 | `--brand`, `--brand-soft`, `--danger`, `--success` | brand accent pair / status colors | blue pair / red / green |
 | `--accent`, `--accent-subtle`, `--accent-vivid` | selected/hover **fills** (derived from `--brand-soft`) | soft blue washes |
@@ -86,6 +86,7 @@ silently mis-colors UI.
 | --- | --- | --- |
 | `--card` | `var(--surface)` | Paper / white cards, not cream surface |
 | `--popover` | `var(--surface-raised)` | Paper flyouts, not raised cream |
+| `--border` / `--input` | ink-alpha mix of `--foreground` | Neutral chrome — never alias to `--brand*` |
 | `--accent-vivid` | `var(--brand-soft)` | Bright gold selected fills (nav, sidebar) |
 | `--accent-solid` / `--accent-strong` / `--ring` | `var(--brand)` | Mid gold focus + links, not dark brand-800 |
 | `--sidebar` | `var(--surface)` | Neutral chrome, not cream surface |

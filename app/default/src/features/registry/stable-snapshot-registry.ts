@@ -73,10 +73,15 @@ function versionListKey<T>(versions: T[], keyFor: (version: T) => string): strin
 }
 
 /**
- * True when two registry payloads are equivalent for the versions table.
- * Ignores pending fields that only tick between polls (updatedAt,
- * publishingForSeconds) because the UI derives those from startedAt +
- * useLiveNow.
+ * True when two registry payloads are equivalent for the versions *list*
+ * (published/pending/failed, desired, rollout, auto-deploy).
+ *
+ * Intentionally ignores:
+ * - pending poll counters (updatedAt, publishingForSeconds) — UI derives live
+ *   age from startedAt + useLiveNow
+ * - fleetState / replicas — reconcile applies fresh fleet while keeping stable
+ *   version array refs; consumers that render replicas (e.g. the memoized
+ *   snapshots table) must compare `fleetReplicasPollKey` separately
  */
 export function snapshotRegistryPollEqual(
   left: SnapshotTableRegistrySlice,

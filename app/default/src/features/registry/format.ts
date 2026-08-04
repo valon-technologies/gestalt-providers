@@ -1,4 +1,7 @@
-import type { AppAdminPublishedVersion } from "@/features/registry/types";
+import type {
+  AppAdminPublishedVersion,
+  AppAdminRegistryResponse,
+} from "@/features/registry/types";
 
 const TIME_AGO_UNITS: Array<{ unit: Intl.RelativeTimeFormatUnit; seconds: number }> = [
   { unit: "year", seconds: 31_536_000 },
@@ -52,6 +55,7 @@ export function formatRegistryTime(value?: string | null): string {
 
 export function formatRegistryTimeShort(
   value?: string | number | Date | null,
+  options?: { second?: boolean },
 ): string {
   if (value === null || value === undefined) return "—";
   const date = value instanceof Date ? value : new Date(value);
@@ -59,6 +63,7 @@ export function formatRegistryTimeShort(
   return date.toLocaleTimeString(undefined, {
     hour: "numeric",
     minute: "2-digit",
+    ...(options?.second ? { second: "2-digit" as const } : {}),
   });
 }
 
@@ -134,6 +139,35 @@ export function shortenSourceRef(sourceRef?: string): string {
   const ref = sourceRef?.trim();
   if (!ref) return "";
   return ref.length > 7 ? ref.slice(0, 7) : ref;
+}
+
+/**
+ * Best external href for a snapshot version string: app source, PR, commit, or
+ * workflow run — matching how the Versions table surfaces provenance.
+ */
+export function resolveVersionSourceHref(
+  registry: Pick<
+    AppAdminRegistryResponse,
+    "publishedVersions" | "pendingVersions" | "failedVersions"
+  >,
+  version?: string,
+): string | null {
+  const needle = version?.trim();
+  if (!needle) return null;
+  const match = [
+    ...(registry.publishedVersions ?? []),
+    ...(registry.pendingVersions ?? []),
+    ...(registry.failedVersions ?? []),
+  ].find((row) => row.version === needle);
+  if (!match) return null;
+  const publication = match.publication;
+  return (
+    match.sourceUrl?.trim() ||
+    publication?.triggerPullRequest?.url?.trim() ||
+    publication?.triggerCommit?.url?.trim() ||
+    publication?.workflowRunUrl?.trim() ||
+    null
+  );
 }
 
 export function isActiveRegistryRollout(state?: string): boolean {

@@ -8,7 +8,7 @@ import {
 describe("fleetStatePresentation", () => {
   test.each([
     ["healthy", "Healthy", "success"],
-    ["converging", "Converging", "warning"],
+    ["converging", "Rolling out", "warning"],
     ["degraded", "Degraded", "destructive"],
     ["unknown", "Unknown", "muted"],
   ] as const)("maps %s to an independent fleet visual", (state, label, badgeVariant) => {

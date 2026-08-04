@@ -47,6 +47,22 @@ export function adminSurfaceForPathname(
   return "registry";
 }
 
+/**
+ * Fleet runtime status belongs on the Versions (registry inventory) surface only —
+ * not Workflows, Members, or other admin chrome.
+ */
+export function isAppVersionsAdminPath(pathname: string, app: string): boolean {
+  const versionsPath = `/apps/${app}/versions`;
+  if (pathname === versionsPath || pathname.startsWith(`${versionsPath}/`)) {
+    return true;
+  }
+  const base = `/apps/${app}/admin`;
+  return (
+    pathname.includes(`${base}/snapshots`) ||
+    pathname.includes(`${base}/history`)
+  );
+}
+
 export const APP_ADMIN_NAV = [
   {
     id: "versions" as const,

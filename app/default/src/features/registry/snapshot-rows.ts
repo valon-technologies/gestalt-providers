@@ -23,7 +23,7 @@ export function formatPublicationLabel(
     }
     return `PR #${pullRequest.number}`;
   }
-  if (publication?.workflowRunUrl) return "workflow";
+  if (publication?.workflowRunUrl) return "View workflow run";
   return null;
 }
 

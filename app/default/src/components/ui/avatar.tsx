@@ -28,8 +28,7 @@ const avatarVariants = cva(
   // via line-height while the text baseline still participates in a parent
   // items-baseline row (avatar.md). Flex+items-center on the fallback would
   // synthesize the baseline to the bottom edge and break that contract.
-  "relative inline-flex shrink-0 select-none rounded-full",
-  {
+  "relative inline-flex aspect-square shrink-0 select-none rounded-full",  {
     variants: {
       size: {
         sm: "size-6 text-[0.625rem] leading-6",

@@ -110,6 +110,23 @@ export type AppAdminAutoDeploy = {
   lastError?: string;
 };
 
+export type AppAdminFleetReplicaClass =
+  | "on_desired"
+  | "mismatched"
+  | "error"
+  | (string & {});
+
+export type AppAdminFleetReplica = {
+  instanceId: string;
+  startedAt?: string;
+  heartbeatAt: string;
+  appState: string;
+  runningVersion?: string;
+  observedDesiredVersion?: string;
+  lastError?: string;
+  class: AppAdminFleetReplicaClass;
+};
+
 export type AppAdminFleetState = {
   state: string;
   sourceVersion?: string;
@@ -121,6 +138,8 @@ export type AppAdminFleetState = {
   errors: number;
   heartbeatTtlSeconds: number;
   evaluatedAt: string;
+  /** Live replicas on the current source version (same pass as the aggregates). */
+  replicas?: AppAdminFleetReplica[];
 };
 
 export type AppAdminRecovery = {

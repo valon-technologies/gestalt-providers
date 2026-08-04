@@ -1,13 +1,21 @@
 import {
   Alert,
-  AlertActions,
   AlertDescription,
   AlertTitle,
 } from "@/components/ui/alert";
 import { CopyableCode } from "@/components/ui/copyable-code";
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldTitle,
+} from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
 import type { AppAdminAutoDeploy } from "@/features/registry/types";
-import { CircleAlert, Loader2 } from "lucide-react";
+import { SpinnerIcon } from "@/components/icons";
+import { CircleAlert } from "lucide-react";
 
 const ROLLOUT_LAST_ERROR_PATTERN = /^rollout for (.+) failed$/i;
 
@@ -33,62 +41,89 @@ function VersionChip({ version }: { version: string }) {
 
 export function AppAdminAutoDeployToggle({
   autoDeploy,
+  title,
+  description,
+  adjacentHint = null,
   disabled,
   updating,
   updateError = null,
-  rolloutInProgress = false,
   onChange,
 }: {
   autoDeploy: AppAdminAutoDeploy;
+  title: string;
+  description: string | null;
+  /** Table-level hint when automatic mode hides manual Deploy (shown in/near the card). */
+  adjacentHint?: string | null;
   disabled?: boolean;
   updating?: boolean;
   updateError?: string | null;
-  rolloutInProgress?: boolean;
   onChange: (enabled: boolean) => void;
 }) {
   const toggleId = "app-admin-auto-deploy-toggle";
   const lastError = autoDeploy.lastError?.trim();
   const rolloutFailedVersion = lastError ? parseRolloutLastError(lastError) : null;
   const mutationError = updateError?.trim();
-  const description = autoDeploy.enabled && rolloutInProgress
-    ? "A rollout is in progress. New versions queue until it finishes."
-    : autoDeploy.enabled
-      ? "When a new version is published, deploy it across the fleet automatically."
-      : "Deploy versions from the table below. Turn on to deploy new versions automatically.";
+  const cardDescription = description?.trim() || null;
+  const blockedHint = adjacentHint?.trim() || null;
+  const descriptionInCard = cardDescription ?? blockedHint;
+  const descriptionTestId = cardDescription
+    ? "auto-deploy-toggle-description"
+    : blockedHint
+      ? "manual-deploy-blocked-reason"
+      : undefined;
+  const extraHint =
+    cardDescription && blockedHint ? blockedHint : null;
+  const controlDisabled = Boolean(disabled || updating);
 
   return (
-    <div className="space-y-2">
-      <Alert
-        variant="default"
-        layout="banner"
+    <div className="space-y-3">
+      <FieldGroup
+        className="max-w-lg"
         data-testid="app-admin-auto-deploy"
         aria-label="Automatic deployment"
       >
-        <div className="min-w-0 grow basis-64 space-y-0.5">
-          <AlertTitle className="line-clamp-none">
-            <label htmlFor={toggleId} className="cursor-pointer">
-              Automatically deploy new versions
-            </label>
-          </AlertTitle>
-          <AlertDescription>{description}</AlertDescription>
-        </div>
-        <AlertActions className="self-center">
-          {updating ? (
-            <Loader2
-              className="size-4 animate-spin text-muted-foreground"
-              aria-hidden="true"
-              data-testid="auto-deploy-toggle-spinner"
-            />
-          ) : null}
-          <Switch
-            id={toggleId}
-            checked={autoDeploy.enabled}
-            disabled={disabled || updating}
-            onCheckedChange={onChange}
-            data-testid="auto-deploy-toggle"
-          />
-        </AlertActions>
-      </Alert>
+        <FieldLabel
+          htmlFor={toggleId}
+          data-disabled={controlDisabled ? true : undefined}
+        >
+          <Field
+            orientation="horizontal"
+            data-disabled={controlDisabled ? true : undefined}
+          >
+            <FieldContent>
+              <FieldTitle>{title}</FieldTitle>
+              {descriptionInCard ? (
+                <FieldDescription data-testid={descriptionTestId}>
+                  {descriptionInCard}
+                </FieldDescription>
+              ) : null}
+            </FieldContent>
+            <div className="flex shrink-0 items-start gap-2">
+              {updating ? (
+                <span data-testid="auto-deploy-toggle-spinner" aria-hidden>
+                  <SpinnerIcon className="mt-0.5 size-4 animate-spin text-muted-foreground" />
+                </span>
+              ) : null}
+              <Switch
+                id={toggleId}
+                checked={autoDeploy.enabled}
+                disabled={controlDisabled}
+                onCheckedChange={onChange}
+                data-testid="auto-deploy-toggle"
+              />
+            </div>
+          </Field>
+        </FieldLabel>
+      </FieldGroup>
+
+      {extraHint ? (
+        <p
+          className="max-w-lg text-pretty text-sm text-muted-foreground"
+          data-testid="manual-deploy-blocked-reason"
+        >
+          {extraHint}
+        </p>
+      ) : null}
 
       {mutationError ? (
         <Alert variant="destructive" data-testid="auto-deploy-update-error">

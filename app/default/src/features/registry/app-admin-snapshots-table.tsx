@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState } from "react";
+import { memo, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   createColumnHelper,
   getCoreRowModel,
@@ -55,7 +55,17 @@ import {
   snapshotLastUpdatedLabel,
   snapshotStatusTimer,
 } from "@/features/registry/snapshot-rows";
+import {
+  SnapshotRowLiveReplicas,
+} from "@/features/registry/snapshot-live-replicas";
+import {
+  fleetReplicasPollKey,
+  partitionFleetReplicasForSnapshotTable,
+  replicaClassLabel,
+  shortInstanceId,
+} from "@/features/registry/fleet-replicas";
 import type {
+  AppAdminFleetReplica,
   AppAdminPublication,
   AppAdminRegistryResponse,
   AppAdminRegistryRevision,
@@ -70,8 +80,6 @@ const PUBLISH_DURATION_CLASS =
 
 /** Registry DataTable row actions use outline — bordered + page background, not secondary (secondary === neutral-hover in theme). */
 const TABLE_ROW_ACTION_BUTTON_VARIANT = "outline" as const;
-const AUTO_DEPLOY_MANUAL_DEPLOY_TOOLTIP =
-  "To deploy a specific version, turn off auto-deploy.";
 
 const columnHelper = createColumnHelper<AppAdminSnapshotRow>();
 
@@ -85,6 +93,7 @@ function snapshotRowSearchText(
   row: AppAdminSnapshotRow,
   registry: SnapshotTableMeta["registry"],
   deployedByByVersion: Map<string, string>,
+  replicasForRow: AppAdminFleetReplica[] | undefined,
 ): string {
   const publication = rowPublication(row);
   const pullRequest = publication?.triggerPullRequest;
@@ -101,19 +110,26 @@ function snapshotRowSearchText(
       ? rolloutProgressSubline(registry.rollout)
       : null;
   const lastUpdated = snapshotLastUpdatedLabel(row);
+  const replicaSearch = (replicasForRow ?? []).flatMap((replica) => [
+    shortInstanceId(replica.instanceId),
+    replica.instanceId,
+    replicaClassLabel(replica.class),
+    replica.lastError,
+  ]);
   return [
     row.version,
     status.label,
-    isDeployedVersion ? "Deployed Version" : null,
+    isDeployedVersion ? status.label : null,
     rolloutPhase,
     pullRequest?.number ? `PR #${pullRequest.number}` : null,
     pullRequest?.title,
-    publication?.workflowRunUrl ? "workflow" : null,
+    publication?.workflowRunUrl ? "View workflow run" : null,
     snapshotFailedReason(row),
     snapshotStatusTimer(row),
     deployedByByVersion.get(row.version),
     lastUpdated?.relative,
     lastUpdated?.absolute,
+    ...replicaSearch,
   ]
     .filter(Boolean)
     .join(" ");
@@ -191,7 +207,7 @@ const SnapshotDeployedByCell = memo(function SnapshotDeployedByCell({
             className="hover:bg-muted hover:text-muted-foreground"
             data-testid="auto-deployed-badge"
           >
-            Auto-deployed
+            Automatically deployed
           </Badge>
         </span>
       </DataTableRegistryPrimaryLine>
@@ -203,13 +219,17 @@ const SnapshotDeployedByCell = memo(function SnapshotDeployedByCell({
       <Tooltip>
         <TooltipTrigger asChild>
           <span
-            className="inline-flex"
+            className="inline-flex size-8 shrink-0 overflow-hidden rounded-full"
             data-testid="deployed-by-avatar"
             role="img"
             aria-label={`Deployed by ${displayLabel}`}
-            tabIndex={0}
           >
-            <Avatar size="sm" variant="solid" aria-hidden="true">
+            <Avatar
+              size="lg"
+              variant="solid"
+              aria-hidden="true"
+              className="size-full max-h-full max-w-full text-xs leading-8"
+            >
               <AvatarFallback>{deployedByInitials(displayLabel)}</AvatarFallback>
             </Avatar>
           </span>
@@ -242,11 +262,16 @@ type SnapshotTableMeta = {
     | "rollout"
     | "selectionDisabled"
     | "autoDeploy"
+    | "fleetState"
   >;
   historyRevisions: AppAdminRegistryRevision[];
   controlsDisabled: boolean;
+  offerManualDeploy: boolean;
+  emptyTitle: string;
+  emptyHint: string;
   deployingVersion: string | null;
   onDeployVersion: (version: string) => void;
+  toolbarTrailing?: ReactNode;
 };
 
 type SnapshotTableRuntimeMeta = Pick<SnapshotTableMeta, "registry">;
@@ -275,6 +300,7 @@ type SnapshotActionCellProps = {
   row: AppAdminSnapshotRow;
   registry: SnapshotTableMeta["registry"];
   controlsDisabled: boolean;
+  offerManualDeploy: boolean;
   deployingVersion: string | null;
   onDeployVersion: (version: string) => void;
 };
@@ -285,6 +311,7 @@ function snapshotActionCellPropsAreEqual(
 ): boolean {
   if (snapshotRowKey(prev.row) !== snapshotRowKey(next.row)) return false;
   if (prev.controlsDisabled !== next.controlsDisabled) return false;
+  if (prev.offerManualDeploy !== next.offerManualDeploy) return false;
   if (prev.deployingVersion !== next.deployingVersion) return false;
   if (prev.onDeployVersion !== next.onDeployVersion) return false;
 
@@ -323,9 +350,11 @@ function SnapshotSeverityCell({
 const SnapshotPullRequestCell = memo(function SnapshotPullRequestCell({
   row,
   registry,
+  liveReplicas,
 }: {
   row: AppAdminSnapshotRow;
   registry: SnapshotTableMeta["registry"];
+  liveReplicas: AppAdminFleetReplica[];
 }) {
   const publication = rowPublication(row);
   const pullRequest = publication?.triggerPullRequest;
@@ -350,7 +379,7 @@ const SnapshotPullRequestCell = memo(function SnapshotPullRequestCell({
             rel="noreferrer"
             className={REGISTRY_TABLE_LINK_CLASS}
           >
-            <SearchHighlight text="workflow" />
+            <SearchHighlight text="View workflow run" />
           </a>
         ) : (
           <span className="text-muted-foreground">—</span>
@@ -366,10 +395,14 @@ const SnapshotPullRequestCell = memo(function SnapshotPullRequestCell({
       {showRolloutStepper ? (
         <RolloutPhaseStepper rollout={rollout} size="mini" className="self-start" />
       ) : null}
+      <SnapshotRowLiveReplicas replicas={liveReplicas} />
     </DataTableRegistryCell>
   );
 }, (prev, next) => {
   if (snapshotRowKey(prev.row) !== snapshotRowKey(next.row)) return false;
+  if (fleetReplicasPollKey(prev.liveReplicas) !== fleetReplicasPollKey(next.liveReplicas)) {
+    return false;
+  }
   const version = prev.row.version;
   const prevShowsStepper =
     prev.row.kind === "published" &&
@@ -426,7 +459,10 @@ const SnapshotStatusCell = memo(function SnapshotStatusCell({
       : null;
   const isReadyToDeploy = statusId === "ready_to_deploy";
   const showTimerBelowBadge =
-    Boolean(statusTimer) && row.kind !== "pending" && !isReadyToDeploy;
+    Boolean(statusTimer) &&
+    row.kind !== "pending" &&
+    !isReadyToDeploy &&
+    !isDeployedVersion;
 
   if (isReadyToDeploy) {
     if (!statusTimer) {
@@ -438,7 +474,7 @@ const SnapshotStatusCell = memo(function SnapshotStatusCell({
     }
 
     return (
-      <DataTableRegistryPrimaryLine className="text-xs leading-5 text-muted-foreground">
+      <DataTableRegistryPrimaryLine className="min-h-0 text-xs leading-4 text-muted-foreground">
         <SearchHighlight text={statusTimer} />
       </DataTableRegistryPrimaryLine>
     );
@@ -451,7 +487,7 @@ const SnapshotStatusCell = memo(function SnapshotStatusCell({
       >
         {isDeployedVersion ? (
           <Badge variant="info" data-testid="deployed-version-badge">
-            Deployed Version
+            {status.label}
           </Badge>
         ) : (
           <Badge
@@ -529,18 +565,17 @@ const SnapshotActionCell = memo(function SnapshotActionCell({
   row,
   registry,
   controlsDisabled,
+  offerManualDeploy,
   deployingVersion,
   onDeployVersion,
 }: SnapshotActionCellProps) {
   const isDeployable = row.kind === "published";
   const isDeploying = deployingVersion === row.version;
-  const autoDeployEnabled = registry.autoDeploy?.enabled ?? false;
   const failedRolloutRetry = isFailedRolloutRetryRow(row, registry.rollout);
+  const canOfferDeploy = offerManualDeploy || failedRolloutRetry;
   const deployDisabled =
     !isDeployable ||
     (controlsDisabled && !failedRolloutRetry) ||
-    (autoDeployEnabled && !failedRolloutRetry) ||
-    isDeploying ||
     (row.version === registry.desiredVersion && !failedRolloutRetry);
   const showRolloutDeploying = isRolloutDeployingAction(registry.rollout, row.version);
 
@@ -552,7 +587,7 @@ const SnapshotActionCell = memo(function SnapshotActionCell({
           variant={TABLE_ROW_ACTION_BUTTON_VARIANT}
           size="sm"
           data-testid={`deploy-version-${row.version}`}
-          disabled
+          loading
         >
           Deploying...
         </Button>
@@ -568,8 +603,15 @@ const SnapshotActionCell = memo(function SnapshotActionCell({
     );
   }
 
+  if (isDeployable && !canOfferDeploy) {
+    return (
+      <DataTableRegistryPrimaryLine className="justify-end">
+        <span className="text-muted-foreground">—</span>
+      </DataTableRegistryPrimaryLine>
+    );
+  }
+
   if (isDeployable) {
-    const shouldExplainAutoDeploy = autoDeployEnabled && !failedRolloutRetry;
     const actionLabel = failedRolloutRetry
       ? isDeploying
         ? "Retrying..."
@@ -577,42 +619,20 @@ const SnapshotActionCell = memo(function SnapshotActionCell({
       : isDeploying
         ? "Deploying..."
         : "Deploy";
-    const deployButton = (
-      <Button
-        type="button"
-        variant={TABLE_ROW_ACTION_BUTTON_VARIANT}
-        size="sm"
-        className={shouldExplainAutoDeploy ? "pointer-events-none" : undefined}
-        data-testid={`deploy-version-${row.version}`}
-        disabled={deployDisabled}
-        onClick={() => onDeployVersion(row.version)}
-      >
-        {actionLabel}
-      </Button>
-    );
-    const action =
-      shouldExplainAutoDeploy ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span
-              className="inline-flex cursor-not-allowed"
-              aria-label={AUTO_DEPLOY_MANUAL_DEPLOY_TOOLTIP}
-              tabIndex={0}
-            >
-              {deployButton}
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="max-w-xs text-center">
-            {AUTO_DEPLOY_MANUAL_DEPLOY_TOOLTIP}
-          </TooltipContent>
-        </Tooltip>
-      ) : (
-        deployButton
-      );
 
     return (
       <DataTableRegistryPrimaryLine className="justify-end">
-        {action}
+        <Button
+          type="button"
+          variant={TABLE_ROW_ACTION_BUTTON_VARIANT}
+          size="sm"
+          data-testid={`deploy-version-${row.version}`}
+          loading={isDeploying}
+          disabled={deployDisabled}
+          onClick={() => onDeployVersion(row.version)}
+        >
+          {actionLabel}
+        </Button>
       </DataTableRegistryPrimaryLine>
     );
   }
@@ -628,8 +648,12 @@ export const AppAdminSnapshotsTable = memo(function AppAdminSnapshotsTable({
   registry,
   historyRevisions,
   controlsDisabled,
+  offerManualDeploy,
+  emptyTitle,
+  emptyHint,
   deployingVersion,
   onDeployVersion,
+  toolbarTrailing,
 }: SnapshotTableMeta) {
   const registryRef = useRef(registry);
   registryRef.current = registry;
@@ -641,10 +665,25 @@ export const AppAdminSnapshotsTable = memo(function AppAdminSnapshotsTable({
   tableMetaRef.current.registry = registry;
 
   const rows = useMemo(() => buildAppAdminSnapshotRows(registry), [registry]);
+  const replicaPartition = useMemo(
+    () =>
+      partitionFleetReplicasForSnapshotTable(
+        registry.fleetState?.replicas,
+        rows.map((row) => row.version),
+      ),
+    [registry.fleetState?.replicas, rows],
+  );
   const deployedByByVersion = useMemo(
     () => deployedByForVersions(historyRevisions),
     [historyRevisions],
   );
+  const showActionColumn =
+    offerManualDeploy ||
+    rows.some(
+      (row) =>
+        isFailedRolloutRetryRow(row, registry.rollout) ||
+        isRolloutDeployingAction(registry.rollout, row.version),
+    );
   const [sorting, setSorting] = useState<SortingState>([
     { id: "sortAt", desc: true },
   ]);
@@ -654,11 +693,16 @@ export const AppAdminSnapshotsTable = memo(function AppAdminSnapshotsTable({
     if (!query) return rows;
     return rows.filter((row) =>
       textContainsAllSearchTokens(
-        snapshotRowSearchText(row, registry, deployedByByVersion),
+        snapshotRowSearchText(
+          row,
+          registry,
+          deployedByByVersion,
+          replicaPartition.byVersion.get(row.version),
+        ),
         query,
       ),
     );
-  }, [deployedByByVersion, rows, registry, search]);
+  }, [deployedByByVersion, replicaPartition.byVersion, rows, registry, search]);
 
   const columns = useMemo(
     () => [
@@ -688,6 +732,9 @@ export const AppAdminSnapshotsTable = memo(function AppAdminSnapshotsTable({
             <SnapshotPullRequestCell
               row={row.original}
               registry={readSnapshotTableMeta(table.options.meta).registry}
+              liveReplicas={
+                replicaPartition.byVersion.get(row.original.version) ?? []
+              }
             />
           ),
         },
@@ -709,6 +756,7 @@ export const AppAdminSnapshotsTable = memo(function AppAdminSnapshotsTable({
       ),
       columnHelper.accessor((row) => row.sortAt, {
         id: "sortAt",
+        meta: { hideBelow: "md" },
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Last update" />
         ),
@@ -719,6 +767,7 @@ export const AppAdminSnapshotsTable = memo(function AppAdminSnapshotsTable({
         (row) => deployedByByVersion.get(row.version) ?? "",
         {
           id: "deployedBy",
+          meta: { hideBelow: "md" },
           header: ({ column }) => (
             <DataTableColumnHeader column={column} title="Deployed by" />
           ),
@@ -729,23 +778,36 @@ export const AppAdminSnapshotsTable = memo(function AppAdminSnapshotsTable({
           ),
         },
       ),
-      columnHelper.display({
-        id: "action",
-        header: "Action",
-        meta: { align: "end" },
-        enableSorting: false,
-        cell: ({ row, table }) => (
-          <SnapshotActionCell
-            row={row.original}
-            registry={readSnapshotTableMeta(table.options.meta).registry}
-            controlsDisabled={controlsDisabled}
-            deployingVersion={deployingVersion}
-            onDeployVersion={onDeployVersion}
-          />
-        ),
-      }),
+      ...(showActionColumn
+        ? [
+            columnHelper.display({
+              id: "action",
+              header: "Action",
+              meta: { align: "end" },
+              enableSorting: false,
+              cell: ({ row, table }) => (
+                <SnapshotActionCell
+                  row={row.original}
+                  registry={readSnapshotTableMeta(table.options.meta).registry}
+                  controlsDisabled={controlsDisabled}
+                  offerManualDeploy={offerManualDeploy}
+                  deployingVersion={deployingVersion}
+                  onDeployVersion={onDeployVersion}
+                />
+              ),
+            }),
+          ]
+        : []),
     ],
-    [controlsDisabled, deployedByByVersion, deployingVersion, onDeployVersion],
+    [
+      controlsDisabled,
+      deployedByByVersion,
+      deployingVersion,
+      offerManualDeploy,
+      onDeployVersion,
+      replicaPartition.byVersion,
+      showActionColumn,
+    ],
   );
 
   const table = useReactTable({
@@ -762,32 +824,38 @@ export const AppAdminSnapshotsTable = memo(function AppAdminSnapshotsTable({
 
   if (rows.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">No published versions are available.</p>
+      <div className="space-y-1" data-testid="snapshots-empty">
+        <p className="text-sm text-foreground">{emptyTitle}</p>
+        <p className="text-sm text-muted-foreground">{emptyHint}</p>
+      </div>
     );
   }
 
   return (
-    <DataTableSearchShell
-      search={search}
-      onSearchChange={setSearch}
-      searchPlaceholder="Search versions"
-    >
-      <DataTableView
-        table={table}
-        testId="snapshots-table"
-        emptyMessage={search.trim() ? "No results." : "No results."}
-        getRowProps={(row) => {
-          const affordance = selectedVersionRowAffordance(
-            registry.rollout,
-            row.original.version,
-          );
-          return {
-            "data-testid": `snapshot-row-${row.original.kind}`,
-            ...(affordance ? { "data-selected-version-row": "true" } : {}),
-          };
-        }}
-      />
-    </DataTableSearchShell>
+    <div className="space-y-3">
+      <DataTableSearchShell
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search versions"
+        trailing={toolbarTrailing}
+      >
+        <DataTableView
+          table={table}
+          testId="snapshots-table"
+          emptyMessage={search.trim() ? "No matching versions." : "No results."}
+          getRowProps={(row) => {
+            const affordance = selectedVersionRowAffordance(
+              registry.rollout,
+              row.original.version,
+            );
+            return {
+              "data-testid": `snapshot-row-${row.original.kind}`,
+              ...(affordance ? { "data-selected-version-row": "true" } : {}),
+            };
+          }}
+        />
+      </DataTableSearchShell>
+    </div>
   );
 }, snapshotTablePropsAreEqual);
 
@@ -796,8 +864,19 @@ function snapshotTablePropsAreEqual(
   next: SnapshotTableMeta,
 ): boolean {
   if (prev.controlsDisabled !== next.controlsDisabled) return false;
+  if (prev.offerManualDeploy !== next.offerManualDeploy) return false;
+  if (prev.emptyTitle !== next.emptyTitle) return false;
+  if (prev.emptyHint !== next.emptyHint) return false;
   if (prev.deployingVersion !== next.deployingVersion) return false;
   if (prev.onDeployVersion !== next.onDeployVersion) return false;
   if (prev.historyRevisions !== next.historyRevisions) return false;
+  // Poll-equal omits fleet so reconcile can keep stable version refs while
+  // refreshing replicas. The table presents those replicas — compare them here.
+  if (
+    fleetReplicasPollKey(prev.registry.fleetState?.replicas) !==
+    fleetReplicasPollKey(next.registry.fleetState?.replicas)
+  ) {
+    return false;
+  }
   return snapshotRegistryPollEqual(prev.registry, next.registry);
 }

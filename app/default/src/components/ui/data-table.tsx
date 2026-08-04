@@ -164,11 +164,14 @@ export function DataTableSearchShell({
   search,
   onSearchChange,
   searchPlaceholder = "Search",
+  trailing,
   children,
 }: {
   search: string;
   onSearchChange: (value: string) => void;
   searchPlaceholder?: string;
+  /** Optional end-aligned toolbar content (same baseline as the search field). */
+  trailing?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const deferredSearchHighlightQuery = React.useDeferredValue(search);
@@ -176,17 +179,33 @@ export function DataTableSearchShell({
   return (
     <SearchHighlightQueryContext.Provider value={deferredSearchHighlightQuery}>
       <div className="space-y-3">
-        <div className="flex justify-end">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
           <DataTableSearchField
             value={search}
             onChange={onSearchChange}
             placeholder={searchPlaceholder}
           />
+          {trailing ? (
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2">
+              {trailing}
+            </div>
+          ) : null}
         </div>
         {children}
       </div>
     </SearchHighlightQueryContext.Provider>
   );
+}
+
+const DATA_TABLE_HIDE_BELOW_CLASS = {
+  md: "hidden md:table-cell",
+  lg: "hidden lg:table-cell",
+} as const;
+
+function dataTableHideBelowClass(
+  hideBelow: "md" | "lg" | undefined,
+): string | undefined {
+  return hideBelow ? DATA_TABLE_HIDE_BELOW_CLASS[hideBelow] : undefined;
 }
 
 export function DataTableView<TData>({
@@ -203,7 +222,7 @@ export function DataTableView<TData>({
   const columns = table.getVisibleLeafColumns();
 
   return (
-    <div className="overflow-hidden rounded-md border" data-testid={testId}>
+    <div className="overflow-x-auto rounded-md border" data-testid={testId}>
       <Table>
         <TableHeader>
           {table.getHeaderGroups().map((headerGroup) => (
@@ -226,6 +245,9 @@ export function DataTableView<TData>({
                       header.column.columnDef.meta?.severityGutter &&
                         DATA_TABLE_REGISTRY_SEVERITY_GUTTER_CLASS,
                       header.column.columnDef.meta?.headerClassName,
+                      dataTableHideBelowClass(
+                        header.column.columnDef.meta?.hideBelow,
+                      ),
                     )}
                     aria-sort={
                       canSort
@@ -264,6 +286,9 @@ export function DataTableView<TData>({
                         cell.column.columnDef.meta?.severityGutter &&
                           DATA_TABLE_REGISTRY_SEVERITY_GUTTER_CLASS,
                         cell.column.columnDef.meta?.className,
+                        dataTableHideBelowClass(
+                          cell.column.columnDef.meta?.hideBelow,
+                        ),
                       )}
                     >
                       {flexRender(
@@ -301,5 +326,7 @@ declare module "@tanstack/react-table" {
     className?: string;
     /** `TableHead` classes — width/padding for gutter columns, etc. */
     headerClassName?: string;
+    /** Hide this column below the given breakpoint (still in the DOM for a11y/search). */
+    hideBelow?: "md" | "lg";
   }
 }

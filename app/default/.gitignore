@@ -11,3 +11,6 @@ test-results/
 *.tsbuildinfo
 
 AGENTS.md
+
+# Local-only fleet mock Vite entry (used by .local/versions-fleet-mock).
+vite.fleet-mock.config.ts

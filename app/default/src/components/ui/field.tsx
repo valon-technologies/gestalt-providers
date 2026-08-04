@@ -74,27 +74,67 @@ const fieldVariants = cva(
   {
     variants: {
       orientation: {
-        vertical: ["flex-col [&>*]:w-full [&>.sr-only]:w-auto"],
+        vertical: "flex-col",
         horizontal: [
           // Checkbox/radio companion rows (no FieldContent): simple flex.
           "flex-row items-center",
-          // Settings rows (FieldContent present): join FieldGroup's shared columns.
-          // Baseline-align label text with the control's text (not box-center /
-          // top); description/error hang below inside FieldContent.
-          // gap-x must match FieldGroup — a subgrid's own gap overrides the parent.
-          "has-[>[data-slot=field-content]]:col-span-2 has-[>[data-slot=field-content]]:grid has-[>[data-slot=field-content]]:grid-cols-subgrid has-[>[data-slot=field-content]]:items-baseline has-[>[data-slot=field-content]]:gap-x-4 has-[>[data-slot=field-content]]:gap-y-0",
-          "has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio],[role=switch]]:mt-px",
+          // Two horizontal anatomies (first-child slot owns the grid template):
+          // 1) Label-first form rows (FieldLabel + FieldContent): join FieldGroup's
+          //    shared max-content | 1fr columns via subgrid.
+          // 2) Content-first preference rows (FieldContent + trailing control):
+          //    self-contained 1fr | auto so Switch sits top-right even when Field
+          //    is wrapped in FieldLabel (Choice Card) and cannot join the subgrid.
+          "has-[>[data-slot=field-content]]:grid has-[>[data-slot=field-content]]:gap-x-4 has-[>[data-slot=field-content]]:gap-y-0",
+          "has-[>[data-slot=field-label]:first-child]:col-span-2 has-[>[data-slot=field-label]:first-child]:grid-cols-subgrid has-[>[data-slot=field-label]:first-child]:items-baseline",
+          "has-[>[data-slot=field-content]:first-child]:grid-cols-[minmax(0,1fr)_auto] has-[>[data-slot=field-content]:first-child]:items-start",
+          "has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio],[data-slot=switch]]:mt-px",
         ],
         responsive: [
-          "flex-col [&>*]:w-full [&>.sr-only]:w-auto",
-          "@md/field-group:flex-row @md/field-group:items-center @md/field-group:[&>*]:w-auto",
-          "@md/field-group:has-[>[data-slot=field-content]]:col-span-2 @md/field-group:has-[>[data-slot=field-content]]:grid @md/field-group:has-[>[data-slot=field-content]]:grid-cols-subgrid @md/field-group:has-[>[data-slot=field-content]]:items-baseline @md/field-group:has-[>[data-slot=field-content]]:gap-x-4 @md/field-group:has-[>[data-slot=field-content]]:gap-y-0",
-          "@md/field-group:has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio],[role=switch]]:mt-px",
+          "flex-col",
+          "@md/field-group:flex-row @md/field-group:items-center",
+          "@md/field-group:has-[>[data-slot=field-content]]:grid @md/field-group:has-[>[data-slot=field-content]]:gap-x-4 @md/field-group:has-[>[data-slot=field-content]]:gap-y-0",
+          "@md/field-group:has-[>[data-slot=field-label]:first-child]:col-span-2 @md/field-group:has-[>[data-slot=field-label]:first-child]:grid-cols-subgrid @md/field-group:has-[>[data-slot=field-label]:first-child]:items-baseline",
+          "@md/field-group:has-[>[data-slot=field-content]:first-child]:grid-cols-[minmax(0,1fr)_auto] @md/field-group:has-[>[data-slot=field-content]:first-child]:items-start",
+          "@md/field-group:has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio],[data-slot=switch]]:mt-px",
         ],
       },
+      /**
+       * How direct children (label + control) size on the cross axis.
+       * - `full` — stretch controls to the field width (default stacked forms).
+       * - `intrinsic` — do not impose child width; controls own `w-*` utilities
+       *   (DatePicker triggers, compact toolbar pickers). Omits `[&>*]:w-full`
+       *   instead of counteracting with a parent `> *` width rule.
+       */
+      controlWidth: {
+        full: "",
+        intrinsic: "",
+      },
     },
+    compoundVariants: [
+      {
+        orientation: "vertical",
+        controlWidth: "full",
+        class: "[&>*]:w-full [&>.sr-only]:w-auto",
+      },
+      {
+        orientation: "vertical",
+        controlWidth: "intrinsic",
+        class: "[&>.sr-only]:w-auto",
+      },
+      {
+        orientation: "responsive",
+        controlWidth: "full",
+        class: "[&>*]:w-full [&>.sr-only]:w-auto @md/field-group:[&>*]:w-auto",
+      },
+      {
+        orientation: "responsive",
+        controlWidth: "intrinsic",
+        class: "[&>.sr-only]:w-auto @md/field-group:[&>*]:w-auto",
+      },
+    ],
     defaultVariants: {
       orientation: "vertical",
+      controlWidth: "full",
     },
   },
 );
@@ -102,6 +142,7 @@ const fieldVariants = cva(
 function Field({
   className,
   orientation = "vertical",
+  controlWidth = "full",
   ...props
 }: React.ComponentProps<"div"> & VariantProps<typeof fieldVariants>) {
   return (
@@ -109,7 +150,8 @@ function Field({
       role="group"
       data-slot="field"
       data-orientation={orientation}
-      className={cn(fieldVariants({ orientation }), className)}
+      data-control-width={controlWidth}
+      className={cn(fieldVariants({ orientation, controlWidth }), className)}
       {...props}
     />
   );
@@ -134,7 +176,9 @@ function FieldLabel({
   ...props
 }: React.ComponentProps<typeof Label>) {
   // Captions default to Label `field`; pass variant="inline" for checkbox rows.
-  // Layout / checkbox-card chrome only — type + disabled/invalid live on Label.
+  // Choice-card chrome when wrapping a Field: rounded border + padding.
+  // Checked wash is neutral (`bg-muted`), not accent — the Switch/Checkbox
+  // control carries brand hue; the card plate stays quiet.
   return (
     <Label
       data-slot="field-label"
@@ -142,7 +186,7 @@ function FieldLabel({
       className={cn(
         "group/field-label peer/field-label flex w-fit gap-2 leading-snug",
         "has-[>[data-slot=field]]:w-full has-[>[data-slot=field]]:flex-col has-[>[data-slot=field]]:rounded-md has-[>[data-slot=field]]:border [&>[data-slot=field]]:p-4",
-        "has-data-[state=checked]:border-accent-vivid has-data-[state=checked]:bg-accent dark:has-data-[state=checked]:bg-accent-subtle",
+        "has-data-[state=checked]:border-border has-data-[state=checked]:bg-muted",
         className,
       )}
       {...props}
@@ -151,12 +195,14 @@ function FieldLabel({
 }
 
 function FieldTitle({ className, ...props }: React.ComponentProps<"div">) {
-  // Non-label title: same caption type/disabled contract as Label `field`.
+  // Readable name inside Choice Cards / settings rows — same size as
+  // FieldDescription (`text-sm`), medium weight + foreground for hierarchy.
+  // Not Label `field` (text-xs caption above inputs).
   return (
     <div
       data-slot="field-title"
       className={cn(
-        labelVariants({ variant: "field" }),
+        labelVariants({ variant: "inline" }),
         "flex w-fit items-center gap-2 leading-snug",
         className,
       )}
@@ -241,7 +287,7 @@ function FieldError({
     <div
       role="alert"
       data-slot="field-error"
-      className={cn("text-sm font-normal text-error-foreground", className)}
+      className={cn("text-sm font-normal text-error-ink", className)}
       {...props}
     >
       {content}

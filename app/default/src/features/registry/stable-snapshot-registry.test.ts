@@ -55,6 +55,59 @@ describe("snapshotRegistryPollEqual", () => {
 
     expect(snapshotRegistryPollEqual(BASE_REGISTRY, next)).toBe(false);
   });
+
+  test("ignores fleet replica churn so reconcile can refresh fleet alone", () => {
+    const withFleet: AppAdminRegistryResponse = {
+      ...BASE_REGISTRY,
+      fleetState: {
+        state: "converging",
+        sourceVersion: "abc123",
+        desiredVersion: BASE_REGISTRY.desiredVersion!,
+        minimumHealthyInstances: 5,
+        liveInstances: 5,
+        runningDesiredVersion: 3,
+        mismatched: 2,
+        errors: 0,
+        heartbeatTtlSeconds: 45,
+        evaluatedAt: "2026-07-23T14:59:50Z",
+        replicas: [
+          {
+            instanceId: "i-1",
+            class: "on_desired",
+            appState: "ready",
+            runningVersion: BASE_REGISTRY.desiredVersion!,
+            heartbeatAt: "2026-07-23T14:59:40Z",
+          },
+        ],
+      },
+    };
+    const fleetMoved: AppAdminRegistryResponse = {
+      ...withFleet,
+      fleetState: {
+        ...withFleet.fleetState!,
+        runningDesiredVersion: 4,
+        mismatched: 1,
+        replicas: [
+          {
+            instanceId: "i-1",
+            class: "on_desired",
+            appState: "ready",
+            runningVersion: BASE_REGISTRY.desiredVersion!,
+            heartbeatAt: "2026-07-23T15:00:00Z",
+          },
+          {
+            instanceId: "i-2",
+            class: "on_desired",
+            appState: "ready",
+            runningVersion: BASE_REGISTRY.desiredVersion!,
+            heartbeatAt: "2026-07-23T15:00:00Z",
+          },
+        ],
+      },
+    };
+
+    expect(snapshotRegistryPollEqual(withFleet, fleetMoved)).toBe(true);
+  });
 });
 
 describe("reconcileSnapshotRegistryPoll", () => {
