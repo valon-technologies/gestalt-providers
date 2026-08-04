@@ -6,7 +6,7 @@ import {
   getAppSurfaces,
   primaryConnectLabel,
 } from "@/lib/catalogFilters";
-import { getAppPromptExample } from "@/lib/appPromptExamples";
+import { getAppPromptExamples } from "@/lib/appPromptExamples";
 import { normalizeIntegrationStatus } from "@/lib/integrationStatus";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import { resolveMountedAppHref } from "@/lib/mount";
@@ -58,10 +58,12 @@ export default function AppWorkspaceOverviewPage() {
   const label = getIntegrationLabel(integration);
   const status = normalizeIntegrationStatus(integration, "current_user");
   const surfaces = getAppSurfaces(integration);
-  const promptExample = getAppPromptExample(integration, surfaces.hasMcp);
+  const promptExamples = getAppPromptExamples(integration, surfaces.hasMcp);
   const connectLabel = primaryConnectLabel(integration, "current_user");
   const mountedPath = integration.mountedPath?.trim();
-
+  const showOperations = operationCount > 0 || surfaces.hasMcp;
+  const sectionAfterPromptClass =
+    promptExamples.length > 0 ? "pt-8" : overviewSectionClass;
   const checklist = useMemo(() => {
     const items: Array<{ id: string; label: string; done: boolean; skip?: boolean }> = [
       {
@@ -165,14 +167,17 @@ export default function AppWorkspaceOverviewPage() {
         </div>
       </div>
 
-      {promptExample ? (
-        <div className={overviewSectionClass}>
-          <AppPromptExamplePromo displayName={label} body={promptExample} />
+      {promptExamples.length > 0 ? (
+        <div>
+          <AppPromptExamplePromo displayName={label} prompts={promptExamples} />
         </div>
       ) : null}
 
-      {operationCount > 0 || surfaces.hasMcp ? (
-        <div className={overviewSectionClass} data-testid="overview-operations-handoff">
+      {showOperations ? (
+        <div
+          className={sectionAfterPromptClass}
+          data-testid="overview-operations-handoff"
+        >
           <h2 className="text-lg font-heading text-foreground">Operations</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             {operationCount > 0 ? (
@@ -192,7 +197,13 @@ export default function AppWorkspaceOverviewPage() {
         </div>
       ) : null}
 
-      <div className={overviewSectionClass}>
+      <div
+        className={
+          promptExamples.length > 0 && !showOperations
+            ? sectionAfterPromptClass
+            : overviewSectionClass
+        }
+      >
         <h2 className="text-lg font-heading text-foreground">Your access</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Connection and credentials for the signed-in user.
