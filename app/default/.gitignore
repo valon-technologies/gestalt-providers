@@ -3,7 +3,6 @@ node_modules/
 .gestalt/
 .local/
 .env.local
-src/dev/promptOverrides.local.json
 out/
 dist/
 .dev/

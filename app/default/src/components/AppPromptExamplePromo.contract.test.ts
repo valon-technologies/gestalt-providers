@@ -13,11 +13,6 @@ const OVERVIEW = readFileSync(
   "utf8",
 );
 
-const INTEGRATIONS_QUERY = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "../lib/queries/integrations.ts"),
-  "utf8",
-);
-
 describe("AppPromptExamplePromo", () => {
   test("uses semantic promo stage, stacked pills, and accessible feedback", () => {
     expect(SOURCE).toContain("bg-promo-stage");
@@ -43,13 +38,5 @@ describe("AppWorkspaceOverviewPage prompt wiring", () => {
     expect(OVERVIEW).not.toContain("promptExamples.map");
     expect(OVERVIEW).toContain("<PageHeaderActions>");
     expect(OVERVIEW).toContain("{connectLabel}");
-  });
-});
-
-describe("integrations query prompt overrides", () => {
-  test("applies DEV overrides in the query adapter, not the API transport", () => {
-    expect(INTEGRATIONS_QUERY).toContain("import.meta.env.DEV");
-    expect(INTEGRATIONS_QUERY).toContain("applyDevPromptOverrides");
-    expect(INTEGRATIONS_QUERY).toContain("fetchIntegrationsForUi");
   });
 });
