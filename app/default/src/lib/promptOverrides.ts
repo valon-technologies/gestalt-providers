@@ -8,6 +8,9 @@ type PromptOverrideMap = Record<string, IntegrationPrompt[]>;
  *
  * Drop `src/dev/promptOverrides.local.json` (gitignored) with the same shape
  * as `apps.home.config.prompts` values: `{ [appName]: [{ id, text }, ...] }`.
+ *
+ * Only imported from the integrations query in DEV so production bundles omit
+ * this module.
  */
 const overrideModules = import.meta.glob<PromptOverrideMap>(
   "../dev/promptOverrides.local.json",
@@ -15,12 +18,11 @@ const overrideModules = import.meta.glob<PromptOverrideMap>(
 );
 
 function readDevPromptOverrides(): PromptOverrideMap | null {
-  if (!import.meta.env.DEV) return null;
   const overrides = Object.values(overrideModules)[0];
   return overrides && typeof overrides === "object" ? overrides : null;
 }
 
-/** Merge local prompt overrides onto integrations (dev only). */
+/** Merge local prompt overrides onto integrations (DEV query path only). */
 export function applyDevPromptOverrides(
   integrations: Integration[],
 ): Integration[] {

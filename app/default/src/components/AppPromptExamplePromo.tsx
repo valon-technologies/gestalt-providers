@@ -30,6 +30,12 @@ type PromptPillProps = {
   onCopyStateChange: (promptId: string, state: PromptCopyState) => void;
 };
 
+function promptSnippet(text: string, max = 48): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, max - 1).trimEnd()}…`;
+}
+
 function PromptPill({ handle, prompt, onCopyStateChange }: PromptPillProps) {
   const [copyState, setCopyState] = useState<PromptCopyState>("idle");
   const copyController = useRef<PromptCopyController | null>(null);
@@ -37,6 +43,7 @@ function PromptPill({ handle, prompt, onCopyStateChange }: PromptPillProps) {
   onCopyStateChangeRef.current = onCopyStateChange;
   const body = prompt.text.trim();
   const fullPrompt = `${handle} ${body}`;
+  const snippet = promptSnippet(body);
 
   useEffect(() => {
     const controller = createPromptCopyController({
@@ -60,24 +67,24 @@ function PromptPill({ handle, prompt, onCopyStateChange }: PromptPillProps) {
 
   const copyButtonLabel =
     copyState === "copying"
-      ? "Copying prompt"
+      ? `Copying example prompt: ${snippet}`
       : copyState === "copied"
-        ? "Copied prompt"
+        ? `Copied example prompt: ${snippet}`
         : copyState === "error"
-          ? "Retry copying example prompt"
-          : "Copy example prompt";
+          ? `Retry copying example prompt: ${snippet}`
+          : `Copy example prompt: ${snippet}`;
   const copyTooltip =
     copyState === "copying"
-      ? "Copying prompt"
+      ? "Copying example prompt"
       : copyState === "copied"
-        ? "Copied"
+        ? "Copied example prompt"
         : copyState === "error"
           ? "Try copying again"
-          : "Copy prompt";
+          : "Copy example prompt";
 
   return (
     <div
-      data-testid="app-prompt-card"
+      data-testid={`app-prompt-card-${prompt.id}`}
       className="mx-auto flex w-fit max-w-2xl gap-3 rounded-2xl bg-card px-4 py-2.5 text-sm text-card-foreground shadow-lg sm:px-5"
     >
       <p className="min-w-0 text-pretty leading-relaxed">
@@ -131,14 +138,25 @@ export default function AppPromptExamplePromo({
 
   if (prompts.length === 0) return null;
 
+  const activePrompt = prompts.find((prompt) => prompt.id === status.promptId);
+  const activeSnippet = activePrompt
+    ? promptSnippet(activePrompt.text)
+    : null;
+
   const copyMessage =
     status.state === "copying"
-      ? "Copying prompt…"
+      ? activeSnippet
+        ? `Copying “${activeSnippet}”…`
+        : "Copying example prompt…"
       : status.state === "copied"
-        ? "Prompt copied. Paste it into your AI client."
+        ? activeSnippet
+          ? `Copied “${activeSnippet}”. Paste it into your AI client.`
+          : "Example prompt copied. Paste it into your AI client."
         : status.state === "error"
-          ? "Couldn’t copy the prompt. Try again."
-          : "Copy this in your favorite LLM and try it.";
+          ? activeSnippet
+            ? `Couldn’t copy “${activeSnippet}”. Try again.`
+            : "Couldn’t copy that example. Try again."
+          : "Copy an example and paste it into your AI client.";
 
   return (
     <Card
@@ -155,9 +173,20 @@ export default function AppPromptExamplePromo({
             key={prompt.id}
             handle={handle}
             prompt={prompt}
-            onCopyStateChange={(promptId, state) =>
-              setStatus({ promptId, state })
-            }
+            onCopyStateChange={(promptId, state) => {
+              // Ignore stale idle resets from other pills so the shared live
+              // region tracks the latest user interaction only.
+              setStatus((current) => {
+                if (
+                  state === "idle" &&
+                  current.promptId !== null &&
+                  current.promptId !== promptId
+                ) {
+                  return current;
+                }
+                return { promptId, state };
+              });
+            }}
           />
         ))}
         <p

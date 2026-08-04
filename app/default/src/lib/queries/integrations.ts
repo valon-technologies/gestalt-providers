@@ -7,6 +7,13 @@ import {
 } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
 
+async function fetchIntegrationsForUi(): Promise<Integration[]> {
+  const integrations = await getIntegrations();
+  if (!import.meta.env.DEV) return integrations;
+  const { applyDevPromptOverrides } = await import("@/lib/promptOverrides");
+  return applyDevPromptOverrides(integrations);
+}
+
 export function useIntegrationsQuery(
   options?: Omit<
     UseQueryOptions<Integration[], Error>,
@@ -15,7 +22,7 @@ export function useIntegrationsQuery(
 ) {
   return useQuery({
     queryKey: queryKeys.integrations.list(),
-    queryFn: getIntegrations,
+    queryFn: fetchIntegrationsForUi,
     ...options,
   });
 }

@@ -750,9 +750,7 @@ export async function logout(): Promise<void> {
 }
 
 export async function getIntegrations(): Promise<Integration[]> {
-  const integrations = await fetchAPI<Integration[]>("/api/v1/apps");
-  const { applyDevPromptOverrides } = await import("@/lib/promptOverrides");
-  return applyDevPromptOverrides(integrations);
+  return fetchAPI<Integration[]>("/api/v1/apps");
 }
 
 export async function getAppAdminRegistry(
