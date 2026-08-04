@@ -98,21 +98,33 @@ type AppTopBarBrandProps = Omit<AppLogoProps, "children"> & {
   children?: React.ReactNode;
 };
 
-/** App top-bar wordmark — `AppLogo` + `AppLogoName` with display typography. */
+/** App top-bar wordmark — `AppLogo` + `AppLogoName` with display typography.
+ *  `asChild`: Slot onto the child (e.g. router `Link`); the child owns nesting
+ *  `AppLogoName`. Otherwise Brand wraps text children in `AppLogoName`. */
 function AppTopBarBrand({
   className,
   size,
   href,
   onNavigate,
+  asChild = false,
   children,
   ...props
 }: AppTopBarBrandProps) {
+  if (asChild) {
+    return (
+      <AppLogo asChild size={size} className={className} {...props}>
+        {children}
+      </AppLogo>
+    );
+  }
+
   return (
     <AppLogo href={href} onNavigate={onNavigate} size={size} className={className} {...props}>
       <AppLogoName size={size}>{children}</AppLogoName>
     </AppLogo>
   );
 }
+
 
 export {
   AppTopBar,

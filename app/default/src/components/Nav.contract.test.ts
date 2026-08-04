@@ -12,10 +12,13 @@ describe("Nav AppTopBar composition", () => {
   test("composes Registry AppTopBar with display-face brand", () => {
     expect(NAV).toContain("AppTopBar");
     expect(NAV).toContain("AppTopBarBrand");
-    expect(NAV).toContain('<AppTopBarBrand size="lg"');
+    expect(NAV).toContain('<AppTopBarBrand size="lg" asChild>');
+    expect(NAV).toContain('<Link to="/apps">');
+    expect(NAV).toContain("AppLogoName");
     expect(NAV).toContain("AppTopBarStart");
     expect(NAV).toContain("AppTopBarCenter");
     expect(NAV).toContain("AppTopBarEnd");
+    expect(NAV).not.toContain("onNavigate");
     expect(NAV).not.toContain("font-heading");
     expect(NAV).not.toContain("font-bold");
   });

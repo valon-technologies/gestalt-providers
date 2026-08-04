@@ -87,7 +87,11 @@ function AppLogo({
   if (asChild) {
     return (
       <AppLogoSizeContext.Provider value={size}>
-        <Slot data-slot="app-logo" className={cn(appLogoVariants(), className)} {...props}>
+        <Slot
+          data-slot="app-logo"
+          className={cn(appLogoVariants(), appLogoInteractiveClassName, className)}
+          {...props}
+        >
           {children}
         </Slot>
       </AppLogoSizeContext.Provider>

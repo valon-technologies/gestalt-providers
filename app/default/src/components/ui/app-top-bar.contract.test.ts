@@ -42,6 +42,8 @@ describe("AppTopBar column contract", () => {
     );
     expect(brandBlock).toContain("{...props}");
     expect(brandBlock).toContain("<AppLogo");
+    expect(brandBlock).toContain("if (asChild)");
+    expect(brandBlock).toContain("<AppLogo asChild");
     expect(brandBlock).not.toMatch(/<AppLogoName[^>]*\{\.\.\.props\}/);
   });
 });

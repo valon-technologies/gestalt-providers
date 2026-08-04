@@ -1,4 +1,4 @@
-import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 import { logout } from "@/lib/api";
 import { clearSession, sessionDisplayLabel, sessionInitials } from "@/lib/auth";
 import { BUILD_PATH } from "@/lib/constants";
@@ -14,6 +14,7 @@ import {
   AppTopBarInner,
   AppTopBarStart,
 } from "./ui/app-top-bar";
+import { AppLogoName } from "./ui/app-logo";
 import {
   NavigationMenu,
   NavigationMenuItem,
@@ -28,7 +29,6 @@ const links = [
 ];
 
 export default function Nav() {
-  const navigate = useNavigate();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const sessionQuery = useAuthSessionQuery();
   const session = sessionQuery.data ?? null;
@@ -47,8 +47,11 @@ export default function Nav() {
     <AppTopBar>
       <AppTopBarInner>
         <AppTopBarStart>
-          <AppTopBarBrand size="lg" onNavigate={() => void navigate({ to: "/apps" })}>
-            Gestalt
+          {/* SPA link semantics via asChild — caller supplies AppLogoName inside Link. */}
+          <AppTopBarBrand size="lg" asChild>
+            <Link to="/apps">
+              <AppLogoName size="lg">Gestalt</AppLogoName>
+            </Link>
           </AppTopBarBrand>
         </AppTopBarStart>
 
