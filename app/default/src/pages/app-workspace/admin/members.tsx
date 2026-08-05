@@ -50,8 +50,14 @@ export default function AppAdminMembersPage() {
         <PageHeaderContent>
           <PageHeaderTitle>Members</PageHeaderTitle>
           <PageHeaderDescription>
+<<<<<<< HEAD
             Who has access to this app (static policy + dynamic grants). Same
             roster as the admin authorization tab.
+=======
+            Who has access to this app (static policy and runtime grants). To
+            add or change grants until self-serve writes ship, follow the
+            authorization runbook.
+>>>>>>> f9c3712a (Wire Members page to app-admin members read API.)
           </PageHeaderDescription>
         </PageHeaderContent>
         <PageHeaderActions>
