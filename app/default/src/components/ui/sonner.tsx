@@ -12,26 +12,24 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       className="toaster group"
       // Disable Sonner's built-in HSL rich palette — status wash comes from
-      // theme tokens (--success / --success-foreground), same as Alert.
+      // theme tokens, same as Badge / Alert.
       richColors={false}
       toastOptions={{
         classNames: {
           toast:
             "group toast !duration-toast !ease-out-back group-[.toaster]:bg-background group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg",
-          // Status toasts tint the whole surface in their hue so importance reads at
-          // a glance — green = success, yellow = warning, red = error, blue = info. Icon,
-          // title, and description all take the hue; the description gets a per-type
-          // [data-description] override because its neutral-gray default dips below AA
-          // (~4.2:1) on the light tints. Border dropped so each tint is one clean fill.
-          // loading/plain toasts stay neutral. !important beats sonner's [data-styled]
-          // surface + the shared neutral .toast classes, like the existing !duration.
+          // Use --badge-* status washes, not --success / --error. Tenants often
+          // remap --success to a solid brand green (legacy grove) without a
+          // matching light --success-foreground — that yields dark-on-dark
+          // toasts. Badge tokens stay pale wash + on-tint ink (Registry color.md).
+          // !important beats sonner's [data-styled] surface + shared .toast neutrals.
           success:
-            "!bg-success !text-success-foreground !border-transparent [&_[data-description]]:!text-success-foreground [&_svg]:!text-success-foreground",
+            "!bg-badge-success !text-badge-success-foreground !border-transparent [&_[data-description]]:!text-badge-success-foreground [&_svg]:!text-badge-success-foreground",
           warning:
-            "!bg-warning !text-warning-foreground !border-transparent [&_[data-description]]:!text-warning-foreground [&_svg]:!text-warning-foreground",
+            "!bg-badge-warning !text-badge-warning-foreground !border-transparent [&_[data-description]]:!text-badge-warning-foreground [&_svg]:!text-badge-warning-foreground",
           error:
-            "!bg-error !text-error-foreground !border-transparent [&_[data-description]]:!text-error-foreground [&_svg]:!text-error-foreground",
-          info: "!bg-info !text-info-foreground !border-transparent [&_[data-description]]:!text-info-foreground [&_svg]:!text-info-foreground",
+            "!bg-badge-destructive !text-badge-destructive-foreground !border-transparent [&_[data-description]]:!text-badge-destructive-foreground [&_svg]:!text-badge-destructive-foreground",
+          info: "!bg-badge-info !text-badge-info-foreground !border-transparent [&_[data-description]]:!text-badge-info-foreground [&_svg]:!text-badge-info-foreground",
           description: "group-[.toast]:text-muted-foreground",
           actionButton: "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
           cancelButton: "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",

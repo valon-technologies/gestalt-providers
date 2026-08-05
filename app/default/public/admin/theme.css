@@ -10,7 +10,11 @@
   --brand: #7a4f10;
   --brand-soft: #eac59f;
   --danger: #c75050;
-  --success: #3d6b3d;
+  /* Status wash (pale) + on-tint ink — never solid grove alone (breaks toast/alert). */
+  --success: oklch(92.8% 0.045 144);
+  --success-foreground: #3d6b3d;
+  --badge-success: oklch(92.8% 0.045 144);
+  --badge-success-foreground: #3d6b3d;
 }
 
 .dark {
@@ -24,7 +28,10 @@
   --brand: #f5ca78;
   --brand-soft: #5c3c0c;
   --danger: #f0a3a3;
-  --success: #b8dfb8;
+  --success: oklch(28.2% 0.058 144);
+  --success-foreground: oklch(85.8% 0.075 144);
+  --badge-success: oklch(28.2% 0.058 144);
+  --badge-success-foreground: oklch(85.8% 0.075 144);
 }
 
 html {
