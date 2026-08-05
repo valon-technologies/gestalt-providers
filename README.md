@@ -59,6 +59,12 @@ Go, Python, or Rust. See the
 [provider development guide](https://gestaltd.ai/providers) for SDK setup and
 writing custom operations.
 
+The default UI has a worktree-safe local stack and an authenticated remote
+development workflow. See
+[`app/default/README.md`](app/default/README.md) for the two-workflow setup and
+the boundary between public repository configuration and deployment-owned
+credentials and theming.
+
 All providers are built with `gestaltd provider package`. Tagged releases are
 finalized with `gestaltd provider release`; commit-addressed CI snapshots are
 published with `gestaltd provider publish`, including hosted runtime backends
