@@ -1,7 +1,12 @@
+import { Link as RouterLink } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { APIError, isAPIErrorStatus } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "@/components/ui/link";
+import {
+  AUTHORIZATION_DOCS_GRANT_HASH,
+  AUTHORIZATION_DOCS_PATH,
+} from "@/features/app-workspace/operations/handoffs";
 import {
   PageHeader,
   PageHeaderActions,
@@ -50,13 +55,18 @@ export default function AppAdminMembersPage() {
         <PageHeaderContent>
           <PageHeaderTitle>Members</PageHeaderTitle>
           <PageHeaderDescription>
-            Who has access to this app (static policy + dynamic grants). Same
-            roster as the admin authorization tab.
+            Who has access to this app from deploy config. To add or change
+            grants, follow the authorization runbook in toolshed.
           </PageHeaderDescription>
         </PageHeaderContent>
         <PageHeaderActions>
-          <Link href="/admin/" underlineVariant="always">
-            Open admin authorization
+          <Link asChild underlineVariant="always">
+            <RouterLink
+              to={AUTHORIZATION_DOCS_PATH}
+              hash={AUTHORIZATION_DOCS_GRANT_HASH}
+            >
+              How to grant access
+            </RouterLink>
           </Link>
         </PageHeaderActions>
       </PageHeader>
@@ -82,9 +92,14 @@ export default function AppAdminMembersPage() {
           className="mt-5 text-sm text-muted-foreground"
           data-testid="app-admin-access-denied"
         >
-          Member roster requires app authorization admin access. Manage members in{" "}
-          <Link href="/admin/" underlineVariant="always">
-            /admin/
+          Member roster requires app authorization admin access. See{" "}
+          <Link asChild underlineVariant="always">
+            <RouterLink
+              to={AUTHORIZATION_DOCS_PATH}
+              hash={AUTHORIZATION_DOCS_GRANT_HASH}
+            >
+              how to grant access
+            </RouterLink>
           </Link>{" "}
           or ask a Gestalt admin.
         </p>

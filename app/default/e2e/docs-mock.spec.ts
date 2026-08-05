@@ -1,4 +1,5 @@
-import { test, expect, mockAuthInfo, mockAuthSession } from "./fixtures";
+import { test, expect, mockAuthInfo, mockAuthSession, mockIntegrationOperations, mockIntegrations } from "./fixtures";
+import type { Integration, IntegrationOperation } from "../src/lib/api";
 
 const hasBackend = !!process.env.GESTALT_BASE_URL;
 
@@ -107,11 +108,9 @@ test.describe("Docs page", () => {
       page.getByRole("heading", { name: "Grant authorization" }),
     ).toBeVisible();
     await expect(page.locator("article")).toContainText(
-      "gestalt authorization apps members set <app>",
+      "Look up the user's subject ID, add a relationship grant",
     );
-    await expect(page.locator("article")).toContainText(
-      "gestalt authorization subjects grants set service_account:release-bot <app>",
-    );
+    await expect(page.locator("article")).toContainText("Grant Authorization");
     await expect(
       page.getByRole("heading", { name: "Configure cloud environments" }),
     ).toBeVisible();
@@ -200,17 +199,16 @@ test.describe("Docs page", () => {
       page.getByRole("heading", { name: "Grant Authorization" }),
     ).toBeVisible();
     await expect(page.locator("article")).toContainText(
-      "App admins can manage members for apps they administer",
-    );
-    await expect(page.locator("article")).toContainText("--url <management-url>");
-    await expect(page.locator("article")).toContainText(
-      "gestalt authorization apps members set <app>",
+      "valon-tools/deploy/prod/config.yaml",
     );
     await expect(page.locator("article")).toContainText(
-      "gestalt authorization subjects tokens create service_account:release-bot",
+      "/api/v1/users/lookup?email=",
     );
     await expect(page.locator("article")).toContainText(
-      "gestalt authorization admins members set",
+      "allowedOperations",
+    );
+    await expect(page.locator("article")).toContainText(
+      "gestalt authorization relationships list",
     );
 
     await leftNav.getByRole("link", { name: "Manage Workflows" }).click();
@@ -253,5 +251,38 @@ test.describe("Docs page", () => {
     ).toBeVisible();
     await expect(page.getByText("gestalt integrations list")).toHaveCount(0);
     expect(pageErrors).toEqual([]);
+  });
+
+  test("operations page links Roles & access to authorization docs", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    const app = "example-app";
+    const integration: Integration = {
+      name: app,
+      displayName: "Example App",
+    };
+    const operations: IntegrationOperation[] = [
+      {
+        id: "graphql.execute",
+        description: "Run GraphQL",
+        method: "POST",
+        visible: true,
+        allowedRoles: ["admin"],
+      },
+    ];
+
+    await mockAuthInfo(page, {
+      provider: "test-sso",
+      displayName: "Test SSO",
+    });
+    await mockAuthSession(page);
+    await mockIntegrations(page, [integration]);
+    await mockIntegrationOperations(page, { [app]: operations });
+
+    await page.goto(`/apps/${app}/operations`);
+    await expect(
+      page.getByRole("link", { name: "Roles & access" }),
+    ).toHaveAttribute("href", "/docs/authorization#authz-operation-roles");
   });
 });
