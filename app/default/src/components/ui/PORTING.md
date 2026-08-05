@@ -125,6 +125,15 @@ specific values belong in the tenant deployment stylesheet — not here.
 See [`docs/agent/theme-boundary.md`](../../../../docs/agent/theme-boundary.md).
 Do not invent freestyle `tracking-*` / `text-*` sizes at call sites.
 
+## RunStatusIndicator
+
+Registry `run-status-indicator` is vendored here. Prefer it for workflow / job
+outcome glyphs (succeeded / failed / running / pending / …). Map Registry
+`bg-green-500` / `bg-red-500` / `bg-yellow-500` onto `--status-indicator-*`
+(+ `text-white`) — same mid-chroma light-on-fill recipe as fleet replica dots.
+Keep `runStatusIndicatorBadgeVariant` on this Badge API (`"destructive"`, not
+Registry `"error"`). Import `@/lib/cn` (not Registry `@/lib/utils`).
+
 ## Card / Collapsible / Item
 
 Registry `card`, `collapsible`, and `item` are vendored here. Application record
