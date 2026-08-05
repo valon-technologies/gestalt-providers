@@ -137,8 +137,12 @@
   /* ── Status (surface tints + action destructive above) ───────────────── */
   --success: oklch(92.8% 0.045 144);
   --success-foreground: oklch(40.8% 0.105 144);
+  --success-solid: oklch(58.766% 0.142 144);
+  --success-solid-foreground: oklch(100% 0 0);
   --warning: oklch(92.8% 0.045 82);
   --warning-foreground: oklch(40.8% 0.082 82);
+  --warning-solid: oklch(69% 0.132 82);
+  --warning-solid-foreground: oklch(23% 0.04 255);
   --error: oklch(92.8% 0.035 25);
   --error-foreground: oklch(40.8% 0.105 25);
   --info: oklch(92.8% 0.035 248);
@@ -316,8 +320,12 @@
 
   --success: oklch(28.2% 0.058 144);
   --success-foreground: oklch(85.8% 0.075 144);
+  --success-solid: oklch(69% 0.132 144);
+  --success-solid-foreground: oklch(19.5% 0.03 255);
   --warning: oklch(28.2% 0.058 82);
   --warning-foreground: oklch(85.8% 0.075 82);
+  --warning-solid: oklch(69% 0.132 82);
+  --warning-solid-foreground: oklch(19.5% 0.03 255);
   --error: oklch(28.2% 0.058 25);
   --error-foreground: oklch(85.8% 0.073 25);
   --info: oklch(28.2% 0.058 248);

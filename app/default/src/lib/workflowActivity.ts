@@ -1,10 +1,15 @@
-import type { WorkflowRun, WorkflowTarget } from "@/lib/api";
+import type {
+  WorkflowDefinition,
+  WorkflowRun,
+  WorkflowTarget,
+} from "@/lib/api";
+import { normalizeWorkflowStatus } from "@/lib/api";
 
 /** Registry Badge variant for a workflow run or step execution status. */
 export function workflowRunBadgeVariant(
   status?: string,
 ): "success" | "warning" | "info" | "destructive" | "muted" {
-  switch (status) {
+  switch (normalizeWorkflowStatus(status)) {
     case "succeeded":
       return "success";
     case "failed":
@@ -128,13 +133,17 @@ export function workflowTargetAppNames(target: WorkflowTarget): string[] {
  * Best-effort ownership signal when list responses omit hydrated targets.
  * Definition IDs are conventionally `app_<appName>_…`.
  */
-export function workflowRunDefinitionApp(run: WorkflowRun): string | null {
-  const definitionId = run.definitionId?.trim();
-  if (!definitionId?.startsWith("app_")) return null;
-  const rest = definitionId.slice("app_".length);
+export function workflowDefinitionIdApp(definitionId?: string): string | null {
+  const id = definitionId?.trim();
+  if (!id?.startsWith("app_")) return null;
+  const rest = id.slice("app_".length);
   if (!rest) return null;
   const underscore = rest.indexOf("_");
   return underscore === -1 ? rest : rest.slice(0, underscore);
+}
+
+export function workflowRunDefinitionApp(run: WorkflowRun): string | null {
+  return workflowDefinitionIdApp(run.definitionId);
 }
 
 /**
@@ -150,6 +159,20 @@ export function workflowRunMatchesApp(run: WorkflowRun, appName: string): boolea
   if (declared) return declared === needle;
 
   return workflowRunMatchesAppFromPayload(run, needle);
+}
+
+/**
+ * Whether a workflow definition targets an app (step apps or definition-id
+ * convention). Definitions are provider-scoped; app ownership is client-side.
+ */
+export function workflowDefinitionMatchesApp(
+  definition: WorkflowDefinition,
+  appName: string,
+): boolean {
+  const needle = appName.trim();
+  if (!needle) return false;
+  if (workflowTargetAppNames(definition.target).includes(needle)) return true;
+  return workflowDefinitionIdApp(definition.id) === needle;
 }
 
 function workflowRunMatchesAppFromPayload(

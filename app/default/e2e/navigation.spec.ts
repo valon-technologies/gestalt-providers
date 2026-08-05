@@ -7,6 +7,7 @@ import {
   mockManagedIdentities,
   mockTokens,
   mockWorkflowRuns,
+  mockWorkflowDefinitions,
 } from "./fixtures";
 
 test.describe("Navigation", () => {
@@ -14,6 +15,7 @@ test.describe("Navigation", () => {
     await mockAuthInfo(authenticatedPage, {
       provider: "test-sso",
       displayName: "Test SSO",
+      features: { workflowDefaultProvider: "basic" },
     });
     await mockManagedIdentities(authenticatedPage, []);
     await mockIntegrations(authenticatedPage, [
@@ -109,9 +111,10 @@ test.describe("Navigation", () => {
       selectionDisabled: false,
     });
     await mockWorkflowRuns(page, []);
+    await mockWorkflowDefinitions(page, []);
     await page.goto("/apps/slack/admin/workflows");
     await expect(page.getByTestId("app-admin-nav-workflows")).toHaveClass(/font-medium/);
-    await expect(page.getByTestId("app-workflow-ownership-note")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Runs" })).toBeVisible();
   });
 
   test("authorization redirects to settings tokens", async ({ authenticatedPage: page }) => {
@@ -148,7 +151,7 @@ test.describe("Navigation", () => {
 
     await page.goto("/docs/workflows");
     await expect(
-      page.getByRole("heading", { name: "Manage Workflows" }),
+      page.getByRole("heading", { name: "Inspect Workflows" }),
     ).toBeVisible();
 
     await page.goto("/docs/mcp");

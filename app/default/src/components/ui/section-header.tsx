@@ -15,6 +15,16 @@ const SECTION_HEADER_ALIGN_CENTER =
   "[&_[data-slot=section-header-content]]:items-center [&_[data-slot=section-header-actions]]:justify-center";
 
 /**
+ * `<button>` under parent `items-baseline` synthesizes from the margin box, so
+ * control-sm labels sit ~4px above Heading SM’s alphabetic baseline. Nudge only
+ * the sm tier (default/md title lines are taller than the control), and only
+ * from the same `sm:` breakpoint as `alignBetweenItems` — below that the header
+ * stacks and gap-y already owns vertical rhythm.
+ */
+const SECTION_HEADER_ACTIONS_BASELINE_NUDGE =
+  "sm:[&:has([data-slot=section-header-content][data-size=sm])_[data-slot=section-header-actions]]:translate-y-1";
+
+/**
  * Canonical section-header tier table. `iconStackPadding` must equal the SVG
  * box height plus `contentGapY` for each tier.
  */
@@ -58,6 +68,10 @@ const SECTION_HEADER_TIERS = {
 } as const satisfies HeaderChromeTierTable<SectionHeaderSize>;
 
 const SECTION_HEADER_SCALE = createHeaderChromeScale(SECTION_HEADER_TIERS);
+const SECTION_HEADER_STACKED_ROW_GAP_Y = [
+  ...SECTION_HEADER_SCALE.stackedRowGapY,
+  SECTION_HEADER_ACTIONS_BASELINE_NUDGE,
+] as const;
 
 type SectionHeaderIconStack = {
   readonly [K in SectionHeaderSize]: {
@@ -96,9 +110,10 @@ const {
   rootElement: "div",
   alignBetweenItems: "sm:items-baseline",
   alignCenterClasses: SECTION_HEADER_ALIGN_CENTER,
+  stackedRowGapY: SECTION_HEADER_STACKED_ROW_GAP_Y,
   defaultSize: "default",
   title: { kind: "section", defaultTag: "h2" },
-  ...SECTION_HEADER_SCALE,
+  scale: SECTION_HEADER_SCALE.scale,
 });
 
 export {

@@ -4,7 +4,12 @@ import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { gestalt } from "@valon-technologies/gestalt/vite";
-import { defineConfig, loadEnv, type ProxyOptions } from "vite";
+import { defineConfig, loadEnv, type Plugin, type ProxyOptions } from "vite";
+import {
+  resolveWorktreeDisplayName,
+  workflowsLocalMockEnabled,
+  workflowsLocalMockMiddleware,
+} from "./scripts/workflows-local-mock.mjs";
 
 const projectDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -57,24 +62,62 @@ function resolveGestaltPublicOrigin(
   return "";
 }
 
+/** Seeded Slack/workflow APIs for /local-dev Vite DEV (no gestaltd). */
+function workflowsLocalMockPlugin(): Plugin {
+  return {
+    name: "workflows-local-mock",
+    configureServer(server) {
+      server.middlewares.use(workflowsLocalMockMiddleware);
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   // Keep direct Vite development same-origin. Gestaltd remains the only
   // authority that selects and serves a tenant theme and its assets.
   const env = loadEnv(mode, projectDir, "");
+  const useWorkflowsMock = workflowsLocalMockEnabled({
+    ...env,
+    ...process.env,
+  });
   const backendOrigin =
     env.GESTALT_API_PROXY_TARGET?.trim().replace(/\/+$/, "") ||
     "http://127.0.0.1:8080";
   const gestaltPublicOrigin = resolveGestaltPublicOrigin(env, backendOrigin);
+  const worktreeName = resolveWorktreeDisplayName(
+    process.env.VITE_GESTALT_WORKTREE_NAME || env.VITE_GESTALT_WORKTREE_NAME,
+  );
+  const tenantThemeLabel =
+    process.env.VITE_THEME_SWITCHER_TENANT_LABEL?.trim() ||
+    env.VITE_THEME_SWITCHER_TENANT_LABEL?.trim() ||
+    "";
 
   return {
     // Production artifacts are mount-relative. The Gestalt Vite plugin
     // overrides this with GESTALT_DEV_BASE_PATH for native UI development.
     base: "./",
-    plugins: [react(), tailwindcss(), gestalt()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      gestalt(),
+      ...(useWorkflowsMock ? [workflowsLocalMockPlugin()] : []),
+    ],
     define: {
       "import.meta.env.VITE_GESTALT_PUBLIC_ORIGIN": JSON.stringify(
         gestaltPublicOrigin,
       ),
+      ...(tenantThemeLabel
+        ? {
+            "import.meta.env.VITE_THEME_SWITCHER_TENANT_LABEL":
+              JSON.stringify(tenantThemeLabel),
+          }
+        : {}),
+      ...(useWorkflowsMock && worktreeName
+        ? {
+            "import.meta.env.VITE_GESTALT_WORKTREE_NAME":
+              JSON.stringify(worktreeName),
+          }
+        : {}),
     },
     resolve: {
       alias: {
@@ -82,11 +125,14 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      proxy: {
-        "/api": nativeApiProxy(backendOrigin),
-        "/theme.css": nativeApiProxy(backendOrigin),
-        "/theme/": nativeApiProxy(backendOrigin),
-      },
+      // Mock middleware owns /api + empty theme.css when enabled.
+      proxy: useWorkflowsMock
+        ? {}
+        : {
+            "/api": nativeApiProxy(backendOrigin),
+            "/theme.css": nativeApiProxy(backendOrigin),
+            "/theme/": nativeApiProxy(backendOrigin),
+          },
     },
     test: {
       include: ["src/**/*.test.ts"],

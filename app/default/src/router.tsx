@@ -18,6 +18,10 @@ import {
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import AppAdminSnapshotsPage from "@/pages/app-admin-snapshots";
 import AppAdminWorkflowsPage from "@/pages/app-admin-workflows";
+import AppAdminWorkflowRunPage from "@/pages/app-admin-workflow-run";
+import AppAdminWorkflowRunStepPage from "@/pages/app-admin-workflow-run-step";
+import AppAdminWorkflowDefinitionsPage from "@/pages/app-admin-workflow-definitions";
+import AppAdminWorkflowDefinitionPage from "@/pages/app-admin-workflow-definition";
 import AppWorkspaceLayout from "@/pages/app-workspace-layout";
 import AppWorkspaceConnectionPage from "@/pages/app-workspace/connection";
 import AppWorkspaceOperationsPage from "@/pages/app-workspace/operations";
@@ -71,7 +75,7 @@ function DocsAuthorizationRoute() {
 }
 
 function DocsWorkflowsRoute() {
-  useDocumentTitle("Manage Workflows");
+  useDocumentTitle("Inspect Workflows");
   return <WorkflowsDocsPage />;
 }
 
@@ -219,7 +223,38 @@ const appAdminHistoryRoute = createRoute({
 const appAdminWorkflowsRoute = createRoute({
   getParentRoute: () => appWorkspaceLayoutRoute,
   path: "/admin/workflows",
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { definition?: string } => {
+    const definition =
+      typeof search.definition === "string" ? search.definition.trim() : "";
+    return definition ? { definition } : {};
+  },
   component: AppAdminWorkflowsPage,
+});
+
+const appAdminWorkflowRunRoute = createRoute({
+  getParentRoute: () => appWorkspaceLayoutRoute,
+  path: "/admin/workflows/runs/$runId",
+  component: AppAdminWorkflowRunPage,
+});
+
+const appAdminWorkflowRunStepRoute = createRoute({
+  getParentRoute: () => appWorkspaceLayoutRoute,
+  path: "/admin/workflows/runs/$runId/jobs/$jobId/steps/$stepId",
+  component: AppAdminWorkflowRunStepPage,
+});
+
+const appAdminWorkflowDefinitionsRoute = createRoute({
+  getParentRoute: () => appWorkspaceLayoutRoute,
+  path: "/admin/workflows/definitions",
+  component: AppAdminWorkflowDefinitionsPage,
+});
+
+const appAdminWorkflowDefinitionRoute = createRoute({
+  getParentRoute: () => appWorkspaceLayoutRoute,
+  path: "/admin/workflows/definitions/$definitionId",
+  component: AppAdminWorkflowDefinitionPage,
 });
 
 const appAdminMembersRoute = createRoute({
@@ -397,6 +432,10 @@ const routeTree = rootRoute.addChildren([
     appAdminSnapshotsRoute,
     appAdminHistoryRoute,
     appAdminWorkflowsRoute,
+    appAdminWorkflowRunRoute,
+    appAdminWorkflowRunStepRoute,
+    appAdminWorkflowDefinitionsRoute,
+    appAdminWorkflowDefinitionRoute,
     appAdminMembersRoute,
     appAdminAgentIdentitiesRoute,
   ]),

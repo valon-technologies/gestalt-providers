@@ -418,7 +418,7 @@ export function WorkflowsDocsPage() {
     <>
       <DocsPageHeader
         eyebrow="Workflows"
-        title="Manage Workflows"
+        title="Inspect Workflows"
         description="Use the workflow CLI to inspect durable workflow run history without leaving the terminal."
       />
       <DocsPageBody>
@@ -450,7 +450,11 @@ gestalt workflows runs get <run-id>`}
         <p className="doc-copy">
           In the browser, open an app&apos;s admin page at{" "}
           <InlineCode>/apps/&lt;app&gt;/admin/workflows</InlineCode>{" "}
-          to inspect runs scoped to that app.
+          for run history,{" "}
+          <InlineCode>/apps/&lt;app&gt;/admin/workflows/runs/&lt;run-id&gt;</InlineCode>{" "}
+          for a single run, and{" "}
+          <InlineCode>/apps/&lt;app&gt;/admin/workflows/definitions</InlineCode>{" "}
+          for definition inventory.
         </p>
       </DocsPageBody>
     </>

@@ -1,17 +1,50 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import type { WorkflowRun } from "@/lib/api";
 import { workflowRunMatchesApp } from "@/lib/workflowActivity";
 import {
   cancelWorkflowRun,
+  getWorkflowDefinition,
   getWorkflowRun,
+  getWorkflowStepLogs,
+  listWorkflowDefinitions,
   listWorkflowRuns,
 } from "@/lib/workflowApi";
 import { queryKeys } from "@/lib/query-keys";
 
-export function useWorkflowRunsQuery(appName: string) {
+export function useWorkflowDefinitionsQuery(appName: string) {
   return useQuery({
+    queryKey: queryKeys.workflows.definitions(appName),
+    queryFn: () => listWorkflowDefinitions({ targetApp: appName }),
+  });
+}
+
+export function useWorkflowDefinitionQuery(
+  appName: string,
+  definitionId: string | null,
+) {
+  return useQuery({
+    queryKey: queryKeys.workflows.definition(appName, definitionId ?? ""),
+    queryFn: () =>
+      getWorkflowDefinition(definitionId!, { targetApp: appName }),
+    enabled: Boolean(definitionId),
+  });
+}
+
+export function useWorkflowRunsQuery(appName: string) {
+  return useInfiniteQuery({
     queryKey: queryKeys.workflows.list(appName),
-    queryFn: () => listWorkflowRuns({ targetApp: appName }),
+    queryFn: ({ pageParam }) =>
+      listWorkflowRuns({
+        targetApp: appName,
+        pageToken: pageParam,
+      }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (page) => page.nextPageToken,
   });
 }
 
@@ -34,6 +67,31 @@ export function useWorkflowRunQuery(
     },
     enabled: Boolean(runId),
     placeholderData: listRun,
+  });
+}
+
+export function useWorkflowStepLogsQuery(
+  appName: string,
+  runId: string | null,
+  jobId: string | null,
+  stepId: string | null,
+  listRun?: WorkflowRun,
+) {
+  return useQuery({
+    queryKey: queryKeys.workflows.stepLogs(
+      appName,
+      runId ?? "",
+      jobId ?? "",
+      stepId ?? "",
+    ),
+    queryFn: () =>
+      getWorkflowStepLogs(runId!, {
+        jobId: jobId!,
+        stepId: stepId!,
+        run: listRun,
+        targetApp: appName,
+      }),
+    enabled: Boolean(runId && jobId && stepId),
   });
 }
 

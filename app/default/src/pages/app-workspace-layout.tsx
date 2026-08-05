@@ -43,6 +43,9 @@ import {
   APP_ADMIN_NAV,
   APP_USER_NAV,
   isAppVersionsAdminPath,
+  workflowAdminBreadcrumbTrail,
+  workspaceDocumentTitle,
+  workspaceLocationForPathname,
 } from "@/features/app-workspace/app-nav";
 import {
   AppWorkspaceProvider,
@@ -73,9 +76,15 @@ export default function AppWorkspaceLayout() {
   const loading = integrationsQuery.isPending;
   const label = integration ? getIntegrationLabel(integration) : app;
 
-  useDocumentTitle(label);
-
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const workspaceLocation = useMemo(
+    () => workspaceLocationForPathname(pathname, app),
+    [pathname, app],
+  );
+  useDocumentTitle(
+    workspaceDocumentTitle(label, workspaceLocation, { pathname, app }),
+  );
+
   const isAdminPath = pathname.includes(`/apps/${app}/admin`);
   const isVersionsPath =
     pathname === `/apps/${app}/versions` ||
@@ -228,8 +237,10 @@ export default function AppWorkspaceLayout() {
       adminSurfaceReady &&
       !hasAdminSurface(capabilities, requiredAdminSurface),
   );
+  const isWorkflowsPath = pathname.includes(`/apps/${app}/admin/workflows`);
   const showFleetState =
     isAppVersionsAdminPath(pathname, app) &&
+    !isWorkflowsPath &&
     capabilities.registry &&
     registry;
   const fleetView = showFleetState && registry ? presentFleetStatus(registry) : null;
@@ -240,7 +251,7 @@ export default function AppWorkspaceLayout() {
       fleetView &&
       !fleetView.ownsActiveRolloutHeadline,
   );
-
+  const workflowTrail = workflowAdminBreadcrumbTrail(pathname, app);
   const content = (
     <AppWorkspaceProvider value={workspaceValue}>
       <Container className="py-12">
@@ -256,9 +267,64 @@ export default function AppWorkspaceLayout() {
                     </BreadcrumbLink>
                   </BreadcrumbItem>
                   <BreadcrumbSeparator />
-                  <BreadcrumbItem>
-                    <BreadcrumbPage>{label}</BreadcrumbPage>
-                  </BreadcrumbItem>
+                  {workspaceLocation.isOverview ? (
+                    <BreadcrumbItem>
+                      <BreadcrumbPage>{label}</BreadcrumbPage>
+                    </BreadcrumbItem>
+                  ) : (
+                    <>
+                      <BreadcrumbItem>
+                        <BreadcrumbLink asChild>
+                          <Link to="/apps/$app" params={{ app }}>
+                            {label}
+                          </Link>
+                        </BreadcrumbLink>
+                      </BreadcrumbItem>
+                      <BreadcrumbSeparator />
+                      {workflowTrail ? (
+                        <>
+                          <BreadcrumbItem>
+                            <BreadcrumbLink asChild>
+                              <Link
+                                to="/apps/$app/admin/workflows"
+                                params={{ app }}
+                              >
+                                {workspaceLocation.label}
+                              </Link>
+                            </BreadcrumbLink>
+                          </BreadcrumbItem>
+                          {workflowTrail.map((segment, index) => {
+                            const isLast = index === workflowTrail.length - 1;
+                            return (
+                              <span key={`${segment.label}-${index}`} className="contents">
+                                <BreadcrumbSeparator />
+                                <BreadcrumbItem>
+                                  {isLast || !segment.link ? (
+                                    <BreadcrumbPage>{segment.label}</BreadcrumbPage>
+                                  ) : (
+                                    <BreadcrumbLink asChild>
+                                      <Link
+                                        to={segment.link.to}
+                                        params={segment.link.params}
+                                      >
+                                        {segment.label}
+                                      </Link>
+                                    </BreadcrumbLink>
+                                  )}
+                                </BreadcrumbItem>
+                              </span>
+                            );
+                          })}
+                        </>
+                      ) : (
+                        <BreadcrumbItem>
+                          <BreadcrumbPage>
+                            {workspaceLocation.label}
+                          </BreadcrumbPage>
+                        </BreadcrumbItem>
+                      )}
+                    </>
+                  )}
                 </BreadcrumbList>
               </Breadcrumb>
             }

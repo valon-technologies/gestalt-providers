@@ -111,8 +111,12 @@
   --color-ring: var(--ring);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
+  --color-success-solid: var(--success-solid);
+  --color-success-solid-foreground: var(--success-solid-foreground);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
+  --color-warning-solid: var(--warning-solid);
+  --color-warning-solid-foreground: var(--warning-solid-foreground);
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
   --color-badge-success: var(--badge-success);
@@ -326,7 +330,7 @@
   /* Font seam: bundled defaults live on --ui-font-*; tenants override the
    * consumed --font-* names on body (see THEMING.md). Defaults flow one way. */
   :where(body) {
-    --font-display-default: var(--ui-font-display);
+    --font-display-default: var(--ui-font-display-default);
     --font-body-default: var(--ui-font-sans);
     --font-mono-default: var(--ui-font-mono);
     --font-display: var(--font-display-default);

@@ -22,3 +22,4 @@ ui/*/out/
 **/gestalt-dev.local.manifest.yaml
 .gestaltd/
 .pr-media/
+.local/

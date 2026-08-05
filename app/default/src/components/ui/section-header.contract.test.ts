@@ -33,6 +33,10 @@ describe("SectionHeader", () => {
     expect(SOURCE).toContain("createHeaderChromeScale");
     expect(SOURCE).toContain('title: { kind: "section"');
     expect(SOURCE).toContain('alignBetweenItems: "sm:items-baseline"');
+    expect(SOURCE).toContain("SECTION_HEADER_ACTIONS_BASELINE_NUDGE");
+    expect(SOURCE).toContain(
+      "sm:[&:has([data-slot=section-header-content][data-size=sm])_[data-slot=section-header-actions]]:translate-y-1",
+    );
     expect(SOURCE).toContain('title: "font-display text-heading-lg tracking-heading"');
     expect(SOURCE).toContain("SECTION_HEADER_ICON_STACK");
     expect(SOURCE).toContain(
