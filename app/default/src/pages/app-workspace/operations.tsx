@@ -61,6 +61,7 @@ import {
 import ErrorNotice from "@/components/ErrorNotice";
 import { useAppWorkspace } from "@/features/app-workspace/app-workspace-context";
 import {
+  AUTHORIZATION_DOCS_OPERATION_ROLES_HASH,
   AUTHORIZATION_DOCS_PATH,
   INVOKE_DOCS_PATH,
   catalogEntriesFromOperations,
@@ -538,7 +539,12 @@ export default function AppWorkspaceOperationsPage() {
               ·
             </span>
             <UiLink asChild>
-              <Link to={AUTHORIZATION_DOCS_PATH}>Roles & access</Link>
+              <Link
+                to={AUTHORIZATION_DOCS_PATH}
+                hash={AUTHORIZATION_DOCS_OPERATION_ROLES_HASH}
+              >
+                Roles & access
+              </Link>
             </UiLink>
           </p>
         </PageHeaderContent>

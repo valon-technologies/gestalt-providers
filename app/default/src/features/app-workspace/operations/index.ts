@@ -17,6 +17,8 @@ export {
 
 export {
   AUTHORIZATION_DOCS_PATH,
+  AUTHORIZATION_DOCS_GRANT_HASH,
+  AUTHORIZATION_DOCS_OPERATION_ROLES_HASH,
   INVOKE_DOCS_PATH,
   operationDeepLinkPath,
   operationInvokeCliCommand,
