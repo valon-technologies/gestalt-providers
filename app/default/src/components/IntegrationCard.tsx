@@ -93,7 +93,6 @@ export default function IntegrationCard({
   integration,
   onConnected,
   onDisconnected,
-  onStatusMessage,
   startOAuth = startIntegrationOAuth,
   connectManual = connectManualIntegration,
   disconnect = disconnectIntegration,
@@ -107,8 +106,6 @@ export default function IntegrationCard({
   integration: Integration;
   onConnected?: () => void;
   onDisconnected?: () => void;
-  /** Catalog/admin toast feedback after connect or disconnect. */
-  onStatusMessage?: (message: string) => void;
   startOAuth?: StartOAuthFn;
   connectManual?: ConnectManualFn;
   disconnect?: DisconnectFn;
@@ -137,7 +134,6 @@ export default function IntegrationCard({
     integration,
     onConnected,
     onDisconnected,
-    onStatusMessage,
     startOAuth,
     connectManual,
     disconnect,

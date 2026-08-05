@@ -125,7 +125,7 @@ export interface IntegrationConnectionPanelProps {
     connectionParams?: Record<string, string>,
     instance?: string,
     connection?: string,
-  ) => void;
+  ) => void | Promise<boolean | void>;
   onDisconnect: (instance?: string, connection?: string) => void | Promise<void>;
   onSelectInstance?: (
     instance: string,
@@ -293,6 +293,19 @@ function firstDisconnectableTarget(
   return null;
 }
 
+/** App-level remove: DELETE without `_instance` so every linked account goes. */
+function removeAppDisconnectTarget(
+  connections: NormalizedConnection[],
+): ConnectionTarget | null {
+  for (const connection of connections) {
+    if (!connection.canDisconnect) continue;
+    return {
+      connection: connection.connection || connection.key,
+    };
+  }
+  return null;
+}
+
 function hasConnectionParams(
   connectionParams: Record<string, ConnectionParamDef> | undefined,
 ): boolean {
@@ -361,7 +374,10 @@ export default function IntegrationConnectionPanel({
     if (initialView === "disconnect") {
       setView("default");
       if (disconnectSeededRef.current) return;
-      const target = firstDisconnectableTarget(normalizedStatus.connections);
+      const target =
+        destructiveActionLabel === "Remove app"
+          ? removeAppDisconnectTarget(normalizedStatus.connections)
+          : firstDisconnectableTarget(normalizedStatus.connections);
       if (!target) return;
       setDisconnectTarget(target);
       disconnectSeededRef.current = true;
@@ -369,7 +385,12 @@ export default function IntegrationConnectionPanel({
     }
     disconnectSeededRef.current = false;
     setView(initialView);
-  }, [initialView, integration.name, normalizedStatus.connections]);
+  }, [
+    initialView,
+    destructiveActionLabel,
+    integration.name,
+    normalizedStatus.connections,
+  ]);
 
   useEffect(() => {
     if (wasDisconnectingRef.current && !disconnecting && !error) {
@@ -551,14 +572,18 @@ export default function IntegrationConnectionPanel({
       }
       if (Object.keys(collected).length > 0) params = collected;
     }
-    onSubmitToken(
-      credential,
-      params,
-      pendingAction.instance,
-      pendingAction.connection,
-    );
-    setPendingAction(undefined);
-    setView("default");
+    void (async () => {
+      const ok = await onSubmitToken(
+        credential,
+        params,
+        pendingAction.instance,
+        pendingAction.connection,
+      );
+      // Hook returns false on failure; void callers (legacy) treat as success.
+      if (ok === false) return;
+      setPendingAction(undefined);
+      setView("default");
+    })();
   }
 
   function renderStatusBadge(connection: NormalizedConnection) {
@@ -725,8 +750,7 @@ export default function IntegrationConnectionPanel({
               const canUseAccount =
                 !readOnly &&
                 Boolean(onSelectInstance) &&
-                (connection.canSelectInstance ||
-                  connection.instances.some((item) => item.preferred)) &&
+                connection.canSelectInstance &&
                 connection.instances.length > 1 &&
                 !instance.preferred;
               return (
@@ -832,9 +856,22 @@ export default function IntegrationConnectionPanel({
   const disconnectAccountLabel = disconnectTarget.instance
     ? humanizeConnectionName(disconnectTarget.instance, DEFAULT_ACCOUNT_LABEL)
     : null;
+  const disconnectInstance = disconnectTarget.instance
+    ? normalizedStatus.connections
+        .flatMap((connection) => connection.instances)
+        .find((instance) => instance.name === disconnectTarget.instance)
+    : undefined;
+  const disconnectIdentityPrimary = disconnectInstance
+    ? accountIdentityLines(disconnectInstance.identity).primary?.value
+    : null;
+  const disconnectConfirmLabel =
+    disconnectIdentityPrimary ||
+    (disconnectAccountLabel && disconnectAccountLabel !== DEFAULT_ACCOUNT_LABEL
+      ? disconnectAccountLabel
+      : null);
   const disconnectConfirm = disconnectConfirmCopy({
     displayName,
-    accountLabel: disconnectAccountLabel,
+    accountLabel: disconnectConfirmLabel,
     context: connectionContext,
     removeApp: destructiveActionLabel === "Remove app",
   });
@@ -876,8 +913,11 @@ export default function IntegrationConnectionPanel({
             }
             onClick={(event) => {
               event.preventDefault();
+              // Remove app deletes the whole connection (no `_instance`).
               void onDisconnect(
-                disconnectTarget.instance,
+                destructiveActionLabel === "Remove app"
+                  ? undefined
+                  : disconnectTarget.instance,
                 disconnectTarget.connection,
               );
             }}

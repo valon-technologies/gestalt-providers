@@ -62,7 +62,6 @@ export function useIntegrationConnection({
   integration,
   onConnected,
   onDisconnected,
-  onStatusMessage,
   startOAuth = startIntegrationOAuth,
   connectManual = connectManualIntegration,
   disconnect = disconnectIntegration,
@@ -73,7 +72,6 @@ export function useIntegrationConnection({
   integration: Integration;
   onConnected?: () => void;
   onDisconnected?: () => void;
-  onStatusMessage?: (message: string) => void;
   startOAuth?: StartOAuthFn;
   connectManual?: ConnectManualFn;
   disconnect?: DisconnectFn;
@@ -139,7 +137,7 @@ export function useIntegrationConnection({
     connectionParams?: Record<string, string>,
     instance?: string,
     connection?: string,
-  ) {
+  ): Promise<boolean> {
     setSubmitting(true);
     setError(null);
     try {
@@ -167,10 +165,12 @@ export function useIntegrationConnection({
         toast.success(`${label} connected successfully.`);
         onConnected?.();
       }
+      return true;
     } catch (err) {
       setError(
         userFacingError(err, `Couldn't connect ${label}. Try again.`, "connect"),
       );
+      return false;
     } finally {
       setSubmitting(false);
     }

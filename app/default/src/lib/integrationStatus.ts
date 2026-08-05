@@ -580,10 +580,16 @@ function inferConnectionActions(
   const actions: IntegrationAction[] = [];
   const hasAuth = authTypes.length > 0;
 
+  const instanceCount = raw.instances?.length ?? 0;
   if (status === "needs_instance_selection" && hasAuth) {
     actions.push("select_instance");
-  } else if ((raw.instances?.length ?? 0) > 0 && hasAuth) {
+  } else if (instanceCount > 0 && hasAuth) {
     actions.push("add_instance");
+    // Preferred-account switching stays available after the first selection —
+    // not only while status is needs_instance_selection.
+    if (instanceCount > 1) {
+      actions.push("select_instance");
+    }
   } else if (hasAuth) {
     actions.push("connect");
   }

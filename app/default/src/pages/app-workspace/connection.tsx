@@ -8,12 +8,6 @@ import {
 import { normalizeIntegrationStatus } from "@/lib/integrationStatus";
 import { resolveMountedAppHref } from "@/lib/mount";
 import IntegrationConnectionPanel from "@/components/IntegrationConnectionPanel";
-import { CheckCircleIcon, CloseIcon } from "@/components/icons";
-import {
-  Alert,
-  AlertActions,
-  AlertTitle,
-} from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   PageHeader,
@@ -40,7 +34,6 @@ export default function AppWorkspaceConnectionPage() {
     "default" | "disconnect"
   >("default");
   const [removeAppConfirm, setRemoveAppConfirm] = useState(false);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [headerActions, setHeaderActions] = useState<ReactNode>(null);
   const handleHeaderActionsChange = useCallback((actions: ReactNode | null) => {
     setHeaderActions(actions);
@@ -51,7 +44,6 @@ export default function AppWorkspaceConnectionPage() {
     integration: integration ?? { name: app },
     onConnected: reloadIntegration,
     onDisconnected: reloadIntegration,
-    onStatusMessage: setStatusMessage,
     onFlowComplete: () => {
       setConnectionPanelView("default");
       setRemoveAppConfirm(false);
@@ -144,26 +136,6 @@ export default function AppWorkspaceConnectionPage() {
           <PageHeaderActions>{headerActions}</PageHeaderActions>
         ) : null}
       </PageHeader>
-      {statusMessage ? (
-        <Alert
-          variant="success"
-          data-testid="connection-status-flash"
-        >
-          <CheckCircleIcon aria-hidden />
-          <AlertTitle>{statusMessage}</AlertTitle>
-          <AlertActions>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              aria-label="Dismiss notification"
-              onClick={() => setStatusMessage(null)}
-            >
-              <CloseIcon className="size-4" />
-            </Button>
-          </AlertActions>
-        </Alert>
-      ) : null}
       {copy.trustNote ? (
         <p className="text-xs text-muted-foreground-soft">{copy.trustNote}</p>
       ) : null}

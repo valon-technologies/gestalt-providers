@@ -145,7 +145,6 @@ export default function AppsCatalogPageClient() {
   const [connectedNotice, setConnectedNotice] = useState<string | null>(() =>
     connectedParam,
   );
-  const [statusFlash, setStatusFlash] = useState<string | null>(null);
   const [flashError, setFlashError] = useState<string | null>(null);
   const deferredQuery = useDeferredValue(query);
   const filteredIntegrations = filterCatalogIntegrations(integrations, {
@@ -255,15 +254,6 @@ export default function AppsCatalogPageClient() {
     void navigate({ to: "/apps", replace: true });
   }, [navigate, connectedNotice]);
 
-  function handleStatusMessage(message: string) {
-    const connectedMatch = /^(.*) connected successfully\.$/.exec(message);
-    if (connectedMatch) {
-      setConnectedNotice(connectedMatch[1]);
-      return;
-    }
-    setStatusFlash(message);
-  }
-
   async function refreshIntegrations(options?: { background?: boolean }) {
     try {
       await invalidateIntegrations();
@@ -344,12 +334,15 @@ export default function AppsCatalogPageClient() {
         pane={catalogPane}
       >
         {connectedSuccessLabel ||
-        statusFlash ||
         needsAttentionCopy ||
         flashError ? (
           <div className="mb-6 space-y-3">
             {connectedSuccessLabel ? (
-              <Alert variant="success" data-testid="apps-connected-toast">
+              <Alert
+                variant="success"
+                layout="banner"
+                data-testid="apps-connected-toast"
+              >
                 <CheckCircleIcon aria-hidden />
                 <AlertTitle>
                   {connectedSuccessLabel} connected successfully.
@@ -361,24 +354,6 @@ export default function AppsCatalogPageClient() {
                     size="icon-xs"
                     aria-label="Dismiss notification"
                     onClick={() => setConnectedNotice(null)}
-                  >
-                    <CloseIcon className="size-4" />
-                  </UiButton>
-                </AlertActions>
-              </Alert>
-            ) : null}
-
-            {statusFlash ? (
-              <Alert variant="success" data-testid="apps-status-flash">
-                <CheckCircleIcon aria-hidden />
-                <AlertTitle>{statusFlash}</AlertTitle>
-                <AlertActions>
-                  <UiButton
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label="Dismiss notification"
-                    onClick={() => setStatusFlash(null)}
                   >
                     <CloseIcon className="size-4" />
                   </UiButton>
@@ -506,7 +481,6 @@ export default function AppsCatalogPageClient() {
                       onDisconnected={() =>
                         void refreshIntegrations({ background: true })
                       }
-                      onStatusMessage={handleStatusMessage}
                       returnPath={APPS_PATH}
                     />
                   ))}
@@ -538,7 +512,6 @@ export default function AppsCatalogPageClient() {
                       onDisconnected={() =>
                         void refreshIntegrations({ background: true })
                       }
-                      onStatusMessage={handleStatusMessage}
                       returnPath={APPS_PATH}
                     />
                   ))}
