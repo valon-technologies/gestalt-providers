@@ -10,6 +10,7 @@ import {
   humanizeConnectionName,
   overviewConnectionAttention,
   connectionPanelAttention,
+  accountIdentityLines,
   accountInitials,
   accountRelationshipLabel,
   addAccountFormCopy,
@@ -136,6 +137,26 @@ describe("connection surface copy", () => {
     expect(copy.heading).toBe("Disconnect hello?");
     expect(copy.body).toMatch(/hello/);
     expect(copy.body).toMatch(/Gmail/);
+  });
+
+  test("accountIdentityLines splits primary and additional facts", () => {
+    const lines = accountIdentityLines({
+      facts: [
+        { kind: "display_name", value: "Ada" },
+        { kind: "email", value: "ada@example.com", primary: true },
+        { kind: "workspace", value: "Acme" },
+      ],
+    });
+    expect(lines.primary).toEqual({
+      kind: "email",
+      value: "ada@example.com",
+      primary: true,
+    });
+    expect(lines.additional.map((f) => f.kind)).toEqual([
+      "display_name",
+      "workspace",
+    ]);
+    expect(accountIdentityLines(undefined).primary).toBeNull();
   });
 
   test("overview attention is omitted for first-time connect", () => {

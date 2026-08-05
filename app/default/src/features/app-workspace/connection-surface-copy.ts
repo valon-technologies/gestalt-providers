@@ -5,7 +5,7 @@ import {
   type NormalizedConnection,
   type NormalizedIntegrationStatus,
 } from "@/lib/integrationStatus";
-import type { Integration } from "@/lib/api";
+import type { AccountIdentity, IdentityFact, Integration } from "@/lib/api";
 
 /**
  * User-facing vocabulary for the app-workspace Connection surface.
@@ -15,6 +15,8 @@ import type { Integration } from "@/lib/api";
  * - **Account** — a linked provider identity (OAuth/API instance) in the list.
  * - **Account label** — the name the operator chooses before sign-in; shown on
  *   the account card so multiple sign-ins are distinguishable.
+ * - **Account identity** — provider-recognized facts (email, workspace, …) for
+ *   recognizing which provider account is linked; SCIM-style primary + others.
  * - **In use** — the preferred account this workspace acts through (one at a time).
  * - **Not in use** — linked but not the preferred account.
  * - **Available** — linked while the workspace still needs an active choice.
@@ -167,6 +169,25 @@ export function accountRelationshipLabel(args: {
   if (args.needsInstanceSelection) return "Available";
   if (args.connectionKeyLabel) return args.connectionKeyLabel;
   return "Not in use";
+}
+
+/**
+ * Split SCIM-style identity facts into primary (emphasized) and additional lines.
+ * Falls back to the first fact if no primary flag is set.
+ */
+export function accountIdentityLines(identity?: AccountIdentity | null): {
+  primary: IdentityFact | null;
+  additional: IdentityFact[];
+} {
+  const facts = (identity?.facts ?? []).filter(
+    (fact) => fact.value?.trim() && fact.kind?.trim(),
+  );
+  if (facts.length === 0) {
+    return { primary: null, additional: [] };
+  }
+  const primary = facts.find((fact) => fact.primary) ?? facts[0] ?? null;
+  const additional = facts.filter((fact) => fact !== primary);
+  return { primary, additional };
 }
 
 export function disconnectConfirmCopy(args: {

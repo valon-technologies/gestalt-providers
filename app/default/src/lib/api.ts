@@ -14,11 +14,24 @@ export interface CredentialFieldDef {
   description?: string;
 }
 
+export interface IdentityFact {
+  kind: string;
+  value: string;
+  /** SCIM-style: at most one fact should be primary. */
+  primary?: boolean;
+}
+
+export interface AccountIdentity {
+  facts: IdentityFact[];
+}
+
 export interface InstanceInfo {
   name: string;
   connection?: string;
   /** True when this instance is the subject's preferred account for the connection. */
   preferred?: boolean;
+  /** Provider-recognized account facts for Connection UI (email, workspace, …). */
+  identity?: AccountIdentity;
 }
 
 export type AuthType = "oauth" | "manual";

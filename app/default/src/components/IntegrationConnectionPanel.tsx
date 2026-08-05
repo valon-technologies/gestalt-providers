@@ -23,6 +23,7 @@ import {
 import {
   humanizeConnectionName,
   accountInitials,
+  accountIdentityLines,
   accountRelationshipLabel,
   addAccountFormCopy,
   disconnectConfirmCopy,
@@ -719,6 +720,8 @@ export default function IntegrationConnectionPanel({
                   normalizedStatus.status === "needs_instance_selection",
                 connectionKeyLabel: showConnectionKey ? connectionKeyLabel : null,
               });
+              const { primary: identityPrimary, additional: identityAdditional } =
+                accountIdentityLines(instance.identity);
               const canUseAccount =
                 !readOnly &&
                 Boolean(onSelectInstance) &&
@@ -755,6 +758,20 @@ export default function IntegrationConnectionPanel({
                           </Badge>
                         ) : null}
                       </div>
+                      {identityPrimary ? (
+                        <ItemDescription data-testid="connection-account-identity-primary">
+                          {identityPrimary.value}
+                        </ItemDescription>
+                      ) : null}
+                      {identityAdditional.map((fact) => (
+                        <ItemDescription
+                          key={`${fact.kind}:${fact.value}`}
+                          className="text-muted-foreground/80"
+                          data-testid="connection-account-identity-additional"
+                        >
+                          {fact.value}
+                        </ItemDescription>
+                      ))}
                       {accountDescription !== "In use" &&
                       accountDescription !== "Not in use" ? (
                         <ItemDescription>{accountDescription}</ItemDescription>
