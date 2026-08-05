@@ -42,6 +42,7 @@ export function badgeCustomColorStyle(color: string): React.CSSProperties {
   }
   if (relativeLuminance(color) > BADGE_CUSTOM_COLOR_SOFT_LUMINANCE) {
     return {
+      // 50% identity into white — pale chips stay chromatic + AA with dark ink.
       backgroundColor: `color-mix(in oklch, ${color} 50%, white)`,
       color: BADGE_CUSTOM_COLOR_INK,
     };
@@ -56,7 +57,9 @@ const badgeVariants = cva(
   // Badges are single-line soft-rects (`rounded-sm` / --radius-sm ≈ 4px) — squarer
   // than a capsule, tighter than Button's `rounded-md`, matching Registry status
   // chips. Without nowrap, label text wraps inside narrow table/sidebar cells.
-  "inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-sm text-xs font-normal transition-colors [&>svg]:size-3 [&>svg]:shrink-0",
+  // No transition-colors: chips are static metadata (badges-and-tags.md) — status
+  // / hover paint must snap, not ease. toolshed#4057
+  "inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-sm text-xs font-normal [&>svg]:size-3 [&>svg]:shrink-0",
   {
     variants: {
       variant: {

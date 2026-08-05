@@ -333,7 +333,7 @@ const FleetReplicaTrigger = memo(function FleetReplicaTrigger({
           variant="secondary"
           size="default"
           className={cn(
-            "pointer-events-none gap-1.5 font-normal transition-colors",
+            "pointer-events-none gap-1.5 font-normal",
             // List-item idle darken (selectable-rows / neutral-hover delta).
             "group-hover:bg-neutral-hover group-hover:text-foreground",
             open && "bg-neutral-hover text-foreground",
@@ -344,7 +344,7 @@ const FleetReplicaTrigger = memo(function FleetReplicaTrigger({
           <ReplicaStatusIndicator replicaClass={replicaClass} />
           <span
             className={cn(
-              "font-mono text-muted-foreground transition-colors",
+              "font-mono text-muted-foreground",
               "group-hover:text-foreground",
               open && "text-foreground",
               stale && "text-destructive",

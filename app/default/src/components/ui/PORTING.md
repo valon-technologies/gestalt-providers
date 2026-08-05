@@ -68,6 +68,15 @@ stays distinct on Neutral / muted row hover — bridge `--muted-strong` in
 `shared/theme.css` + `globals.css`. Strip `"use client"`. Prefer
 `@/lib/cn` over Registry `@/lib/utils`.
 
+## Badge / HoverCard
+
+Registry `badge` and `hover-card` are vendored here (toolshed#4057). Badge base
+has **no** `transition-colors` — chips snap. Keep status variants on
+`--badge-*` (`bg-badge-success`, …), not Registry `bg-success` / `error`, so
+legacy gestalt-shell grove overrides do not recolor chips. Strip `"use client"`;
+import `@/lib/cn`. HoverCard JSDoc documents controlled-open + trigger remount
+(Registry `guidelines/flyout.md`).
+
 ## Choice cards (RadioGroup + Switch)
 
 Do not fork tile chrome at call sites. Import helpers from
