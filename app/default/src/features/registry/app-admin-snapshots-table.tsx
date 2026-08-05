@@ -252,6 +252,16 @@ function deployedByForVersions(
   return deployedByByVersion;
 }
 
+/** Content key so history page-array identity churn does not remount the table. */
+function historyRevisionsPollKey(
+  revisions: AppAdminRegistryRevision[],
+): string {
+  if (!revisions.length) return "";
+  return revisions
+    .map((revision) => `${revision.version}\0${revision.deployedBy ?? ""}`)
+    .join("\n");
+}
+
 type SnapshotTableMeta = {
   registry: Pick<
     AppAdminRegistryResponse,
@@ -395,11 +405,20 @@ const SnapshotPullRequestCell = memo(function SnapshotPullRequestCell({
       {showRolloutStepper ? (
         <RolloutPhaseStepper rollout={rollout} size="mini" className="self-start" />
       ) : null}
-      <SnapshotRowLiveReplicas replicas={liveReplicas} />
+      <SnapshotRowLiveReplicas
+        replicas={liveReplicas}
+        heartbeatTtlSeconds={registry.fleetState?.heartbeatTtlSeconds}
+      />
     </DataTableRegistryCell>
   );
 }, (prev, next) => {
   if (snapshotRowKey(prev.row) !== snapshotRowKey(next.row)) return false;
+  if (
+    prev.registry.fleetState?.heartbeatTtlSeconds !==
+    next.registry.fleetState?.heartbeatTtlSeconds
+  ) {
+    return false;
+  }
   if (fleetReplicasPollKey(prev.liveReplicas) !== fleetReplicasPollKey(next.liveReplicas)) {
     return false;
   }
@@ -664,7 +683,16 @@ export const AppAdminSnapshotsTable = memo(function AppAdminSnapshotsTable({
   }
   tableMetaRef.current.registry = registry;
 
-  const rows = useMemo(() => buildAppAdminSnapshotRows(registry), [registry]);
+  // Version lists are structurally shared across heartbeat polls — key off
+  // those refs so row identity (and TanStack cells) stay stable.
+  const rows = useMemo(
+    () => buildAppAdminSnapshotRows(registry),
+    [
+      registry.publishedVersions,
+      registry.pendingVersions,
+      registry.failedVersions,
+    ],
+  );
   const replicaPartition = useMemo(
     () =>
       partitionFleetReplicasForSnapshotTable(
@@ -673,10 +701,18 @@ export const AppAdminSnapshotsTable = memo(function AppAdminSnapshotsTable({
       ),
     [registry.fleetState?.replicas, rows],
   );
+  const historyPollKey = historyRevisionsPollKey(historyRevisions);
   const deployedByByVersion = useMemo(
     () => deployedByForVersions(historyRevisions),
-    [historyRevisions],
+    // Content key: history page-array identity must not churn this Map.
+    [historyPollKey, historyRevisions],
   );
+  // Column defs close over refs so TanStack does not remount cells when the
+  // partition Map is rebuilt on heartbeat-only fleet polls.
+  const replicaPartitionRef = useRef(replicaPartition);
+  replicaPartitionRef.current = replicaPartition;
+  const deployedByByVersionRef = useRef(deployedByByVersion);
+  deployedByByVersionRef.current = deployedByByVersion;
   const showActionColumn =
     offerManualDeploy ||
     rows.some(
@@ -733,7 +769,8 @@ export const AppAdminSnapshotsTable = memo(function AppAdminSnapshotsTable({
               row={row.original}
               registry={readSnapshotTableMeta(table.options.meta).registry}
               liveReplicas={
-                replicaPartition.byVersion.get(row.original.version) ?? []
+                replicaPartitionRef.current.byVersion.get(row.original.version) ??
+                []
               }
             />
           ),
@@ -764,7 +801,7 @@ export const AppAdminSnapshotsTable = memo(function AppAdminSnapshotsTable({
         sortingFn: "datetime",
       }),
       columnHelper.accessor(
-        (row) => deployedByByVersion.get(row.version) ?? "",
+        (row) => deployedByByVersionRef.current.get(row.version) ?? "",
         {
           id: "deployedBy",
           meta: { hideBelow: "md" },
@@ -773,7 +810,7 @@ export const AppAdminSnapshotsTable = memo(function AppAdminSnapshotsTable({
           ),
           cell: ({ row }) => (
             <SnapshotDeployedByCell
-              actor={deployedByByVersion.get(row.original.version)}
+              actor={deployedByByVersionRef.current.get(row.original.version)}
             />
           ),
         },
@@ -801,11 +838,9 @@ export const AppAdminSnapshotsTable = memo(function AppAdminSnapshotsTable({
     ],
     [
       controlsDisabled,
-      deployedByByVersion,
       deployingVersion,
       offerManualDeploy,
       onDeployVersion,
-      replicaPartition.byVersion,
       showActionColumn,
     ],
   );
@@ -855,6 +890,22 @@ export const AppAdminSnapshotsTable = memo(function AppAdminSnapshotsTable({
           }}
         />
       </DataTableSearchShell>
+      {replicaPartition.orphans.length > 0 ? (
+        <div
+          className="space-y-1.5"
+          data-testid="fleet-orphan-replicas"
+        >
+          <p className="text-sm text-muted-foreground">
+            Replicas not on a listed version
+          </p>
+          <SnapshotRowLiveReplicas
+            replicas={replicaPartition.orphans}
+            className="mt-0"
+            hoverScope="orphan"
+            heartbeatTtlSeconds={registry.fleetState?.heartbeatTtlSeconds}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }, snapshotTablePropsAreEqual);
@@ -869,9 +920,15 @@ function snapshotTablePropsAreEqual(
   if (prev.emptyHint !== next.emptyHint) return false;
   if (prev.deployingVersion !== next.deployingVersion) return false;
   if (prev.onDeployVersion !== next.onDeployVersion) return false;
-  if (prev.historyRevisions !== next.historyRevisions) return false;
+  if (
+    historyRevisionsPollKey(prev.historyRevisions) !==
+    historyRevisionsPollKey(next.historyRevisions)
+  ) {
+    return false;
+  }
   // Poll-equal omits fleet so reconcile can keep stable version refs while
-  // refreshing replicas. The table presents those replicas — compare them here.
+  // refreshing replicas. Compare presentation keys (not heartbeat ticks) so
+  // controlled HoverCards are not remounted every fleet poll.
   if (
     fleetReplicasPollKey(prev.registry.fleetState?.replicas) !==
     fleetReplicasPollKey(next.registry.fleetState?.replicas)

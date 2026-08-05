@@ -5,6 +5,7 @@ import type {
   AppAdminPublishedVersion,
   AppAdminRegistryResponse,
 } from "@/lib/api";
+import { reconcileFleetState } from "@/features/registry/fleet-replicas";
 
 type RegistryRollout = NonNullable<AppAdminRegistryResponse["rollout"]>;
 
@@ -127,17 +128,24 @@ export function snapshotRegistryPollEqual(
 /**
  * When the versions-table slice is poll-equal, keep stable references for
  * table-driving fields while applying fresh fleet, recovery, and catalog data.
+ *
+ * Fleet replica object identity is always reconciled so heartbeat-only polls
+ * do not replace every chip's props (HoverCard trigger remount → flash).
  */
 export function reconcileSnapshotRegistryPoll(
   previous: AppAdminRegistryResponse | undefined,
   next: AppAdminRegistryResponse,
 ): AppAdminRegistryResponse {
-  if (!previous || !snapshotRegistryPollEqual(previous, next)) {
-    return next;
+  const fleetState = reconcileFleetState(previous?.fleetState, next.fleetState);
+  const withStableFleet =
+    fleetState === next.fleetState ? next : { ...next, fleetState };
+
+  if (!previous || !snapshotRegistryPollEqual(previous, withStableFleet)) {
+    return withStableFleet;
   }
 
   return {
-    ...next,
+    ...withStableFleet,
     publishedVersions: previous.publishedVersions,
     pendingVersions: previous.pendingVersions,
     failedVersions: previous.failedVersions,

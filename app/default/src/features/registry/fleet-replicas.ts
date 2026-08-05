@@ -1,4 +1,11 @@
-import type { AppAdminFleetReplica } from "@/features/registry/types";
+import {
+  formatRegistryTime,
+  formatRegistryTimeAgo,
+} from "@/features/registry/format";
+import type {
+  AppAdminFleetReplica,
+  AppAdminFleetState,
+} from "@/features/registry/types";
 
 /** Shorten a UUID-like instance id for table/tree display. */
 export function shortInstanceId(instanceId: string): string {
@@ -51,13 +58,16 @@ export function replicaClassDotClass(className: string): string {
 }
 
 /**
- * GitHub Actions–style mark kind for a replica class.
- * success → check · warning/mismatched → in-progress spinner ·
- * danger → failed X · muted → skipped dash.
+ * Status mark kind for a replica class.
+ * success → check · mismatched → steady warning · danger → failed X ·
+ * muted → skipped dash.
+ *
+ * Wrong version is a steady drift state — do not use an in-progress spinner
+ * (that reads as “still converging”).
  */
 export type ReplicaStatusIndicatorKind =
   | "success"
-  | "pending"
+  | "warning"
   | "failure"
   | "skipped";
 
@@ -68,7 +78,7 @@ export function replicaStatusIndicatorKind(
     case "success":
       return "success";
     case "warning":
-      return "pending";
+      return "warning";
     case "danger":
       return "failure";
     case "muted":
@@ -76,8 +86,180 @@ export function replicaStatusIndicatorKind(
   }
 }
 
+/** Operator-facing process state — never leak raw appState enums in primary UI. */
+export function formatReplicaAppState(appState: string | undefined): string {
+  const raw = appState?.trim().toLowerCase() || "";
+  switch (raw) {
+    case "running":
+      return "Running";
+    case "error":
+      return "Failed";
+    case "starting":
+      return "Starting";
+    case "stopping":
+      return "Stopping";
+    case "stopped":
+      return "Stopped";
+    case "":
+      return "—";
+    default:
+      return raw.charAt(0).toUpperCase() + raw.slice(1);
+  }
+}
+
+/** Triage order: unhealthy → wrong version → on desired → other, then id. */
+export function replicaTriageRank(className: string): number {
+  switch (className) {
+    case "error":
+      return 0;
+    case "mismatched":
+      return 1;
+    case "on_desired":
+      return 2;
+    default:
+      return 3;
+  }
+}
+
+export function sortReplicasByTriage(
+  replicas: AppAdminFleetReplica[],
+): AppAdminFleetReplica[] {
+  return [...replicas].sort((a, b) => {
+    const rank = replicaTriageRank(a.class) - replicaTriageRank(b.class);
+    if (rank !== 0) return rank;
+    return a.instanceId.localeCompare(b.instanceId);
+  });
+}
+
 function sortReplicas(replicas: AppAdminFleetReplica[]): AppAdminFleetReplica[] {
-  return [...replicas].sort((a, b) => a.instanceId.localeCompare(b.instanceId));
+  return sortReplicasByTriage(replicas);
+}
+
+/** Version alignment for progressive disclosure in the replica hover card. */
+export type ReplicaVersionAlignment =
+  | { kind: "aligned"; version: string }
+  | { kind: "diverged"; running: string; expected: string }
+  | { kind: "running_only"; version: string }
+  | { kind: "expected_only"; version: string }
+  | { kind: "unknown" };
+
+export function replicaVersionAlignment(
+  replica: AppAdminFleetReplica,
+): ReplicaVersionAlignment {
+  const running = replica.runningVersion?.trim() || "";
+  const expected = replica.observedDesiredVersion?.trim() || "";
+  if (running && expected) {
+    return running === expected
+      ? { kind: "aligned", version: running }
+      : { kind: "diverged", running, expected };
+  }
+  if (running) return { kind: "running_only", version: running };
+  if (expected) return { kind: "expected_only", version: expected };
+  return { kind: "unknown" };
+}
+
+/**
+ * Lean = healthy glance (identity + freshness). Dense = drift / error triage
+ * with version compare and process state when they add signal.
+ */
+export type ReplicaHoverDensity = "lean" | "dense";
+
+export function replicaHoverDensity(
+  replica: AppAdminFleetReplica,
+): ReplicaHoverDensity {
+  if (replica.class !== "on_desired") return "dense";
+  if (replica.lastError?.trim()) return "dense";
+  const alignment = replicaVersionAlignment(replica);
+  if (alignment.kind === "diverged") return "dense";
+  const process = formatReplicaAppState(replica.appState);
+  if (process !== "Running" && process !== "—") return "dense";
+  return "lean";
+}
+
+export type ReplicaHoverFreshness = {
+  relative: string;
+  absolute: string;
+  stale: boolean;
+};
+
+export function replicaHoverFreshness(
+  heartbeatAt: string | undefined,
+  options?: { now?: number | Date; heartbeatTtlSeconds?: number },
+): ReplicaHoverFreshness {
+  const now = options?.now ?? Date.now();
+  const absolute = formatRegistryTime(heartbeatAt);
+  const relative =
+    formatRegistryTimeAgo(heartbeatAt, now, { minUnit: "second" }) || absolute;
+  const ttl = options?.heartbeatTtlSeconds ?? 0;
+  let stale = false;
+  if (ttl > 0 && heartbeatAt) {
+    const at = Date.parse(heartbeatAt);
+    const nowMs = typeof now === "number" ? now : now.getTime();
+    if (!Number.isNaN(at)) stale = nowMs - at > ttl * 1000;
+  }
+  return { relative, absolute, stale };
+}
+
+export type ReplicaHoverPresentation = {
+  density: ReplicaHoverDensity;
+  shortId: string;
+  statusLabel: string;
+  /** Clarifies deploy vs process when both axes are in play. */
+  statusHint: string | null;
+  freshness: ReplicaHoverFreshness;
+  instanceId: string;
+  /** Process label when it adds tension beyond the status line. */
+  processLabel: string | null;
+  alignment: ReplicaVersionAlignment;
+  lastError: string | null;
+};
+
+/**
+ * Canonical hover-card content model. UI renders this; do not re-derive
+ * lean/dense field sets in components.
+ */
+export function buildReplicaHoverPresentation(
+  replica: AppAdminFleetReplica,
+  options?: { now?: number | Date; heartbeatTtlSeconds?: number },
+): ReplicaHoverPresentation {
+  const density = replicaHoverDensity(replica);
+  const alignment = replicaVersionAlignment(replica);
+  const process = formatReplicaAppState(replica.appState);
+  const statusLabel = replicaClassLabel(replica.class);
+  const lastError = replica.lastError?.trim() || null;
+
+  let statusHint: string | null = null;
+  if (replica.class === "mismatched" && process === "Running") {
+    statusHint = "Process is running; deploy target does not match.";
+  } else if (replica.class === "error" && process === "Failed") {
+    statusHint = null;
+  } else if (replica.class === "error" && process !== "—" && process !== "Failed") {
+    statusHint = `Process: ${process}.`;
+  }
+
+  const processLabel =
+    density === "dense" && process !== "—" ? process : null;
+
+  return {
+    density,
+    shortId: shortInstanceId(replica.instanceId),
+    statusLabel,
+    statusHint,
+    freshness: replicaHoverFreshness(replica.heartbeatAt, options),
+    instanceId: replica.instanceId,
+    processLabel,
+    alignment: density === "dense" ? alignment : { kind: "unknown" },
+    lastError: density === "dense" ? lastError : null,
+  };
+}
+
+/** Row chip-rail summary when many identical healthy marks add no scan value. */
+export function replicaRowSummary(
+  replicas: AppAdminFleetReplica[],
+): string | null {
+  if (replicas.length < 3) return null;
+  if (!replicas.every((replica) => replica.class === "on_desired")) return null;
+  return `${replicas.length} on desired`;
 }
 
 export type FleetReplicasForSnapshotTable = {
@@ -116,6 +298,12 @@ export function partitionFleetReplicasForSnapshotTable(
   return { byVersion, orphans: sortReplicas(orphans) };
 }
 
+/**
+ * Equality key for whether replica *presentation* changed (chips / hover facts
+ * that affect layout or status). Omits `heartbeatAt`: fleet polls refresh that
+ * timestamp often, and treating it as a remount signal closes controlled
+ * HoverCards (pointer leave on trigger refresh / content reflow).
+ */
 export function fleetReplicasPollKey(
   replicas: AppAdminFleetReplica[] | undefined,
 ): string {
@@ -127,10 +315,94 @@ export function fleetReplicasPollKey(
         replica.class,
         replica.appState,
         replica.runningVersion ?? "",
+        replica.observedDesiredVersion ?? "",
         replica.lastError ?? "",
-        replica.heartbeatAt,
       ].join("\0"),
     )
     .sort()
     .join("\n");
+}
+
+/** Presentation fields only — heartbeat is a liveness tick, not chip identity. */
+export function fleetReplicaPresentationEqual(
+  left: AppAdminFleetReplica,
+  right: AppAdminFleetReplica,
+): boolean {
+  return (
+    left.instanceId === right.instanceId &&
+    left.class === right.class &&
+    left.appState === right.appState &&
+    left.runningVersion === right.runningVersion &&
+    left.observedDesiredVersion === right.observedDesiredVersion &&
+    left.lastError === right.lastError
+  );
+}
+
+/**
+ * Keep stable replica object identity across polls when presentation is equal.
+ * Heartbeat-only updates patch onto the previous object so chip triggers can
+ * memo-skip while open cards still receive a new heartbeatAt when it changes.
+ */
+export function reconcileFleetReplicas(
+  previous: AppAdminFleetReplica[] | undefined,
+  next: AppAdminFleetReplica[] | undefined,
+): AppAdminFleetReplica[] | undefined {
+  if (!next) return next;
+  if (!previous?.length) return next;
+
+  const prevById = new Map(
+    previous.map((replica) => [replica.instanceId, replica]),
+  );
+  let allReuse = next.length === previous.length;
+  const reconciled = next.map((replica) => {
+    const prior = prevById.get(replica.instanceId);
+    if (!prior || !fleetReplicaPresentationEqual(prior, replica)) {
+      allReuse = false;
+      return replica;
+    }
+    if (prior.heartbeatAt === replica.heartbeatAt) {
+      return prior;
+    }
+    allReuse = false;
+    return { ...prior, heartbeatAt: replica.heartbeatAt };
+  });
+
+  if (allReuse) {
+    for (let i = 0; i < previous.length; i++) {
+      if (previous[i] !== reconciled[i]) {
+        allReuse = false;
+        break;
+      }
+    }
+  }
+  return allReuse ? previous : reconciled;
+}
+
+export function reconcileFleetState(
+  previous: AppAdminFleetState | undefined,
+  next: AppAdminFleetState | undefined,
+): AppAdminFleetState | undefined {
+  if (!next) return next;
+  if (!previous) return next;
+
+  const replicas = reconcileFleetReplicas(previous.replicas, next.replicas);
+  if (
+    replicas === previous.replicas &&
+    previous.state === next.state &&
+    previous.sourceVersion === next.sourceVersion &&
+    previous.desiredVersion === next.desiredVersion &&
+    previous.minimumHealthyInstances === next.minimumHealthyInstances &&
+    previous.liveInstances === next.liveInstances &&
+    previous.runningDesiredVersion === next.runningDesiredVersion &&
+    previous.mismatched === next.mismatched &&
+    previous.errors === next.errors &&
+    previous.heartbeatTtlSeconds === next.heartbeatTtlSeconds
+  ) {
+    // evaluatedAt / other ticks may differ — keep prior object so strip memo
+    // and chip triggers are not invalidated by heartbeat-only polls.
+    return previous;
+  }
+
+  if (replicas === next.replicas) return next;
+  return { ...next, replicas };
 }

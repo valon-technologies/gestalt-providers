@@ -36,6 +36,14 @@ export type FleetFailingReplicaCallout = {
   error: string;
 };
 
+/** Inline proof that a replica is still on the wrong snapshot (not hover-only). */
+export type FleetWrongVersionCallout = {
+  instanceId: string;
+  shortId: string;
+  runningVersion: string;
+  desiredVersion: string;
+};
+
 /**
  * Canonical Versions runtime strip — one lead beat, one proof channel, explicit
  * ownership so the layout does not narrate the same rollout again.
@@ -56,7 +64,7 @@ export type FleetStatusView = {
   sourceVersion?: string;
   /** External href for the desired snapshot (source / PR / workflow), when known. */
   desiredVersionHref?: string | null;
-  /** Freshness TTL copy for unknown — page-level "Last checked" owns clock time. */
+  /** Freshness TTL copy for unknown — page-level "Registry updated" owns clock time. */
   showFreshnessWindow: boolean;
   heartbeatTtlSeconds: number;
   recovery: AppAdminRecovery | null;
@@ -66,6 +74,7 @@ export type FleetStatusView = {
    */
   ownsActiveRolloutHeadline: boolean;
   failingReplica: FleetFailingReplicaCallout | null;
+  wrongVersionReplica: FleetWrongVersionCallout | null;
   pathHint: string | null;
 };
 
@@ -115,11 +124,11 @@ function metricsFor(
 /** One-line convergence proof — replaces a StatGroup when chips are visible. */
 export function formatFleetConvergenceSummary(fleet: AppAdminFleetState): string {
   const parts = [
-    `${fleet.runningDesiredVersion} of ${fleet.liveInstances} on desired`,
+    `${fleet.runningDesiredVersion} of ${fleet.liveInstances} on desired version`,
   ];
   if (fleet.mismatched > 0) {
     parts.push(
-      `${fleet.mismatched} wrong`,
+      `${fleet.mismatched} wrong version`,
     );
   }
   if (fleet.errors > 0) {
@@ -131,6 +140,25 @@ export function formatFleetConvergenceSummary(fleet: AppAdminFleetState): string
     parts.push(`need ${fleet.minimumHealthyInstances} minimum`);
   }
   return parts.join(" · ");
+}
+
+/**
+ * One primary next step for the strip. Unhealthy inspect beats wait — a start
+ * failure is not fixed by “wait for updating.”
+ */
+export function resolveFleetPathHint(
+  fleet: Pick<AppAdminFleetState, "errors" | "mismatched" | "state">,
+): string | null {
+  if (fleet.state === "converging") {
+    if (fleet.errors > 0) return "Inspect the unhealthy replica.";
+    return "Wait for replicas to finish updating.";
+  }
+  if (fleet.state === "degraded") {
+    if (fleet.errors > 0) return "Inspect the unhealthy replica.";
+    if (fleet.mismatched > 0) return "Inspect replicas on the wrong version.";
+    return null;
+  }
+  return null;
 }
 
 function pickFailingReplica(
@@ -145,6 +173,24 @@ function pickFailingReplica(
     instanceId: failing.instanceId,
     shortId: shortInstanceId(failing.instanceId),
     error: failing.lastError.trim(),
+  };
+}
+
+function pickWrongVersionReplica(
+  replicas: AppAdminFleetReplica[],
+  desiredVersion: string | undefined,
+): FleetWrongVersionCallout | null {
+  const desired = desiredVersion?.trim() || "";
+  const mismatched = replicas.find(
+    (replica) =>
+      replica.class === "mismatched" && Boolean(replica.runningVersion?.trim()),
+  );
+  if (!mismatched?.runningVersion?.trim()) return null;
+  return {
+    instanceId: mismatched.instanceId,
+    shortId: shortInstanceId(mismatched.instanceId),
+    runningVersion: mismatched.runningVersion.trim(),
+    desiredVersion: desired,
   };
 }
 
@@ -165,6 +211,7 @@ function emptyView(
     recovery,
     ownsActiveRolloutHeadline: false,
     failingReplica: null,
+    wrongVersionReplica: null,
     pathHint: null,
   };
 }
@@ -225,6 +272,7 @@ export function presentFleetStatus(
       // rollout cannot also show a contradictory layout "Rolling out" banner.
       ownsActiveRolloutHeadline: true,
       failingReplica: null,
+      wrongVersionReplica: null,
       pathHint: null,
     };
   }
@@ -259,7 +307,8 @@ export function presentFleetStatus(
       recovery,
       ownsActiveRolloutHeadline: true,
       failingReplica: pickFailingReplica(replicas),
-      pathHint: "Wait for replicas to finish updating.",
+      wrongVersionReplica: pickWrongVersionReplica(replicas, desiredVersion),
+      pathHint: resolveFleetPathHint(fleetState),
     };
   }
 
@@ -287,9 +336,8 @@ export function presentFleetStatus(
       recovery,
       ownsActiveRolloutHeadline: rolloutActive,
       failingReplica: pickFailingReplica(replicas),
-      pathHint: fleetState.errors > 0
-        ? "Inspect the unhealthy replica."
-        : "Inspect replicas on the wrong version.",
+      wrongVersionReplica: pickWrongVersionReplica(replicas, desiredVersion),
+      pathHint: resolveFleetPathHint(fleetState),
     };
   }
 
@@ -310,6 +358,7 @@ export function presentFleetStatus(
     recovery,
     ownsActiveRolloutHeadline: false,
     failingReplica: null,
+    wrongVersionReplica: null,
     pathHint: null,
   };
 }

@@ -50,6 +50,18 @@ describe("versionsSurfacePresentation", () => {
     expect(presentation.offerManualDeploy).toBe(true);
     expect(presentation.manualDeployBlockedReason).toBeNull();
     expect(presentation.toggleDescription).toMatch(/Turn on/);
+    expect(presentation.modePromise).toMatch(/Deploy a version/);
+  });
+
+  test("manual + rollout pivots the promise to watch convergence", () => {
+    const presentation = versionsSurfacePresentation({
+      autoDeployEnabled: false,
+      rolloutActive: true,
+      hasDesiredVersion: true,
+    });
+    expect(presentation.modePromise).toMatch(/rollout is in progress/i);
+    expect(presentation.modePromise).not.toMatch(/^Deploy a version/);
+    expect(presentation.toggleDescription).toMatch(/paused while the current rollout/);
   });
 
   test("empty inventory always points at Check for new versions", () => {
