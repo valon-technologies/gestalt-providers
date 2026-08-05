@@ -336,11 +336,12 @@ export function AuthorizationDocsPage() {
           admin access.
         </p>
         <CodeBlock
-          code={`gestalt users lookup operator@valon.com
-
-curl -sS "https://valon.tools/api/v1/users/lookup?email=operator@valon.com" \\
+          code={`curl -sS "https://valon.tools/api/v1/users/lookup?email=operator@valon.com" \\
   -H "Authorization: Bearer $GESTALT_API_KEY" \\
-  | jq -r .subjectId`}
+  | jq -r .subjectId
+
+# Or, with an up-to-date gestalt CLI:
+gestalt users lookup operator@valon.com`}
         />
         <p className="doc-copy">
           The response includes <InlineCode>subjectId</InlineCode> (for example,{" "}
