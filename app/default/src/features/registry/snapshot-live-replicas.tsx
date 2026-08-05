@@ -81,7 +81,7 @@ function VersionAlignmentFacts({
               tooltip={`Copy ${alignment.running}`}
             />
           </HoverFact>
-          <HoverFact label="Expected">
+          <HoverFact label="Desired version">
             <CopyableCode
               value={alignment.expected}
               className={HOVER_COPYABLE_CODE_CLASS}
@@ -102,7 +102,7 @@ function VersionAlignmentFacts({
       );
     case "expected_only":
       return (
-        <HoverFact label="Expected">
+        <HoverFact label="Desired version">
           <CopyableCode
             value={alignment.version}
             className={HOVER_COPYABLE_CODE_CLASS}
@@ -306,7 +306,11 @@ const FleetReplicaTrigger = memo(function FleetReplicaTrigger({
         data-replica-tone={tone}
         data-state={open ? "open" : "closed"}
         data-pinned={pinned ? "true" : undefined}
-        aria-label={`Replica ${shortId}: ${status}`}
+        aria-label={
+          pinned
+            ? `Replica ${shortId}: ${status}. Pinned — click to unpin`
+            : `Replica ${shortId}: ${status}. Click to pin details`
+        }
         title={
           pinned
             ? "Pinned — click to unpin"

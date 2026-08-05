@@ -3,6 +3,7 @@ import {
   buildReplicaHoverPresentation,
   partitionFleetReplicasForSnapshotTable,
   fleetReplicasPollKey,
+  fleetStatePollKey,
   formatReplicaAppState,
   reconcileFleetReplicas,
   reconcileFleetState,
@@ -16,7 +17,10 @@ import {
   shortInstanceId,
   sortReplicasByTriage,
 } from "@/features/registry/fleet-replicas";
-import type { AppAdminFleetReplica } from "@/features/registry/types";
+import type {
+  AppAdminFleetReplica,
+  AppAdminFleetState,
+} from "@/features/registry/types";
 
 function replica(
   overrides: Partial<AppAdminFleetReplica> & Pick<AppAdminFleetReplica, "instanceId">,
@@ -50,6 +54,34 @@ describe("fleetReplicasPollKey", () => {
     const a = [replica({ instanceId: "i-1", class: "on_desired" })];
     const b = [replica({ instanceId: "i-1", class: "mismatched" })];
     expect(fleetReplicasPollKey(a)).not.toBe(fleetReplicasPollKey(b));
+  });
+});
+
+describe("fleetStatePollKey", () => {
+  function fleet(
+    overrides: Partial<AppAdminFleetState> = {},
+  ): AppAdminFleetState {
+    return {
+      state: "healthy",
+      minimumHealthyInstances: 2,
+      liveInstances: 2,
+      runningDesiredVersion: 2,
+      mismatched: 0,
+      errors: 0,
+      heartbeatTtlSeconds: 90,
+      replicas: [],
+      ...overrides,
+    };
+  }
+
+  test("changes when aggregates that drive the strip summary change", () => {
+    expect(fleetStatePollKey(fleet({ mismatched: 0 }))).not.toBe(
+      fleetStatePollKey(fleet({ mismatched: 1 })),
+    );
+  });
+
+  test("stays stable for identical presentation aggregates", () => {
+    expect(fleetStatePollKey(fleet())).toBe(fleetStatePollKey(fleet()));
   });
 });
 

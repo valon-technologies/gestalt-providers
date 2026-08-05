@@ -323,6 +323,28 @@ export function fleetReplicasPollKey(
     .join("\n");
 }
 
+/**
+ * Equality key for fleet-strip presentation driven by aggregates (summary,
+ * path hint, callouts) — omits evaluatedAt ticks so heartbeat-only polls do
+ * not remount chips.
+ */
+export function fleetStatePollKey(
+  fleet: AppAdminFleetState | undefined,
+): string {
+  if (!fleet) return "";
+  return [
+    fleet.state,
+    fleet.desiredVersion ?? "",
+    fleet.sourceVersion ?? "",
+    String(fleet.minimumHealthyInstances),
+    String(fleet.liveInstances),
+    String(fleet.runningDesiredVersion),
+    String(fleet.mismatched),
+    String(fleet.errors),
+    String(fleet.heartbeatTtlSeconds),
+  ].join("\0");
+}
+
 /** Presentation fields only — heartbeat is a liveness tick, not chip identity. */
 export function fleetReplicaPresentationEqual(
   left: AppAdminFleetReplica,
