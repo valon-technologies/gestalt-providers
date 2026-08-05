@@ -1,9 +1,6 @@
 import {
   memo,
-  useCallback,
-  useEffect,
   useRef,
-  useState,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -62,7 +59,7 @@ function VersionAlignmentFacts({
       return (
         <HoverFact label="Version">
           <div className="space-y-1">
-            <p className="text-sm text-foreground">Matches expected</p>
+            <p className="text-sm text-foreground">Matches desired version</p>
             <CopyableCode
               value={alignment.version}
               className={HOVER_COPYABLE_CODE_CLASS}
@@ -275,26 +272,30 @@ function ReplicaStatusIndicator({ replicaClass }: { replicaClass: string }) {
 
 /**
  * Trigger island — presentation-stable props only. Must not re-render on
- * heartbeat ticks or freshness clocks (those remount Radix's pointer target).
+ * heartbeat clocks (those remount Radix's pointer target). Stale is a discrete
+ * presentation bit computed at poll/render time, not a live ticker.
  */
 const FleetReplicaTrigger = memo(function FleetReplicaTrigger({
   instanceId,
   replicaClass,
   open,
   pinned,
+  stale,
   triggerRef,
-  onPinnedChange,
+  onTriggerClick,
 }: {
   instanceId: string;
   replicaClass: string;
   open: boolean;
   pinned: boolean;
+  stale: boolean;
   triggerRef: RefObject<HTMLButtonElement | null>;
-  onPinnedChange: (pinned: boolean) => void;
+  onTriggerClick: () => void;
 }) {
   const shortId = shortInstanceId(instanceId);
   const status = replicaClassLabel(replicaClass);
   const tone = replicaClassMarkTone(replicaClass);
+  const statusWithFreshness = stale ? `${status}, report may be stale` : status;
   return (
     <HoverCardTrigger asChild>
       <button
@@ -306,21 +307,26 @@ const FleetReplicaTrigger = memo(function FleetReplicaTrigger({
         data-replica-tone={tone}
         data-state={open ? "open" : "closed"}
         data-pinned={pinned ? "true" : undefined}
+        data-stale={stale ? "true" : undefined}
         aria-label={
           pinned
-            ? `Replica ${shortId}: ${status}. Pinned — click to unpin`
-            : `Replica ${shortId}: ${status}. Click to pin details`
+            ? `Replica ${shortId}: ${statusWithFreshness}. Pinned — click to unpin`
+            : open
+              ? `Replica ${shortId}: ${statusWithFreshness}. Click to pin details`
+              : `Replica ${shortId}: ${statusWithFreshness}. Hover for details, click to pin`
         }
         title={
           pinned
             ? "Pinned — click to unpin"
-            : "View replica details (click to pin)"
+            : open
+              ? "Click to pin details"
+              : "Hover for details — click to pin"
         }
         className="group inline-flex cursor-pointer focus-ring rounded-sm outline-none"
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          onPinnedChange(!pinned);
+          onTriggerClick();
         }}
       >
         <Badge
@@ -331,6 +337,8 @@ const FleetReplicaTrigger = memo(function FleetReplicaTrigger({
             // List-item idle darken (selectable-rows / neutral-hover delta).
             "group-hover:bg-neutral-hover group-hover:text-foreground",
             open && "bg-neutral-hover text-foreground",
+            stale && "ring-1 ring-destructive/40",
+            pinned && "ring-1 ring-foreground/25",
           )}
         >
           <ReplicaStatusIndicator replicaClass={replicaClass} />
@@ -339,6 +347,7 @@ const FleetReplicaTrigger = memo(function FleetReplicaTrigger({
               "font-mono text-muted-foreground transition-colors",
               "group-hover:text-foreground",
               open && "text-foreground",
+              stale && "text-destructive",
             )}
           >
             {shortId}
@@ -352,10 +361,9 @@ const FleetReplicaTrigger = memo(function FleetReplicaTrigger({
 /**
  * One badge per replica.
  *
- * Open intent lives in the exclusive store so it survives chip remounts.
- * Content is already in a Radix Portal — another portal would not help; the
- * flash comes from Radix firing onOpenChange(false) when the *trigger* tree
- * remounts on fleet poll. Deferred close + unmount cancel ignores that.
+ * Open + pin live in the exclusive session store so both survive chip remounts.
+ * Stable trigger identity (reconcile + presentation memo) removes the need for
+ * deferred-close timers around Radix synthetic closes.
  */
 function FleetReplicaBadge({
   replica,
@@ -366,78 +374,17 @@ function FleetReplicaBadge({
   hoverKey: string;
   heartbeatTtlSeconds?: number;
 }) {
-  const { open, onOpenChange: setExclusiveOpen } =
+  const { open, pinned, onOpenChange, onTriggerClick, dismiss } =
     useExclusiveReplicaHover(hoverKey);
-  const [pinned, setPinned] = useState(false);
-  const pinnedRef = useRef(pinned);
-  pinnedRef.current = pinned;
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const closeTimerRef = useRef<number | undefined>(undefined);
-
-  useEffect(() => {
-    if (!open && pinned) setPinned(false);
-  }, [open, pinned]);
-
-  useEffect(
-    () => () => {
-      if (closeTimerRef.current !== undefined) {
-        window.clearTimeout(closeTimerRef.current);
-      }
-    },
-    [],
-  );
-
-  const handleHoverOpenChange = useCallback(
-    (next: boolean) => {
-      if (next) {
-        if (closeTimerRef.current !== undefined) {
-          window.clearTimeout(closeTimerRef.current);
-          closeTimerRef.current = undefined;
-        }
-        setExclusiveOpen(true);
-        return;
-      }
-      if (pinnedRef.current) return;
-      // Defer close: poll remounts synthesize onOpenChange(false). Effect
-      // cleanup cancels this timer on unmount so open intent survives.
-      if (closeTimerRef.current !== undefined) {
-        window.clearTimeout(closeTimerRef.current);
-      }
-      closeTimerRef.current = window.setTimeout(() => {
-        closeTimerRef.current = undefined;
-        if (pinnedRef.current) return;
-        if (triggerRef.current?.matches(":hover")) return;
-        setExclusiveOpen(false);
-      }, 80);
-    },
-    [setExclusiveOpen],
-  );
-
-  const handlePinnedChange = useCallback(
-    (nextPinned: boolean) => {
-      if (closeTimerRef.current !== undefined) {
-        window.clearTimeout(closeTimerRef.current);
-        closeTimerRef.current = undefined;
-      }
-      setPinned(nextPinned);
-      setExclusiveOpen(nextPinned);
-    },
-    [setExclusiveOpen],
-  );
-
-  const handleDismiss = useCallback(() => {
-    if (closeTimerRef.current !== undefined) {
-      window.clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = undefined;
-    }
-    setPinned(false);
-    setExclusiveOpen(false);
-  }, [setExclusiveOpen]);
+  const stale = replicaHoverFreshness(replica.heartbeatAt, {
+    heartbeatTtlSeconds,
+  }).stale;
 
   return (
     <HoverCard
       open={open}
-      onOpenChange={handleHoverOpenChange}
+      onOpenChange={onOpenChange}
       openDelay={120}
       closeDelay={200}
     >
@@ -446,8 +393,9 @@ function FleetReplicaBadge({
         replicaClass={replica.class}
         open={open}
         pinned={pinned}
+        stale={stale}
         triggerRef={triggerRef}
-        onPinnedChange={handlePinnedChange}
+        onTriggerClick={onTriggerClick}
       />
       <HoverCardContent
         side="top"
@@ -456,7 +404,7 @@ function FleetReplicaBadge({
         data-testid="fleet-replica-hover"
         data-density={replicaHoverDensity(replica)}
         data-pinned={pinned ? "true" : undefined}
-        onEscapeKeyDown={handleDismiss}
+        onEscapeKeyDown={dismiss}
       >
         <ReplicaHoverBody
           replica={replica}

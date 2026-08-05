@@ -63,6 +63,7 @@ import {
   partitionFleetReplicasForSnapshotTable,
   replicaClassLabel,
   shortInstanceId,
+  type FleetReplicasForSnapshotTable,
 } from "@/features/registry/fleet-replicas";
 import type {
   AppAdminFleetReplica,
@@ -284,7 +285,11 @@ type SnapshotTableMeta = {
   toolbarTrailing?: ReactNode;
 };
 
-type SnapshotTableRuntimeMeta = Pick<SnapshotTableMeta, "registry">;
+type SnapshotTableRuntimeMeta = {
+  registry: SnapshotTableMeta["registry"];
+  replicaPartition: FleetReplicasForSnapshotTable;
+  deployedByByVersion: Map<string, string>;
+};
 
 function readSnapshotTableMeta(
   meta: unknown,
@@ -677,12 +682,6 @@ export const AppAdminSnapshotsTable = memo(function AppAdminSnapshotsTable({
   const registryRef = useRef(registry);
   registryRef.current = registry;
 
-  const tableMetaRef = useRef<SnapshotTableRuntimeMeta | null>(null);
-  if (!tableMetaRef.current) {
-    tableMetaRef.current = { registry };
-  }
-  tableMetaRef.current.registry = registry;
-
   // Version lists are structurally shared across heartbeat polls — key off
   // those refs so row identity (and TanStack cells) stay stable.
   const rows = useMemo(
@@ -707,12 +706,19 @@ export const AppAdminSnapshotsTable = memo(function AppAdminSnapshotsTable({
     // Content key: history page-array identity must not churn this Map.
     [historyPollKey, historyRevisions],
   );
-  // Column defs close over refs so TanStack does not remount cells when the
-  // partition Map is rebuilt on heartbeat-only fleet polls.
-  const replicaPartitionRef = useRef(replicaPartition);
-  replicaPartitionRef.current = replicaPartition;
-  const deployedByByVersionRef = useRef(deployedByByVersion);
-  deployedByByVersionRef.current = deployedByByVersion;
+  // Mutable meta bag is the single live lookup for cells/accessors — column
+  // defs stay identity-stable while partition/deployedBy Maps refresh.
+  const tableMetaRef = useRef<SnapshotTableRuntimeMeta | null>(null);
+  if (!tableMetaRef.current) {
+    tableMetaRef.current = {
+      registry,
+      replicaPartition,
+      deployedByByVersion,
+    };
+  }
+  tableMetaRef.current.registry = registry;
+  tableMetaRef.current.replicaPartition = replicaPartition;
+  tableMetaRef.current.deployedByByVersion = deployedByByVersion;
   const showActionColumn =
     offerManualDeploy ||
     rows.some(
@@ -764,16 +770,19 @@ export const AppAdminSnapshotsTable = memo(function AppAdminSnapshotsTable({
           header: ({ column }) => (
             <DataTableColumnHeader column={column} title="Pull request" />
           ),
-          cell: ({ row, table }) => (
-            <SnapshotPullRequestCell
-              row={row.original}
-              registry={readSnapshotTableMeta(table.options.meta).registry}
-              liveReplicas={
-                replicaPartitionRef.current.byVersion.get(row.original.version) ??
-                []
-              }
-            />
-          ),
+          cell: ({ row, table }) => {
+            const meta = readSnapshotTableMeta(table.options.meta);
+            return (
+              <SnapshotPullRequestCell
+                row={row.original}
+                registry={meta.registry}
+                liveReplicas={
+                  meta.replicaPartition.byVersion.get(row.original.version) ??
+                  []
+                }
+              />
+            );
+          },
         },
       ),
       columnHelper.accessor(
@@ -801,16 +810,19 @@ export const AppAdminSnapshotsTable = memo(function AppAdminSnapshotsTable({
         sortingFn: "datetime",
       }),
       columnHelper.accessor(
-        (row) => deployedByByVersionRef.current.get(row.version) ?? "",
+        (row) =>
+          tableMetaRef.current?.deployedByByVersion.get(row.version) ?? "",
         {
           id: "deployedBy",
           meta: { hideBelow: "md" },
           header: ({ column }) => (
             <DataTableColumnHeader column={column} title="Deployed by" />
           ),
-          cell: ({ row }) => (
+          cell: ({ row, table }) => (
             <SnapshotDeployedByCell
-              actor={deployedByByVersionRef.current.get(row.original.version)}
+              actor={readSnapshotTableMeta(
+                table.options.meta,
+              ).deployedByByVersion.get(row.original.version)}
             />
           ),
         },

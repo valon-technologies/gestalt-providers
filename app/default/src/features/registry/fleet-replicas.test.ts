@@ -11,6 +11,7 @@ import {
   replicaClassMarkTone,
   replicaClassLabel,
   replicaHoverDensity,
+  replicaPresentationKey,
   replicaRowSummary,
   replicaStatusIndicatorKind,
   replicaVersionAlignment,
@@ -48,12 +49,16 @@ describe("fleetReplicasPollKey", () => {
       }),
     ];
     expect(fleetReplicasPollKey(a)).toBe(fleetReplicasPollKey(b));
+    expect(replicaPresentationKey(a[0]!)).toBe(replicaPresentationKey(b[0]!));
   });
 
   test("changes when status presentation fields change", () => {
     const a = [replica({ instanceId: "i-1", class: "on_desired" })];
     const b = [replica({ instanceId: "i-1", class: "mismatched" })];
     expect(fleetReplicasPollKey(a)).not.toBe(fleetReplicasPollKey(b));
+    expect(replicaPresentationKey(a[0]!)).not.toBe(
+      replicaPresentationKey(b[0]!),
+    );
   });
 });
 
@@ -288,7 +293,7 @@ describe("replicaVersionAlignment / hover density / presentation", () => {
     expect(presentation.freshness.stale).toBe(false);
   });
 
-  test("dense mismatched presentation pairs running vs expected with hint", () => {
+  test("dense mismatched presentation pairs running vs desired; omits Process fact when hint covers it", () => {
     const presentation = buildReplicaHoverPresentation(
       replica({
         instanceId: "a",
@@ -303,7 +308,7 @@ describe("replicaVersionAlignment / hover density / presentation", () => {
       running: "v-old",
       expected: "v-new",
     });
-    expect(presentation.processLabel).toBe("Running");
+    expect(presentation.processLabel).toBeNull();
     expect(presentation.statusHint).toBe(
       "Process is running; deploy target does not match.",
     );
@@ -329,7 +334,7 @@ describe("replicaRowSummary", () => {
         replica({ instanceId: "b" }),
         replica({ instanceId: "c" }),
       ]),
-    ).toBe("3 on desired");
+    ).toBe("3 on desired version");
   });
 
   test("omits summary for mixed health or small rails", () => {

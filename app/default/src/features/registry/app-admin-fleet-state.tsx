@@ -149,6 +149,7 @@ function FleetStripBody({
             className="text-sm text-muted-foreground text-pretty"
             data-testid="fleet-wrong-version-replica"
           >
+            Replica{" "}
             <span className="font-mono">{view.wrongVersionReplica.shortId}</span>
             {" — running "}
             <RegistryCode title={view.wrongVersionReplica.runningVersion}>

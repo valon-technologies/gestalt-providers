@@ -237,8 +237,14 @@ export function buildReplicaHoverPresentation(
     statusHint = `Process: ${process}.`;
   }
 
+  // When statusHint already names process vs deploy tension, omit the Process
+  // fact row so "running" is not triplicated in dense mismatched hovers.
   const processLabel =
-    density === "dense" && process !== "—" ? process : null;
+    density === "dense" &&
+    process !== "—" &&
+    !(replica.class === "mismatched" && process === "Running")
+      ? process
+      : null;
 
   return {
     density,
@@ -259,7 +265,7 @@ export function replicaRowSummary(
 ): string | null {
   if (replicas.length < 3) return null;
   if (!replicas.every((replica) => replica.class === "on_desired")) return null;
-  return `${replicas.length} on desired`;
+  return `${replicas.length} on desired version`;
 }
 
 export type FleetReplicasForSnapshotTable = {
@@ -299,6 +305,21 @@ export function partitionFleetReplicasForSnapshotTable(
 }
 
 /**
+ * Canonical presentation identity for a replica chip / hover facts.
+ * Heartbeat is intentionally omitted — it is a liveness tick, not layout identity.
+ */
+export function replicaPresentationKey(replica: AppAdminFleetReplica): string {
+  return [
+    replica.instanceId,
+    replica.class,
+    replica.appState,
+    replica.runningVersion ?? "",
+    replica.observedDesiredVersion ?? "",
+    replica.lastError ?? "",
+  ].join("\0");
+}
+
+/**
  * Equality key for whether replica *presentation* changed (chips / hover facts
  * that affect layout or status). Omits `heartbeatAt`: fleet polls refresh that
  * timestamp often, and treating it as a remount signal closes controlled
@@ -309,16 +330,7 @@ export function fleetReplicasPollKey(
 ): string {
   if (!replicas?.length) return "";
   return replicas
-    .map((replica) =>
-      [
-        replica.instanceId,
-        replica.class,
-        replica.appState,
-        replica.runningVersion ?? "",
-        replica.observedDesiredVersion ?? "",
-        replica.lastError ?? "",
-      ].join("\0"),
-    )
+    .map((replica) => replicaPresentationKey(replica))
     .sort()
     .join("\n");
 }
@@ -350,14 +362,7 @@ export function fleetReplicaPresentationEqual(
   left: AppAdminFleetReplica,
   right: AppAdminFleetReplica,
 ): boolean {
-  return (
-    left.instanceId === right.instanceId &&
-    left.class === right.class &&
-    left.appState === right.appState &&
-    left.runningVersion === right.runningVersion &&
-    left.observedDesiredVersion === right.observedDesiredVersion &&
-    left.lastError === right.lastError
-  );
+  return replicaPresentationKey(left) === replicaPresentationKey(right);
 }
 
 /**
