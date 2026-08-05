@@ -85,6 +85,11 @@ export default function AppAdminWorkflowDefinitionsPage() {
           </PageHeaderDescription>
         </PageHeaderContent>
         <PageHeaderActions className="flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-4">
+          <Button asChild variant="ghost" size="sm">
+            <Link to="/apps/$app/admin/workflows" params={{ app }}>
+              Runs
+            </Link>
+          </Button>
           <WorkflowRefreshedAt
             dataUpdatedAt={refreshedAt}
             refreshing={refreshing}

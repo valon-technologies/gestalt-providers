@@ -25,6 +25,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import ErrorNotice from "@/components/ErrorNotice";
+import { WorkflowRunDetails } from "@/features/app-workflows/workflow-run-details";
 import { WorkflowRunJobGraph } from "@/features/app-workflows/workflow-run-job-graph";
 import { WorkflowStatusBadge } from "@/features/app-workflows/workflow-status-badge";
 import { WorkflowStatusIcon } from "@/features/app-workflows/workflow-status-icon";
@@ -213,6 +214,12 @@ export default function AppAdminWorkflowRunPage() {
             definitionLabel={run.definitionId || "workflow"}
             triggerLabel={runTriggerLabel(run)}
           />
+
+          {run.statusMessage ? (
+            <p className="text-sm text-muted-foreground">{run.statusMessage}</p>
+          ) : null}
+
+          <WorkflowRunDetails run={run} appName={app} />
         </div>
       ) : null}
 
@@ -226,7 +233,7 @@ export default function AppAdminWorkflowRunPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={canceling}>Keep running</AlertDialogCancel>
+            <AlertDialogCancel disabled={canceling}>Keep run</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               onClick={handleCancelRun}

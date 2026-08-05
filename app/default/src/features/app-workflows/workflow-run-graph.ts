@@ -248,7 +248,7 @@ export function projectWorkflowRunGraph(run: WorkflowRun): WorkflowRunGraph {
 
   return {
     stages: [{ id: "main", kind: "sequential", jobs: [job] }],
-    durationMs: job.durationMs,
+    durationMs: job.durationMs ?? null,
   };
 }
 

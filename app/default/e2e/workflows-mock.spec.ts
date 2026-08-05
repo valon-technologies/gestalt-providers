@@ -223,10 +223,10 @@ test.describe("App admin workflows", () => {
       page.getByRole("link", { name: /datadog\.monitors\.get \(\+2\)/i }),
     ).toBeVisible();
     await expect(
-      page.getByLabel("Recent runs").getByText("incident_triage"),
+      page.getByLabel("All workflow runs").getByText("incident_triage"),
     ).toBeVisible();
     await expect(
-      page.getByLabel("Recent runs").getByText("event:datadog_alert"),
+      page.getByLabel("All workflow runs").getByText("event:datadog_alert"),
     ).toBeVisible();
     await expect(page.getByRole("link", { name: /github\.issues\.create/i })).toHaveCount(0);
 

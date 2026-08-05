@@ -127,7 +127,7 @@ export default defineConfig(({ mode }) => {
     server: {
       // Mock middleware owns /api + empty theme.css when enabled.
       proxy: useWorkflowsMock
-        ? {}
+        ? undefined
         : {
             "/api": nativeApiProxy(backendOrigin),
             "/theme.css": nativeApiProxy(backendOrigin),

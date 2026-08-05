@@ -113,6 +113,14 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
           </PageHeaderDescription>
         </PageHeaderContent>
         <PageHeaderActions className="flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-4">
+          <Button asChild variant="ghost" size="sm">
+            <RouterLink
+              to="/apps/$app/admin/workflows/definitions"
+              params={{ app: appName }}
+            >
+              Definitions
+            </RouterLink>
+          </Button>
           <WorkflowRefreshedAt
             dataUpdatedAt={
               runsQuery.isFetched ? runsQuery.dataUpdatedAt : null

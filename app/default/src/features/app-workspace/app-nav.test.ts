@@ -7,7 +7,7 @@ import {
 
 describe("workspaceLocationForPathname", () => {
   it("resolves overview for the app root", () => {
-    expect(workspaceLocationForPathname("/apps/g-issues", "g-issues")).toEqual({
+    expect(workspaceLocationForPathname("/apps/example-app", "example-app")).toEqual({
       id: "overview",
       label: "Overview",
       to: "/apps/$app",
@@ -17,7 +17,7 @@ describe("workspaceLocationForPathname", () => {
 
   it("resolves nested admin surfaces from the nav catalog", () => {
     expect(
-      workspaceLocationForPathname("/apps/g-issues/admin/workflows", "g-issues"),
+      workspaceLocationForPathname("/apps/example-app/admin/workflows", "example-app"),
     ).toMatchObject({
       id: "workflows",
       label: "Workflows",
@@ -25,8 +25,8 @@ describe("workspaceLocationForPathname", () => {
     });
     expect(
       workspaceLocationForPathname(
-        "/apps/g-issues/admin/workflows/runs/run_1",
-        "g-issues",
+        "/apps/example-app/admin/workflows/runs/run_1",
+        "example-app",
       ),
     ).toMatchObject({
       id: "workflows",
@@ -97,30 +97,30 @@ describe("workflowAdminPageLabel", () => {
 describe("workspaceDocumentTitle", () => {
   it("uses the app label alone on overview", () => {
     expect(
-      workspaceDocumentTitle("g-issues", {
+      workspaceDocumentTitle("example-app", {
         id: "overview",
         label: "Overview",
         to: "/apps/$app",
         isOverview: true,
       }),
-    ).toBe("g-issues");
+    ).toBe("example-app");
   });
 
   it("puts the surface first on deep routes", () => {
     expect(
-      workspaceDocumentTitle("g-issues", {
+      workspaceDocumentTitle("example-app", {
         id: "workflows",
         label: "Workflows",
         to: "/apps/$app/admin/workflows",
         isOverview: false,
       }),
-    ).toBe("Workflows · g-issues");
+    ).toBe("Workflows · example-app");
   });
 
   it("nests run and definition pages under Workflows", () => {
     expect(
       workspaceDocumentTitle(
-        "g-issues",
+        "example-app",
         {
           id: "workflows",
           label: "Workflows",
@@ -128,10 +128,10 @@ describe("workspaceDocumentTitle", () => {
           isOverview: false,
         },
         {
-          pathname: "/apps/g-issues/admin/workflows/runs/run_1",
-          app: "g-issues",
+          pathname: "/apps/example-app/admin/workflows/runs/run_1",
+          app: "example-app",
         },
       ),
-    ).toBe("run_1 · Workflows · g-issues");
+    ).toBe("run_1 · Workflows · example-app");
   });
 });
