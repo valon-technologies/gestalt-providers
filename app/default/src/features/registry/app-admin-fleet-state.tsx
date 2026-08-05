@@ -20,8 +20,8 @@ import {
 import { fleetReplicasPollKey } from "@/features/registry/fleet-replicas";
 import { SnapshotRowLiveReplicas } from "@/features/registry/snapshot-live-replicas";
 import { RegistryCode } from "@/features/registry/registry-code";
+import { rolloutKey } from "@/features/registry/stable-snapshot-registry";
 import type { AppAdminRegistryResponse } from "@/features/registry/types";
-import { snapshotRegistryPollEqual } from "@/features/registry/stable-snapshot-registry";
 
 function DesiredVersionRef({
   version,
@@ -276,8 +276,9 @@ export const AppAdminFleetState = memo(function AppAdminFleetState({
     </section>
   );
 }, (prev, next) => {
-  // `view` is derived from registry — compare registry presentation, not the
-  // fresh object the page allocates each poll.
+  // Compare only the strip's presentation inputs — not the snapshots-table
+  // poll slice (autoDeploy / selectionDisabled), which this component does
+  // not take and does not render.
   if (
     fleetReplicasPollKey(prev.registry.fleetState?.replicas) !==
     fleetReplicasPollKey(next.registry.fleetState?.replicas)
@@ -296,5 +297,18 @@ export const AppAdminFleetState = memo(function AppAdminFleetState({
   ) {
     return false;
   }
-  return snapshotRegistryPollEqual(prev.registry, next.registry);
+  if (prev.registry.desiredVersion !== next.registry.desiredVersion) {
+    return false;
+  }
+  if (
+    rolloutKey(prev.registry.rollout) !== rolloutKey(next.registry.rollout)
+  ) {
+    return false;
+  }
+  // Reconcile keeps these array refs stable across heartbeat-only polls.
+  return (
+    prev.registry.publishedVersions === next.registry.publishedVersions &&
+    prev.registry.pendingVersions === next.registry.pendingVersions &&
+    prev.registry.failedVersions === next.registry.failedVersions
+  );
 });
