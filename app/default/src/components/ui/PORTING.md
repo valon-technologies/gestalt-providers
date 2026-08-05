@@ -29,15 +29,16 @@ When lifting a shared UI kit control into `src/components/ui/`:
 `oxlint` enforces (4) via `home/no-brand-text-on-selected`
 (`oxlint-plugin-home.mjs`, scoped to `src/components/ui/**`).
 
-## Button / Input / Field / Label
+## Button / Input / Field / Label / Select
 
-Registry `button`, `input`, `field`, `label`, `spinner`, and `brand-spinner` are
+Registry `button`, `input`, `field`, `label`, `select`, `spinner`, and `brand-spinner` are
 vendored here. Theme bridges (`--primary`, `--muted`, `--input`, `--disabled*`,
 `--state-overlay-*`, `--control-*`) live in `shared/theme.css` + `globals.css`
 `@theme inline`. Spinner motion CSS (`.valon-spinner-trail`, BrandSpinner mark
 keyframes) lives in `globals.css` and maps BrandSpinner strokes to semantic
 tokens (`--border`, `--accent-strong`) — not Registry palette constants.
-Prefer `@/components/ui/button` and `@/components/ui/input` at call sites;
+Prefer `@/components/ui/button`, `@/components/ui/input`, and
+`@/components/ui/select` at call sites;
 `@/components/Button` is a legacy adapter (`primary` → `default`,
 `danger` → `destructive`).
 
@@ -52,7 +53,8 @@ ink utilities — those names are Registry fills. Optional console-only
 `text-faint` remains for tertiary chrome (40% alpha-dark).
 
 Compose labeled controls with `Field` + `FieldLabel` (+ `FieldDescription` /
-`FieldError`) — see Registry `guidelines/fields.md`.
+`FieldError`) — see Registry `guidelines/fields.md`. Use Registry `Select`
+(not native `<select>`) for filter / form dropdowns.
 
 `Input` / `Textarea` expose a `chrome` variant (`standalone` default,
 `group` for `InputGroupInput` / `InputGroupTextarea`) so the shell owns the
@@ -123,9 +125,21 @@ specific values belong in the tenant deployment stylesheet — not here.
 See [`docs/agent/theme-boundary.md`](../../../../docs/agent/theme-boundary.md).
 Do not invent freestyle `tracking-*` / `text-*` sizes at call sites.
 
-## Card / Collapsible
+## RunStatusIndicator
 
-Registry `card` + `collapsible` are vendored here. Expand/collapse is owned by
+Registry `run-status-indicator` is vendored here. Prefer it for workflow / job
+outcome glyphs (succeeded / failed / running / pending / …). Map Registry
+`bg-green-500` / `bg-red-500` / `bg-yellow-500` onto `--status-indicator-*`
+(+ `text-white`) — same mid-chroma light-on-fill recipe as fleet replica dots.
+Keep `runStatusIndicatorBadgeVariant` on this Badge API (`"destructive"`, not
+Registry `"error"`). Import `@/lib/cn` (not Registry `@/lib/utils`).
+
+## Card / Collapsible / Item
+
+Registry `card`, `collapsible`, and `item` are vendored here. Application record
+lists (workflow runs, activity, directories) compose `SectionHeader` **above** a
+`Card` that wraps only `ItemGroup` rows — see Registry `application-lists.md`.
+Do not hand-roll `ul.divide-y` when Item fits. Expand/collapse is owned by
 `Collapsible` — paint the root with `cardVariants({ variant: "outline" })` at
 the call site (cards.md Card Collapsible). Do not restyle trigger hover/press
 (List Item Neutral via `listItemInteraction`). Drawer height animation lives on
@@ -155,6 +169,13 @@ checks + connectors). Depends on `lib/list-item-interaction.ts` and
 `--accent-fill-pressed` for soft-selected hover (selectable-rows). Build page
 uses controlled `activationMode="jump"` — do not restyle Stepper chrome at the
 call site (layout-only wrappers OK).
+
+## Pagination
+
+Registry `pagination` is vendored as `ui/pagination.tsx`. `PaginationLink`
+supports `asChild` for router links. Ellipsis sizing uses `size-control-default`
+(local control tokens). Prefer Previous/Next (+ optional “N of M” counter) for
+detail sibling navigation; do not invent custom pager chrome at call sites.
 
 ## PageLayout / NavList
 

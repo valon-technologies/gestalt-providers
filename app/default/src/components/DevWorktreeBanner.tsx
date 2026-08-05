@@ -6,7 +6,7 @@ import {
 } from "@/components/ui/alert";
 import { readDevWorktreeName } from "@/lib/dev-worktree-name";
 
-/** Development-only strip naming the active git worktree (prod-remote). */
+/** Local DEV strip naming the active git worktree (/prod-remote or /local-dev). */
 export function DevWorktreeBanner() {
   const name = readDevWorktreeName();
   if (!name) {

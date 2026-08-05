@@ -213,10 +213,10 @@ test.describe("Docs page", () => {
       "gestalt authorization admins members set",
     );
 
-    await leftNav.getByRole("link", { name: "Manage Workflows" }).click();
+    await leftNav.getByRole("link", { name: "Inspect Workflows" }).click();
     await expect(page).toHaveURL(/\/docs\/workflows/);
     await expect(
-      page.getByRole("heading", { name: "Manage Workflows" }),
+      page.getByRole("heading", { name: "Inspect Workflows" }),
     ).toBeVisible();
     await expect(page.locator("article")).toContainText("gestalt workflows --help");
     await expect(page.locator("article")).toContainText("gestalt workflows runs list");

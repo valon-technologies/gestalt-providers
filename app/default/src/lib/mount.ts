@@ -18,8 +18,9 @@ function moduleEntryURL(): URL | null {
 }
 
 function viteDevBasepath(): string | null {
+  // Vitest/bun may omit BASE_URL; treat missing as non-dev.
   const base = import.meta.env.BASE_URL;
-  if (!base.startsWith("/")) {
+  if (typeof base !== "string" || !base.startsWith("/")) {
     return null;
   }
   return base === "/" ? "/" : base.replace(/\/+$/, "");

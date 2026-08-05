@@ -10,6 +10,16 @@ export type AppAdminNavId =
 
 export type AppAdminSurface = "registry" | "workflows" | "authorization";
 
+export type WorkspaceNavId = AppUserNavId | AppAdminNavId;
+
+export type WorkspaceLocation = {
+  id: WorkspaceNavId;
+  label: string;
+  /** Nav catalog path template (still contains `$app`). */
+  to: (typeof APP_USER_NAV)[number]["to"] | (typeof APP_ADMIN_NAV)[number]["to"];
+  isOverview: boolean;
+};
+
 export const APP_USER_NAV = [
   {
     id: "overview" as const,
@@ -92,3 +102,155 @@ export const APP_ADMIN_NAV = [
     requires: "authorization" as const satisfies AppAdminSurface,
   },
 ] as const;
+
+function navPathForApp(to: string, app: string): string {
+  return to.replace("$app", app);
+}
+
+/**
+ * Resolve the workspace rail destination for a pathname.
+ * Longest matching nav path wins so nested version routes stay under Versions.
+ */
+export function workspaceLocationForPathname(
+  pathname: string,
+  app: string,
+): WorkspaceLocation {
+  const overview = APP_USER_NAV[0];
+  const overviewPath = navPathForApp(overview.to, app);
+  const normalized =
+    pathname.length > 1 && pathname.endsWith("/")
+      ? pathname.slice(0, -1)
+      : pathname;
+
+  const candidates = [...APP_USER_NAV, ...APP_ADMIN_NAV]
+    .filter((item) => item.id !== "overview")
+    .map((item) => ({
+      item,
+      path: navPathForApp(item.to, app),
+    }))
+    .sort((left, right) => right.path.length - left.path.length);
+
+  for (const { item, path } of candidates) {
+    if (normalized === path || normalized.startsWith(`${path}/`)) {
+      return {
+        id: item.id,
+        label: item.label,
+        to: item.to,
+        isOverview: false,
+      };
+    }
+  }
+
+  if (normalized === overviewPath || normalized.startsWith(`${overviewPath}/`)) {
+    return {
+      id: overview.id,
+      label: overview.label,
+      to: overview.to,
+      isOverview: true,
+    };
+  }
+
+  return {
+    id: overview.id,
+    label: overview.label,
+    to: overview.to,
+    isOverview: true,
+  };
+}
+
+/** Browser/tab title segment before the product suffix (`· Gestalt`). */
+export function workspaceDocumentTitle(
+  appLabel: string,
+  location: WorkspaceLocation,
+  opts?: { pathname?: string; app?: string },
+): string {
+  if (location.isOverview) return appLabel;
+  const page = workflowAdminPageLabel(opts?.pathname, opts?.app);
+  if (page) return `${page} · ${location.label} · ${appLabel}`;
+  return `${location.label} · ${appLabel}`;
+}
+
+export type WorkflowAdminBreadcrumbSegment = {
+  label: string;
+  /** When set, the segment is a link (not the current page). */
+  link?:
+    | {
+        to: "/apps/$app/admin/workflows/runs/$runId";
+        params: { app: string; runId: string };
+      }
+    | {
+        to: "/apps/$app/admin/workflows/definitions";
+        params: { app: string };
+      }
+    | {
+        to: "/apps/$app/admin/workflows/definitions/$definitionId";
+        params: { app: string; definitionId: string };
+      };
+};
+
+function shortWorkflowCrumbId(id: string): string {
+  if (id.length <= 28) return id;
+  return `${id.slice(0, 12)}…${id.slice(-8)}`;
+}
+
+/**
+ * Nested crumbs under Workflows (Apps → App → Workflows → …).
+ * Returns null on the runs landing page (chrome stays "Workflows").
+ */
+export function workflowAdminBreadcrumbTrail(
+  pathname: string | undefined,
+  app: string | undefined,
+): WorkflowAdminBreadcrumbSegment[] | null {
+  if (!pathname || !app) return null;
+  const base = `/apps/${app}/admin/workflows`;
+  const normalized =
+    pathname.length > 1 && pathname.endsWith("/")
+      ? pathname.slice(0, -1)
+      : pathname;
+  if (normalized === base) return null;
+
+  if (normalized.startsWith(`${base}/runs/`)) {
+    const rest = normalized.slice(`${base}/runs/`.length);
+    const parts = rest.split("/").filter(Boolean);
+    const runId = parts[0];
+    if (!runId) return [{ label: "Run" }];
+    const stepsIdx = parts.indexOf("steps");
+    const stepId = stepsIdx >= 0 ? parts[stepsIdx + 1] : undefined;
+    if (stepId) {
+      return [
+        {
+          label: shortWorkflowCrumbId(runId),
+          link: {
+            to: "/apps/$app/admin/workflows/runs/$runId",
+            params: { app, runId },
+          },
+        },
+        { label: shortWorkflowCrumbId(stepId) },
+      ];
+    }
+    return [{ label: shortWorkflowCrumbId(runId) }];
+  }
+
+  if (normalized === `${base}/definitions`) {
+    return [{ label: "Definitions" }];
+  }
+  if (normalized.startsWith(`${base}/definitions/`)) {
+    const definitionId = normalized.slice(`${base}/definitions/`.length);
+    if (!definitionId) return [{ label: "Definition" }];
+    return [{ label: shortWorkflowCrumbId(definitionId) }];
+  }
+  return null;
+}
+
+/**
+ * Nested label under Workflows for list/detail IA routes.
+ * Returns null on the runs landing page (chrome stays "Workflows").
+ */
+export function workflowAdminPageLabel(
+  pathname: string | undefined,
+  app: string | undefined,
+): string | null {
+  const trail = workflowAdminBreadcrumbTrail(pathname, app);
+  if (!trail || trail.length === 0) return null;
+  return trail[trail.length - 1]?.label ?? null;
+}

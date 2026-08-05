@@ -21,7 +21,7 @@ const tenantThemeLabel =
   import.meta.env.VITE_THEME_SWITCHER_TENANT_LABEL?.trim() ||
   DEFAULT_TENANT_THEME_LABEL;
 
-/** Development-only preview control for the generic and runtime tenant themes. */
+/** Development preview control for the generic and runtime tenant themes. */
 export function ThemeSwitcher() {
   const [source, setSource] = useState<ThemeSource>(readThemeSource);
 

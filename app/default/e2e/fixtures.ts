@@ -7,9 +7,13 @@ import type {
   Integration,
   IntegrationOperation,
   ManagedIdentity,
+  WorkflowDefinition,
   WorkflowRun,
 } from "../src/lib/api";
-import { workflowRunMatchesApp } from "../src/lib/workflowActivity";
+import {
+  workflowDefinitionMatchesApp,
+  workflowRunMatchesApp,
+} from "../src/lib/workflowActivity";
 import {
   apiTokenToIdentityGrantWire,
   parseIdentityGrantIdFromUrl,
@@ -495,6 +499,45 @@ export async function mockWorkflowRuns(
       return currentRuns.map((run) => structuredClone(run));
     },
   };
+}
+
+export async function mockWorkflowDefinitions(
+  page: Page,
+  definitions: WorkflowDefinition[],
+): Promise<void> {
+  let current = definitions.map((item) => structuredClone(item));
+
+  await page.route(
+    /\/api\/v2\/workflow\/definitions(?:\?.*)?$/,
+    (route: Route, request) => {
+      if (request.method() !== "GET") {
+        route.fallback();
+        return;
+      }
+      const url = new URL(request.url());
+      const appName = url.searchParams.get("targetApp")?.trim();
+      // Client filters by app; mock returns all and lets the UI filter, or
+      // optionally filter here when targetApp is present (parity with runs).
+      const items = appName
+        ? current.filter((item) => workflowDefinitionMatchesApp(item, appName))
+        : current;
+      route.fulfill({ json: { definitions: items } });
+    },
+  );
+
+  await page.route("**/api/v2/workflow/definitions/**", (route: Route, request) => {
+    if (request.method() !== "GET") {
+      route.fallback();
+      return;
+    }
+    const id = new URL(request.url()).pathname.split("/").pop() || "";
+    const definition = current.find((item) => item.id === id);
+    if (!definition) {
+      route.fulfill({ status: 404, json: { error: "not found" } });
+      return;
+    }
+    route.fulfill({ json: definition });
+  });
 }
 
 type CustomFixtures = {

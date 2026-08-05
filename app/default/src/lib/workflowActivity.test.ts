@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { WorkflowRun } from "@/lib/api";
+import type { WorkflowDefinition, WorkflowRun } from "@/lib/api";
 import {
+  workflowDefinitionMatchesApp,
   workflowRunBadgeVariant,
   workflowRunMatchesApp,
 } from "@/lib/workflowActivity";
@@ -12,6 +13,8 @@ describe("workflowRunBadgeVariant", () => {
     ["running", "info"],
     ["pending", "warning"],
     ["canceled", "muted"],
+    ["WORKFLOW_RUN_STATUS_SUCCEEDED", "success"],
+    ["WORKFLOW_STEP_STATUS_FAILED", "destructive"],
     [undefined, "muted"],
     ["unknown", "muted"],
   ] as const)("maps %s to %s", (status, variant) => {
@@ -58,5 +61,30 @@ describe("workflowRunMatchesApp", () => {
       definitionId: "app_slack_notify_on_failure",
     });
     expect(workflowRunMatchesApp(owned, "slack")).toBe(true);
+  });
+});
+
+describe("workflowDefinitionMatchesApp", () => {
+  it("matches step target apps", () => {
+    const definition: WorkflowDefinition = {
+      id: "def_1",
+      provider: "basic",
+      target: {
+        steps: [{ id: "s1", app: { name: "slack", operation: "chat.postMessage" } }],
+      },
+      activations: [],
+    };
+    expect(workflowDefinitionMatchesApp(definition, "slack")).toBe(true);
+    expect(workflowDefinitionMatchesApp(definition, "gmail")).toBe(false);
+  });
+
+  it("matches app_<name>_ definition ids", () => {
+    const definition: WorkflowDefinition = {
+      id: "app_slack_notify",
+      provider: "basic",
+      target: { steps: [] },
+      activations: [],
+    };
+    expect(workflowDefinitionMatchesApp(definition, "slack")).toBe(true);
   });
 });

@@ -34,5 +34,11 @@ export const queryKeys = {
     list: (app: string) => ["workflows", app, "list"] as const,
     detail: (app: string, runId: string) =>
       ["workflows", app, "detail", runId] as const,
+    stepLogs: (app: string, runId: string, jobId: string, stepId: string) =>
+      ["workflows", app, "detail", runId, "jobs", jobId, "steps", stepId, "logs"] as const,
+    definitions: (app: string) =>
+      ["workflows", app, "definitions"] as const,
+    definition: (app: string, definitionId: string) =>
+      ["workflows", app, "definitions", definitionId] as const,
   },
 } as const;

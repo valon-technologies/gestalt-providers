@@ -4,6 +4,7 @@ import {
   mockAppAdminRegistry,
   mockAuthInfo,
   mockIntegrations,
+  mockWorkflowDefinitions,
   mockWorkflowRuns,
 } from "./fixtures";
 import type { AppAdminRegistryResponse, WorkflowAppTarget, WorkflowTarget } from "../src/lib/api";
@@ -27,6 +28,7 @@ async function openSlackWorkflows(page: import("@playwright/test").Page) {
     },
   ]);
   await mockAppAdminRegistry(page, SLACK_APP, SLACK_REGISTRY);
+  await mockWorkflowDefinitions(page, []);
   await page.goto(`/apps/${SLACK_APP}/admin/workflows`);
 }
 
@@ -87,6 +89,7 @@ test.describe("App admin workflows", () => {
     await mockAuthInfo(authenticatedPage, {
       provider: "test-sso",
       displayName: "Test SSO",
+      features: { workflowDefaultProvider: "basic" },
     });
   });
 
@@ -94,6 +97,7 @@ test.describe("App admin workflows", () => {
     await mockWorkflowRuns(page, []);
     await openSlackWorkflows(page);
     await expect(page.getByTestId("app-workflows-empty")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Runs" })).toBeVisible();
   });
 
   test("refreshes the list without clearing the current page state", async ({
@@ -115,7 +119,7 @@ test.describe("App admin workflows", () => {
 
     await openSlackWorkflows(page);
     await expect(
-      page.getByRole("button", { name: /slack\.chat\.postMessage/i }),
+      page.getByRole("link", { name: /slack\.chat\.postMessage/i }),
     ).toBeVisible();
 
     workflowRuns.setRuns([
@@ -142,12 +146,12 @@ test.describe("App admin workflows", () => {
 
     await page.getByRole("button", { name: "Refresh" }).click();
     await expect(
-      page.getByRole("button", { name: /slack\.chat\.postMessage/i }),
+      page.getByRole("link", { name: /slack\.chat\.postMessage/i }),
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: /github\.issues\.create/i })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: /github\.issues\.create/i })).toHaveCount(0);
   });
 
-  test("shows durable run details for the selected run", async ({ authenticatedPage: page }) => {
+  test("opens run detail from the list", async ({ authenticatedPage: page }) => {
     await mockWorkflowRuns(page, [
       {
         id: "run_123",
@@ -213,30 +217,29 @@ test.describe("App admin workflows", () => {
     ]);
 
     await openSlackWorkflows(page);
-    const detailPanel = page.locator('[data-testid="app-workflow-run-list"]').locator("..");
 
     await expect(page.getByTestId("app-admin-nav-workflows")).toHaveClass(/font-medium/);
     await expect(
-      page.getByRole("button", { name: /datadog\.monitors\.get \(\+2\)/i }),
+      page.getByRole("link", { name: /datadog\.monitors\.get \(\+2\)/i }),
     ).toBeVisible();
     await expect(
-      page.getByLabel("Recent runs").getByText("incident_triage"),
+      page.getByLabel("All workflow runs").getByText("incident_triage"),
     ).toBeVisible();
     await expect(
-      page.getByLabel("Automation identities").getByText("service_account:workflow-runner"),
+      page.getByLabel("All workflow runs").getByText("event:datadog_alert"),
     ).toBeVisible();
-    await expect(
-      page.getByLabel("Recent runs").getByText("event:datadog_alert"),
-    ).toBeVisible();
+    await expect(page.getByRole("link", { name: /github\.issues\.create/i })).toHaveCount(0);
+
+    await page.getByRole("link", { name: /datadog\.monitors\.get \(\+2\)/i }).click();
+    await expect(page).toHaveURL(/\/admin\/workflows\/runs\/run_123$/);
     await expect(page.getByText(/^diagnose$/).first()).toBeVisible();
     await expect(page.getByText(/^summarize$/).first()).toBeVisible();
     await expect(page.getByText(/^notify$/).first()).toBeVisible();
     await expect(page.getByText(/API latency is elevated/)).toBeVisible();
-    await expect(page.getByRole("button", { name: /github\.issues\.create/i })).toHaveCount(0);
-    await expect(detailPanel.getByText("run_456")).toHaveCount(0);
+    await expect(page.getByText("service_account:workflow-runner")).toBeVisible();
   });
 
-  test("cancels a pending run from the detail panel", async ({ authenticatedPage: page }) => {
+  test("cancels a pending run from the detail page", async ({ authenticatedPage: page }) => {
     await mockWorkflowRuns(page, [
       {
         id: "run_pending",
@@ -252,13 +255,16 @@ test.describe("App admin workflows", () => {
     ]);
 
     await openSlackWorkflows(page);
+    await page.getByRole("link", { name: /slack\.chat\.postMessage/i }).click();
+    await expect(page).toHaveURL(/\/admin\/workflows\/runs\/run_pending$/);
 
     await page.getByRole("button", { name: "Cancel run" }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Cancel run" }).click();
     await expect(page.getByRole("button", { name: "Cancel run" })).toHaveCount(0);
-    await expect(page.getByText("Canceled from Gestalt UI")).toBeVisible();
+    await expect(page.getByText("Canceled manually")).toBeVisible();
   });
 
-  test("shows cancel errors without clearing the selected run", async ({
+  test("shows cancel errors without leaving the run detail page", async ({
     authenticatedPage: page,
   }) => {
     await mockWorkflowRuns(
@@ -286,10 +292,14 @@ test.describe("App admin workflows", () => {
     );
 
     await openSlackWorkflows(page);
+    await page.getByRole("link", { name: /slack\.chat\.postMessage/i }).click();
 
     await page.getByRole("button", { name: "Cancel run" }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Cancel run" }).click();
     await expect(
-      page.getByText("workflow run cannot be canceled once it has started"),
+      page.getByText(
+        "This run can't be canceled because it already started. Refresh to see the latest status.",
+      ),
     ).toBeVisible();
     await expect(page.getByText("run_pending")).toBeVisible();
     await expect(page.getByRole("button", { name: "Cancel run" })).toBeVisible();
@@ -311,7 +321,13 @@ test.describe("App admin workflows", () => {
     ]);
 
     await openSlackWorkflows(page);
+    await page.getByRole("link", { name: /slack\.chat\.postMessage/i }).click();
     await expect(page.getByRole("button", { name: "Cancel run" })).toHaveCount(0);
+    await expect(
+      page.getByText(
+        "Running runs can't be canceled from this page. Refresh to check for an updated status.",
+      ),
+    ).toBeVisible();
   });
 
   test("scopes workflow runs to the current app", async ({ authenticatedPage: page }) => {
@@ -341,22 +357,54 @@ test.describe("App admin workflows", () => {
     ]);
 
     await openSlackWorkflows(page);
-    await expect(page.getByTestId("app-workflow-ownership-note")).toBeVisible();
-    await expect(
-      page.getByRole("heading", { level: 3, name: "Definitions & schedules" }),
-    ).toBeVisible();
-    await expect(
-      page.getByLabel("Definitions and schedules").getByText("app_slack_notify"),
-    ).toBeVisible();
-    await expect(
-      page.getByLabel("Automation identities").getByText("service_account:slack-bot"),
-    ).toBeVisible();
     await expect(page.getByTestId("app-workflow-run-list")).toBeVisible();
     await expect(
-      page.getByRole("button", { name: /slack\.chat\.postMessage/i }),
+      page.getByRole("link", { name: /slack\.chat\.postMessage/i }),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: /gmail\.users\.messages\.list/i }),
+      page.getByRole("link", { name: /gmail\.users\.messages\.list/i }),
     ).toHaveCount(0);
+
+    await page.goto(`/apps/${SLACK_APP}/admin/workflows/definitions`);
+    await expect(page).toHaveURL(/\/admin\/workflows\/definitions$/);
+    await expect(page.getByTestId("app-workflow-definitions-list")).toBeVisible();
+    await expect(page.getByText("app_slack_notify")).toBeVisible();
+    await expect(page.getByText("app_gmail_sync")).toHaveCount(0);
+  });
+
+  test("lists API definitions and links to filtered runs", async ({
+    authenticatedPage: page,
+  }) => {
+    await mockWorkflowRuns(page, []);
+    await mockIntegrations(page, [
+      {
+        name: SLACK_APP,
+        displayName: "Slack",
+        managementPath: `/apps/${SLACK_APP}/admin`,
+      },
+    ]);
+    await mockAppAdminRegistry(page, SLACK_APP, SLACK_REGISTRY);
+    await mockWorkflowDefinitions(page, [
+      {
+        id: "app_slack_notify",
+        provider: "basic",
+        paused: false,
+        runAs: "service_account:slack-bot",
+        target: workflowAppTarget(SLACK_APP, "chat.postMessage"),
+        activations: [
+          {
+            id: "morning",
+            trigger: { kind: "schedule", cron: "0 9 * * *", timezone: "UTC" },
+          },
+        ],
+      },
+    ]);
+
+    await page.goto(`/apps/${SLACK_APP}/admin/workflows/definitions`);
+    await expect(page.getByTestId("app-workflow-definitions-list")).toBeVisible();
+    await expect(page.getByText("app_slack_notify")).toBeVisible();
+    await page.getByRole("link", { name: "View runs" }).click();
+    await expect(page).toHaveURL(/definition=app_slack_notify/);
+    await expect(page.getByText(/Filtered to definition/)).toBeVisible();
   });
 });

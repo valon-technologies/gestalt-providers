@@ -4,6 +4,7 @@ import { DevWorktreeBanner } from "@/components/DevWorktreeBanner";
 import Nav from "@/components/Nav";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 import { Toaster } from "@/components/ui/sonner";
+import { isLocalDevChrome } from "@/lib/local-dev-chrome";
 
 export const rootRoute = createRootRoute({
   component: RootLayout,
@@ -11,16 +12,18 @@ export const rootRoute = createRootRoute({
 
 /** Console chrome: top nav persists; route content is session-gated. */
 function RootLayout() {
+  const showLocalDevChrome = isLocalDevChrome();
+
   return (
     <div className="min-h-screen">
       <div className="sticky top-0 z-50">
-        {import.meta.env.DEV ? <DevWorktreeBanner /> : null}
+        <DevWorktreeBanner />
         <Nav />
       </div>
       <AuthGuard>
         <Outlet />
       </AuthGuard>
-      {import.meta.env.DEV ? <ThemeSwitcher /> : null}
+      {showLocalDevChrome ? <ThemeSwitcher /> : null}
       <Toaster />
     </div>
   );

@@ -412,6 +412,38 @@ export interface WorkflowStepExecution {
   completedAt?: string;
 }
 
+/**
+ * Forward-compatible job graph (GitHub Actions-style). Today the backend runs
+ * steps sequentially; the UI accepts optional `stages` so parallel job groups
+ * can render when the platform starts emitting them.
+ */
+export interface WorkflowRunJobStep {
+  id: string;
+  name: string;
+  status?: string;
+  durationMs?: number | null;
+  startedAt?: string;
+  completedAt?: string;
+  statusMessage?: string;
+  skipReason?: string;
+}
+
+export interface WorkflowRunJob {
+  id: string;
+  name: string;
+  status?: string;
+  durationMs?: number | null;
+  startedAt?: string;
+  completedAt?: string;
+  steps: WorkflowRunJobStep[];
+}
+
+export interface WorkflowRunStage {
+  id: string;
+  kind: "sequential" | "parallel";
+  jobs: WorkflowRunJob[];
+}
+
 export interface WorkflowRun {
   id: string;
   provider: string;
@@ -431,12 +463,81 @@ export interface WorkflowRun {
   input?: Record<string, unknown>;
   currentStepId?: string;
   steps?: WorkflowStepExecution[];
+  /** Optional job graph; when absent the UI projects from `steps`. */
+  stages?: WorkflowRunStage[];
 }
 
-type WorkflowRunWire = Omit<WorkflowRun, "target" | "steps"> & {
+/** Workflow recipe (config), distinct from a WorkflowRun execution. */
+export interface WorkflowDefinitionActivation {
+  id: string;
+  paused?: boolean;
+  trigger?: {
+    kind?: string;
+    case?: string;
+    cron?: string;
+    timezone?: string;
+    eventType?: string;
+    eventSource?: string;
+    eventSubject?: string;
+  };
+}
+
+export interface WorkflowDefinition {
+  id: string;
+  provider: string;
+  generation?: number;
+  paused?: boolean;
+  runAs?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  target: WorkflowTarget;
+  activations: WorkflowDefinitionActivation[];
+}
+
+type WorkflowRunWire = Omit<WorkflowRun, "target" | "steps" | "stages"> & {
   target?: unknown;
   steps?: unknown;
+  stages?: unknown;
 };
+
+/** Canonical UI/domain statuses for workflow runs, jobs, and steps. */
+export type WorkflowStatus =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "canceled"
+  | "skipped"
+  | "unknown";
+
+const WORKFLOW_STATUS_VALUES = new Set<string>([
+  "pending",
+  "running",
+  "succeeded",
+  "failed",
+  "canceled",
+  "skipped",
+  "unknown",
+]);
+
+/**
+ * Collapse wire statuses (short names or proto enums like
+ * `WORKFLOW_RUN_STATUS_SUCCEEDED` / `WORKFLOW_STEP_STATUS_FAILED`) into the
+ * canonical domain vocabulary UI and filters expect.
+ */
+export function normalizeWorkflowStatus(status?: string | null): WorkflowStatus {
+  let value = (status || "").trim().toLowerCase();
+  if (!value) return "unknown";
+  value = value
+    .replace(/^workflow_run_status_/, "")
+    .replace(/^workflow_step_status_/, "")
+    .replace(/^workflow_job_status_/, "");
+  if (value === "cancelled") value = "canceled";
+  if (WORKFLOW_STATUS_VALUES.has(value)) {
+    return value as WorkflowStatus;
+  }
+  return "unknown";
+}
 
 export function normalizeWorkflowRun(run: WorkflowRunWire): WorkflowRun {
   const wire = run as WorkflowRunWire & {
@@ -445,9 +546,67 @@ export function normalizeWorkflowRun(run: WorkflowRunWire): WorkflowRun {
   };
   return {
     ...run,
+    status: normalizeWorkflowStatus(optionalString(run.status)),
     targetApp: optionalString(wire.targetApp) ?? optionalString(wire.target_app),
     target: normalizeWorkflowTarget(run.target),
     steps: normalizeWorkflowStepExecutions(run.steps),
+    stages: normalizeWorkflowRunStages(run.stages),
+  };
+}
+
+type WorkflowDefinitionWire = Record<string, unknown>;
+
+export function normalizeWorkflowDefinition(
+  raw: WorkflowDefinitionWire,
+): WorkflowDefinition {
+  const id = optionalString(raw.id) ?? "";
+  const provider = optionalString(raw.provider) ?? "";
+  const generationRaw = raw.generation;
+  const generation =
+    typeof generationRaw === "number"
+      ? generationRaw
+      : typeof generationRaw === "string"
+        ? Number(generationRaw)
+        : undefined;
+  const activationsRaw = Array.isArray(raw.activations) ? raw.activations : [];
+  return {
+    id,
+    provider,
+    generation: Number.isFinite(generation) ? generation : undefined,
+    paused: Boolean(raw.paused),
+    runAs: optionalString(raw.runAs) ?? optionalString(raw.run_as),
+    createdAt: optionalString(raw.createdAt) ?? optionalString(raw.created_at),
+    updatedAt: optionalString(raw.updatedAt) ?? optionalString(raw.updated_at),
+    target: normalizeWorkflowTarget(raw.target),
+    activations: activationsRaw.map(normalizeWorkflowActivation),
+  };
+}
+
+function normalizeWorkflowActivation(
+  raw: unknown,
+): WorkflowDefinitionActivation {
+  if (!isRecord(raw)) return { id: "" };
+  const triggerRaw = isRecord(raw.trigger) ? raw.trigger : null;
+  const caseName =
+    optionalString(triggerRaw?.case) ??
+    optionalString(triggerRaw?.kind) ??
+    undefined;
+  const value = isRecord(triggerRaw?.value) ? triggerRaw.value : triggerRaw;
+  const match = isRecord(value?.match) ? value.match : null;
+  return {
+    id: optionalString(raw.id) ?? "",
+    paused: Boolean(raw.paused),
+    trigger: {
+      kind: caseName,
+      case: caseName,
+      cron: optionalString(value?.cron),
+      timezone: optionalString(value?.timezone),
+      eventType: optionalString(match?.type) ?? optionalString(value?.type),
+      eventSource:
+        optionalString(match?.source) ?? optionalString(value?.source),
+      eventSubject:
+        optionalString(match?.subject) ?? optionalString(value?.subject),
+    },
   };
 }
 
@@ -533,6 +692,91 @@ function normalizeWorkflowTextTarget(
   };
 }
 
+function normalizeWorkflowRunStages(
+  value: unknown,
+): WorkflowRunStage[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  const stages = value.flatMap((rawStage, stageIndex) => {
+    if (!isRecord(rawStage)) return [];
+    const jobsRaw = Array.isArray(rawStage.jobs) ? rawStage.jobs : [];
+    const jobs = jobsRaw.flatMap((rawJob, jobIndex) => {
+      if (!isRecord(rawJob)) return [];
+      const stepsRaw = Array.isArray(rawJob.steps) ? rawJob.steps : [];
+      const steps = stepsRaw.flatMap((rawStep, stepIndex) => {
+        if (!isRecord(rawStep)) return [];
+        const durationRaw = rawStep.durationMs ?? rawStep.duration_ms;
+        const durationMs =
+          typeof durationRaw === "number"
+            ? durationRaw
+            : typeof durationRaw === "string"
+              ? Number(durationRaw)
+              : undefined;
+        return [
+          {
+            id:
+              optionalString(rawStep.id) ||
+              `step-${stageIndex + 1}-${jobIndex + 1}-${stepIndex + 1}`,
+            name:
+              optionalString(rawStep.name) ||
+              optionalString(rawStep.id) ||
+              `Step ${stepIndex + 1}`,
+            status: normalizeWorkflowStatus(optionalString(rawStep.status)),
+            durationMs: Number.isFinite(durationMs) ? durationMs : undefined,
+            startedAt:
+              optionalString(rawStep.startedAt) ??
+              optionalString(rawStep.started_at),
+            completedAt:
+              optionalString(rawStep.completedAt) ??
+              optionalString(rawStep.completed_at),
+            statusMessage:
+              optionalString(rawStep.statusMessage) ??
+              optionalString(rawStep.status_message),
+            skipReason:
+              optionalString(rawStep.skipReason) ??
+              optionalString(rawStep.skip_reason),
+          },
+        ];
+      });
+      const jobDurationRaw = rawJob.durationMs ?? rawJob.duration_ms;
+      const jobDurationMs =
+        typeof jobDurationRaw === "number"
+          ? jobDurationRaw
+          : typeof jobDurationRaw === "string"
+            ? Number(jobDurationRaw)
+            : undefined;
+      return [
+        {
+          id:
+            optionalString(rawJob.id) ||
+            `job-${stageIndex + 1}-${jobIndex + 1}`,
+          name:
+            optionalString(rawJob.name) ||
+            optionalString(rawJob.id) ||
+            `Job ${jobIndex + 1}`,
+          status: normalizeWorkflowStatus(optionalString(rawJob.status)),
+          durationMs: Number.isFinite(jobDurationMs) ? jobDurationMs : undefined,
+          startedAt:
+            optionalString(rawJob.startedAt) ??
+            optionalString(rawJob.started_at),
+          completedAt:
+            optionalString(rawJob.completedAt) ??
+            optionalString(rawJob.completed_at),
+          steps,
+        },
+      ];
+    });
+    const kindRaw = optionalString(rawStage.kind)?.toLowerCase();
+    return [
+      {
+        id: optionalString(rawStage.id) || `stage-${stageIndex + 1}`,
+        kind: kindRaw === "parallel" ? ("parallel" as const) : ("sequential" as const),
+        jobs,
+      },
+    ];
+  });
+  return stages.length > 0 ? stages : undefined;
+}
+
 function normalizeWorkflowStepExecutions(
   value: unknown,
 ): WorkflowStepExecution[] {
@@ -542,7 +786,7 @@ function normalizeWorkflowStepExecutions(
     return [
       {
         stepId: optionalString(rawStep.stepId),
-        status: optionalString(rawStep.status),
+        status: normalizeWorkflowStatus(optionalString(rawStep.status)),
         attempts: normalizeWorkflowStepAttempts(rawStep.attempts),
         input: rawStep.input,
         output: rawStep.output,
@@ -562,7 +806,7 @@ function normalizeWorkflowStepAttempts(value: unknown): WorkflowStepAttempt[] {
     return [
       {
         id: optionalString(rawAttempt.id),
-        status: optionalString(rawAttempt.status),
+        status: normalizeWorkflowStatus(optionalString(rawAttempt.status)),
         idempotencyKey: optionalString(rawAttempt.idempotencyKey),
         input: rawAttempt.input,
         output: rawAttempt.output,

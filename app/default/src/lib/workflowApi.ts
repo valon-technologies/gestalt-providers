@@ -1,17 +1,29 @@
-import { fetchAPI, normalizeWorkflowRun, type WorkflowRun } from "@/lib/api";
+import {
+  fetchAPI,
+  normalizeWorkflowDefinition,
+  normalizeWorkflowRun,
+  type WorkflowDefinition,
+  type WorkflowRun,
+} from "@/lib/api";
 import {
   rememberWorkflowProvider,
   resolveWorkflowProvider,
 } from "@/lib/workflowProvider";
+import { workflowDefinitionMatchesApp } from "@/lib/workflowActivity";
 
 /** Canonical workflow platform REST surface (gestalt.provider.v1.Workflow). */
 const WORKFLOW_RUNS_PATH = "/api/v2/workflow/runs";
+const WORKFLOW_DEFINITIONS_PATH = "/api/v2/workflow/definitions";
 
 type WorkflowRunWire = Parameters<typeof normalizeWorkflowRun>[0];
 
 interface WorkflowRunListResponse {
   runs: WorkflowRunWire[];
   nextPageToken?: string;
+}
+
+interface WorkflowDefinitionListResponse {
+  definitions?: unknown[];
 }
 
 export type ListWorkflowRunsOptions = {
@@ -110,9 +122,14 @@ function normalizeRuns(runs: WorkflowRunWire[]): WorkflowRun[] {
   });
 }
 
+export type WorkflowRunPage = {
+  runs: WorkflowRun[];
+  nextPageToken?: string;
+};
+
 export async function listWorkflowRuns(
   opts?: ListWorkflowRunsOptions,
-): Promise<WorkflowRun[]> {
+): Promise<WorkflowRunPage> {
   const provider = await resolveWorkflowProvider(opts?.provider);
   const params = listWorkflowRunsQuery(provider, opts);
   const response = await fetchAPI<WorkflowRunListResponse>(
@@ -121,7 +138,8 @@ export async function listWorkflowRuns(
   const runs = normalizeRuns(response.runs);
   // `targetApp` is a server-side ownership filter. List summaries may omit the
   // hydrated target, so re-filtering here can silently discard valid results.
-  return runs;
+  const nextPageToken = response.nextPageToken?.trim() || undefined;
+  return { runs, nextPageToken };
 }
 
 export async function getWorkflowRun(
@@ -136,6 +154,39 @@ export async function getWorkflowRun(
   const normalized = normalizeWorkflowRun(run);
   rememberWorkflowProvider(normalized.provider);
   return normalized;
+}
+
+export type WorkflowStepLogsOptions = WorkflowRunRequestOptions & {
+  jobId: string;
+  stepId: string;
+};
+
+export type WorkflowStepLogsResponse = {
+  runId: string;
+  jobId: string;
+  stepId: string;
+  groups: Array<{
+    id: string;
+    name: string;
+    status?: string;
+    durationMs?: number | null;
+    defaultCollapsed?: boolean;
+    lines: Array<{
+      number?: number;
+      text: string;
+      level?: "info" | "warning" | "error" | "debug";
+    }>;
+  }>;
+};
+
+export async function getWorkflowStepLogs(
+  runId: string,
+  opts: WorkflowStepLogsOptions,
+): Promise<WorkflowStepLogsResponse> {
+  const provider = await resolveProvider(opts);
+  const params = runDetailQuery(provider, resolveTargetApp(opts));
+  const path = `${workflowRunPath(runId)}/jobs/${encodeURIComponent(opts.jobId)}/steps/${encodeURIComponent(opts.stepId)}/logs`;
+  return fetchAPI<WorkflowStepLogsResponse>(`${path}?${params}`);
 }
 
 export async function cancelWorkflowRun(
@@ -154,5 +205,73 @@ export async function cancelWorkflowRun(
   );
   const normalized = normalizeWorkflowRun(run);
   rememberWorkflowProvider(normalized.provider);
+  return normalized;
+}
+
+export type ListWorkflowDefinitionsOptions = {
+  provider?: string;
+  /** Client-side ownership filter (definitions API is provider-scoped). */
+  targetApp?: string;
+};
+
+export type WorkflowDefinitionRequestOptions = {
+  provider?: string;
+  targetApp?: string;
+};
+
+function workflowDefinitionPath(definitionId: string): string {
+  return `${WORKFLOW_DEFINITIONS_PATH}/${encodeURIComponent(definitionId)}`;
+}
+
+function listDefinitionsQuery(provider: string): string {
+  const query = new URLSearchParams();
+  appendProviderQuery(query, provider);
+  return query.toString();
+}
+
+function definitionDetailQuery(provider: string): string {
+  return listDefinitionsQuery(provider);
+}
+
+export async function listWorkflowDefinitions(
+  opts?: ListWorkflowDefinitionsOptions,
+): Promise<WorkflowDefinition[]> {
+  const provider = await resolveWorkflowProvider(opts?.provider);
+  const params = listDefinitionsQuery(provider);
+  const response = await fetchAPI<WorkflowDefinitionListResponse>(
+    `${WORKFLOW_DEFINITIONS_PATH}?${params}`,
+  );
+  const definitions = (response.definitions ?? []).map((item) => {
+    const normalized = normalizeWorkflowDefinition(
+      item as Record<string, unknown>,
+    );
+    rememberWorkflowProvider(normalized.provider);
+    return normalized;
+  });
+  const targetApp = opts?.targetApp?.trim();
+  if (!targetApp) return definitions;
+  return definitions.filter((definition) =>
+    workflowDefinitionMatchesApp(definition, targetApp),
+  );
+}
+
+export async function getWorkflowDefinition(
+  definitionId: string,
+  opts?: WorkflowDefinitionRequestOptions,
+): Promise<WorkflowDefinition> {
+  const provider = await resolveWorkflowProvider(opts?.provider);
+  const params = definitionDetailQuery(provider);
+  const response = await fetchAPI<Record<string, unknown>>(
+    `${workflowDefinitionPath(definitionId)}?${params}`,
+  );
+  const normalized = normalizeWorkflowDefinition(response);
+  rememberWorkflowProvider(normalized.provider);
+  const targetApp = opts?.targetApp?.trim();
+  if (
+    targetApp &&
+    !workflowDefinitionMatchesApp(normalized, targetApp)
+  ) {
+    throw new Error("This workflow definition is not available in this app.");
+  }
   return normalized;
 }

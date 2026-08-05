@@ -30,7 +30,9 @@ describe("DevWorktreeBanner", () => {
 
   test("mounts in root chrome above Nav inside the sticky stack", () => {
     expect(ROOT).toContain("DevWorktreeBanner");
-    expect(ROOT).toContain("import.meta.env.DEV ? <DevWorktreeBanner");
+    expect(ROOT).toContain("<DevWorktreeBanner />");
+    expect(ROOT).toContain("isLocalDevChrome");
+    expect(ROOT).toContain("ThemeSwitcher");
     expect(ROOT).toContain("sticky top-0 z-50");
     expect(NAV).not.toContain("sticky top-0");
     const bannerIndex = ROOT.indexOf("<DevWorktreeBanner");

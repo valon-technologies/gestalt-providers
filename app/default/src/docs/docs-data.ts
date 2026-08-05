@@ -29,7 +29,7 @@ export const docsNavItems: DocsNavItem[] = [
   {
     id: "workflows",
     href: "/docs/workflows",
-    label: "Manage Workflows",
+    label: "Inspect Workflows",
     subsections: [
       { id: "wf-help", label: "Start with help" },
       { id: "wf-runs", label: "Inspect runs" },
