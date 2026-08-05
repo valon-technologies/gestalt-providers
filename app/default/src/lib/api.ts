@@ -14,9 +14,24 @@ export interface CredentialFieldDef {
   description?: string;
 }
 
+export interface IdentityFact {
+  kind: string;
+  value: string;
+  /** SCIM-style: at most one fact should be primary. */
+  primary?: boolean;
+}
+
+export interface AccountIdentity {
+  facts: IdentityFact[];
+}
+
 export interface InstanceInfo {
   name: string;
   connection?: string;
+  /** True when this instance is the subject's preferred account for the connection. */
+  preferred?: boolean;
+  /** Provider-recognized account facts for Connection UI (email, workspace, …). */
+  identity?: AccountIdentity;
 }
 
 export type AuthType = "oauth" | "manual";
@@ -70,6 +85,12 @@ export interface ConnectionDefInfo {
   credentialMode?: CredentialMode;
   ownerKind?: OwnerKind;
   instances?: InstanceInfo[];
+  preferredInstance?: string;
+  /**
+   * True only when a chosen account exists (valid preferred, or a single valid
+   * instance). Stored credentials without a chosen account leave this false.
+   */
+  connected?: boolean;
   mcpPassthrough?: boolean;
 }
 
@@ -882,6 +903,27 @@ export async function disconnectIntegration(
       method: "DELETE",
     },
   );
+}
+
+export type SelectPreferredInstanceResult = {
+  status: string;
+  integration?: string;
+  connection?: string;
+  instance?: string;
+};
+
+/** Set the active account for an app connection (server-owned preferred instance). */
+export async function selectPreferredInstance(
+  name: string,
+  instance: string,
+  connection?: string,
+): Promise<SelectPreferredInstanceResult> {
+  const body: Record<string, string> = { instance };
+  if (connection) body.connection = connection;
+  return fetchAPI(`/api/v1/apps/${encodeURIComponent(name)}/preferred-instance`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
 }
 
 import {

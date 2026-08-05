@@ -3,6 +3,7 @@ import AuthGuard from "@/components/AuthGuard";
 import { DevWorktreeBanner } from "@/components/DevWorktreeBanner";
 import Nav from "@/components/Nav";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
+import { Toaster } from "@/components/ui/sonner";
 
 export const rootRoute = createRootRoute({
   component: RootLayout,
@@ -20,6 +21,7 @@ function RootLayout() {
         <Outlet />
       </AuthGuard>
       {import.meta.env.DEV ? <ThemeSwitcher /> : null}
+      <Toaster />
     </div>
   );
 }

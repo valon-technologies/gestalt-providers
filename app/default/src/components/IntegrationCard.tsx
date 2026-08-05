@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import type { KeyboardEvent, MouseEvent } from "react";
 import {
   Integration,
   startIntegrationOAuth,
@@ -8,8 +9,9 @@ import {
 } from "@/lib/api";
 import {
   appOpenPath,
-  badgeVariantFromTone,
+  alertVariantFromTone,
   canManageApp,
+  catalogCardActivateRoute,
   catalogInstallState,
   catalogShowOpenAppButton,
   getAppSurfaces,
@@ -22,10 +24,20 @@ import {
   type ConnectionContext,
 } from "@/lib/integrationStatus";
 import { resolveMountedAppHref } from "@/lib/mount";
+import {
+  NESTED_INTERACTIVE_OPT_OUT_ATTR,
+  nestedInteractiveSuppress,
+} from "@/lib/nested-interactive";
+import {
+  isInteractiveTarget,
+  rowLinkClickIntent,
+} from "@/lib/row-link";
 import { useIntegrationConnection } from "@/hooks/useIntegrationConnection";
 import { cn } from "@/lib/cn";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { SearchHighlight } from "@/components/ui/search-highlight";
+import { CircleAlert } from "lucide-react";
 import IntegrationIcon from "./IntegrationIcon";
 import {
   MoreHorizontalIcon,
@@ -81,7 +93,6 @@ export default function IntegrationCard({
   integration,
   onConnected,
   onDisconnected,
-  onStatusMessage,
   startOAuth = startIntegrationOAuth,
   connectManual = connectManualIntegration,
   disconnect = disconnectIntegration,
@@ -95,8 +106,6 @@ export default function IntegrationCard({
   integration: Integration;
   onConnected?: () => void;
   onDisconnected?: () => void;
-  /** Catalog/admin toast feedback after connect or disconnect. */
-  onStatusMessage?: (message: string) => void;
   startOAuth?: StartOAuthFn;
   connectManual?: ConnectManualFn;
   disconnect?: DisconnectFn;
@@ -125,7 +134,6 @@ export default function IntegrationCard({
     integration,
     onConnected,
     onDisconnected,
-    onStatusMessage,
     startOAuth,
     connectManual,
     disconnect,
@@ -145,10 +153,10 @@ export default function IntegrationCard({
   const settingsAvailable =
     !useAppDetailConnection &&
     shouldShowIntegrationSettings(normalizedStatus, readOnly);
-  /** Attention chip only — Ready is a check beside the options menu. */
-  const statusBadgeLabel =
+  /** Attention notice — inline Alert, not a status Badge. */
+  const attentionMessage =
     installState === "needs_attention" ? normalizedStatus.summaryLabel : null;
-  const statusBadgeVariant = badgeVariantFromTone(normalizedStatus.tone);
+  const attentionAlertVariant = alertVariantFromTone(normalizedStatus.tone);
   const cardNavigationEnabled = !disableNavigation && !settingsOpen;
   /** Installed → More (Remove app). Discovery → Add when connectable. */
   const showInstalledMenu =
@@ -163,16 +171,19 @@ export default function IntegrationCard({
       connectLabel !== null);
   const showOpenAppButton =
     !readOnly && catalogShowOpenAppButton(integration, connectionContext);
+  const activateRoute = catalogCardActivateRoute(integration);
+  /** Catalog tiles: real stretch link. Modal entry: whole-card click → settings. */
+  const useStretchLink = cardNavigationEnabled && useAppDetailConnection;
+  const useCardClickActivate = cardNavigationEnabled && !useAppDetailConnection;
 
   function navigateToAppDetail(options?: {
     connection?: boolean;
     action?: "disconnect";
   }) {
     if (useAppDetailConnection) {
-      const toConnection =
-        options?.connection ?? installState === "needs_attention";
+      const toConnection = options?.connection ?? false;
       void navigate({
-        to: toConnection ? "/apps/$app/connection" : "/apps/$app",
+        to: toConnection ? "/apps/$app/connection" : activateRoute.to,
         params: { app: integration.name },
         search: options?.action ? { action: options.action } : {},
       });
@@ -208,32 +219,59 @@ export default function IntegrationCard({
     window.location.assign(resolveMountedAppHref(mountedPath));
   }
 
+  function handleCardClick(event: MouseEvent<HTMLDivElement>) {
+    if (!useCardClickActivate) return;
+    if (isInteractiveTarget(event.target)) return;
+    navigateToAppDetail();
+  }
+
+  function handleCardKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (!useCardClickActivate || event.target !== event.currentTarget) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    navigateToAppDetail();
+  }
+
   function renderCardTitle() {
     const title = (
       <h3 className="text-base font-heading text-foreground">
         <SearchHighlight text={label} query={highlightQuery} variant="vivid" />
       </h3>
     );
-    if (!cardNavigationEnabled) return title;
-    if (useAppDetailConnection) {
-      return (
-        <Link
-          to={installState === "needs_attention" ? "/apps/$app/connection" : "/apps/$app"}
-          params={{ app: integration.name }}
-          className="block rounded-sm focus-ring"
-        >
-          {title}
-        </Link>
-      );
-    }
+    if (!useStretchLink) return title;
+    // Stretched heading link (cards.md): ::after covers the relative card;
+    // nested controls sit above via relative z-10 + data-no-row-click.
     return (
-      <button
-        type="button"
-        onClick={() => navigateToAppDetail()}
-        className="block rounded-sm text-left focus-ring"
+      <Link
+        to={activateRoute.to}
+        params={activateRoute.params}
+        data-row-link=""
+        className={cn(
+          "font-heading text-foreground no-underline",
+          "after:absolute after:inset-0 after:z-[1] after:rounded-xl after:content-['']",
+          "focus-visible:outline-none focus-visible:after:outline-3",
+          "focus-visible:after:outline-offset-2 focus-visible:after:outline-ring",
+        )}
+        onClick={(event) => {
+          const intent = rowLinkClickIntent({
+            button: event.button,
+            metaKey: event.metaKey,
+            ctrlKey: event.ctrlKey,
+            shiftKey: event.shiftKey,
+            altKey: event.altKey,
+            targetIsInteractive: isInteractiveTarget(
+              event.target,
+              event.currentTarget,
+            ),
+          });
+          if (intent === "suppress") {
+            event.preventDefault();
+          }
+          // "navigate" / "native" — TanStack Link + browser handle the rest.
+        }}
       >
         {title}
-      </button>
+      </Link>
     );
   }
 
@@ -241,11 +279,23 @@ export default function IntegrationCard({
     <div
       data-testid={`integration-card-${integration.name}`}
       className={cn(
-        "rounded-xl bg-neutral-hover p-4 text-foreground",
-        "hover:bg-neutral-dark-hover active:bg-neutral-dark-pressed",
-        "hover:has-[button:hover,[role=button]:hover,[data-no-row-click]:hover]:bg-neutral-hover",
-        "active:has-[button:active,[role=button]:active,[data-no-row-click]:active]:bg-neutral-hover",
+        // Solid catalog card — Neutral hover rest so Neutral dark deepen is a
+        // visible L-step (tenant `--secondary` may diverge from `--neutral-hover`).
+        "relative rounded-xl bg-neutral-hover p-4 text-foreground",
+        "transition-[background-color] duration-hover-out ease-out-quart",
+        "hover:bg-neutral-dark-hover hover:duration-hover-in active:bg-neutral-dark-pressed",
+        nestedInteractiveSuppress.solidNeutralHoverStretchLink,
+        (useStretchLink || useCardClickActivate) && "cursor-pointer",
+        useCardClickActivate &&
+          "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
       )}
+      onClick={useCardClickActivate ? handleCardClick : undefined}
+      onKeyDown={useCardClickActivate ? handleCardKeyDown : undefined}
+      role={useCardClickActivate ? "link" : undefined}
+      tabIndex={useCardClickActivate ? 0 : undefined}
+      aria-label={
+        useCardClickActivate ? `Open ${label}` : undefined
+      }
     >
       {connection.pendingSelection && (
         <form
@@ -280,17 +330,8 @@ export default function IntegrationCard({
                 />
               </p>
             )}
-            {(statusBadgeLabel || surfaces.hasUi || isAppAdmin) && (
+            {(surfaces.hasUi || isAppAdmin) && (
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                {statusBadgeLabel ? (
-                  <Badge
-                    size="sm"
-                    variant={statusBadgeVariant}
-                    aria-label={statusBadgeLabel}
-                  >
-                    {statusBadgeLabel}
-                  </Badge>
-                ) : null}
                 {surfaces.hasUi ? (
                   <Badge size="sm" variant="secondary">
                     App
@@ -306,8 +347,8 @@ export default function IntegrationCard({
           </div>
         </div>
         <div
-          data-no-row-click
-          className="flex shrink-0 flex-col items-end gap-1.5 sm:flex-row sm:items-center"
+          {...{ [NESTED_INTERACTIVE_OPT_OUT_ATTR]: "" }}
+          className="relative z-10 flex shrink-0 flex-col items-end gap-1.5 sm:flex-row sm:items-center"
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
         >
@@ -428,6 +469,16 @@ export default function IntegrationCard({
           </TooltipProvider>
         </div>
       </div>
+      {attentionMessage ? (
+        <Alert
+          variant={attentionAlertVariant}
+          className="relative z-10 mt-3"
+          data-testid={`integration-card-attention-${integration.name}`}
+        >
+          <CircleAlert aria-hidden />
+          <AlertDescription>{attentionMessage}</AlertDescription>
+        </Alert>
+      ) : null}
       {connection.error && !settingsOpen && (
         <p className="mt-3 text-sm text-ember-500">{connection.error}</p>
       )}
@@ -438,15 +489,22 @@ export default function IntegrationCard({
           onStartOAuth={connection.handleStartOAuth}
           onSubmitToken={connection.handleSubmitToken}
           onDisconnect={connection.handleDisconnect}
+          onSelectInstance={connection.handleSelectInstance}
           reconnecting={connection.loading}
           disconnecting={connection.disconnecting}
+          selectingInstance={connection.selectingInstance}
           submitting={connection.submitting}
           error={connection.error}
+          onClearError={connection.clearError}
           readOnly={readOnly}
           connectionContext={connectionContext}
           initialView={settingsInitialView}
           destructiveActionLabel={destructiveActionLabel}
           presentation="modal"
+          onDisconnectDialogClose={() => {
+            setSettingsInitialView("default");
+            setDestructiveActionLabel("Disconnect");
+          }}
         />
       )}
     </div>

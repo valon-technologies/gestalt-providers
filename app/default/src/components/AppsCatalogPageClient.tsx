@@ -8,12 +8,15 @@ import {
   useRef,
   useState,
 } from "react";
+import { CircleAlert } from "lucide-react";
 import type { Integration } from "@/lib/api";
 import { groupCatalogForBrowse } from "@/lib/catalogBuckets";
 import {
-  countNeedsAttention,
   filterCatalogIntegrations,
+  listNeedsAttention,
 } from "@/lib/catalogFilters";
+import { getIntegrationLabel } from "@/lib/integrationSearch";
+import { normalizeIntegrationStatus } from "@/lib/integrationStatus";
 import { CONNECTION_RETURN_PATH_STORAGE_KEY } from "@/lib/constants";
 import { sanitizeAuthReturnPath } from "@/lib/authReturn";
 import { appPath } from "@/lib/mount";
@@ -40,13 +43,55 @@ import {
   NavListItemLabel,
 } from "@/components/ui/nav-list";
 import { PageLayout } from "@/components/ui/page-layout";
+import {
+  Alert,
+  AlertActions,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
+import { Button as UiButton } from "@/components/ui/button";
 import { useScrollSpy } from "@/hooks/use-scroll-spy";
-import { SpinnerIcon } from "@/components/icons";
+import { CheckCircleIcon, CloseIcon, SpinnerIcon } from "@/components/icons";
 import Button from "@/components/Button";
 import {
   useIntegrationsQuery,
   useInvalidateIntegrations,
 } from "@/lib/queries";
+
+function resolveConnectedAppLabel(
+  connectedParam: string,
+  integrations: Integration[],
+): string {
+  const match = integrations.find(
+    (integration) =>
+      integration.name === connectedParam ||
+      getIntegrationLabel(integration) === connectedParam,
+  );
+  return match ? getIntegrationLabel(match) : connectedParam;
+}
+
+function needsAttentionAlertCopy(apps: Integration[]): {
+  title: string;
+  description?: string;
+} {
+  if (apps.length === 1) {
+    const app = apps[0];
+    const label = getIntegrationLabel(app);
+    const reason = normalizeIntegrationStatus(app, "current_user").summaryLabel;
+    return { title: `${label} needs attention: ${reason}` };
+  }
+
+  return {
+    title: `${apps.length} apps need attention`,
+    description: apps
+      .map((app) => {
+        const label = getIntegrationLabel(app);
+        const reason = normalizeIntegrationStatus(app, "current_user").summaryLabel;
+        return `${label}: ${reason}`;
+      })
+      .join(" · "),
+  };
+}
 
 const APPS_PATH = appPath("/apps");
 /** Offset below the viewport top for section scroll-spy + scroll-margin on headings. */
@@ -97,9 +142,10 @@ export default function AppsCatalogPageClient() {
         : null;
 
   const [query, setQuery] = useState("");
-  const [toast, setToast] = useState<string | null>(() =>
-    connectedParam ? `${connectedParam} connected successfully.` : null,
+  const [connectedNotice, setConnectedNotice] = useState<string | null>(() =>
+    connectedParam,
   );
+  const [flashError, setFlashError] = useState<string | null>(null);
   const deferredQuery = useDeferredValue(query);
   const filteredIntegrations = filterCatalogIntegrations(integrations, {
     query: deferredQuery,
@@ -110,7 +156,17 @@ export default function AppsCatalogPageClient() {
     () => groupCatalogForBrowse(filteredIntegrations),
     [filteredIntegrations],
   );
-  const needsAttentionCount = countNeedsAttention(filteredIntegrations);
+  const needsAttentionApps = useMemo(
+    () => listNeedsAttention(filteredIntegrations),
+    [filteredIntegrations],
+  );
+  const needsAttentionCopy =
+    needsAttentionApps.length > 0
+      ? needsAttentionAlertCopy(needsAttentionApps)
+      : null;
+  const connectedSuccessLabel = connectedNotice
+    ? resolveConnectedAppLabel(connectedNotice, integrations)
+    : null;
   const hasSearchQuery = query.trim().length > 0;
   const hasCatalogContent = installed.length > 0 || catalogSections.length > 0;
 
@@ -168,7 +224,7 @@ export default function AppsCatalogPageClient() {
   );
 
   useEffect(() => {
-    if (!toast) {
+    if (!connectedNotice) {
       window.sessionStorage.removeItem(CONNECTION_RETURN_PATH_STORAGE_KEY);
       return;
     }
@@ -196,14 +252,14 @@ export default function AppsCatalogPageClient() {
     }
 
     void navigate({ to: "/apps", replace: true });
-  }, [navigate, toast]);
+  }, [navigate, connectedNotice]);
 
   async function refreshIntegrations(options?: { background?: boolean }) {
     try {
       await invalidateIntegrations();
     } catch {
       if (options?.background) {
-        setToast("Couldn't refresh apps. Try again.");
+        setFlashError("Couldn't refresh apps. Try again.");
       }
     }
   }
@@ -255,19 +311,6 @@ export default function AppsCatalogPageClient() {
 
   return (
     <Container className="pt-12 pb-24">
-      {toast && (
-        <div className="mb-8 flex items-center justify-between rounded-lg border border-grove-200 bg-grove-50 px-5 py-3.5 text-sm text-grove-700 dark:border-grove-600 dark:bg-grove-700/20 dark:text-grove-200">
-          <span>{toast}</span>
-          <button
-            onClick={() => setToast(null)}
-            className="ml-4 text-grove-400 hover:text-grove-600 dark:text-grove-500 dark:hover:text-grove-200 transition-colors duration-150"
-            aria-label="Dismiss notification"
-          >
-            &times;
-          </button>
-        </div>
-      )}
-
       <PageLayout
         tracks="compact"
         header={
@@ -276,7 +319,7 @@ export default function AppsCatalogPageClient() {
               <PageHeaderTitle>Apps</PageHeaderTitle>
               <PageHeaderDescription>
                 Browse installed apps, then discover more by category. Connect
-                credentials, then open an app to manage access.
+                an account, then open an app to manage access.
               </PageHeaderDescription>
             </PageHeaderContent>
             <PageHeaderActions className="w-full max-w-md sm:w-auto">
@@ -290,15 +333,66 @@ export default function AppsCatalogPageClient() {
         }
         pane={catalogPane}
       >
-        {!loading && !error && needsAttentionCount > 0 ? (
-          <div
-            className="rounded-lg border border-amber-200 bg-amber-100 px-5 py-3.5 text-sm text-amber-700 dark:border-amber-600/40 dark:bg-amber-700/20 dark:text-amber-200"
-            role="status"
-            data-testid="apps-needs-attention-callout"
-          >
-            {needsAttentionCount === 1
-              ? "1 app needs attention — it’s listed first below. Open it to reconnect or finish setup."
-              : `${needsAttentionCount} apps need attention — they’re listed first below. Open one to reconnect or finish setup.`}
+        {connectedSuccessLabel ||
+        needsAttentionCopy ||
+        flashError ? (
+          <div className="mb-6 space-y-3">
+            {connectedSuccessLabel ? (
+              <Alert
+                variant="success"
+                layout="banner"
+                data-testid="apps-connected-toast"
+              >
+                <CheckCircleIcon aria-hidden />
+                <AlertTitle>
+                  {connectedSuccessLabel} connected successfully.
+                </AlertTitle>
+                <AlertActions>
+                  <UiButton
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="Dismiss notification"
+                    onClick={() => setConnectedNotice(null)}
+                  >
+                    <CloseIcon className="size-4" />
+                  </UiButton>
+                </AlertActions>
+              </Alert>
+            ) : null}
+
+            {needsAttentionCopy ? (
+              <Alert
+                variant="warning"
+                data-testid="apps-needs-attention-callout"
+              >
+                <CircleAlert aria-hidden />
+                <AlertTitle>{needsAttentionCopy.title}</AlertTitle>
+                {needsAttentionCopy.description ? (
+                  <AlertDescription>
+                    {needsAttentionCopy.description}
+                  </AlertDescription>
+                ) : null}
+              </Alert>
+            ) : null}
+
+            {flashError ? (
+              <Alert variant="destructive" data-testid="apps-flash-error">
+                <CircleAlert aria-hidden />
+                <AlertTitle>{flashError}</AlertTitle>
+                <AlertActions>
+                  <UiButton
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="Dismiss error"
+                    onClick={() => setFlashError(null)}
+                  >
+                    <CloseIcon className="size-4" />
+                  </UiButton>
+                </AlertActions>
+              </Alert>
+            ) : null}
           </div>
         ) : null}
 
@@ -387,7 +481,6 @@ export default function AppsCatalogPageClient() {
                       onDisconnected={() =>
                         void refreshIntegrations({ background: true })
                       }
-                      onStatusMessage={setToast}
                       returnPath={APPS_PATH}
                     />
                   ))}
@@ -419,7 +512,6 @@ export default function AppsCatalogPageClient() {
                       onDisconnected={() =>
                         void refreshIntegrations({ background: true })
                       }
-                      onStatusMessage={setToast}
                       returnPath={APPS_PATH}
                     />
                   ))}

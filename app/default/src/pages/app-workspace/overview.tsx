@@ -1,7 +1,10 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { CircleAlert, ExternalLink } from "lucide-react";
 import { getAuthSession, type AuthSession } from "@/lib/api";
 import {
+  alertVariantFromTone,
+  appShowsCredentialSurface,
   badgeVariantFromTone,
   getAppSurfaces,
   primaryConnectLabel,
@@ -14,6 +17,11 @@ import { useIntegrationOperationsQuery } from "@/lib/queries";
 import { catalogEntriesFromOperations } from "@/features/app-workspace/operations";
 import AppPromptExamplePromo from "@/components/AppPromptExamplePromo";
 import IntegrationIcon from "@/components/IntegrationIcon";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Link as UiLink } from "@/components/ui/link";
@@ -26,6 +34,11 @@ import {
   PageHeaderTitle,
 } from "@/components/ui/page-header";
 import { useAppWorkspace } from "@/features/app-workspace/app-workspace-context";
+import {
+  CONNECTION_ACCESS_BLURB,
+  MANAGE_CONNECTION_LABEL,
+  overviewConnectionAttention,
+} from "@/features/app-workspace/connection-surface-copy";
 
 const overviewSectionClass = "border-t border-border pt-8";
 
@@ -53,33 +66,36 @@ export default function AppWorkspaceOverviewPage() {
     };
   }, []);
 
-  if (!integration) return null;
+  const status = useMemo(
+    () =>
+      integration
+        ? normalizeIntegrationStatus(integration, "current_user")
+        : null,
+    [integration],
+  );
+  const surfaces = useMemo(
+    () => (integration ? getAppSurfaces(integration) : null),
+    [integration],
+  );
 
-  const label = getIntegrationLabel(integration);
-  const status = normalizeIntegrationStatus(integration, "current_user");
-  const surfaces = getAppSurfaces(integration);
-  const promptExamples = getAppPromptExamples(integration, surfaces.hasMcp);
-  const connectLabel = primaryConnectLabel(integration, "current_user");
-  const mountedPath = integration.mountedPath?.trim();
-  const showOperations = operationCount > 0 || surfaces.hasMcp;
-  const sectionAfterPromptClass =
-    promptExamples.length > 0 ? "pt-8" : overviewSectionClass;
   const checklist = useMemo(() => {
+    if (!status || !surfaces) return [];
     const items: Array<{ id: string; label: string; done: boolean; skip?: boolean }> = [
       {
         id: "connected",
-        label: "Ready",
+        // Same vocabulary as the status badge — avoid "Ready" vs "No credentials required".
+        label: status.summaryLabel,
         done: status.connected && status.tone === "success",
       },
       {
         id: "ui",
-        label: "Has an app page",
+        label: "Has an app",
         done: Boolean(surfaces.hasUi),
         skip: !surfaces.hasUi,
       },
       {
         id: "mcp",
-        label: "Works with AI clients",
+        label: "Works with AI",
         done: Boolean(surfaces.hasMcp),
         skip: !surfaces.hasMcp,
       },
@@ -93,6 +109,21 @@ export default function AppWorkspaceOverviewPage() {
       }));
   }, [status, surfaces]);
 
+  if (!integration || !status || !surfaces) return null;
+
+  const label = getIntegrationLabel(integration);
+  const promptExamples = getAppPromptExamples(integration, surfaces.hasMcp);
+  const connectLabel = primaryConnectLabel(integration, "current_user");
+  const hasCredentialSurface = appShowsCredentialSurface(integration);
+  const attention = overviewConnectionAttention(status);
+  const showManageConnection =
+    hasCredentialSurface && connectLabel === null && status.connected;
+  const mountedPath = integration.mountedPath?.trim();
+  const openHref = mountedPath ? resolveMountedAppHref(mountedPath) : null;
+  const showOperations = operationCount > 0 || surfaces.hasMcp;
+  const sectionAfterPromptClass =
+    promptExamples.length > 0 ? "pt-8" : overviewSectionClass;
+
   return (
     <section aria-label="Overview" className="flex flex-col gap-8">
       <div className="flex flex-col gap-4">
@@ -104,66 +135,105 @@ export default function AppWorkspaceOverviewPage() {
           className="shrink-0"
         />
         <div className="flex min-w-0 flex-col gap-3">
-          <PageHeader>
+          <PageHeader className="sm:items-baseline">
             <PageHeaderContent size="md">
               <PageHeaderTitle>{label}</PageHeaderTitle>
               {integration.description ? (
                 <PageHeaderDescription>{integration.description}</PageHeaderDescription>
               ) : (
                 <PageHeaderDescription>
-                  Connection, workflows, and operations for{" "}
-                  <code className="font-mono text-xs">{integration.name}</code>.
+                  {openHref
+                    ? "Open the app to get work done, or use Operations for agents and the CLI."
+                    : "Use Operations for agents and the CLI when you need callable methods."}
                 </PageHeaderDescription>
               )}
             </PageHeaderContent>
-            {connectLabel ? (
+            {openHref || connectLabel || showManageConnection ? (
               <PageHeaderActions>
-                <Button
-                  type="button"
-                  onClick={() =>
-                    void navigate({
-                      to: "/apps/$app/connection",
-                      params: { app },
-                    })
-                  }
-                >
-                  {connectLabel}
-                </Button>
+                {connectLabel ? (
+                  <Button
+                    type="button"
+                    variant={openHref ? "secondary" : "default"}
+                    onClick={() =>
+                      void navigate({
+                        to: "/apps/$app/connection",
+                        params: { app },
+                      })
+                    }
+                  >
+                    {connectLabel}
+                  </Button>
+                ) : showManageConnection ? (
+                  <Button
+                    type="button"
+                    variant={openHref ? "secondary" : "default"}
+                    onClick={() =>
+                      void navigate({
+                        to: "/apps/$app/connection",
+                        params: { app },
+                      })
+                    }
+                    data-testid="manage-connection-overview"
+                  >
+                    {MANAGE_CONNECTION_LABEL}
+                  </Button>
+                ) : null}
+                {openHref ? (
+                  <Button asChild>
+                    <a
+                      href={openHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      data-testid="open-app-detail"
+                    >
+                      Open app
+                      <ExternalLink aria-hidden />
+                    </a>
+                  </Button>
+                ) : null}
               </PageHeaderActions>
             ) : null}
           </PageHeader>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge
-              variant={badgeVariantFromTone(status.tone)}
-              aria-label={status.summaryLabel}
+          {attention ? (
+            <Alert
+              variant={alertVariantFromTone(status.tone)}
+              data-testid="overview-connection-attention"
             >
-              {status.summaryLabel}
-            </Badge>
-            {surfaces.hasUi ? (
-              <Badge variant="secondary" size="sm">
-                App
-              </Badge>
-            ) : null}
-            {surfaces.hasMcp ? (
-              <Badge variant="secondary" size="sm">
-                Works with AI
-              </Badge>
-            ) : null}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {mountedPath ? (
-              <Button
-                type="button"
-                variant="secondary"
-                data-testid="open-app-detail"
-                onClick={() =>
-                  window.location.assign(resolveMountedAppHref(mountedPath))
-                }
-              >
-                Open app
-              </Button>
-            ) : null}
-          </div>
+              <CircleAlert aria-hidden />
+              <AlertTitle>{attention.title}</AlertTitle>
+              <AlertDescription>
+                {attention.description}{" "}
+                <UiLink asChild className="text-sm">
+                  <Link to="/apps/$app/connection" params={{ app }}>
+                    {attention.actionLabel}
+                  </Link>
+                </UiLink>
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          {!attention || surfaces.hasUi || surfaces.hasMcp ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Attention uses Alert above — never a status Badge for recovery copy. */}
+              {!attention ? (
+                <Badge
+                  variant={badgeVariantFromTone(status.tone)}
+                  aria-label={status.summaryLabel}
+                >
+                  {status.summaryLabel}
+                </Badge>
+              ) : null}
+              {surfaces.hasUi ? (
+                <Badge variant="secondary" size="sm">
+                  App
+                </Badge>
+              ) : null}
+              {surfaces.hasMcp ? (
+                <Badge variant="secondary" size="sm">
+                  Works with AI
+                </Badge>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -204,9 +274,13 @@ export default function AppWorkspaceOverviewPage() {
             : overviewSectionClass
         }
       >
-        <h2 className="text-lg font-heading text-foreground">Your access</h2>
+        <h2 className="text-lg font-heading text-foreground">
+          {hasCredentialSurface ? "Your access" : "Signed-in as"}
+        </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Connection and credentials for the signed-in user.
+          {hasCredentialSurface
+            ? CONNECTION_ACCESS_BLURB
+            : "The account viewing this app in the workspace."}
         </p>
         <dl className="mt-4 grid gap-3 sm:grid-cols-2">
           <div>
@@ -218,14 +292,16 @@ export default function AppWorkspaceOverviewPage() {
                 "—"}
             </dd>
           </div>
-          <div>
-            <dt className="text-xs font-medium text-muted-foreground">
-              Connection
-            </dt>
-            <dd className="mt-1 text-sm text-foreground">
-              {status.summaryLabel}
-            </dd>
-          </div>
+          {hasCredentialSurface ? (
+            <div>
+              <dt className="text-xs font-medium text-muted-foreground">
+                Status
+              </dt>
+              <dd className="mt-1 text-sm text-foreground">
+                {status.summaryLabel}
+              </dd>
+            </div>
+          ) : null}
         </dl>
       </div>
 
@@ -263,13 +339,9 @@ export default function AppWorkspaceOverviewPage() {
             </dd>
           </div>
           <div>
-            <dt className="text-xs font-medium text-muted-foreground">Status</dt>
-            <dd className="mt-1 text-sm text-foreground">
-              {status.summaryLabel}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium text-muted-foreground">Surfaces</dt>
+            <dt className="text-xs font-medium text-muted-foreground">
+              Available as
+            </dt>
             <dd className="mt-1 flex flex-wrap gap-1.5">
               <Badge size="sm" variant="secondary">
                 API
@@ -286,13 +358,13 @@ export default function AppWorkspaceOverviewPage() {
               ) : null}
             </dd>
           </div>
-          {mountedPath ? (
+          {openHref ? (
             <div className="sm:col-span-2">
               <dt className="text-xs font-medium text-muted-foreground">
-                Mounted path
+                App URL
               </dt>
-              <dd className="mt-1 font-mono text-sm text-foreground">
-                {mountedPath}
+              <dd className="mt-1 font-mono text-sm text-foreground break-all">
+                {openHref}
               </dd>
             </div>
           ) : null}

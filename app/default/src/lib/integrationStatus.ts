@@ -127,6 +127,8 @@ type RawConnection = {
   credentialMode?: CredentialMode;
   ownerKind?: OwnerKind;
   instances?: InstanceInfo[];
+  preferredInstance?: string;
+  connected?: boolean;
   mcpPassthrough?: boolean;
 };
 
@@ -149,10 +151,8 @@ export function normalizeIntegrationStatus(
     validHealthState(integration.healthState) ??
     aggregateHealthState(connections);
   const connected =
-    credentialState === "connected" ||
-    credentialState === "configured" ||
-    credentialState === "not_required" ||
-    connections.some((connection) => connection.connected);
+    connections.some((connection) => connection.connected) ||
+    (credentialState === "not_required" && status === "ready");
   const hasActionableConnections = connections.some(
     (connection) =>
       connection.canConnect ||
@@ -191,6 +191,41 @@ export function shouldShowIntegrationSettings(
   }
 
   return normalized.hasActionableConnections || normalized.hasUsefulStatusDetail;
+}
+
+/**
+ * Whether the app workspace should expose a Connection (credentials) surface.
+ *
+ * Distinct from `connected`: `not_required` / mount-only apps count as ready for
+ * launch, but they have nothing to connect, reconnect, or disconnect. Using
+ * `connected` (or `connections.length`) for nav visibility falsely sells a
+ * credential step for those apps.
+ */
+export function hasCredentialSurface(
+  normalized: NormalizedIntegrationStatus,
+): boolean {
+  if (normalized.credentialState === "not_required") {
+    return normalized.connections.some(
+      (connection) =>
+        !connection.isNoAuth &&
+        (connection.canConnect ||
+          connection.canDisconnect ||
+          connection.canReconnect ||
+          connection.canAddInstance ||
+          connection.canSelectInstance ||
+          connection.instances.length > 0 ||
+          connection.usefulStatusDetail),
+    );
+  }
+
+  return (
+    normalized.status === "needs_user_connection" ||
+    normalized.credentialState === "missing" ||
+    normalized.credentialState === "invalid" ||
+    normalized.hasActionableConnections ||
+    normalized.connections.length > 0 ||
+    normalized.hasUsefulStatusDetail
+  );
 }
 
 export function statusTone(
@@ -300,11 +335,9 @@ function normalizeConnection(
   const disconnectable =
     inferredActions.includes("disconnect");
   const connected =
-    credentialState === "connected" ||
-    credentialState === "configured" ||
-    credentialState === "not_required" ||
-    status === "ready" ||
-    status === "degraded";
+    typeof raw.connected === "boolean"
+      ? raw.connected
+      : productConnectedFromStatus(status, credentialState);
   const connectable =
     inferredActions.some((action) =>
       action === "connect" ||
@@ -361,7 +394,10 @@ function normalizeConnection(
     authTypes,
     connectionParams: raw.connectionParams,
     credentialFields: raw.credentialFields,
-    instances: raw.instances ?? [],
+    instances: normalizeConnectionInstances(
+      raw.instances,
+      raw.preferredInstance,
+    ),
     status,
     credentialState,
     healthState,
@@ -398,6 +434,21 @@ function normalizeAuthTypes(authTypes?: AuthType[]): AuthType[] {
   if (authTypes?.includes("oauth")) normalized.push("oauth");
   if (authTypes?.includes("manual")) normalized.push("manual");
   return normalized;
+}
+
+/** Prefer per-instance `preferred`; fall back to connection-level preferredInstance. */
+function normalizeConnectionInstances(
+  instances: InstanceInfo[] | undefined,
+  preferredInstance?: string,
+): InstanceInfo[] {
+  const list = instances ?? [];
+  const preferredName = preferredInstance?.trim();
+  if (!preferredName) return list;
+  return list.map((instance) => ({
+    ...instance,
+    preferred:
+      instance.preferred === true || instance.name === preferredName,
+  }));
 }
 
 function validStatus(value: unknown): IntegrationStatus | undefined {
@@ -472,6 +523,22 @@ function resolveOwnerKind(
   return context === "managed_subject" ? "service_account" : "current_user";
 }
 
+function productConnectedFromStatus(
+  status: IntegrationStatus,
+  credentialState: CredentialState,
+): boolean {
+  // Chosen-account invariant: accounts without a selection are not connected.
+  if (status === "needs_instance_selection") return false;
+  if (status === "needs_user_connection") return false;
+  if (credentialState === "not_required") return true;
+  return (
+    status === "ready" ||
+    status === "degraded" ||
+    credentialState === "connected" ||
+    credentialState === "configured"
+  );
+}
+
 function inferConnectionCredentialState(
   authTypes: AuthType[],
   isNoAuth: boolean,
@@ -513,10 +580,16 @@ function inferConnectionActions(
   const actions: IntegrationAction[] = [];
   const hasAuth = authTypes.length > 0;
 
+  const instanceCount = raw.instances?.length ?? 0;
   if (status === "needs_instance_selection" && hasAuth) {
     actions.push("select_instance");
-  } else if ((raw.instances?.length ?? 0) > 0 && hasAuth) {
+  } else if (instanceCount > 0 && hasAuth) {
     actions.push("add_instance");
+    // Preferred-account switching stays available after the first selection —
+    // not only while status is needs_instance_selection.
+    if (instanceCount > 1) {
+      actions.push("select_instance");
+    }
   } else if (hasAuth) {
     actions.push("connect");
   }

@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   PENDING_CONNECTION_PATH,
   resolveAPIPath,
   startIntegrationOAuth,
   connectManualIntegration,
   disconnectIntegration,
+  selectPreferredInstance,
+  isAPIErrorStatus,
 } from "@/lib/api";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import type { Integration } from "@/lib/api";
@@ -49,24 +52,30 @@ type DisconnectFn = (
   connection?: string,
 ) => Promise<void>;
 
+type SelectInstanceFn = (
+  integration: string,
+  instance: string,
+  connection?: string,
+) => Promise<unknown>;
+
 export function useIntegrationConnection({
   integration,
   onConnected,
   onDisconnected,
-  onStatusMessage,
   startOAuth = startIntegrationOAuth,
   connectManual = connectManualIntegration,
   disconnect = disconnectIntegration,
+  selectInstance = selectPreferredInstance,
   returnPath,
   onFlowComplete,
 }: {
   integration: Integration;
   onConnected?: () => void;
   onDisconnected?: () => void;
-  onStatusMessage?: (message: string) => void;
   startOAuth?: StartOAuthFn;
   connectManual?: ConnectManualFn;
   disconnect?: DisconnectFn;
+  selectInstance?: SelectInstanceFn;
   returnPath?: string;
   /** Called after connect/disconnect completes (e.g. close modal). */
   onFlowComplete?: () => void;
@@ -74,6 +83,7 @@ export function useIntegrationConnection({
   const label = getIntegrationLabel(integration);
   const [loading, setLoading] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [selectingInstance, setSelectingInstance] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [pendingOAuthTarget, setPendingOAuthTarget] = useState<ConnectionTarget>(
@@ -105,7 +115,9 @@ export function useIntegrationConnection({
       );
       window.location.href = url;
     } catch (err) {
-      setError(userFacingError(err, "Couldn't start sign-in. Try again."));
+      setError(
+        userFacingError(err, "Couldn't start sign-in. Try again.", "sign_in"),
+      );
       setLoading(false);
     }
   }
@@ -125,7 +137,7 @@ export function useIntegrationConnection({
     connectionParams?: Record<string, string>,
     instance?: string,
     connection?: string,
-  ) {
+  ): Promise<boolean> {
     setSubmitting(true);
     setError(null);
     try {
@@ -150,11 +162,15 @@ export function useIntegrationConnection({
         });
       } else {
         onFlowComplete?.();
-        onStatusMessage?.(`${label} connected successfully.`);
+        toast.success(`${label} connected successfully.`);
         onConnected?.();
       }
+      return true;
     } catch (err) {
-      setError(userFacingError(err, "Couldn't connect. Try again."));
+      setError(
+        userFacingError(err, `Couldn't connect ${label}. Try again.`, "connect"),
+      );
+      return false;
     } finally {
       setSubmitting(false);
     }
@@ -165,13 +181,47 @@ export function useIntegrationConnection({
     setError(null);
     try {
       await disconnect(integration.name, instance, connection);
-      onStatusMessage?.(`${label} disconnected.`);
+      toast.success(`${label} disconnected.`);
       onDisconnected?.();
       onFlowComplete?.();
     } catch (err) {
-      setError(userFacingError(err, "Couldn't disconnect. Try again."));
+      // Domain: missing credential is already the desired end state — reconcile.
+      if (isAPIErrorStatus(err, 404)) {
+        toast.success(`${label} is no longer connected.`);
+        onDisconnected?.();
+        onFlowComplete?.();
+      } else {
+        setError(
+          userFacingError(
+            err,
+            `Couldn't disconnect ${label}. Try again.`,
+            "disconnect",
+          ),
+        );
+      }
     } finally {
       setDisconnecting(false);
+    }
+  }
+
+  async function handleSelectInstance(instance: string, connection?: string) {
+    setSelectingInstance(true);
+    setError(null);
+    try {
+      await selectInstance(integration.name, instance, connection);
+      toast.success(`${label} account updated.`);
+      onConnected?.();
+      onFlowComplete?.();
+    } catch (err) {
+      setError(
+        userFacingError(
+          err,
+          "Couldn't choose that account. Try again.",
+          "select_instance",
+        ),
+      );
+    } finally {
+      setSelectingInstance(false);
     }
   }
 
@@ -182,6 +232,7 @@ export function useIntegrationConnection({
   return {
     loading,
     disconnecting,
+    selectingInstance,
     submitting,
     error,
     pendingSelection,
@@ -189,6 +240,7 @@ export function useIntegrationConnection({
     handleStartOAuth,
     handleSubmitToken,
     handleDisconnect,
+    handleSelectInstance,
     clearError,
   };
 }

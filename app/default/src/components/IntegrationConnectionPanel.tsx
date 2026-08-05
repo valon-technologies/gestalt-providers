@@ -1,14 +1,18 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent, MouseEvent, ReactNode, SyntheticEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
 import {
   AuthType,
   ConnectionParamDef,
   CredentialFieldDef,
   Integration,
 } from "@/lib/api";
+import { CircleAlert } from "lucide-react";
 import { INPUT_CLASSES } from "@/lib/constants";
-import { badgeVariantFromTone } from "@/lib/catalogFilters";
+import {
+  alertVariantFromTone,
+  badgeVariantFromTone,
+} from "@/lib/catalogFilters";
 import {
   normalizeIntegrationStatus,
   statusTone,
@@ -16,9 +20,62 @@ import {
   type NormalizedConnection,
   type NormalizedIntegrationStatus,
 } from "@/lib/integrationStatus";
+import {
+  humanizeConnectionName,
+  accountInitials,
+  accountIdentityLines,
+  accountRelationshipLabel,
+  addAccountFormCopy,
+  disconnectConfirmCopy,
+  ADD_ACCOUNT_LABEL,
+  USE_ACCOUNT_LABEL,
+  DEFAULT_ACCOUNT_LABEL,
+  connectionPanelAttention,
+} from "@/features/app-workspace/connection-surface-copy";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldLabel,
+} from "@/components/ui/field";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircleIcon, CloseIcon } from "./icons";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemMedia,
+  ItemTitle,
+} from "@/components/ui/item";
+import { CloseIcon } from "./icons";
 import {
   SectionHeader,
   SectionHeaderActions,
@@ -29,6 +86,7 @@ import {
 
 export type ConnectionPanelView =
   | "default"
+  /** Opens the disconnect AlertDialog once; does not replace the panel body. */
   | "disconnect"
   | "instance"
   | "token"
@@ -67,19 +125,34 @@ export interface IntegrationConnectionPanelProps {
     connectionParams?: Record<string, string>,
     instance?: string,
     connection?: string,
-  ) => void;
-  onDisconnect: (instance?: string, connection?: string) => void;
+  ) => void | Promise<boolean | void>;
+  onDisconnect: (instance?: string, connection?: string) => void | Promise<void>;
+  onSelectInstance?: (
+    instance: string,
+    connection?: string,
+  ) => void | Promise<void>;
   reconnecting: boolean;
   disconnecting: boolean;
+  selectingInstance?: boolean;
   submitting: boolean;
   error: string | null;
+  onClearError?: () => void;
   readOnly?: boolean;
   connectionContext?: ConnectionContext;
   initialView?: ConnectionPanelView;
   destructiveActionLabel?: "Disconnect" | "Remove app";
   variant?: "inline" | "dialog";
-  /** When false, omit the integration title block (e.g. app detail Credentials section). */
+  /** When false, omit the integration title block (e.g. app Connection section). */
   showHeader?: boolean;
+  /**
+   * Hide the per-connection SectionHeader (title + actions). Use on the app
+   * Connection page where PageHeader owns the title and primary actions.
+   */
+  omitSectionHeader?: boolean;
+  /** Receives primary auth actions to place in PageHeaderActions. */
+  onHeaderActionsChange?: (actions: ReactNode | null) => void;
+  /** Fired when the disconnect confirm dialog is dismissed (cancel / overlay). */
+  onDisconnectDialogClose?: () => void;
 }
 
 function shouldShowIntegrationSummary(status: NormalizedIntegrationStatus): boolean {
@@ -116,7 +189,7 @@ function buildAuthActionLabel(
   const name = connection.label;
 
   if (kind === "add_instance") {
-    return showConnectionNames ? `Add ${name} connection` : "Add connection";
+    return showConnectionNames ? `Add ${name} account` : ADD_ACCOUNT_LABEL;
   }
 
   if (kind === "reconnect") {
@@ -195,13 +268,6 @@ function connectionActionCopy(
   return "Ask an admin to configure deployment-managed credentials.";
 }
 
-function disconnectCopy(displayName: string, context: ConnectionContext): string {
-  if (context === "managed_subject") {
-    return `This will remove this identity's connection to ${displayName}. It can be reconnected later.`;
-  }
-  return `This will remove your connection to ${displayName}. You can reconnect at any time.`;
-}
-
 function isPendingAction(action: AuthAction, pendingAction?: PendingAuthAction) {
   return (
     pendingAction?.kind === action.kind &&
@@ -227,6 +293,19 @@ function firstDisconnectableTarget(
   return null;
 }
 
+/** App-level remove: DELETE without `_instance` so every linked account goes. */
+function removeAppDisconnectTarget(
+  connections: NormalizedConnection[],
+): ConnectionTarget | null {
+  for (const connection of connections) {
+    if (!connection.canDisconnect) continue;
+    return {
+      connection: connection.connection || connection.key,
+    };
+  }
+  return null;
+}
+
 function hasConnectionParams(
   connectionParams: Record<string, ConnectionParamDef> | undefined,
 ): boolean {
@@ -241,21 +320,31 @@ export default function IntegrationConnectionPanel({
   onStartOAuth,
   onSubmitToken,
   onDisconnect,
+  onSelectInstance,
   reconnecting,
   disconnecting,
+  selectingInstance = false,
   submitting,
   error,
+  onClearError,
   readOnly = false,
   connectionContext = "current_user",
   initialView = "default",
   destructiveActionLabel = "Disconnect",
   variant = "inline",
   showHeader = variant === "dialog",
+  omitSectionHeader = false,
+  onHeaderActionsChange,
+  onDisconnectDialogClose,
 }: IntegrationConnectionPanelProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const [view, setView] = useState<ConnectionPanelView>(initialView);
+  const wasDisconnectingRef = useRef(false);
+  const disconnectSeededRef = useRef(false);
+  const [view, setView] = useState<ConnectionPanelView>(
+    initialView === "disconnect" ? "default" : initialView,
+  );
   const [disconnectTarget, setDisconnectTarget] = useState<ConnectionTarget>({});
   const [pendingAction, setPendingAction] = useState<PendingAuthAction | undefined>();
+  const [settingsOpen, setSettingsOpen] = useState(true);
   const isDialog = variant === "dialog";
 
   const displayName = integration.displayName || integration.name;
@@ -265,26 +354,50 @@ export default function IntegrationConnectionPanel({
     [integration, connectionContext],
   );
 
-  useEffect(() => {
-    setView(initialView);
-    if (initialView === "disconnect") {
-      const target = firstDisconnectableTarget(normalizedStatus.connections);
-      setDisconnectTarget(target ?? {});
-    }
-  }, [initialView, integration.name, normalizedStatus.connections]);
+  const addAccountCopy = useMemo(() => {
+    const showKey =
+      Boolean(pendingAction) && normalizedStatus.connections.length > 1;
+    const keyLabel = showKey
+      ? humanizeConnectionName(
+          normalizedStatus.connections.find(
+            (c) => c.key === pendingAction?.connectionKey,
+          )?.label ?? "",
+        )
+      : null;
+    return addAccountFormCopy({
+      connectionKeyLabel:
+        keyLabel && keyLabel !== "Connection" ? keyLabel : null,
+    });
+  }, [normalizedStatus.connections, pendingAction]);
 
   useEffect(() => {
-    if (view !== "disconnect" || disconnectTarget.instance || disconnectTarget.connection) {
+    if (initialView === "disconnect") {
+      setView("default");
+      if (disconnectSeededRef.current) return;
+      const target =
+        destructiveActionLabel === "Remove app"
+          ? removeAppDisconnectTarget(normalizedStatus.connections)
+          : firstDisconnectableTarget(normalizedStatus.connections);
+      if (!target) return;
+      setDisconnectTarget(target);
+      disconnectSeededRef.current = true;
       return;
     }
-    const target = firstDisconnectableTarget(normalizedStatus.connections);
-    if (target) setDisconnectTarget(target);
-  }, [disconnectTarget.connection, disconnectTarget.instance, normalizedStatus.connections, view]);
+    disconnectSeededRef.current = false;
+    setView(initialView);
+  }, [
+    initialView,
+    destructiveActionLabel,
+    integration.name,
+    normalizedStatus.connections,
+  ]);
 
   useEffect(() => {
-    if (!isDialog) return;
-    dialogRef.current?.showModal();
-  }, [isDialog]);
+    if (wasDisconnectingRef.current && !disconnecting && !error) {
+      setDisconnectTarget({});
+    }
+    wasDisconnectingRef.current = disconnecting;
+  }, [disconnecting, error]);
 
   const authActions = buildAuthActions(normalizedStatus.connections);
   const pendingConnection = pendingAction
@@ -293,26 +406,6 @@ export default function IntegrationConnectionPanel({
       )
     : undefined;
   const pendingConnectionParams = pendingConnection?.connectionParams;
-
-  function handleCancel(e: SyntheticEvent<HTMLDialogElement>) {
-    if (disconnecting || submitting) {
-      e.preventDefault();
-    }
-  }
-
-  function handleBackdropClick(e: MouseEvent<HTMLDialogElement>) {
-    if (e.target === e.currentTarget && !disconnecting && !submitting) {
-      e.currentTarget.close();
-    }
-  }
-
-  function closeDialog() {
-    if (!isDialog) {
-      onClose?.();
-      return;
-    }
-    dialogRef.current?.close();
-  }
 
   function startAuthAction(action: AuthAction) {
     setPendingAction(action);
@@ -330,6 +423,87 @@ export default function IntegrationConnectionPanel({
         onStartOAuth(undefined, action.connection);
       }
     }
+  }
+
+  const headerActionSignature = [
+    omitSectionHeader ? "1" : "0",
+    view,
+    readOnly ? "1" : "0",
+    reconnecting ? "1" : "0",
+    submitting ? "1" : "0",
+    disconnecting ? "1" : "0",
+    selectingInstance ? "1" : "0",
+    pendingAction?.key ?? "",
+    authActions.map((action) => action.key).join(","),
+    normalizedStatus.connections
+      .map(
+        (connection) =>
+          `${connection.key}:${connection.canDisconnect ? 1 : 0}:${connection.instances.length}`,
+      )
+      .join("|"),
+  ].join(";");
+
+  useEffect(() => {
+    if (!onHeaderActionsChange) return;
+    // Keep header CTAs while the add-account dialog overlays the list.
+    if (
+      !omitSectionHeader ||
+      (view !== "default" && view !== "instance") ||
+      readOnly
+    ) {
+      onHeaderActionsChange(null);
+      return;
+    }
+
+    const actionButtons = authActions.map((action) => (
+      <Button
+        key={action.key}
+        type="button"
+        variant={action.variant}
+        onClick={() => startAuthAction(action)}
+        disabled={reconnecting || submitting || disconnecting || selectingInstance}
+      >
+        {reconnecting && isPendingAction(action, pendingAction)
+          ? "Connecting..."
+          : action.label}
+      </Button>
+    ));
+
+    const disconnectWithoutAccounts = normalizedStatus.connections.flatMap(
+      (connection) => {
+        if (!connection.canDisconnect || connection.instances.length > 0) {
+          return [];
+        }
+        return [
+          <Button
+            key={`disconnect:${connection.key}`}
+            type="button"
+            variant="danger"
+            size="sm"
+            onClick={() => {
+              onClearError?.();
+              setDisconnectTarget({ connection: connection.connection });
+            }}
+            disabled={disconnecting || selectingInstance}
+          >
+            Disconnect
+          </Button>,
+        ];
+      },
+    );
+
+    const actions = [...actionButtons, ...disconnectWithoutAccounts];
+    onHeaderActionsChange(actions.length > 0 ? <>{actions}</> : null);
+    return () => onHeaderActionsChange(null);
+  }, [headerActionSignature, onHeaderActionsChange]);
+
+  function closeDialog() {
+    if (!isDialog) {
+      onClose?.();
+      return;
+    }
+    setSettingsOpen(false);
+    onClose?.();
   }
 
   function handleInstanceSubmit(e: FormEvent<HTMLFormElement>) {
@@ -398,15 +572,25 @@ export default function IntegrationConnectionPanel({
       }
       if (Object.keys(collected).length > 0) params = collected;
     }
-    onSubmitToken(
-      credential,
-      params,
-      pendingAction.instance,
-      pendingAction.connection,
-    );
+    void (async () => {
+      const ok = await onSubmitToken(
+        credential,
+        params,
+        pendingAction.instance,
+        pendingAction.connection,
+      );
+      // Hook returns false on failure; void callers (legacy) treat as success.
+      if (ok === false) return;
+      setPendingAction(undefined);
+      setView("default");
+    })();
   }
 
   function renderStatusBadge(connection: NormalizedConnection) {
+    // Attention / recovery states use Alert — never a status Badge.
+    if (connectionPanelAttention(connection)) {
+      return null;
+    }
     if (!shouldShowConnectionStatusText(connection)) {
       return null;
     }
@@ -422,6 +606,26 @@ export default function IntegrationConnectionPanel({
     );
   }
 
+  function renderConnectionAttention(connection: NormalizedConnection) {
+    const attention = connectionPanelAttention(connection);
+    if (!attention) return null;
+    const tone = statusTone(
+      connection.status,
+      connection.credentialState,
+      connection.healthState,
+    );
+    return (
+      <Alert
+        variant={alertVariantFromTone(tone)}
+        data-testid={`connection-attention-${connection.key}`}
+      >
+        <CircleAlert aria-hidden />
+        <AlertTitle>{attention.title}</AlertTitle>
+        <AlertDescription>{attention.description}</AlertDescription>
+      </Alert>
+    );
+  }
+
   function renderConnectionActions(connection: NormalizedConnection) {
     if (readOnly) {
       return null;
@@ -434,12 +638,12 @@ export default function IntegrationConnectionPanel({
     }
 
     return (
-      <div className="mt-4 flex flex-col gap-2 sm:mt-0 sm:items-end">
+      <>
         {actions.map((action) => (
           <Button
             key={action.key}
             variant={action.variant}
-            className="w-full sm:w-auto"
+            size="sm"
             onClick={() => startAuthAction(action)}
             disabled={reconnecting || submitting}
           >
@@ -451,184 +655,350 @@ export default function IntegrationConnectionPanel({
         {connection.canDisconnect && connection.instances.length === 0 ? (
           <Button
             type="button"
-            variant="ghostDestructive"
+            variant="danger"
             size="sm"
             onClick={() => {
+              onClearError?.();
               setDisconnectTarget({ connection: connection.connection });
-              setView("disconnect");
             }}
             disabled={disconnecting}
           >
             Disconnect
           </Button>
         ) : null}
-      </div>
+      </>
     );
   }
 
   function renderConnectionRow(connection: NormalizedConnection) {
     const actionCopy = connectionActionCopy(connection, connectionContext);
+    const connectionTitle = humanizeConnectionName(connection.label);
+    const titleId = `connection-section-${integration.name}-${connection.key}`;
+    const description =
+      actionCopy ||
+      (connection.detailLines.length > 0
+        ? connection.detailLines.join(" · ")
+        : null);
+    const statusBadge = renderStatusBadge(connection);
+    const attention = renderConnectionAttention(connection);
+    const connectionActions = omitSectionHeader
+      ? null
+      : renderConnectionActions(connection);
+    const showSectionHeader =
+      !omitSectionHeader &&
+      (Boolean(statusBadge) ||
+        Boolean(connectionActions) ||
+        Boolean(description) ||
+        connection.connected ||
+        // Keep a title when multiple connections need distinction.
+        normalizedStatus.connections.length > 1);
+
     return (
-      <div
+      <section
         key={connection.key}
-        className="rounded-md border border-border px-4 py-3"
+        className="space-y-3"
+        aria-labelledby={omitSectionHeader ? undefined : titleId}
+        aria-label={omitSectionHeader ? connectionTitle : undefined}
+        data-testid={`connection-section-${connection.key}`}
       >
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2.5">
-              {connection.connected ? (
-                <CheckCircleIcon className="h-4 w-4 shrink-0 text-success-foreground" />
+        {showSectionHeader ? (
+          <SectionHeader>
+            <SectionHeaderContent size="sm">
+              <SectionHeaderTitle as="h3" id={titleId}>
+                {connectionTitle}
+              </SectionHeaderTitle>
+              {description ? (
+                <SectionHeaderDescription>{description}</SectionHeaderDescription>
               ) : null}
-              <div className="min-w-0">
-                <div className="truncate text-sm font-medium text-foreground">
-                  {connection.label}
-                </div>
-                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground/70">
-                  {connection.detailLines.map((line) => (
-                    <span key={line}>{line}</span>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {actionCopy ? (
-              <p className="mt-3 text-xs text-muted-foreground">{actionCopy}</p>
+            </SectionHeaderContent>
+            {statusBadge || connectionActions ? (
+              <SectionHeaderActions>
+                {statusBadge}
+                {connectionActions}
+              </SectionHeaderActions>
             ) : null}
+          </SectionHeader>
+        ) : null}
 
-            {connection.instances.length > 0 ? (
-              <div className="mt-3 space-y-2">
-                {connection.instances.map((instance) => (
-                  <div
-                    key={`${connection.key}:${instance.name}`}
-                    className="flex items-center justify-between gap-3 rounded-md bg-muted px-3 py-2"
+        {attention}
+
+        {connection.instances.length > 0 ? (
+          <ItemGroup className="gap-3" data-testid="connection-account-list">
+            {[...connection.instances]
+              .sort((a, b) => Number(Boolean(b.preferred)) - Number(Boolean(a.preferred)))
+              .map((instance) => {
+              const instanceLabel = humanizeConnectionName(
+                instance.name,
+                DEFAULT_ACCOUNT_LABEL,
+              );
+              const connectionKeyLabel = instance.connection
+                ? humanizeConnectionName(instance.connection)
+                : null;
+              const showConnectionKey =
+                Boolean(connectionKeyLabel) &&
+                connectionKeyLabel !== instanceLabel &&
+                connectionKeyLabel !== connectionTitle;
+              const accountDescription = accountRelationshipLabel({
+                preferred: instance.preferred,
+                needsInstanceSelection:
+                  connection.status === "needs_instance_selection" ||
+                  normalizedStatus.status === "needs_instance_selection",
+                connectionKeyLabel: showConnectionKey ? connectionKeyLabel : null,
+              });
+              const { primary: identityPrimary, additional: identityAdditional } =
+                accountIdentityLines(instance.identity);
+              const canUseAccount =
+                !readOnly &&
+                Boolean(onSelectInstance) &&
+                connection.canSelectInstance &&
+                connection.instances.length > 1 &&
+                !instance.preferred;
+              return (
+                <Card
+                  key={`${connection.key}:${instance.name}`}
+                  variant="outline"
+                  className="overflow-hidden"
+                  role="listitem"
+                  data-testid={`connection-account-${instance.name}`}
+                >
+                  <Item
+                    className="items-baseline border-0"
+                    data-account-name={instance.name}
+                    data-preferred={instance.preferred ? "true" : undefined}
                   >
-                    <div>
-                      <div className="text-sm text-foreground">{instance.name}</div>
-                      {instance.connection ? (
-                        <div className="text-xs text-muted-foreground/70">
-                          {instance.connection}
-                        </div>
+                    <ItemMedia>
+                      <Avatar size="lg" aria-hidden>
+                        <AvatarFallback>
+                          {accountInitials(instanceLabel)}
+                        </AvatarFallback>
+                      </Avatar>
+                    </ItemMedia>
+                    <ItemContent>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <ItemTitle>{instanceLabel}</ItemTitle>
+                        {accountDescription === "In use" ? (
+                          <Badge variant="success" size="sm">
+                            {accountDescription}
+                          </Badge>
+                        ) : null}
+                      </div>
+                      {identityPrimary ? (
+                        <ItemDescription data-testid="connection-account-identity-primary">
+                          {identityPrimary.value}
+                        </ItemDescription>
                       ) : null}
-                    </div>
-                    {!readOnly && connection.canDisconnect ? (
-                      <Button
-                        type="button"
-                        variant="ghostDestructive"
-                        size="xs"
-                        onClick={() => {
-                          setDisconnectTarget({
-                            instance: instance.name,
-                            connection:
-                              instance.connection || connection.connection,
-                          });
-                          setView("disconnect");
-                        }}
-                        disabled={disconnecting}
-                      >
-                        Disconnect
-                      </Button>
+                      {identityAdditional.map((fact) => (
+                        <ItemDescription
+                          key={`${fact.kind}:${fact.value}`}
+                          className="text-muted-foreground/80"
+                          data-testid="connection-account-identity-additional"
+                        >
+                          {fact.value}
+                        </ItemDescription>
+                      ))}
+                      {accountDescription !== "In use" &&
+                      accountDescription !== "Not in use" ? (
+                        <ItemDescription>{accountDescription}</ItemDescription>
+                      ) : null}
+                    </ItemContent>
+                    {!readOnly ? (
+                      <ItemActions className="ml-auto flex-wrap justify-end">
+                        {canUseAccount ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              void onSelectInstance?.(
+                                instance.name,
+                                instance.connection || connection.connection,
+                              );
+                            }}
+                            disabled={
+                              disconnecting || selectingInstance || submitting
+                            }
+                          >
+                            {selectingInstance
+                              ? "Updating..."
+                              : USE_ACCOUNT_LABEL}
+                          </Button>
+                        ) : null}
+                        {connection.canDisconnect ? (
+                          <Button
+                            type="button"
+                            variant="danger"
+                            size="sm"
+                            onClick={() => {
+                              onClearError?.();
+                              setDisconnectTarget({
+                                instance: instance.name,
+                                connection:
+                                  instance.connection || connection.connection,
+                              });
+                            }}
+                            disabled={disconnecting || selectingInstance}
+                          >
+                            Disconnect
+                          </Button>
+                        ) : null}
+                      </ItemActions>
                     ) : null}
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </div>
-          <div className="shrink-0 sm:text-right">
-            {renderStatusBadge(connection)}
-            {renderConnectionActions(connection)}
-          </div>
-        </div>
-      </div>
+                  </Item>
+                </Card>
+              );
+            })}
+          </ItemGroup>
+        ) : null}
+      </section>
     );
   }
 
-  const disconnectHeading =
-    destructiveActionLabel === "Remove app"
-      ? `Remove ${displayName}?`
-      : `Disconnect ${displayName}?`;
+  const disconnectAccountLabel = disconnectTarget.instance
+    ? humanizeConnectionName(disconnectTarget.instance, DEFAULT_ACCOUNT_LABEL)
+    : null;
+  const disconnectInstance = disconnectTarget.instance
+    ? normalizedStatus.connections
+        .flatMap((connection) => connection.instances)
+        .find((instance) => instance.name === disconnectTarget.instance)
+    : undefined;
+  const disconnectIdentityPrimary = disconnectInstance
+    ? accountIdentityLines(disconnectInstance.identity).primary?.value
+    : null;
+  const disconnectConfirmLabel =
+    disconnectIdentityPrimary ||
+    (disconnectAccountLabel && disconnectAccountLabel !== DEFAULT_ACCOUNT_LABEL
+      ? disconnectAccountLabel
+      : null);
+  const disconnectConfirm = disconnectConfirmCopy({
+    displayName,
+    accountLabel: disconnectConfirmLabel,
+    context: connectionContext,
+    removeApp: destructiveActionLabel === "Remove app",
+  });
+  const disconnectOpen = Boolean(
+    disconnectTarget.instance || disconnectTarget.connection,
+  );
+
+  function closeDisconnectDialog() {
+    if (disconnecting) return;
+    onClearError?.();
+    setDisconnectTarget({});
+    onDisconnectDialogClose?.();
+  }
+
+  const disconnectDialog = (
+    <AlertDialog
+      open={disconnectOpen}
+      onOpenChange={(open) => {
+        if (!open) closeDisconnectDialog();
+      }}
+    >
+      <AlertDialogContent data-testid="disconnect-confirm-dialog">
+        <AlertDialogHeader>
+          <AlertDialogTitle>{disconnectConfirm.heading}</AlertDialogTitle>
+          <AlertDialogDescription>{disconnectConfirm.body}</AlertDialogDescription>
+          {error ? (
+            <p className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
+          ) : null}
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={disconnecting}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            disabled={
+              disconnecting ||
+              (!disconnectTarget.instance && !disconnectTarget.connection)
+            }
+            onClick={(event) => {
+              event.preventDefault();
+              // Remove app deletes the whole connection (no `_instance`).
+              void onDisconnect(
+                destructiveActionLabel === "Remove app"
+                  ? undefined
+                  : disconnectTarget.instance,
+                disconnectTarget.connection,
+              );
+            }}
+          >
+            {disconnecting
+              ? destructiveActionLabel === "Remove app"
+                ? "Removing..."
+                : "Disconnecting..."
+              : destructiveActionLabel}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+
+  function closeAddAccountDialog() {
+    onClearError?.();
+    setView("default");
+  }
+
+  const addAccountOpen = view === "instance";
+
+  const addAccountDialog = (
+    <Dialog
+      open={addAccountOpen}
+      onOpenChange={(open) => {
+        if (!open) closeAddAccountDialog();
+      }}
+    >
+      <DialogContent
+        className="sm:max-w-sm"
+        showCloseButton={false}
+        data-testid="add-account-dialog"
+      >
+        <form onSubmit={handleInstanceSubmit} className="grid gap-4">
+          <DialogHeader>
+            <DialogTitle>{addAccountCopy.title}</DialogTitle>
+            <DialogDescription>{addAccountCopy.description}</DialogDescription>
+          </DialogHeader>
+          {error ? (
+            <p className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
+          ) : null}
+          <Field>
+            <FieldLabel htmlFor={`instance-name-${integration.name}`}>
+              {addAccountCopy.label}
+            </FieldLabel>
+            <FieldContent>
+              <Input
+                id={`instance-name-${integration.name}`}
+                name="instance_name"
+                type="text"
+                required
+                placeholder={addAccountCopy.placeholder}
+                autoFocus
+                autoComplete="off"
+              />
+              <FieldDescription>
+                {addAccountCopy.fieldDescription}
+              </FieldDescription>
+            </FieldContent>
+          </Field>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={closeAddAccountDialog}
+            >
+              {addAccountCopy.cancelLabel}
+            </Button>
+            <Button type="submit">{addAccountCopy.continueLabel}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
 
   const panel = (
     <div className={isDialog ? "p-7" : undefined}>
-        {view === "disconnect" ? (
-          <>
-            <h2
-              id={headingId}
-              className="text-lg font-heading text-foreground"
-            >
-              {disconnectHeading}
-            </h2>
-            <p className="mt-3 text-sm text-muted-foreground">
-              {disconnectCopy(displayName, connectionContext)}
-            </p>
-            {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
-            <div className="mt-6 flex gap-3">
-              <Button
-                variant="secondary"
-                className="flex-1"
-                onClick={() => {
-                  setView("default");
-                  setDisconnectTarget({});
-                }}
-                disabled={disconnecting}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                className="flex-1"
-                onClick={() => onDisconnect(disconnectTarget.instance, disconnectTarget.connection)}
-                disabled={
-                  disconnecting ||
-                  (!disconnectTarget.instance && !disconnectTarget.connection)
-                }
-              >
-                {disconnecting
-                  ? destructiveActionLabel === "Remove app"
-                    ? "Removing..."
-                    : "Disconnecting..."
-                  : destructiveActionLabel}
-              </Button>
-            </div>
-          </>
-        ) : view === "instance" ? (
-          <form onSubmit={handleInstanceSubmit}>
-            <h2
-              id={headingId}
-              className="text-lg font-heading text-foreground"
-            >
-              Add connection
-            </h2>
-            {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
-            <label
-              htmlFor={`instance-name-${integration.name}`}
-              className="mt-5 label-text block"
-            >
-              Connection name
-            </label>
-            <input
-              id={`instance-name-${integration.name}`}
-              name="instance_name"
-              type="text"
-              required
-              placeholder="e.g. production, acme-workspace"
-              autoFocus
-              className={inputClasses}
-            />
-            <div className="mt-6 flex gap-3">
-              <Button
-                type="button"
-                variant="secondary"
-                className="flex-1"
-                onClick={() => setView("default")}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" className="flex-1">
-                Continue
-              </Button>
-            </div>
-          </form>
-        ) : view === "token" ? (
+        {view === "token" ? (
           <TokenForm
             integrationName={integration.name}
             headingId={headingId}
@@ -683,11 +1053,13 @@ export default function IntegrationConnectionPanel({
               </SectionHeader>
             ) : (
               <h2 id={headingId} className="sr-only">
-                Credentials for {displayName}
+                Connections for {displayName}
               </h2>
             )}
 
-            {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
+            {error && !disconnectOpen && !addAccountOpen ? (
+              <p className="mt-3 text-sm text-destructive">{error}</p>
+            ) : null}
 
             <div className={showHeader ? "mt-5 space-y-3" : "space-y-3"}>
               {normalizedStatus.connections.map(renderConnectionRow)}
@@ -705,21 +1077,45 @@ export default function IntegrationConnectionPanel({
         data-testid={`integration-connection-${integration.name}`}
       >
         {panel}
+        {disconnectDialog}
+        {addAccountDialog}
       </div>
     );
   }
 
   return (
-    <dialog
-      ref={dialogRef}
-      aria-labelledby={headingId}
-      onCancel={handleCancel}
-      onClose={() => onClose?.()}
-      onClick={handleBackdropClick}
-      className="m-auto w-full max-w-lg rounded-lg border border-border bg-card p-0 text-card-foreground shadow-dropdown"
-    >
-      {panel}
-    </dialog>
+    <>
+      <Dialog
+        open={settingsOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            if (disconnecting || submitting || selectingInstance) return;
+            closeDialog();
+          }
+        }}
+      >
+        <DialogContent
+          className="max-w-lg gap-0 p-0"
+          showCloseButton={false}
+          aria-labelledby={headingId}
+          data-testid={`integration-connection-${integration.name}`}
+          onPointerDownOutside={(event) => {
+            if (disconnecting || submitting || selectingInstance || addAccountOpen || disconnectOpen) {
+              event.preventDefault();
+            }
+          }}
+          onEscapeKeyDown={(event) => {
+            if (disconnecting || submitting || selectingInstance || addAccountOpen || disconnectOpen) {
+              event.preventDefault();
+            }
+          }}
+        >
+          {panel}
+        </DialogContent>
+      </Dialog>
+      {disconnectDialog}
+      {addAccountDialog}
+    </>
   );
 }
 

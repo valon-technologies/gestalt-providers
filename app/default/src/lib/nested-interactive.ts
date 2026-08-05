@@ -107,6 +107,17 @@ export const nestedInteractiveSuppress = {
     "[&:hover:has(a:not([data-row-link]):hover,button:hover,input:hover,select:hover,textarea:hover,[role=button]:hover,[role=checkbox]:hover,[role=combobox]:hover,[data-no-row-click]:hover)]:bg-secondary [&:active:has(a:not([data-row-link]):active,button:active,input:active,select:active,textarea:active,[role=button]:active,[role=checkbox]:active,[role=combobox]:active,[data-no-row-click]:active)]:bg-secondary",
 
   /**
+   * Solid card on Neutral hover rest whose destination is a stretch
+   * `data-row-link` (catalog tiles). Rest must be `bg-neutral-hover` — not
+   * `bg-secondary` — so `neutral-dark-hover` is a visible L-step (tenant themes
+   * may diverge `--secondary` from `--neutral-hover`). Omit `a` from `:has()` so
+   * destination hover still deepens; Open/Add/More suppress via button /
+   * data-no-row-click.
+   */
+  solidNeutralHoverStretchLink:
+    "[&:hover:has(button:hover,input:hover,select:hover,textarea:hover,[role=button]:hover,[role=checkbox]:hover,[role=combobox]:hover,[data-no-row-click]:hover)]:bg-neutral-hover [&:active:has(button:active,input:active,select:active,textarea:active,[role=button]:active,[role=checkbox]:active,[role=combobox]:active,[data-no-row-click]:active)]:bg-neutral-hover",
+
+  /**
    * Self-target outline card on white; restore `bg-card`.
    */
   outlineCard:
