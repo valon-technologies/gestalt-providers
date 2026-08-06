@@ -29,6 +29,7 @@ import {
 import { useExclusiveReplicaHover } from "@/features/registry/replica-hover-exclusive";
 import type { AppAdminFleetReplica } from "@/features/registry/types";
 import { useLiveNow } from "@/hooks/use-live-now";
+import { ghostQuietChromeGroupActivateClassName } from "@/lib/press-feedback";
 import { cn } from "@/lib/cn";
 
 const HOVER_COPYABLE_CODE_CLASS =
@@ -71,7 +72,7 @@ function VersionAlignmentFacts({
     case "diverged":
       return (
         <>
-          <HoverFact label="Running">
+          <HoverFact label="Running version">
             <CopyableCode
               value={alignment.running}
               className={HOVER_COPYABLE_CODE_CLASS}
@@ -89,7 +90,7 @@ function VersionAlignmentFacts({
       );
     case "running_only":
       return (
-        <HoverFact label="Running">
+        <HoverFact label="Running version">
           <CopyableCode
             value={alignment.version}
             className={HOVER_COPYABLE_CODE_CLASS}
@@ -201,7 +202,7 @@ function ReplicaHoverBody({
         </dl>
       ) : null}
       {pinned ? (
-        <p className="text-xs text-muted-foreground">Pinned — click chip to close</p>
+        <p className="text-xs text-muted-foreground">Pinned — click chip to unpin</p>
       ) : null}
     </>
   );
@@ -313,16 +314,16 @@ const FleetReplicaTrigger = memo(function FleetReplicaTrigger({
             ? `Replica ${shortId}: ${statusWithFreshness}. Pinned — click to unpin`
             : open
               ? `Replica ${shortId}: ${statusWithFreshness}. Click to pin details`
-              : `Replica ${shortId}: ${statusWithFreshness}. Hover for details, click to pin`
+              : `Replica ${shortId}: ${statusWithFreshness}. Show details, click to pin`
         }
         title={
           pinned
             ? "Pinned — click to unpin"
             : open
               ? "Click to pin details"
-              : "Hover for details — click to pin"
+              : "Show details — click to pin"
         }
-        className="group inline-flex cursor-pointer focus-ring rounded-sm outline-none"
+        className="group inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center focus-ring rounded-sm outline-none"
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -334,9 +335,7 @@ const FleetReplicaTrigger = memo(function FleetReplicaTrigger({
           size="default"
           className={cn(
             "pointer-events-none font-normal text-foreground",
-            // Badge is pointer-events-none; drive quiet-chrome scrim via group
-            // (press-feedback ghost / toolshed#4081).
-            "group-hover:text-foreground group-hover:after:opacity-[var(--state-overlay-hover,0.08)]",
+            ghostQuietChromeGroupActivateClassName,
             open &&
               "text-foreground after:opacity-[var(--state-overlay-hover,0.08)]",
             stale && "ring-1 ring-destructive/40",

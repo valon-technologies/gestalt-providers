@@ -59,6 +59,7 @@ import {
   SnapshotRowLiveReplicas,
 } from "@/features/registry/snapshot-live-replicas";
 import {
+  fleetReplicasLivenessKey,
   fleetReplicasPollKey,
   partitionFleetReplicasForSnapshotTable,
   replicaClassLabel,
@@ -205,7 +206,6 @@ const SnapshotDeployedByCell = memo(function SnapshotDeployedByCell({
         <span data-no-row-click>
           <Badge
             variant="muted"
-            className="hover:bg-muted hover:text-muted-foreground"
             data-testid="auto-deployed-badge"
           >
             Automatically deployed
@@ -425,6 +425,14 @@ const SnapshotPullRequestCell = memo(function SnapshotPullRequestCell({
     return false;
   }
   if (fleetReplicasPollKey(prev.liveReplicas) !== fleetReplicasPollKey(next.liveReplicas)) {
+    return false;
+  }
+  // Presentation-stable polls still patch heartbeatAt — re-render for freshness
+  // without treating liveness as chip remount identity.
+  if (
+    fleetReplicasLivenessKey(prev.liveReplicas) !==
+    fleetReplicasLivenessKey(next.liveReplicas)
+  ) {
     return false;
   }
   const version = prev.row.version;

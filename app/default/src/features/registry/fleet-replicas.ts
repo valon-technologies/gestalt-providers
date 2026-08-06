@@ -336,6 +336,21 @@ export function fleetReplicasPollKey(
 }
 
 /**
+ * Liveness-only equality key. Presentation memos omit heartbeat so chips do not
+ * remount; open freshness still needs this channel to re-render when polls patch
+ * `heartbeatAt` onto presentation-stable replicas.
+ */
+export function fleetReplicasLivenessKey(
+  replicas: AppAdminFleetReplica[] | undefined,
+): string {
+  if (!replicas?.length) return "";
+  return replicas
+    .map((replica) => `${replica.instanceId}\0${replica.heartbeatAt}`)
+    .sort()
+    .join("\n");
+}
+
+/**
  * Equality key for fleet-strip presentation driven by aggregates (summary,
  * path hint, callouts) — omits evaluatedAt ticks so heartbeat-only polls do
  * not remount chips.

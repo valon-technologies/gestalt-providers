@@ -27,4 +27,9 @@ describe("press-feedback quiet chrome (toolshed#4081)", () => {
     expect(ghostQuietChromePaintClassName).not.toContain("hover:bg-accent");
     expect(ghostQuietChromeClassName).toContain(pressFeedbackScrimClassName);
   });
+
+  test("group activate drives scrim from a parent .group", () => {
+    expect(SOURCE).toContain("export const ghostQuietChromeGroupActivateClassName");
+    expect(SOURCE).toContain("group-hover:after:opacity-");
+  });
 });

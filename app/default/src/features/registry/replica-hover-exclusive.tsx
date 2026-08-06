@@ -17,10 +17,17 @@ export type ReplicaHoverSession = {
   mode: "hover" | "pinned";
 };
 
+export type ReplicaHoverKeyState = "closed" | "hover" | "pinned";
+
 type ExclusiveHoverStore = {
-  subscribe: (listener: () => void) => () => void;
+  /** Subscribe to changes that affect `key` only (not every session swap). */
+  subscribeKey: (key: string, listener: () => void) => () => void;
+  getKeyState: (key: string) => ReplicaHoverKeyState;
   getSession: () => ReplicaHoverSession | null;
-  /** Peek — open or keep hover for `key` (does not downgrade pinned). */
+  /**
+   * Peek — open or keep hover for `key`.
+   * Does not steal a pin owned by another key; does not downgrade own pin.
+   */
   openHover: (key: string) => void;
   /** Durable open — click path / keyboard. */
   pin: (key: string) => void;
@@ -28,11 +35,21 @@ type ExclusiveHoverStore = {
   close: (key: string) => void;
 };
 
+function keyStateFor(
+  session: ReplicaHoverSession | null,
+  key: string,
+): ReplicaHoverKeyState {
+  if (session?.key !== key) return "closed";
+  return session.mode;
+}
+
 export function createExclusiveHoverStore(): ExclusiveHoverStore {
   let session: ReplicaHoverSession | null = null;
-  const listeners = new Set<() => void>();
+  const listenersByKey = new Map<string, Set<() => void>>();
 
-  const emit = () => {
+  const emitKey = (key: string) => {
+    const listeners = listenersByKey.get(key);
+    if (!listeners) return;
     for (const listener of listeners) listener();
   };
 
@@ -43,19 +60,30 @@ export function createExclusiveHoverStore(): ExclusiveHoverStore {
     ) {
       return;
     }
+    const prev = session;
     session = next;
-    emit();
+    if (prev?.key) emitKey(prev.key);
+    if (next?.key && next.key !== prev?.key) emitKey(next.key);
   };
 
   return {
-    subscribe(listener) {
+    subscribeKey(key, listener) {
+      let listeners = listenersByKey.get(key);
+      if (!listeners) {
+        listeners = new Set();
+        listenersByKey.set(key, listeners);
+      }
       listeners.add(listener);
       return () => {
-        listeners.delete(listener);
+        listeners!.delete(listener);
+        if (listeners!.size === 0) listenersByKey.delete(key);
       };
     },
+    getKeyState: (key) => keyStateFor(session, key),
     getSession: () => session,
     openHover(key) {
+      // Pinned sessions are durable until explicit unpin / dismiss / pin-other.
+      if (session?.mode === "pinned" && session.key !== key) return;
       if (session?.key === key && session.mode === "pinned") return;
       setSession({ key, mode: "hover" });
     },
@@ -75,8 +103,8 @@ const ReplicaHoverExclusiveContext =
 /**
  * Ensures at most one replica HoverCard is open across the tree.
  *
- * Uses an external store so closed chips do not re-render when another chip
- * opens (context-value churn was forcing every HoverCard root to update).
+ * Uses an external store with per-key subscriptions so closed chips do not
+ * re-render when another chip opens.
  */
 export function ReplicaHoverExclusiveProvider({
   children,
@@ -101,43 +129,30 @@ export function useExclusiveReplicaHover(key: string): {
   dismiss: () => void;
 } {
   const store = useContext(ReplicaHoverExclusiveContext);
-  const [localSession, setLocalSession] = useState<ReplicaHoverSession | null>(
-    null,
-  );
+  const [localState, setLocalState] = useState<ReplicaHoverKeyState>("closed");
 
   const subscribe = useCallback(
     (onStoreChange: () => void) =>
-      store ? store.subscribe(onStoreChange) : () => {},
-    [store],
+      store ? store.subscribeKey(key, onStoreChange) : () => {},
+    [store, key],
   );
   const getSnapshot = useCallback(
-    () => (store ? store.getSession() : null),
-    [store],
+    () => (store ? store.getKeyState(key) : localState),
+    [store, key, localState],
   );
 
-  const storeSession = useSyncExternalStore(
-    subscribe,
-    getSnapshot,
-    getSnapshot,
-  );
-  const session = store ? storeSession : localSession;
-  const open = session?.key === key;
-  const pinned = open && session?.mode === "pinned";
+  const state = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const open = state !== "closed";
+  const pinned = state === "pinned";
 
   const onOpenChange = useCallback(
     (next: boolean) => {
       if (!store) {
         if (next) {
-          setLocalSession((prev) =>
-            prev?.key === key && prev.mode === "pinned"
-              ? prev
-              : { key, mode: "hover" },
-          );
+          setLocalState((prev) => (prev === "pinned" ? prev : "hover"));
           return;
         }
-        setLocalSession((prev) =>
-          prev?.key === key && prev.mode === "pinned" ? prev : null,
-        );
+        setLocalState((prev) => (prev === "pinned" ? prev : "closed"));
         return;
       }
       if (next) {
@@ -145,10 +160,7 @@ export function useExclusiveReplicaHover(key: string): {
         return;
       }
       // Pinned survives Radix synthetic closes (trigger remount / pointer leave).
-      const current = store.getSession();
-      if (current?.key === key && current.mode === "pinned") {
-        return;
-      }
+      if (store.getKeyState(key) === "pinned") return;
       store.close(key);
     },
     [store, key],
@@ -156,14 +168,10 @@ export function useExclusiveReplicaHover(key: string): {
 
   const onTriggerClick = useCallback(() => {
     if (!store) {
-      setLocalSession((prev) => {
-        if (prev?.key === key && prev.mode === "pinned") return null;
-        return { key, mode: "pinned" };
-      });
+      setLocalState((prev) => (prev === "pinned" ? "closed" : "pinned"));
       return;
     }
-    const current = store.getSession();
-    if (current?.key === key && current.mode === "pinned") {
+    if (store.getKeyState(key) === "pinned") {
       store.close(key);
       return;
     }
@@ -172,7 +180,7 @@ export function useExclusiveReplicaHover(key: string): {
 
   const dismiss = useCallback(() => {
     if (!store) {
-      setLocalSession((prev) => (prev?.key === key ? null : prev));
+      setLocalState("closed");
       return;
     }
     store.close(key);

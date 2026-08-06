@@ -3,6 +3,7 @@ import {
   buildReplicaHoverPresentation,
   partitionFleetReplicasForSnapshotTable,
   fleetReplicasPollKey,
+  fleetReplicasLivenessKey,
   fleetStatePollKey,
   formatReplicaAppState,
   reconcileFleetReplicas,
@@ -50,6 +51,7 @@ describe("fleetReplicasPollKey", () => {
     ];
     expect(fleetReplicasPollKey(a)).toBe(fleetReplicasPollKey(b));
     expect(replicaPresentationKey(a[0]!)).toBe(replicaPresentationKey(b[0]!));
+    expect(fleetReplicasLivenessKey(a)).not.toBe(fleetReplicasLivenessKey(b));
   });
 
   test("changes when status presentation fields change", () => {

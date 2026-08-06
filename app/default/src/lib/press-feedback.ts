@@ -48,3 +48,15 @@ export const ghostQuietChromeClassName = [
   ghostQuietChromePaintClassName,
   pressFeedbackScrimClassName,
 ].join(" ");
+
+/**
+ * Activate Badge/Button ghost scrim from a `.group` parent when the painted
+ * surface is `pointer-events-none` (e.g. nested chip inside a hit-target button).
+ * Pair with `ghostQuietChromeClassName` / Badge `variant="ghost"` — do not
+ * hand-roll `after:opacity` at call sites.
+ */
+export const ghostQuietChromeGroupActivateClassName = [
+  "group-hover:text-foreground",
+  "group-hover:after:opacity-[var(--state-overlay-hover,0.08)]",
+  "group-active:after:opacity-[var(--state-overlay-press,0.14)]",
+].join(" ");

@@ -17,7 +17,7 @@ import {
   presentFleetStatus,
   type FleetStatusView,
 } from "@/features/registry/fleet-status-presentation";
-import { fleetReplicasPollKey, fleetStatePollKey } from "@/features/registry/fleet-replicas";
+import { fleetReplicasLivenessKey, fleetReplicasPollKey, fleetStatePollKey } from "@/features/registry/fleet-replicas";
 import { SnapshotRowLiveReplicas } from "@/features/registry/snapshot-live-replicas";
 import { RegistryCode } from "@/features/registry/registry-code";
 import { rolloutKey } from "@/features/registry/stable-snapshot-registry";
@@ -283,6 +283,12 @@ export const AppAdminFleetState = memo(function AppAdminFleetState({
   if (
     fleetReplicasPollKey(prev.registry.fleetState?.replicas) !==
     fleetReplicasPollKey(next.registry.fleetState?.replicas)
+  ) {
+    return false;
+  }
+  if (
+    fleetReplicasLivenessKey(prev.registry.fleetState?.replicas) !==
+    fleetReplicasLivenessKey(next.registry.fleetState?.replicas)
   ) {
     return false;
   }
