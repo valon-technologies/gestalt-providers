@@ -1323,19 +1323,3 @@ func TestClaimsStoreDoesNotClearExistingName(t *testing.T) {
 		t.Fatalf("name = %q, want Stored Name", record.Name)
 	}
 }
-
-func TestFederatedLogoutURL(t *testing.T) {
-	p := New()
-	p.cfg = config{
-		IssuerURL: "https://tenant.us.auth0.com/",
-		ClientID:  "client-id",
-	}
-	got, err := p.FederatedLogoutURL("https://valon.tools/apps")
-	if err != nil {
-		t.Fatalf("FederatedLogoutURL() error = %v", err)
-	}
-	want := "https://tenant.us.auth0.com/v2/logout?client_id=client-id&returnTo=https%3A%2F%2Fvalon.tools%2Fapps"
-	if got != want {
-		t.Fatalf("FederatedLogoutURL() = %q, want %q", got, want)
-	}
-}

@@ -193,17 +193,25 @@ brew install valon-technologies/gestalt/gestalt`}
 
         <Subheading id="authorization" title="Grant authorization" />
         <p className="doc-copy">
-          On valon.tools, app access is granted by updating deploy config in
-          the toolshed repository. Look up the user&apos;s subject ID, add a
-          relationship grant, and configure which roles can invoke each
-          operation.
+          Use authorization grants when another user or service account needs
+          access to an app. App admins can manage members for their own app;
+          built-in Gestalt admins can manage grants across apps.
         </p>
+        <CodeBlock
+          code={`gestalt authorization apps members set <app> \\
+  --email operator@example.com \\
+  --role viewer
+
+gestalt authorization subjects grants set service_account:release-bot <app> \\
+  --role viewer`}
+        />
         <p className="doc-copy">
-          See{" "}
+          For service account setup, built-in admin grants, and split
+          management listener deployments, open{" "}
           <Link to="/docs/authorization" className="doc-link">
             Grant Authorization
-          </Link>{" "}
-          for the full workflow, including nested app grants and deploy steps.
+          </Link>
+          .
         </p>
 
         <Subheading
@@ -317,181 +325,88 @@ export function AuthorizationDocsPage() {
     <>
       <DocsPageHeader
         title="Grant Authorization"
-        description="Grant users access to Valon Tools apps by updating deploy config in the toolshed repository."
+        description="Grant users and service accounts access to app operations from the Gestalt CLI."
       />
       <DocsPageBody>
         <p className="doc-copy">
-          valon.tools resolves logins to stable UUID subject IDs (
-          <InlineCode>user:&lt;uuid&gt;</InlineCode>
-          ). Grants are declared in deploy config and take effect after the
-          next production deploy. The typical workflow is: look up a
-          user&apos;s subject ID, add a relationship grant for the app, and
-          confirm the operation&apos;s allowed roles include that relation.
+          Most teams grant access at the app level. App admins can manage
+          members for apps they administer. Built-in Gestalt admins can
+          manage every app and the global admin set. If your deployment
+          splits public and management listeners, pass{" "}
+          <InlineCode>--url &lt;management-url&gt;</InlineCode>{" "}
+          to admin authorization commands.
         </p>
 
-        <Subheading id="authz-lookup-subject" title="Look up a subject ID" />
+        <Subheading id="authz-plugin-access" title="Grant app access" />
         <p className="doc-copy">
-          Grants use <InlineCode>user:&lt;uuid&gt;</InlineCode>, not email
-          addresses. Use the user lookup endpoint or CLI. Both require Gestalt
-          admin access.
+          Grant a user or service account an app role with{" "}
+          <InlineCode>viewer</InlineCode>
+          ,{" "}
+          <InlineCode>editor</InlineCode>
+          , or{" "}
+          <InlineCode>admin</InlineCode>.
         </p>
         <CodeBlock
-          code={`curl -sS "https://valon.tools/api/v1/users/lookup?email=operator@valon.com" \\
-  -H "Authorization: Bearer $GESTALT_API_KEY" \\
-  | jq -r .subjectId
+          code={`gestalt authorization apps list
+gestalt authorization apps members list <app>
 
-# Or, with an up-to-date gestalt CLI:
-gestalt users lookup operator@valon.com`}
+gestalt authorization apps members set <app> \\
+  --email operator@example.com \\
+  --role viewer
+
+gestalt authorization apps members set <app> \\
+  --subject-id service_account:release-bot \\
+  --role editor
+
+gestalt authorization apps members remove <app> user:user_123`}
         />
-        <p className="doc-copy">
-          The response includes <InlineCode>subjectId</InlineCode> (for example,{" "}
-          <InlineCode>user:e63e1325-07b6-4f09-a42c-9a4af468d9b7</InlineCode>
-          ). Use that value in the deploy config entries below.
-        </p>
 
-        <Subheading id="authz-grant-app-access" title="Grant app access" />
+        <Subheading id="authz-service-accounts" title="Grant service account access" />
         <p className="doc-copy">
-          Add a relationship under{" "}
-          <InlineCode>authorization.relationships</InlineCode> in{" "}
-          <InlineCode>valon-tools/deploy/prod/config.yaml</InlineCode> in the{" "}
-          <a
-            href="https://github.com/valon-technologies/toolshed"
-            className="doc-link"
-            target="_blank"
-            rel="noreferrer"
-          >
-            toolshed
-          </a>{" "}
-          repository. Include the email in a comment so future grants are easy
-          to audit.
+          Service accounts are managed subjects. Create the subject, grant it a
+          app role, connect any app credentials it needs, then mint a
+          scoped token for automation.
         </p>
         <CodeBlock
-          code={`- resource:
-    type: app
-    id: traffic-cop
-  relation: admin
-  subject:
-    type: subject
-    id: user:e63e1325-07b6-4f09-a42c-9a4af468d9b7 # tyler.campbell@valon.com`}
-        />
-        <p className="doc-copy">
-          Common app relations include <InlineCode>viewer</InlineCode>,{" "}
-          <InlineCode>editor</InlineCode>, <InlineCode>operator</InlineCode>,
-          and <InlineCode>admin</InlineCode>. Some apps define custom
-          relations (for example, <InlineCode>trafficCopUser</InlineCode> on{" "}
-          <InlineCode>front-porch</InlineCode>). Check existing grants for the
-          app or the authorization model in{" "}
-          <InlineCode>valon-tools/deploy/config.yaml</InlineCode> for the
-          relation names your app expects.
-        </p>
+          code={`gestalt authorization subjects create release-bot \\
+  --display-name "Release Bot"
 
-        <Subheading id="authz-operation-roles" title="Assign roles to operations" />
+gestalt authorization subjects grants set service_account:release-bot <app> \\
+  --role viewer
+
+gestalt authorization subjects integrations connect service_account:release-bot <app>
+
+gestalt authorization subjects tokens create service_account:release-bot \\
+  --name release-bot \\
+  --permission <app>:<operation>`}
+        />
+
+        <Subheading id="authz-admins" title="Grant built-in admin access" />
         <p className="doc-copy">
-          A relationship grant alone is not enough: each operation must list
-          which roles are allowed to invoke it. Configure this under{" "}
-          <InlineCode>apps.&lt;app&gt;.allowedOperations</InlineCode> in{" "}
-          <InlineCode>valon-tools/deploy/config.yaml</InlineCode>.
+          Built-in admins can administer the global authorization surface. Use
+          this only for operators who should manage grants beyond one app.
         </p>
         <CodeBlock
-          code={`traffic-cop:
-  allowedOperations:
-    graphql.execute:
-      allowedRoles:
-        - admin`}
-        />
-        <p className="doc-copy">
-          When you add a new operation or tighten access for an existing app,
-          update <InlineCode>allowedRoles</InlineCode> so the relation you
-          granted in production config (for example, <InlineCode>admin</InlineCode>
-          ) is included. Apps enrolled through the app registry should omit{" "}
-          <InlineCode>authorizationPolicy</InlineCode> so auth checks follow
-          the app id in deploy config.
-        </p>
+          code={`gestalt authorization admins members list
 
-        <Subheading id="authz-nested-apps" title="Grant nested app access" />
-        <p className="doc-copy">
-          Some apps invoke operations on other apps at runtime. Grant access on
-          every app in the chain, not just the mounted UI. For example, Traffic
-          Cop needs both a <InlineCode>traffic-cop</InlineCode>{" "}
-          <InlineCode>admin</InlineCode> grant and a{" "}
-          <InlineCode>front-porch</InlineCode>{" "}
-          <InlineCode>trafficCopUser</InlineCode> grant so nested GraphQL
-          invokes succeed end-to-end.
-        </p>
-        <CodeBlock
-          code={`- resource:
-    type: app
-    id: traffic-cop
-  relation: admin
-  subject:
-    type: subject
-    id: user:e63e1325-07b6-4f09-a42c-9a4af468d9b7 # tyler.campbell@valon.com
-- resource:
-    type: app
-    id: front-porch
-  relation: trafficCopUser
-  subject:
-    type: subject
-    id: user:e63e1325-07b6-4f09-a42c-9a4af468d9b7 # tyler.campbell@valon.com`}
-        />
+gestalt authorization admins members set \\
+  --email admin@example.com \\
+  --role admin
 
-        <Subheading id="authz-admins" title="Grant Gestalt admin access" />
-        <p className="doc-copy">
-          Gestalt admins can look up users by email and manage grants across
-          apps. Add a relationship on the{" "}
-          <InlineCode>gestaltAdmin</InlineCode> resource in{" "}
-          <InlineCode>valon-tools/deploy/prod/config.yaml</InlineCode>. Reserve
-          this for operators who need workspace-wide admin access.
-        </p>
-        <CodeBlock
-          code={`- resource:
-    type: gestaltAdmin
-    id: gestaltAdmin
-  relation: admin
-  subject:
-    type: subject
-    id: user:7770003b-127b-44dc-b5aa-38c0310e4e23 # operator@valon.com`}
+gestalt authorization admins members remove user:user_123`}
         />
-        <p className="doc-copy">
-          Service accounts follow the same pattern with{" "}
-          <InlineCode>service_account:&lt;name&gt;</InlineCode> subject IDs.
-          Copy an existing grant from the same file when wiring automation
-          accounts.
-        </p>
-
-        <Subheading id="authz-deploy" title="Deploy changes" />
-        <p className="doc-copy">
-          Open a pull request in toolshed with your config changes and merge to{" "}
-          <InlineCode>main</InlineCode>. Merging triggers the Deploy Valon
-          Tools workflow, which rolls out updated authorization config to
-          production. Allow roughly 10–15 minutes for the deploy to finish
-          before asking the user to retry.
-        </p>
-        <p className="doc-copy">
-          Relationship grants live in{" "}
-          <InlineCode>valon-tools/deploy/prod/config.yaml</InlineCode>.
-          Operation role wiring lives in{" "}
-          <InlineCode>valon-tools/deploy/config.yaml</InlineCode>. Both files
-          ship in the same deploy.
-        </p>
 
         <Subheading id="authz-inspect" title="Inspect grants" />
         <p className="doc-copy">
-          Search <InlineCode>valon-tools/deploy/prod/config.yaml</InlineCode>{" "}
-          for the user&apos;s email comment or subject ID. You can also list
-          relationships from the CLI after authenticating:
+          Use provider and relationship views to confirm which authorization
+          provider is active and which dynamic app grants are stored.
         </p>
         <CodeBlock
-          code={`gestalt authorization relationships list \\
-  --resource-type app \\
-  --resource-id traffic-cop
-
-gestalt authorization check-access \\
-  --subject-type subject \\
-  --subject-id user:e63e1325-07b6-4f09-a42c-9a4af468d9b7 \\
-  --resource-type app \\
-  --resource-id traffic-cop \\
-  --action graphql.execute`}
+          code={`gestalt authorization provider get
+gestalt authorization models list
+gestalt authorization relationships list \\
+  --resource-type plugin_dynamic \\
+  --resource-id <app>`}
         />
       </DocsPageBody>
     </>
