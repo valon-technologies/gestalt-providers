@@ -12,11 +12,16 @@ import { CircleAlert } from "lucide-react";
 import type { Integration } from "@/lib/api";
 import { groupCatalogForBrowse } from "@/lib/catalogBuckets";
 import {
-  canManageApp,
+  catalogFacetsToFilterOptions,
+  CATALOG_FACETS,
+  countCatalogFacets,
+  isCatalogFacetId,
+  pruneActiveCatalogFacets,
+  type CatalogFacetId,
+} from "@/lib/catalogFacets";
+import {
   filterCatalogIntegrations,
-  getAppSurfaces,
   listNeedsAttention,
-  matchesConnectionFilter,
 } from "@/lib/catalogFilters";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import { normalizeIntegrationStatus } from "@/lib/integrationStatus";
@@ -64,41 +69,6 @@ import {
   useIntegrationsQuery,
   useInvalidateIntegrations,
 } from "@/lib/queries";
-
-type CatalogFacetId = "admin" | "app" | "needs_attention";
-
-type CatalogFacetCounts = Record<CatalogFacetId, number>;
-
-const CATALOG_FACETS: ReadonlyArray<{
-  id: CatalogFacetId;
-  label: string;
-}> = [
-  { id: "app", label: "Web App" },
-  { id: "admin", label: "Admin" },
-  { id: "needs_attention", label: "Needs attention" },
-];
-
-const CATALOG_FACET_IDS = new Set<string>(
-  CATALOG_FACETS.map((facet) => facet.id),
-);
-
-function isCatalogFacetId(value: string): value is CatalogFacetId {
-  return CATALOG_FACET_IDS.has(value);
-}
-
-function countCatalogFacets(integrations: Integration[]): CatalogFacetCounts {
-  let admin = 0;
-  let app = 0;
-  let needsAttention = 0;
-  for (const integration of integrations) {
-    if (canManageApp(integration)) admin += 1;
-    if (getAppSurfaces(integration).hasUi) app += 1;
-    if (matchesConnectionFilter(integration, "needs_attention")) {
-      needsAttention += 1;
-    }
-  }
-  return { admin, app, needs_attention: needsAttention };
-}
 
 function resolveConnectedAppLabel(
   connectedParam: string,
@@ -198,14 +168,19 @@ export default function AppsCatalogPageClient() {
     () => CATALOG_FACETS.filter((facet) => facetCounts[facet.id] > 0),
     [facetCounts],
   );
-  const adminFacet = activeFacets.includes("admin");
-  const appFacet = activeFacets.includes("app");
-  const needsAttentionFacet = activeFacets.includes("needs_attention");
+  useEffect(() => {
+    setActiveFacets((prev) => {
+      const next = pruneActiveCatalogFacets(prev, facetCounts);
+      return next.length === prev.length &&
+        next.every((id, index) => id === prev[index])
+        ? prev
+        : next;
+    });
+  }, [facetCounts]);
+  const facetFilter = catalogFacetsToFilterOptions(activeFacets);
   const filteredIntegrations = filterCatalogIntegrations(integrations, {
     query: deferredQuery,
-    connection: needsAttentionFacet ? "needs_attention" : "all",
-    surface: appFacet ? "has_ui" : "all",
-    admin: adminFacet,
+    ...facetFilter,
   });
   const { installed, sections: catalogSections } = useMemo(
     () => groupCatalogForBrowse(filteredIntegrations),
@@ -421,18 +396,22 @@ export default function AppsCatalogPageClient() {
             className="mb-6"
             data-testid="apps-catalog-facets"
           >
-            {visibleFacets.map((facet) => (
-              <ChipGroupItem
-                key={facet.id}
-                value={facet.id}
-                data-testid={`apps-catalog-facet-${facet.id}`}
-              >
-                {facet.label}
-                <Badge size="sm" variant="secondary">
-                  {facetCounts[facet.id]}
-                </Badge>
-              </ChipGroupItem>
-            ))}
+            {visibleFacets.map((facet) => {
+              const count = facetCounts[facet.id];
+              return (
+                <ChipGroupItem
+                  key={facet.id}
+                  value={facet.id}
+                  aria-label={`${facet.label}, ${count} apps`}
+                  data-testid={`apps-catalog-facet-${facet.id}`}
+                >
+                  {facet.label}
+                  <Badge size="sm" variant="secondary" aria-hidden>
+                    {count}
+                  </Badge>
+                </ChipGroupItem>
+              );
+            })}
           </ChipGroup>
         ) : null}
         {connectedSuccessLabel ||
@@ -560,7 +539,11 @@ export default function AppsCatalogPageClient() {
                   data-testid="apps-catalog-clear-filters"
                   onClick={clearFilters}
                 >
-                  {hasActiveFacets ? "Clear filters" : "Clear search"}
+                  {hasSearchQuery && hasActiveFacets
+                    ? "Clear search and filters"
+                    : hasActiveFacets
+                      ? "Clear filters"
+                      : "Clear search"}
                 </Button>
               ) : null}
             </div>
@@ -577,7 +560,7 @@ export default function AppsCatalogPageClient() {
                 <CatalogBucketSectionHeader
                   id="catalog-bucket-installed"
                   title="Installed"
-                  description="Apps you’re already connected to. Open one with a web app, or use the menu to manage it."
+                  description="Apps you’re already connected to. Open a web app from the card, or use the menu to manage the app."
                 />
                 <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                   {installed.map((integration) => (

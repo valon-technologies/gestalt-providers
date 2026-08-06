@@ -82,16 +82,16 @@ const CHECKBOX_EXIT_CLIP =
 // Enter: expand slot → then stroke-draw (clip opens with the draw).
 // Exit: wipe → then collapse slot (delay = wipe duration).
 const TOGGLE_LAYOUT_COLLAPSE =
-  "max-w-0 overflow-hidden me-0 transition-[max-width,margin-inline-end] duration-[var(--duration-200)] delay-[var(--duration-200)] ease-out-quart group-data-[state=on]/chip:max-w-4 group-data-[state=on]/chip:me-1 group-data-[state=on]/chip:delay-0";
+  "max-w-0 overflow-hidden me-0 transition-[max-width,margin-inline-end] duration-[var(--duration-200)] delay-[var(--duration-200)] ease-out-quart motion-reduce:transition-none motion-reduce:delay-0 group-data-[state=on]/chip:max-w-4 group-data-[state=on]/chip:me-1 group-data-[state=on]/chip:delay-0";
 
 const TOGGLE_DOWN_DRAW =
-  "[stroke-dashoffset:1] transition-[stroke-dashoffset] duration-0 delay-[var(--duration-200)] ease-out-quart group-data-[state=on]/chip:[stroke-dashoffset:0] group-data-[state=on]/chip:duration-[var(--duration-200)] group-data-[state=on]/chip:delay-[var(--duration-200)]";
+  "[stroke-dashoffset:1] transition-[stroke-dashoffset] duration-0 delay-[var(--duration-200)] ease-out-quart motion-reduce:delay-0 group-data-[state=on]/chip:[stroke-dashoffset:0] group-data-[state=on]/chip:duration-[var(--duration-200)] group-data-[state=on]/chip:delay-[var(--duration-200)] motion-reduce:group-data-[state=on]/chip:duration-0 motion-reduce:group-data-[state=on]/chip:delay-0";
 
 const TOGGLE_UP_DRAW =
-  "[stroke-dashoffset:1] transition-[stroke-dashoffset] duration-0 delay-[var(--duration-200)] ease-out-quart group-data-[state=on]/chip:[stroke-dashoffset:0] group-data-[state=on]/chip:duration-[var(--duration-200)] group-data-[state=on]/chip:delay-[calc(2*var(--duration-200))]";
+  "[stroke-dashoffset:1] transition-[stroke-dashoffset] duration-0 delay-[var(--duration-200)] ease-out-quart motion-reduce:delay-0 group-data-[state=on]/chip:[stroke-dashoffset:0] group-data-[state=on]/chip:duration-[var(--duration-200)] group-data-[state=on]/chip:delay-[calc(2*var(--duration-200))] motion-reduce:group-data-[state=on]/chip:duration-0 motion-reduce:group-data-[state=on]/chip:delay-0";
 
 const TOGGLE_EXIT_CLIP =
-  "[clip-path:inset(0_0_0_100%)] transition-[clip-path] duration-[var(--duration-200)] delay-0 ease-out-quart group-data-[state=on]/chip:[clip-path:inset(0_0_0_0)] group-data-[state=on]/chip:duration-0 group-data-[state=on]/chip:delay-[var(--duration-200)]";
+  "[clip-path:inset(0_0_0_100%)] transition-[clip-path] duration-[var(--duration-200)] delay-0 ease-out-quart motion-reduce:transition-none group-data-[state=on]/chip:[clip-path:inset(0_0_0_0)] group-data-[state=on]/chip:duration-0 group-data-[state=on]/chip:delay-[var(--duration-200)] motion-reduce:group-data-[state=on]/chip:delay-0";
 
 function drawClasses(drawFrom: CheckDrawFrom) {
   if (drawFrom === "checkbox") {

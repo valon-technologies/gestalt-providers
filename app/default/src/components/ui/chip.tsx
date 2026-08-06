@@ -171,7 +171,6 @@ function ChipFilterContent({
       <SelectionCheck
         drawFrom="toggle"
         tone="current"
-        className="group-data-[state=on]/chip:me-1"
       />
       <span className={cn("inline-flex min-w-0 items-center", childGap)}>
         {children}
