@@ -1,12 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDownIcon } from "@/components/icons";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { disclosureCaretClassName } from "@/lib/disclosure-caret";
-import { cn } from "@/lib/cn";
+import { PageLayoutPaneMobileNav } from "@/components/ui/page-layout-pane-mobile-nav";
 import type { AppAdminNavId, AppUserNavId } from "./app-nav";
 import { AppWorkspaceNav } from "./app-workspace-nav";
 
@@ -41,8 +34,7 @@ function activeWorkspaceNavLabel(
 
 /**
  * Mobile stand-in for the app-workspace Pane: same NavList (incl. Admin group)
- * inside a disclosure. SegmentedControl is wrong here — destinations are a
- * section map with groups, not a flat handful of modes.
+ * inside PageLayoutPaneMobileNav (menu + label → left Sheet).
  */
 export function AppWorkspaceMobileNav({
   app,
@@ -73,7 +65,6 @@ export function AppWorkspaceMobileNav({
     [adminGroupVisible, adminItems, app, pathname, userItems],
   );
 
-  // Close after navigation so the content column owns the screen again.
   useEffect(() => {
     setOpen(false);
   }, [pathname]);
@@ -81,35 +72,18 @@ export function AppWorkspaceMobileNav({
   if (destinationCount < 2) return null;
 
   return (
-    <Collapsible
+    <PageLayoutPaneMobileNav
+      label={activeLabel}
       open={open}
       onOpenChange={setOpen}
-      className="w-full min-w-0"
       data-testid="app-workspace-mobile-nav"
     >
-      <CollapsibleTrigger
-        className={cn(
-          "group rounded-lg border border-border bg-background px-3 py-2",
-          "hover:bg-neutral-hover active:bg-neutral-pressed",
-        )}
-        aria-label={`App sections, current: ${activeLabel}`}
-      >
-        <span className="min-w-0 truncate">{activeLabel}</span>
-        <ChevronDownIcon
-          className={cn(disclosureCaretClassName, "ml-auto text-muted-foreground")}
-          aria-hidden
-        />
-      </CollapsibleTrigger>
-      <CollapsibleContent className="pt-2">
-        <div className="rounded-lg border border-border bg-background p-2">
-          <AppWorkspaceNav
-            app={app}
-            userItems={userItems}
-            adminItems={adminItems}
-            adminGroupVisible={adminGroupVisible}
-          />
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
+      <AppWorkspaceNav
+        app={app}
+        userItems={userItems}
+        adminItems={adminItems}
+        adminGroupVisible={adminGroupVisible}
+      />
+    </PageLayoutPaneMobileNav>
   );
 }

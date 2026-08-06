@@ -43,6 +43,7 @@ import {
   NavListItemLabel,
 } from "@/components/ui/nav-list";
 import { PageLayout } from "@/components/ui/page-layout";
+import { PageLayoutPaneMobileNav } from "@/components/ui/page-layout-pane-mobile-nav";
 import {
   Alert,
   AlertActions,
@@ -142,6 +143,7 @@ export default function AppsCatalogPageClient() {
         : null;
 
   const [query, setQuery] = useState("");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [connectedNotice, setConnectedNotice] = useState<string | null>(() =>
     connectedParam,
   );
@@ -219,9 +221,18 @@ export default function AppsCatalogPageClient() {
       if (!el) return;
       activate(id);
       el.scrollIntoView({ behavior: "smooth", block: "start" });
+      setMobileNavOpen(false);
     },
     [activate],
   );
+
+  const catalogActiveLabel = useMemo(() => {
+    return (
+      catalogNavSections.find((section) => section.id === activeId)?.label ??
+      catalogNavSections[0]?.label ??
+      "Sections"
+    );
+  }, [activeId, catalogNavSections]);
 
   useEffect(() => {
     if (!connectedNotice) {
@@ -332,6 +343,17 @@ export default function AppsCatalogPageClient() {
           </PageHeader>
         }
         pane={catalogPane}
+        paneMobile={
+          catalogPane ? (
+            <PageLayoutPaneMobileNav
+              label={catalogActiveLabel}
+              open={mobileNavOpen}
+              onOpenChange={setMobileNavOpen}
+            >
+              {catalogPane}
+            </PageLayoutPaneMobileNav>
+          ) : undefined
+        }
       >
         {connectedSuccessLabel ||
         needsAttentionCopy ||

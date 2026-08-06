@@ -199,9 +199,11 @@ detail sibling navigation; do not invent custom pager chrome at call sites.
 
 ## PageLayout / NavList
 
-Registry `page-layout` and `nav-list` are vendored here. `PageLayout` owns
-in-page geometry (header band, start Pane, content, end Aside); `NavList` is
-router-agnostic section navigation for rails, sheets, and flyouts. Set
+Registry `page-layout`, `page-layout-pane-mobile-nav`, and `nav-list` are
+vendored here. `PageLayout` owns in-page geometry (header band, start Pane,
+content, end Aside); `PageLayoutPaneMobileNav` is the long-list `paneMobile`
+stand-in (menu + current label → left Sheet); `NavList` is router-agnostic
+section navigation for rails, sheets, and flyouts. Set
 `--page-layout-pane-top` / `--page-layout-pane-bottom` and track widths
 (`--page-layout-pane-width` / `--page-layout-aside-width`) in `globals.css` next
 to nav-height tokens — do not scatter `sticky top-*` or hand-roll grid tracks per
@@ -212,6 +214,8 @@ Settings keeps the default 13.75rem for both. `NavListItem` defaults to outward 
 `PageLayoutPane` / `PageLayoutAside` own scrollport padding so rings stay visible.
 Action rows use `actions` plus
 `nestedInteractiveSuppress.selectableRowSiblingControl` from `@/lib/nested-interactive`.
+For a handful of mobile destinations prefer `SegmentedControl` in `paneMobile`;
+for longer lists prefer `PageLayoutPaneMobileNav`.
 
 ## SearchHighlight
 

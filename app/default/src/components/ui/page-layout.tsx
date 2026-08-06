@@ -131,9 +131,10 @@ interface PageLayoutProps
   pane?: React.ReactNode;
   /**
    * Stand-in shown *instead of* `pane` below `lg`, where the rail track collapses.
-   * Supply a `SegmentedControl` for a handful of destinations, or a disclosure /
-   * `Sheet` for a longer list. Omitting it means the navigation is unreachable on
-   * small viewports — acceptable only when the Pane is a pure convenience (a TOC).
+   * Supply a `SegmentedControl` for a handful of destinations, or
+   * `PageLayoutPaneMobileNav` (menu + current label → left Sheet) for a longer
+   * list. Omitting it means the navigation is unreachable on small viewports —
+   * acceptable only when the Pane is a pure convenience (a TOC).
    */
   paneMobile?: React.ReactNode;
   /** End-side rail content — normally a `TableOfContents`. Hidden below `xl`. */
