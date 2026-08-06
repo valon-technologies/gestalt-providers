@@ -330,13 +330,15 @@ const FleetReplicaTrigger = memo(function FleetReplicaTrigger({
         }}
       >
         <Badge
-          variant="secondary"
+          variant="ghost"
           size="default"
           className={cn(
-            "pointer-events-none gap-1.5 font-normal",
-            // List-item idle darken (selectable-rows / neutral-hover delta).
-            "group-hover:bg-neutral-hover group-hover:text-foreground",
-            open && "bg-neutral-hover text-foreground",
+            "pointer-events-none font-normal text-foreground",
+            // Badge is pointer-events-none; drive quiet-chrome scrim via group
+            // (press-feedback ghost / toolshed#4081).
+            "group-hover:text-foreground group-hover:after:opacity-[var(--state-overlay-hover,0.08)]",
+            open &&
+              "text-foreground after:opacity-[var(--state-overlay-hover,0.08)]",
             stale && "ring-1 ring-destructive/40",
             pinned && "ring-1 ring-foreground/25",
           )}
@@ -344,9 +346,7 @@ const FleetReplicaTrigger = memo(function FleetReplicaTrigger({
           <ReplicaStatusIndicator replicaClass={replicaClass} />
           <span
             className={cn(
-              "font-mono text-muted-foreground",
-              "group-hover:text-foreground",
-              open && "text-foreground",
+              "font-mono text-foreground",
               stale && "text-destructive",
             )}
           >

@@ -7,6 +7,11 @@ import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/cn";
+import {
+  ghostQuietChromePaintClassName,
+  pressFeedbackScrimClassName,
+  pressFeedbackScrimOptOutClassName,
+} from "@/lib/press-feedback";
 import { Spinner } from "@/components/ui/spinner";
 
 // Hover/press feedback is an on-color state-layer overlay, not a brightness
@@ -17,6 +22,9 @@ import { Spinner } from "@/components/ui/spinner";
 // (never transitioned). Disabled is a recolor to a flat neutral, not opacity-50
 // (disabled-states.md / RES-20260617-003): the brand hue is erased so disabled
 // can't read as a dimmer enabled. Disabled opts out of the scrim.
+//
+// Scrim SoT: `@/lib/press-feedback` (toolshed#4081). Ghost paint shares
+// `ghostQuietChromePaintClassName` with Badge ghost.
 //
 // We deliberately DON'T set `disabled:pointer-events-none` — that would suppress
 // `cursor-not-allowed`. A disabled control can still match `:hover`, but every
@@ -38,7 +46,13 @@ import { Spinner } from "@/components/ui/spinner";
 // Icons with an explicit size-* class opt out of the default. Loading Spinner is
 // a span (`data-slot=spinner`), so size variants also size that slot.
 const buttonVariants = cva(
-  "relative inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-sm font-medium transition-[color,background-color,border-color] duration-hover-out ease-out-quart hover:duration-hover-in focus-ring after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:bg-current after:opacity-0 after:transition-none hover:after:opacity-[var(--state-overlay-hover,0.08)] active:after:opacity-[var(--state-overlay-press,0.14)] disabled:cursor-not-allowed disabled:border-border disabled:bg-disabled disabled:text-disabled-foreground disabled:shadow-none disabled:after:hidden aria-disabled:after:hidden data-loading:cursor-wait data-loading:[&_svg]:hidden [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-[length:var(--control-icon-default)] [&_[data-slot=spinner]]:size-[length:var(--control-icon-default)]",
+  [
+    // On-color ::after scrim SoT: `@/lib/press-feedback` (press-feedback.md).
+    pressFeedbackScrimClassName,
+    "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-sm font-medium transition-[color,background-color,border-color] duration-hover-out ease-out-quart hover:duration-hover-in focus-ring disabled:cursor-not-allowed disabled:border-border disabled:bg-disabled disabled:text-disabled-foreground disabled:shadow-none",
+    pressFeedbackScrimOptOutClassName,
+    "data-loading:cursor-wait data-loading:[&_svg]:hidden [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-[length:var(--control-icon-default)] [&_[data-slot=spinner]]:size-[length:var(--control-icon-default)]",
+  ],
   {
     variants: {
       variant: {
@@ -51,11 +65,12 @@ const buttonVariants = cva(
         outline:
           "border border-input bg-background hover:bg-neutral-hover active:bg-neutral-pressed hover:after:opacity-0 active:after:opacity-0 disabled:bg-transparent aria-disabled:hover:bg-background aria-disabled:active:bg-background",
         secondary: "bg-secondary text-secondary-foreground",
-        // Ghost is transparent chrome: hover/press use the base ::after on-color scrim only
-        // (RES-20260617-004), so it composites on neutral and tinted parents alike — not
-        // --accent-hover, which is reserved for dropdown items and breadcrumb triggers.
-        ghost:
-          "text-muted-foreground hover:text-foreground aria-checked:bg-foreground aria-checked:text-background disabled:bg-transparent aria-disabled:hover:text-muted-foreground",
+        // Transparent quiet chrome paint SoT: ghostQuietChromePaintClassName.
+        // Hover/press come from the base scrim — never --accent-hover (menus/breadcrumbs).
+        ghost: [
+          ghostQuietChromePaintClassName,
+          "aria-checked:bg-foreground aria-checked:text-background disabled:bg-transparent aria-disabled:hover:text-muted-foreground",
+        ],
         ghostSuccess:
           "text-muted-foreground hover:bg-success hover:text-success-foreground active:bg-success/70 disabled:bg-transparent aria-disabled:hover:bg-transparent aria-disabled:hover:text-muted-foreground aria-disabled:active:bg-transparent",
         ghostDestructive:

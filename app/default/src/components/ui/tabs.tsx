@@ -43,7 +43,7 @@ const tabsListVariants = cva(
 // plane so the accent *is* the selected segment of the divider (no gray peeking
 // under the highlight).
 const tabsActiveIndicatorClassName =
-  "pointer-events-none absolute -bottom-px h-0.5 bg-accent-solid transition-all duration-move ease-out-quart";
+  "pointer-events-none absolute -bottom-px h-0.5 bg-accent-solid transition-[left,width] duration-move ease-out-quart";
 
 type TabsListSize = "sm" | "default" | "lg";
 
