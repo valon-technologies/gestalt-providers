@@ -16,11 +16,11 @@ export default function DocsShell({
 }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const activeItem = getActiveDocsNavItem(pathname);
+  const hasOnThisPage = activeItem.subsections.length > 0;
 
   return (
     <Container className="py-16">
       <PageLayout
-        tracks="compact"
         pane={
           <NavList aria-label="Documentation">
             {docsNavItems.map((item) => (
@@ -36,8 +36,11 @@ export default function DocsShell({
             ))}
           </NavList>
         }
+        // Always pass an Aside so PageLayout keeps the three-track template
+        // (pane | content | aside). Omitting it collapses to pane+content and
+        // the center column grows on pages without an on-this-page list.
         aside={
-          activeItem.subsections.length > 0 ? (
+          hasOnThisPage ? (
             <NavList aria-label="On This Page">
               <NavListGroup label="On This Page">
                 {activeItem.subsections.map((subsection) => (
@@ -47,7 +50,9 @@ export default function DocsShell({
                 ))}
               </NavListGroup>
             </NavList>
-          ) : undefined
+          ) : (
+            <div aria-hidden="true" />
+          )
         }
       >
         <article className="min-w-0">{children}</article>

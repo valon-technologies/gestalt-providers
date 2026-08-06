@@ -65,7 +65,9 @@ describe("PageLayout track width contract", () => {
     expect(SOURCE).toContain("pageLayoutTrackVariants");
     expect(SOURCE).toContain('tracks: {');
     expect(SOURCE).toContain('default: ""');
-    expect(SOURCE).toContain('compact: "[--page-layout-pane-width:11rem]"');
+    expect(SOURCE).toContain(
+      'compact: "[--page-layout-pane-width:11rem] [--page-layout-aside-width:11rem]"',
+    );
     expect(SOURCE).toContain('data-tracks={tracks ?? "default"}');
   });
 });
@@ -86,7 +88,7 @@ function extractCssTokenValue(css: string, token: string): string {
 describe("PageLayout theme contract", () => {
   test("defines track width tokens in globals.css", () => {
     expect(extractCssTokenValue(GLOBALS_CSS, "--page-layout-pane-width")).toBe("13.75rem");
-    expect(extractCssTokenValue(GLOBALS_CSS, "--page-layout-aside-width")).toBe("15rem");
+    expect(extractCssTokenValue(GLOBALS_CSS, "--page-layout-aside-width")).toBe("13.75rem");
   });
 });
 

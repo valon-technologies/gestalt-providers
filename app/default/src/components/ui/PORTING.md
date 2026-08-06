@@ -195,8 +195,8 @@ router-agnostic section navigation for rails, sheets, and flyouts. Set
 `--page-layout-pane-top` / `--page-layout-pane-bottom` and track widths
 (`--page-layout-pane-width` / `--page-layout-aside-width`) in `globals.css` next
 to nav-height tokens — do not scatter `sticky top-*` or hand-roll grid tracks per
-page. Use `tracks="compact"` (11rem pane) for dense section rails; Settings keeps
-the default 13.75rem pane. `NavListItem` defaults to outward `focus-ring`;
+page. Use `tracks="compact"` (11rem for both rails) for dense section rails;
+Settings keeps the default 13.75rem for both. `NavListItem` defaults to outward `focus-ring`;
 `PageLayoutPane` / `PageLayoutAside` own scrollport padding so rings stay visible.
 Action rows use `actions` plus
 `nestedInteractiveSuppress.selectableRowSiblingControl` from `@/lib/nested-interactive`.

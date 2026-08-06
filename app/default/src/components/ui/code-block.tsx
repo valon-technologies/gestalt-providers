@@ -25,14 +25,17 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/cn";
+import cliLanguage from "@/components/ui/code-block-cli-language";
 
 // Display CodeBlock for install snippets / docs / AI messages — not the Plate
 // editor fence. Highlighting uses the same lowlight → hljs class pipeline as
 // markdown-editor, styled by typeset's `.typeset-code-hljs`. Surface
 // paint comes from `code-fence` (shared with Plate code-block-node). Chrome
 // (filename, copy, line numbers, tabs) is modeled on shadcnspace's CodeBlock.
+// CLI command lines use the registered `cli` grammar (not highlight.js bash).
 
 const lowlight = createLowlight(all);
+lowlight.register("cli", cliLanguage);
 
 type CodeFenceVariant = NonNullable<CodeFenceShellProps["variant"]>;
 
@@ -52,8 +55,12 @@ const LANGUAGE_ALIASES: Record<string, string> = {
   ts: "typescript",
   tsx: "tsx",
   md: "markdown",
-  sh: "bash",
-  shell: "bash",
+  // Display snippets tagged sh/shell are almost always command lines, not
+  // bash scripts — route them to the CLI grammar. Keep `bash` as real bash.
+  sh: "cli",
+  shell: "cli",
+  "console-command": "cli",
+  "shell-command": "cli",
   yml: "yaml",
   plaintext: "plaintext",
   text: "plaintext",

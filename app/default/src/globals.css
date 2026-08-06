@@ -345,10 +345,10 @@
        repeated per page. */
     --page-layout-pane-top: 6rem;
     --page-layout-pane-bottom: 2rem;
-    /* Track widths for PageLayout column templates — `tracks="compact"` overrides
-       pane width on the layout root; aside stays at the default end-rail width. */
+    /* Track widths for PageLayout column templates — default and compact tiers
+       keep pane and aside at the same rem; `tracks="compact"` sets both to 11rem. */
     --page-layout-pane-width: 13.75rem;
-    --page-layout-aside-width: 15rem;
+    --page-layout-aside-width: 13.75rem;
   }
 
   html {
@@ -473,18 +473,6 @@
   .doc-link {
     @apply text-foreground underline decoration-border underline-offset-4 transition-colors duration-150 hover:text-foreground;
   }
-
-  .doc-code pre {
-    @apply overflow-x-auto rounded-xl border border-border bg-muted px-4 py-4 pr-12 font-mono text-sm leading-6 text-foreground;
-  }
-}
-
-pre.shiki span {
-  color: var(--shiki-light);
-}
-
-.dark pre.shiki span {
-  color: var(--shiki-dark);
 }
 
 .focus-ring:focus-visible {

@@ -900,7 +900,7 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
               <CodeBlock
                 variant="outline"
                 code={claudeCommand}
-                language="bash"
+                language="cli"
                 filename="Terminal"
               />
             </CollapsibleContent>
@@ -944,7 +944,7 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
               <CodeBlock
                 variant="outline"
                 code={codexCommand}
-                language="bash"
+                language="cli"
                 filename="Terminal"
               />
             </CollapsibleContent>
@@ -1699,7 +1699,7 @@ function InvokeStepActions({
             <CodeBlock
               variant="outline"
               code={exemplar.invokeRecipe}
-              language="bash"
+              language="cli"
               filename="Terminal"
             />
           </CollapsibleContent>
