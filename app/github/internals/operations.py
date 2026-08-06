@@ -458,6 +458,13 @@ class GitHubGetMergeQueueRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class GitHubGetPullRequestMergeabilityRequest:
+    owner: str
+    repo: str
+    pull_number: int
+
+
+@dataclass(frozen=True, slots=True)
 class GitHubListPullRequestsRequest:
     owner: str
     repo: str
@@ -673,6 +680,47 @@ query GestaltMergeQueue(
             number
             title
           }
+        }
+      }
+    }
+  }
+}
+""".strip()
+
+PULL_REQUEST_MERGEABILITY_QUERY = """
+query GestaltPullRequestMergeability(
+  $owner: String!
+  $repo: String!
+  $number: Int!
+) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      mergeable
+      mergeStateStatus
+      reviewDecision
+      isDraft
+      reviewRequests(first: 100) {
+        nodes {
+          asCodeOwner
+          requestedReviewer {
+            __typename
+            ... on User {
+              login
+            }
+            ... on Team {
+              slug
+              name
+            }
+          }
+        }
+      }
+      reviews(last: 50, states: CHANGES_REQUESTED) {
+        nodes {
+          author {
+            login
+          }
+          state
+          submittedAt
         }
       }
     }
@@ -2400,6 +2448,45 @@ def get_merge_queue(
     return merge_queue_summary(merge_queue)
 
 
+def get_pull_request_mergeability(
+    request: GitHubGetPullRequestMergeabilityRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> dict[str, Any]:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    pull_number = require_positive_int(request.pull_number, "pull_number")
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"pull_requests": "read"}
+    )
+    response = github.graphql_json(
+        PULL_REQUEST_MERGEABILITY_QUERY,
+        token,
+        {"owner": owner, "repo": repo, "number": pull_number},
+    )
+    repository = map_field(map_field(response, "data"), "repository")
+    if not repository:
+        raise GitHubAPIError(
+            502, "GitHub mergeability response did not include repository"
+        )
+    pull_request = map_field(repository, "pullRequest")
+    if not pull_request:
+        raise GitHubAPIError(
+            502, "GitHub mergeability response did not include pullRequest"
+        )
+    return pull_request_mergeability_summary(pull_request)
+
+
 def list_pull_requests(
     request: GitHubListPullRequestsRequest,
     *,
@@ -2986,6 +3073,12 @@ def pull_request_summary(pull: Mapping[str, Any]) -> dict[str, Any]:
     user_login = nested_str(pull, "user", "login")
     if user_login:
         summary["user"] = user_login
+    mergeable = pull.get("mergeable")
+    if isinstance(mergeable, bool):
+        summary["mergeable"] = mergeable
+    mergeable_state = str_field(pull, "mergeable_state")
+    if mergeable_state:
+        summary["mergeable_state"] = mergeable_state
     return summary
 
 
@@ -3456,6 +3549,79 @@ def search_pull_request_summary(
             "cursor": cursor.strip(),
         }
     )
+
+
+def pull_request_mergeability_summary(
+    pull_request: Mapping[str, Any],
+) -> dict[str, Any]:
+    review_requests_connection = map_field(pull_request, "reviewRequests")
+    raw_review_requests = review_requests_connection.get("nodes")
+    review_request_nodes = (
+        raw_review_requests if isinstance(raw_review_requests, list) else []
+    )
+    pending_users: list[str] = []
+    pending_teams: list[str] = []
+    pending_codeowner_users: list[str] = []
+    pending_codeowner_teams: list[str] = []
+    for node in review_request_nodes:
+        if not isinstance(node, dict):
+            continue
+        as_code_owner = bool(node.get("asCodeOwner"))
+        requested_reviewer = map_field(node, "requestedReviewer")
+        reviewer_type = str_field(requested_reviewer, "__typename")
+        if reviewer_type == "User":
+            login = str_field(requested_reviewer, "login")
+            if not login:
+                continue
+            pending_users.append(login)
+            if as_code_owner:
+                pending_codeowner_users.append(login)
+        elif reviewer_type == "Team":
+            slug = str_field(requested_reviewer, "slug")
+            if not slug:
+                continue
+            pending_teams.append(slug)
+            if as_code_owner:
+                pending_codeowner_teams.append(slug)
+
+    reviews_connection = map_field(pull_request, "reviews")
+    raw_reviews = reviews_connection.get("nodes")
+    review_nodes = raw_reviews if isinstance(raw_reviews, list) else []
+    sorted_reviews = sorted(
+        [review for review in review_nodes if isinstance(review, dict)],
+        key=lambda review: str_field(review, "submittedAt"),
+        reverse=True,
+    )
+    changes_requested: list[str] = []
+    seen_reviewers: set[str] = set()
+    for review in sorted_reviews:
+        if str_field(review, "state") != "CHANGES_REQUESTED":
+            continue
+        author_login = nested_str(review, "author", "login")
+        if not author_login or author_login in seen_reviewers:
+            continue
+        seen_reviewers.add(author_login)
+        changes_requested.append(author_login)
+
+    review_decision = str_field(pull_request, "reviewDecision")
+    mergeability = _compact_dict(
+        {
+            "mergeable": str_field(pull_request, "mergeable"),
+            "merge_state_status": str_field(pull_request, "mergeStateStatus"),
+            "review_decision": review_decision,
+        }
+    )
+    mergeability["is_draft"] = bool(pull_request.get("isDraft"))
+    return {
+        "mergeability": mergeability,
+        "reviews": {
+            "pending_users": sorted(set(pending_users)),
+            "pending_teams": sorted(set(pending_teams)),
+            "pending_codeowner_users": sorted(set(pending_codeowner_users)),
+            "pending_codeowner_teams": sorted(set(pending_codeowner_teams)),
+            "changes_requested": changes_requested,
+        },
+    }
 
 
 def merge_queue_entry_summary(entry: Mapping[str, Any]) -> dict[str, Any]:
