@@ -12,8 +12,11 @@ import { CircleAlert } from "lucide-react";
 import type { Integration } from "@/lib/api";
 import { groupCatalogForBrowse } from "@/lib/catalogBuckets";
 import {
+  canManageApp,
   filterCatalogIntegrations,
+  getAppSurfaces,
   listNeedsAttention,
+  matchesConnectionFilter,
 } from "@/lib/catalogFilters";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import { normalizeIntegrationStatus } from "@/lib/integrationStatus";
@@ -51,6 +54,8 @@ import {
   AlertTitle,
 } from "@/components/ui/alert";
 import { Button as UiButton } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { ChipGroup, ChipGroupItem } from "@/components/ui/chip-group";
 import { useScrollSpy } from "@/hooks/use-scroll-spy";
 import { usePageLayoutAnchorOffsetPx } from "@/lib/page-layout-anchor-offset";
 import { CheckCircleIcon, CloseIcon, SpinnerIcon } from "@/components/icons";
@@ -59,6 +64,41 @@ import {
   useIntegrationsQuery,
   useInvalidateIntegrations,
 } from "@/lib/queries";
+
+type CatalogFacetId = "admin" | "app" | "needs_attention";
+
+type CatalogFacetCounts = Record<CatalogFacetId, number>;
+
+const CATALOG_FACETS: ReadonlyArray<{
+  id: CatalogFacetId;
+  label: string;
+}> = [
+  { id: "app", label: "Web App" },
+  { id: "admin", label: "Admin" },
+  { id: "needs_attention", label: "Needs attention" },
+];
+
+const CATALOG_FACET_IDS = new Set<string>(
+  CATALOG_FACETS.map((facet) => facet.id),
+);
+
+function isCatalogFacetId(value: string): value is CatalogFacetId {
+  return CATALOG_FACET_IDS.has(value);
+}
+
+function countCatalogFacets(integrations: Integration[]): CatalogFacetCounts {
+  let admin = 0;
+  let app = 0;
+  let needsAttention = 0;
+  for (const integration of integrations) {
+    if (canManageApp(integration)) admin += 1;
+    if (getAppSurfaces(integration).hasUi) app += 1;
+    if (matchesConnectionFilter(integration, "needs_attention")) {
+      needsAttention += 1;
+    }
+  }
+  return { admin, app, needs_attention: needsAttention };
+}
 
 function resolveConnectedAppLabel(
   connectedParam: string,
@@ -144,15 +184,28 @@ export default function AppsCatalogPageClient() {
 
   const [query, setQuery] = useState("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [activeFacets, setActiveFacets] = useState<CatalogFacetId[]>([]);
   const [connectedNotice, setConnectedNotice] = useState<string | null>(() =>
     connectedParam,
   );
   const [flashError, setFlashError] = useState<string | null>(null);
   const deferredQuery = useDeferredValue(query);
+  const facetCounts = useMemo(
+    () => countCatalogFacets(integrations),
+    [integrations],
+  );
+  const visibleFacets = useMemo(
+    () => CATALOG_FACETS.filter((facet) => facetCounts[facet.id] > 0),
+    [facetCounts],
+  );
+  const adminFacet = activeFacets.includes("admin");
+  const appFacet = activeFacets.includes("app");
+  const needsAttentionFacet = activeFacets.includes("needs_attention");
   const filteredIntegrations = filterCatalogIntegrations(integrations, {
     query: deferredQuery,
-    connection: "all",
-    surface: "all",
+    connection: needsAttentionFacet ? "needs_attention" : "all",
+    surface: appFacet ? "has_ui" : "all",
+    admin: adminFacet,
   });
   const { installed, sections: catalogSections } = useMemo(
     () => groupCatalogForBrowse(filteredIntegrations),
@@ -170,7 +223,18 @@ export default function AppsCatalogPageClient() {
     ? resolveConnectedAppLabel(connectedNotice, integrations)
     : null;
   const hasSearchQuery = query.trim().length > 0;
+  const hasActiveFacets = activeFacets.length > 0;
+  const hasActiveNarrowing = hasSearchQuery || hasActiveFacets;
   const hasCatalogContent = installed.length > 0 || catalogSections.length > 0;
+
+  function onFacetsChange(next: string[]) {
+    setActiveFacets(next.filter(isCatalogFacetId));
+  }
+
+  function clearFilters() {
+    setQuery("");
+    setActiveFacets([]);
+  }
 
   const catalogNavSections = useMemo(() => {
     const sections: { id: string; label: string }[] = [];
@@ -335,8 +399,8 @@ export default function AppsCatalogPageClient() {
           <PageHeaderContent size="lg">
             <PageHeaderTitle>Apps</PageHeaderTitle>
             <PageHeaderDescription>
-              Browse installed apps, then discover more by category. Connect
-              an account, then open an app to manage access.
+              Browse connected apps by category, or connect a new one. Open a
+              web app from its card when one is available.
             </PageHeaderDescription>
           </PageHeaderContent>
           <PageHeaderActions className="w-full max-w-md sm:w-auto">
@@ -347,6 +411,30 @@ export default function AppsCatalogPageClient() {
             />
           </PageHeaderActions>
         </PageHeader>
+        {!loading && !error && visibleFacets.length > 0 ? (
+          <ChipGroup
+            type="multiple"
+            size="sm"
+            value={activeFacets}
+            onValueChange={onFacetsChange}
+            aria-label="Filter apps"
+            className="mb-6"
+            data-testid="apps-catalog-facets"
+          >
+            {visibleFacets.map((facet) => (
+              <ChipGroupItem
+                key={facet.id}
+                value={facet.id}
+                data-testid={`apps-catalog-facet-${facet.id}`}
+              >
+                {facet.label}
+                <Badge size="sm" variant="secondary">
+                  {facetCounts[facet.id]}
+                </Badge>
+              </ChipGroupItem>
+            ))}
+          </ChipGroup>
+        ) : null}
         {connectedSuccessLabel ||
         needsAttentionCopy ||
         flashError ? (
@@ -449,22 +537,30 @@ export default function AppsCatalogPageClient() {
           !hasCatalogContent && (
             <div className="flex flex-col items-start gap-3">
               <p className="text-sm text-muted-foreground-soft">
-                {hasSearchQuery ? (
+                {hasSearchQuery && hasActiveFacets ? (
+                  <>
+                    No apps match <span>{`"${query.trim()}"`}</span> with the
+                    current filters. Try adjusting search or filters.
+                  </>
+                ) : hasSearchQuery ? (
                   <>
                     No apps match <span>{`"${query.trim()}"`}</span>. Try a
                     different search, or clear it.
                   </>
+                ) : hasActiveFacets ? (
+                  "No apps match these filters. Try clearing one or more filters."
                 ) : (
                   "No apps are available yet. Ask your admin if you expected to see ones here."
                 )}
               </p>
-              {hasSearchQuery ? (
+              {hasActiveNarrowing ? (
                 <Button
                   type="button"
                   variant="secondary"
-                  onClick={() => setQuery("")}
+                  data-testid="apps-catalog-clear-filters"
+                  onClick={clearFilters}
                 >
-                  Clear search
+                  {hasActiveFacets ? "Clear filters" : "Clear search"}
                 </Button>
               ) : null}
             </div>
@@ -481,7 +577,7 @@ export default function AppsCatalogPageClient() {
                 <CatalogBucketSectionHeader
                   id="catalog-bucket-installed"
                   title="Installed"
-                  description="Apps you’re already connected to — open one to manage access."
+                  description="Apps you’re already connected to. Open one with a web app, or use the menu to manage it."
                 />
                 <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                   {installed.map((integration) => (

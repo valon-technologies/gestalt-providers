@@ -67,7 +67,16 @@ function NavListGroup({
 }) {
   const labelId = React.useId();
   return (
-    <li data-slot="nav-list-group" className={cn("min-w-0", className)} {...props}>
+    <li
+      data-slot="nav-list-group"
+      className={cn(
+        // First group in the list: no label top pad so the eyebrow lines up with
+        // sibling content (e.g. catalog facets). Later groups keep pt-4 separation.
+        "min-w-0 first:[&_[data-slot=nav-list-group-label]]:pt-0",
+        className,
+      )}
+      {...props}
+    >
       {label ? <NavListGroupLabel id={labelId}>{label}</NavListGroupLabel> : null}
       <ul
         aria-labelledby={label ? labelId : undefined}

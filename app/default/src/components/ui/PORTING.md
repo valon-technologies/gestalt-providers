@@ -269,6 +269,20 @@ delegate matching to `search-highlight.ts` — one normalization stack for filte
 and highlight. Strip `"use client"` from vendored copies (Vite SPA; Registry
 carry-over is a no-op here).
 
+## Chip / ChipGroup
+
+Registry interactive `Chip` + `ChipGroup` (M3 filter / assist) are vendored as
+`ui/chip.tsx` and `ui/chip-group.tsx`. Supporting helpers:
+
+- `lib/selection-interaction.ts` — Neutral idle + Accent vivid selected ladders
+- `lib/disabled-selection.ts` — disabled on/off recolor for selectable controls
+- `ui/selection-check.tsx` — includes `drawFrom="toggle"` for Chip hosts
+
+Strip `"use client"`. Import `@/lib/cn` (not Registry `@/lib/utils`). Depends on
+`@radix-ui/react-toggle` and `@radix-ui/react-toggle-group`. Prefer Chip for
+catalog facet toggles; keep static card labels on `Badge`. Segmented
+field·operator·value bars stay Registry `Filters` (not yet required here).
+
 ## Held local overrides (discuss before dropping)
 
 ### Add to Registry (so console can drop the fork)
