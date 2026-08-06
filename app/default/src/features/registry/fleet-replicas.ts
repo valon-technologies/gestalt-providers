@@ -340,6 +340,7 @@ export function fleetReplicasPollKey(
  * remount; open freshness still needs this channel to re-render when polls patch
  * `heartbeatAt` onto presentation-stable replicas.
  */
+/** Heartbeat-sensitive; keep out of presentation-stable memo keys. */
 export function fleetReplicasLivenessKey(
   replicas: AppAdminFleetReplica[] | undefined,
 ): string {
