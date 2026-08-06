@@ -68,6 +68,16 @@ stays distinct on Neutral / muted row hover — bridge `--muted-strong` in
 `shared/theme.css` + `globals.css`. Strip `"use client"`. Prefer
 `@/lib/cn` over Registry `@/lib/utils`.
 
+## Badge / HoverCard
+
+Registry `badge` and `hover-card` are vendored here (toolshed#4057 / #4081).
+Badge `size` owns type / pad / icon; base has **no** color transitions. Ghost
+shares `@/lib/press-feedback` quiet chrome with Button (never `hover:bg-accent`);
+muted hover climbs `--neutral-dark-hover`. Keep status variants on `--badge-*`
+(`bg-badge-success`, …), not Registry `bg-success` / `error`. Strip `"use client"`;
+import `@/lib/cn`. HoverCard JSDoc documents controlled-open + trigger remount
+(Registry `guidelines/flyout.md`).
+
 ## Choice cards (RadioGroup + Switch)
 
 Do not fork tile chrome at call sites. Import helpers from

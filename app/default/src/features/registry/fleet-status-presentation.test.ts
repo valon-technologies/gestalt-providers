@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   formatFleetConvergenceSummary,
   presentFleetStatus,
+  resolveFleetPathHint,
 } from "@/features/registry/fleet-status-presentation";
 import type { AppAdminFleetState } from "@/features/registry/types";
 
@@ -28,7 +29,29 @@ describe("formatFleetConvergenceSummary", () => {
         mismatched: 1,
         errors: 1,
       }),
-    ).toBe("3 of 5 on desired · 1 wrong · 1 unhealthy");
+    ).toBe("3 of 5 on desired version · 1 wrong version · 1 unhealthy");
+  });
+});
+
+describe("resolveFleetPathHint", () => {
+  test("converging with errors prioritizes inspect over wait", () => {
+    expect(
+      resolveFleetPathHint({
+        state: "converging",
+        errors: 1,
+        mismatched: 1,
+      }),
+    ).toBe("Inspect the unhealthy replica.");
+  });
+
+  test("converging without errors asks the operator to wait", () => {
+    expect(
+      resolveFleetPathHint({
+        state: "converging",
+        errors: 0,
+        mismatched: 2,
+      }),
+    ).toBe("Wait for replicas to finish updating.");
   });
 });
 
@@ -95,7 +118,7 @@ describe("presentFleetStatus", () => {
     });
     expect(view.density).toBe("diagnostic");
     expect(view.verdict.label).toBe("Rolling out");
-    expect(view.summaryLine).toBe("3 of 5 on desired · 2 wrong");
+    expect(view.summaryLine).toBe("3 of 5 on desired version · 2 wrong version");
     expect(view.metrics).toEqual([]);
     expect(view.showReplicaChips).toBe(true);
     expect(view.showDesiredVersion).toBe(true);
@@ -104,7 +127,45 @@ describe("presentFleetStatus", () => {
     );
     expect(view.showSourceVersion).toBe(false);
     expect(view.ownsActiveRolloutHeadline).toBe(true);
+    expect(view.wrongVersionReplica).toMatchObject({
+      shortId: "b",
+      runningVersion: "v0",
+      desiredVersion: BASE_FLEET.desiredVersion,
+    });
     expect(view.pathHint).toBe("Wait for replicas to finish updating.");
+  });
+
+  test("converging with unhealthy replica inspects instead of waiting", () => {
+    const view = presentFleetStatus({
+      desiredVersion: BASE_FLEET.desiredVersion,
+      fleetState: {
+        ...BASE_FLEET,
+        state: "converging",
+        runningDesiredVersion: 3,
+        mismatched: 1,
+        errors: 1,
+        replicas: [
+          {
+            instanceId: "e5d4c3b2",
+            heartbeatAt: "2026-08-03T19:00:00Z",
+            appState: "error",
+            class: "error",
+            lastError: "provider failed to start",
+          },
+          {
+            instanceId: "d4c3b2a1",
+            heartbeatAt: "2026-08-03T19:00:00Z",
+            appState: "running",
+            class: "mismatched",
+            runningVersion: "v0",
+          },
+        ],
+      },
+      rollout: { version: "0.0.0-snapshot.gabc", state: "rolling" },
+    });
+    expect(view.pathHint).toBe("Inspect the unhealthy replica.");
+    expect(view.failingReplica?.shortId).toBe("e5d4c3b2");
+    expect(view.wrongVersionReplica?.shortId).toBe("d4c3b2a1");
   });
 
   test("converging without replicas falls back to metrics (no chip duplication)", () => {

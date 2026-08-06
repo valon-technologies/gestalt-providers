@@ -143,11 +143,15 @@ export default function AppWorkspaceLayout() {
         )
       : null;
 
+  // Depend on `mutate` only — the mutation result object is a new reference
+  // every layout render, and a fresh onDeployVersion remounts the snapshots
+  // table (and HoverCard triggers) on every registry poll.
+  const deployVersion = deployMutation.mutate;
   const onDeployVersion = useCallback(
     (version: string) => {
-      deployMutation.mutate(version);
+      deployVersion(version);
     },
-    [deployMutation],
+    [deployVersion],
   );
 
   const registryOutlet = useMemo<AppAdminRegistryContextValue | undefined>(() => {

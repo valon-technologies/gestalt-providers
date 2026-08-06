@@ -1,4 +1,3 @@
-
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
@@ -9,6 +8,13 @@ import * as HoverCardPrimitive from "@radix-ui/react-hover-card";
 import { cn } from "@/lib/cn";
 import { flyoutContentPanelClassName } from "@/lib/flyout";
 
+/**
+ * Hover-intent preview card (Radix).
+ *
+ * Controlled open + remount: trigger remount synthesizes `onOpenChange(false)`.
+ * Keep trigger identity stable or own open/pin above the remounting leaf —
+ * Registry `guidelines/flyout.md` § Controlled open + remount (toolshed#4057).
+ */
 function HoverCard({
   openDelay = 0,
   closeDelay = 300,

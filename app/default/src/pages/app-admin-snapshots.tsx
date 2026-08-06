@@ -54,7 +54,7 @@ function RegistryRefreshedAt({
 
   return (
     <p className="text-xs text-muted-foreground" data-testid="registry-refreshed-at">
-      Last checked{" "}
+      Registry updated{" "}
       <time
         dateTime={registryUpdatedIso ?? undefined}
         title={registryUpdatedIso ? formatRegistryTime(registryUpdatedIso) : undefined}

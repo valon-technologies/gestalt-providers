@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "@/components/ui/link";
 import {
@@ -16,8 +17,10 @@ import {
   presentFleetStatus,
   type FleetStatusView,
 } from "@/features/registry/fleet-status-presentation";
+import { fleetReplicasLivenessKey, fleetReplicasPollKey, fleetStatePollKey } from "@/features/registry/fleet-replicas";
 import { SnapshotRowLiveReplicas } from "@/features/registry/snapshot-live-replicas";
 import { RegistryCode } from "@/features/registry/registry-code";
+import { rolloutKey } from "@/features/registry/stable-snapshot-registry";
 import type { AppAdminRegistryResponse } from "@/features/registry/types";
 
 function DesiredVersionRef({
@@ -124,6 +127,7 @@ function FleetStripBody({
               replicas={replicas}
               className="mt-0"
               hoverScope="fleet"
+              heartbeatTtlSeconds={view.heartbeatTtlSeconds}
             />
           </div>
         ) : null}
@@ -133,9 +137,32 @@ function FleetStripBody({
             className="text-sm text-destructive text-pretty"
             data-testid="fleet-failing-replica"
           >
+            Replica{" "}
             <span className="font-mono">{view.failingReplica.shortId}</span>
             {" — "}
             {view.failingReplica.error}
+          </p>
+        ) : null}
+
+        {view.wrongVersionReplica ? (
+          <p
+            className="text-sm text-muted-foreground text-pretty"
+            data-testid="fleet-wrong-version-replica"
+          >
+            Replica{" "}
+            <span className="font-mono">{view.wrongVersionReplica.shortId}</span>
+            {" — running "}
+            <RegistryCode title={view.wrongVersionReplica.runningVersion}>
+              {view.wrongVersionReplica.runningVersion}
+            </RegistryCode>
+            {view.wrongVersionReplica.desiredVersion ? (
+              <>
+                {" · desired "}
+                <RegistryCode title={view.wrongVersionReplica.desiredVersion}>
+                  {view.wrongVersionReplica.desiredVersion}
+                </RegistryCode>
+              </>
+            ) : null}
           </p>
         ) : null}
 
@@ -215,7 +242,7 @@ function FleetStripBody({
   );
 }
 
-export function AppAdminFleetState({
+export const AppAdminFleetState = memo(function AppAdminFleetState({
   registry,
   view: viewProp,
 }: {
@@ -249,4 +276,46 @@ export function AppAdminFleetState({
       <FleetStripBody view={view} replicas={replicas} />
     </section>
   );
-}
+}, (prev, next) => {
+  // Compare only the strip's presentation inputs — not the snapshots-table
+  // poll slice (autoDeploy / selectionDisabled), which this component does
+  // not take and does not render.
+  if (
+    fleetReplicasPollKey(prev.registry.fleetState?.replicas) !==
+    fleetReplicasPollKey(next.registry.fleetState?.replicas)
+  ) {
+    return false;
+  }
+  if (
+    fleetReplicasLivenessKey(prev.registry.fleetState?.replicas) !==
+    fleetReplicasLivenessKey(next.registry.fleetState?.replicas)
+  ) {
+    return false;
+  }
+  if (
+    fleetStatePollKey(prev.registry.fleetState) !==
+    fleetStatePollKey(next.registry.fleetState)
+  ) {
+    return false;
+  }
+  if (
+    prev.registry.recovery?.recoveredAt !== next.registry.recovery?.recoveredAt ||
+    prev.registry.recovery?.sourceVersion !== next.registry.recovery?.sourceVersion
+  ) {
+    return false;
+  }
+  if (prev.registry.desiredVersion !== next.registry.desiredVersion) {
+    return false;
+  }
+  if (
+    rolloutKey(prev.registry.rollout) !== rolloutKey(next.registry.rollout)
+  ) {
+    return false;
+  }
+  // Reconcile keeps these array refs stable across heartbeat-only polls.
+  return (
+    prev.registry.publishedVersions === next.registry.publishedVersions &&
+    prev.registry.pendingVersions === next.registry.pendingVersions &&
+    prev.registry.failedVersions === next.registry.failedVersions
+  );
+});

@@ -6,6 +6,7 @@ import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 
+import { ghostQuietChromeClassName } from "@/lib/press-feedback";
 import { cn } from "@/lib/cn";
 
 // User-chosen Badge `color` (entity labels) is a *hue identity*. Presentation
@@ -42,6 +43,7 @@ export function badgeCustomColorStyle(color: string): React.CSSProperties {
   }
   if (relativeLuminance(color) > BADGE_CUSTOM_COLOR_SOFT_LUMINANCE) {
     return {
+      // 50% identity into white — pale chips stay chromatic + AA with dark ink.
       backgroundColor: `color-mix(in oklch, ${color} 50%, white)`,
       color: BADGE_CUSTOM_COLOR_INK,
     };
@@ -56,15 +58,25 @@ const badgeVariants = cva(
   // Badges are single-line soft-rects (`rounded-sm` / --radius-sm ≈ 4px) — squarer
   // than a capsule, tighter than Button's `rounded-md`, matching Registry status
   // chips. Without nowrap, label text wraps inside narrow table/sidebar cells.
-  "inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-sm text-xs font-normal transition-colors [&>svg]:size-3 [&>svg]:shrink-0",
+  // Type / pad / icon live on `size` — not the base — so sm/default/lg read as
+  // distinct envelopes (badges-and-tags.md), never padding-only nudges.
+  // No transition: Badge is static metadata; color/surface feedback snaps
+  // (`transitions.md`). Bare Tailwind color-transition utilities carry a 150ms
+  // default — never add them here. toolshed#4057 / #4081
+  "inline-flex items-center justify-center whitespace-nowrap rounded-sm font-normal [&>svg]:shrink-0",
   {
     variants: {
       variant: {
         default: "bg-primary text-primary-foreground",
         secondary: "bg-foreground/[0.06] text-foreground/80",
-        muted: "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground",
+        // Rest is --muted (≡ --neutral-hover). Hover deepens with the muted-chrome
+        // band (`hover-pressed-color.md`) — never muted/80, which lightens the fill.
+        // Same perceived step as Button ghost's on-color scrim (`press-feedback.md`).
+        muted:
+          "bg-muted text-muted-foreground hover:bg-neutral-dark-hover hover:text-foreground",
         outline: "border border-border text-foreground",
-        ghost: "bg-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+        // Transparent quiet chrome SoT: `@/lib/press-feedback` (same as Button ghost).
+        ghost: ghostQuietChromeClassName,
         // Registry Badge — uses --badge-* status surfaces (shared/theme.css)
         // so legacy gestalt-shell --success grove overrides do not affect chips.
         success: "bg-badge-success text-badge-success-foreground",
@@ -76,11 +88,13 @@ const badgeVariants = cva(
         custom: "",
       },
       size: {
-        // Soft-square badges read wide with pill padding — one step tighter
-        // horizontally (px-1 / 1.5 / 2) so the chip hugs the label.
-        sm: "px-1 py-0.5",
-        default: "px-1.5 py-0.5",
-        lg: "px-2 py-1 text-sm",
+        // Display-label ladder (not control-h): type is the primary differentiator;
+        // pad + icon climb with it. Dense chrome → default metadata → emphasized.
+        // `leading-none` lives on size (after text-*) — tailwind-merge drops a
+        // base leading when size adds font-size (cn / font-size↔leading conflict).
+        sm: "gap-0.5 px-1 py-px text-2xs leading-none [&>svg]:size-2.5",
+        default: "gap-1 px-1.5 py-0.5 text-xs leading-none [&>svg]:size-3",
+        lg: "gap-1.5 px-2 py-1 text-sm leading-none [&>svg]:size-3.5",
       },
     },
     defaultVariants: {

@@ -72,9 +72,11 @@ export function versionsSurfacePresentation({
     };
   }
 
-  const modePromise = hasDesiredVersion
-    ? "Deploy a version to change what's running across the fleet."
-    : "No version is serving on the fleet yet. Deploy a version to start.";
+  const modePromise = rolloutActive
+    ? "A rollout is in progress. Watch the fleet strip until replicas converge, then deploy another version if needed."
+    : hasDesiredVersion
+      ? "Deploy a version to change what's running across the fleet."
+      : "No version is serving on the fleet yet. Deploy a version to start.";
 
   return {
     mode,
@@ -82,8 +84,9 @@ export function versionsSurfacePresentation({
     modePromise,
     pageDescription: `${FRAMING} ${modePromise}`,
     toggleTitle: "Automatically deploy new versions",
-    toggleDescription:
-      "Deploy versions from the table below. Turn on to deploy new versions automatically.",
+    toggleDescription: rolloutActive
+      ? "Deploy is paused while the current rollout finishes. Turn on to deploy new versions automatically afterward."
+      : "Deploy versions from the table below. Turn on to deploy new versions automatically.",
     manualDeployBlockedReason: null,
     offerManualDeploy: true,
     emptyTitle: "No published versions are available.",
