@@ -1,6 +1,8 @@
 import { Link, useRouterState } from "@tanstack/react-router";
+import { logout } from "@/lib/api";
 import { clearSession, sessionDisplayLabel, sessionInitials } from "@/lib/auth";
 import { BUILD_PATH } from "@/lib/constants";
+import { serverLoginURL } from "@/lib/authReturn";
 import { appPath } from "@/lib/mount";
 import { useAuthInfoQuery, useAuthSessionQuery } from "@/lib/queries";
 import { AccountMenu } from "./AccountMenu";
@@ -36,9 +38,9 @@ export default function Nav() {
   const loginSupported = authInfoQuery.data?.loginSupported ?? false;
 
   async function handleLogout() {
+    await logout().catch(() => {});
     clearSession();
-    const returnTo = encodeURIComponent(appPath("/"));
-    window.location.href = `/api/v1/auth/logout?returnTo=${returnTo}`;
+    window.location.href = serverLoginURL(appPath("/apps"));
   }
 
   return (
