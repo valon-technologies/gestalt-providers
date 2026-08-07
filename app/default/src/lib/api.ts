@@ -1007,17 +1007,15 @@ export interface AppAuthorizationMember {
 }
 
 /**
- * List humans (and selectors) with access to an app.
- * Requires admin authorization for the app; callers should handle 403.
+ * List app-access grants (people and service accounts) for an app.
+ * Requires explicit `admin` on `app/{app}`; callers should handle 403.
  */
 export async function getAppAuthorizationMembers(
   appName: string,
 ): Promise<AppAuthorizationMember[]> {
   const response = await fetchAPI<
     AppAuthorizationMember[] | { members?: AppAuthorizationMember[] }
-  >(
-    `/admin/api/v1/authorization/apps/${encodeURIComponent(appName)}/members`,
-  );
+  >(`/api/v1/apps/${encodeURIComponent(appName)}/admin/members`);
   if (Array.isArray(response)) return response;
   return response.members ?? [];
 }

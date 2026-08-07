@@ -3,6 +3,43 @@ import type { AppAuthorizationMember } from "@/lib/api";
 export const APP_SECTION_CARD =
   "rounded-lg border border-border bg-card p-6";
 
+/** App-access grant principal kind — derived from canonical subject id. */
+export type AppMemberSubjectKind = "person" | "service_account";
+
+/**
+ * Classify a member for People vs Service accounts sections.
+ * Service accounts are `service_account:…` subjects; everything else is a person
+ * (user UUID, email-form user id, or unresolved human selector).
+ */
+export function appMemberSubjectKind(
+  member: AppAuthorizationMember,
+): AppMemberSubjectKind {
+  const id = (
+    member.subjectId?.trim() ||
+    member.selectorValue?.trim() ||
+    ""
+  ).toLowerCase();
+  if (id.startsWith("service_account:")) return "service_account";
+  return "person";
+}
+
+/** Split roster rows into People vs Service accounts for Members sections. */
+export function partitionAppMembers(members: AppAuthorizationMember[]): {
+  people: AppAuthorizationMember[];
+  serviceAccounts: AppAuthorizationMember[];
+} {
+  const people: AppAuthorizationMember[] = [];
+  const serviceAccounts: AppAuthorizationMember[] = [];
+  for (const member of members) {
+    if (appMemberSubjectKind(member) === "service_account") {
+      serviceAccounts.push(member);
+    } else {
+      people.push(member);
+    }
+  }
+  return { people, serviceAccounts };
+}
+
 export function memberLabel(member: AppAuthorizationMember): string {
   if (member.email?.trim()) return member.email.trim();
   if (member.selectorValue?.trim()) return member.selectorValue.trim();

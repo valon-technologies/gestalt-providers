@@ -25,7 +25,7 @@ import { cn } from "@/lib/cn";
 // - `condensed` — Checkbox: tighter mark + heavier stroke that fits the box
 //
 // Tone (self-drawn only):
-// - `solid` — blank-row indicators (Select / Combobox flyouts): primary ink
+// - `solid` — blank-row indicators (Select / Combobox flyouts): --accent-solid ink
 // - `current` — filled-row indicators (Listbox): currentColor
 
 type CheckDensity = "default" | "condensed";
@@ -139,7 +139,7 @@ export function SelectionCheck({
       className={cn(
         drawFrom === "self" && "group/selection-check",
         "flex size-4 shrink-0 items-center justify-center",
-        tone === "solid" ? "text-primary" : "text-current",
+        tone === "solid" ? "text-accent-solid" : "text-current",
         drawFrom === "self" &&
           bounce &&
           "animate-[selection-check-bounce_var(--duration-200)_var(--ease-out-quart)_calc(2*var(--duration-200))]",

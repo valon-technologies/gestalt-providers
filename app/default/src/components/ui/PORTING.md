@@ -78,6 +78,27 @@ muted hover climbs `--neutral-dark-hover`. Keep status variants on `--badge-*`
 import `@/lib/cn`. HoverCard JSDoc documents controlled-open + trigger remount
 (Registry `guidelines/flyout.md`).
 
+## MemberAccess
+
+Registry `member-access` is vendored here (`MemberAccess`, `MemberAccessInvite`,
+`MEMBER_ACCESS_REMOVE_VALUE`). Strip `"use client"`. Prefer `@/lib/cn` over
+Registry `@/lib/utils`. Depends on local `alert-dialog`, `avatar`, `button`,
+`item`, `people-picker`, `select`, `separator`. Pass optional `invite` (PeoplePicker
+directory chrome + role); omit for service-account roster-only lists. Use
+`disabled` for read-only grant previews until self-serve writes ship.
+
+## PeoplePicker
+
+Registry `people-picker` is vendored here. Strip `"use client"`. Prefer
+`@/lib/cn`. Depends on local `avatar`, `button`, `command`, `popover`,
+`selection-check`, and `@/lib/disclosure-caret`. Apps own `searchPeople`.
+
+## Command / Popover
+
+Registry `command` (`cmdk`) and `popover` are vendored for PeoplePicker /
+Combobox flyouts. Strip `"use client"`. Prefer `@/lib/cn`. Popover collision
+padding uses `FLYOUT_VIEWPORT_EDGE_INSET_PX` from `@/lib/flyout`.
+
 ## Choice cards (RadioGroup + Switch)
 
 Do not fork tile chrome at call sites. Import helpers from

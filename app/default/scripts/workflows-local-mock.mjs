@@ -172,6 +172,60 @@ const registry = {
   autoDeploy: { enabled: false },
 };
 
+/** Seeded app-admin members roster for /apps/slack/admin/members. */
+const members = [
+  {
+    email: "alice@example.com",
+    role: "admin",
+    source: "static",
+    mutable: false,
+    effective: true,
+    selectorKind: "subject_id",
+    selectorValue: "user:alice-example",
+    subjectId: "user:alice-example",
+  },
+  {
+    email: "bob@example.com",
+    role: "admin",
+    source: "static",
+    mutable: false,
+    effective: true,
+    selectorKind: "subject_id",
+    selectorValue: "user:bob-example",
+    subjectId: "user:bob-example",
+  },
+  {
+    email: "carol@example.com",
+    role: "viewer",
+    source: "static",
+    mutable: false,
+    effective: true,
+    selectorKind: "subject_id",
+    selectorValue: "user:carol-example",
+    subjectId: "user:carol-example",
+  },
+  {
+    role: "viewer",
+    source: "dynamic",
+    mutable: true,
+    effective: true,
+    selectorKind: "subject_id",
+    selectorValue: "service_account:slack-bot",
+    subjectId: "service_account:slack-bot",
+  },
+  {
+    email: "shadowed@example.com",
+    role: "viewer",
+    source: "dynamic",
+    mutable: true,
+    effective: false,
+    shadowedBy: "static viewer grant",
+    selectorKind: "subject_id",
+    selectorValue: "user:shadowed-example",
+    subjectId: "user:shadowed-example",
+  },
+];
+
 /** Mirrors WorkflowDefinition + WorkflowRun from gestalt workflow.proto. */
 const definitions = [
   {
@@ -827,7 +881,7 @@ export function handleWorkflowsLocalMock(req, res, pathname, url) {
     pathname === `/api/v1/apps/${SLACK_APP}/admin/members` &&
     method === "GET"
   ) {
-    sendJson(res, 200, { members: [] });
+    sendJson(res, 200, members);
     return true;
   }
   if (pathname === "/api/v2/workflow/runs" && method === "GET") {
