@@ -31,6 +31,7 @@ from internals.constants import (
     BOT_LIST_ISSUES_OPERATION,
     BOT_COMPARE_REFS_OPERATION,
     BOT_GET_PULL_REQUEST_OPERATION,
+    BOT_GET_PULL_REQUEST_MERGEABILITY_OPERATION,
     BOT_GET_REPOSITORY_OPERATION,
     BOT_GET_MERGE_QUEUE_OPERATION,
     BOT_GET_USER_OPERATION,
@@ -98,6 +99,7 @@ from internals.operations import (
     GitHubListIssueCommentsRequest,
     GitHubSearchPullRequestsRequest,
     GitHubGetMergeQueueRequest,
+    GitHubGetPullRequestMergeabilityRequest,
     GitHubListPullRequestsRequest,
     GitHubListPullRequestsForCommitRequest,
     GitHubListOrgMembersRequest,
@@ -154,6 +156,7 @@ from internals.operations import (
     list_issue_comments,
     search_pull_requests,
     get_merge_queue,
+    get_pull_request_mergeability,
     list_pull_requests,
     list_pull_requests_for_commit,
     list_org_members,
@@ -695,6 +698,12 @@ class RequestReviewersInput(gestalt.Model):
 
 
 class GetPullRequestInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    pull_number: int = gestalt.field(description="Pull request number")
+
+
+class GetPullRequestMergeabilityInput(gestalt.Model):
     owner: str = gestalt.field(description="Repository owner")
     repo: str = gestalt.field(description="Repository name")
     pull_number: int = gestalt.field(description="Pull request number")
@@ -1668,6 +1677,24 @@ def bot_get_pull_request(
 ) -> OperationResult:
     return _run_bot(lambda: {"pull_request": pull_request_summary((get_pull_request(
 _to_request(GitHubPullRequestRequest, input), **_bot_call(req))))})
+@app.operation(
+    id=BOT_GET_PULL_REQUEST_MERGEABILITY_OPERATION,
+    method="GET",
+    description=(
+        "Get pull request mergeability and pending review requests, including "
+        "CODEOWNERS, using a GitHub App installation token"
+    ),
+    tags=["pr", "prs", "review"],
+)
+def bot_get_pull_request_mergeability(
+    input: GetPullRequestMergeabilityInput, req: gestalt.Request
+) -> OperationResult:
+    return _run_bot(
+        lambda: get_pull_request_mergeability(
+            _to_request(GitHubGetPullRequestMergeabilityRequest, input),
+            **_bot_call(req),
+        )
+    )
 @app.operation(
     id=BOT_LIST_PULL_REQUEST_FILES_OPERATION,
     method="GET",
