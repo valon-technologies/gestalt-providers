@@ -118,6 +118,7 @@ can retry delivery.
 - `bot.removeLabels`
 - `bot.requestReviewers`
 - `bot.getPullRequest`
+- `bot.getPullRequestMergeability`
 - `bot.listPullRequestFiles`
 - `bot.getCheckRun`
 - `bot.createCheckRun`

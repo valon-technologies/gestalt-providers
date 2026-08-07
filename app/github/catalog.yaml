@@ -358,6 +358,27 @@ operations:
     type: integer
     description: Pull request number
     required: true
+- id: bot.getPullRequestMergeability
+  method: GET
+  description: Get pull request mergeability and pending review requests, including
+    CODEOWNERS, using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: pull_number
+    type: integer
+    description: Pull request number
+    required: true
+  tags:
+  - pr
+  - prs
+  - review
 - id: bot.listPullRequestFiles
   method: GET
   description: List pull request changed files and bounded patches using a GitHub App

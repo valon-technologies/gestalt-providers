@@ -23,7 +23,11 @@ import internals.client as client_module
 import internals.operations as operations_module
 from internals.config import GitHubBotIdentity, GitHubUserIdentity
 from internals.errors import GitHubAPIError
-from internals.operations import MERGE_QUEUE_QUERY, SEARCH_PULL_REQUESTS_QUERY
+from internals.operations import (
+    MERGE_QUEUE_QUERY,
+    PULL_REQUEST_MERGEABILITY_QUERY,
+    SEARCH_PULL_REQUESTS_QUERY,
+)
 import provider as provider_module
 
 
@@ -491,6 +495,9 @@ class GitHubProviderTests(unittest.TestCase):
         search_code = operations[provider_module.BOT_SEARCH_CODE_OPERATION]
         get_content = operations[provider_module.BOT_GET_CONTENT_OPERATION]
         pr = operations[provider_module.BOT_GET_PULL_REQUEST_OPERATION]
+        pr_mergeability = operations[
+            provider_module.BOT_GET_PULL_REQUEST_MERGEABILITY_OPERATION
+        ]
         pr_files = operations[provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION]
         pr_commits = operations[provider_module.BOT_LIST_PULL_REQUEST_COMMITS_OPERATION]
         pr_review = operations[provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION]
@@ -554,6 +561,8 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("Search code", search_code["description"])
         self.assertIn("file content", get_content["description"])
         self.assertIn("pull request metadata", pr["description"])
+        self.assertIn("mergeability", pr_mergeability["description"])
+        self.assertIn("CODEOWNERS", pr_mergeability["description"])
         self.assertIn("changed files", pr_files["description"])
         self.assertIn("commits on a pull request", pr_commits["description"])
         self.assertIn("inline comments", pr_review["description"])
@@ -620,6 +629,10 @@ class GitHubProviderTests(unittest.TestCase):
         )
         self.assertIn(
             "pull_number", [parameter["name"] for parameter in pr["parameters"]]
+        )
+        self.assertIn(
+            "pull_number",
+            [parameter["name"] for parameter in pr_mergeability["parameters"]],
         )
         self.assertIn(
             "owner",
@@ -4626,6 +4639,25 @@ class GitHubProviderTests(unittest.TestCase):
 
 
 class ExtendedSummaryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+            },
+        )
+        self.addCleanup(provider_module.configure, "github", {})
+        authorization_patch = mock.patch.object(
+            gestalt.Request,
+            "authorization",
+            return_value=FakeAuthorization(),
+            create=True,
+        )
+        authorization_patch.start()
+        self.addCleanup(authorization_patch.stop)
+
     def test_workflow_run_summary_includes_display_title_and_head_ref(self) -> None:
         summary = operations_module.workflow_run_summary(
             {
@@ -4710,6 +4742,198 @@ class ExtendedSummaryTests(unittest.TestCase):
         self.assertEqual(summary["user"], "octocat")
         self.assertEqual(summary["created_at"], "2026-05-01T00:00:00Z")
         self.assertEqual(summary["merge_commit_sha"], "merge123")
+
+    def test_pull_request_summary_includes_mergeable_fields(self) -> None:
+        summary = operations_module.pull_request_summary(
+            {
+                "number": 7,
+                "title": "Feature",
+                "state": "open",
+                "html_url": "https://github.com/acme/widgets/pull/7",
+                "mergeable": True,
+                "mergeable_state": "blocked",
+                "head": {"ref": "feature", "sha": "abc123"},
+                "base": {"ref": "main", "sha": "def456"},
+            }
+        )
+        self.assertTrue(summary["mergeable"])
+        self.assertEqual(summary["mergeable_state"], "blocked")
+
+    def test_pull_request_mergeability_summary_maps_reviewers_and_codeowners(self) -> None:
+        summary = operations_module.pull_request_mergeability_summary(
+            {
+                "mergeable": "MERGEABLE",
+                "mergeStateStatus": "BLOCKED",
+                "reviewDecision": "REVIEW_REQUIRED",
+                "isDraft": False,
+                "reviewRequests": {
+                    "nodes": [
+                        {
+                            "asCodeOwner": True,
+                            "requestedReviewer": {
+                                "__typename": "User",
+                                "login": "alice",
+                            },
+                        },
+                        {
+                            "asCodeOwner": False,
+                            "requestedReviewer": {
+                                "__typename": "User",
+                                "login": "bob",
+                            },
+                        },
+                        {
+                            "asCodeOwner": True,
+                            "requestedReviewer": {
+                                "__typename": "Team",
+                                "slug": "platform",
+                                "name": "Platform",
+                            },
+                        },
+                    ]
+                },
+                "reviews": {
+                    "nodes": [
+                        {
+                            "author": {"login": "carol"},
+                            "state": "CHANGES_REQUESTED",
+                            "submittedAt": "2026-05-01T00:00:00Z",
+                        },
+                        {
+                            "author": {"login": "carol"},
+                            "state": "CHANGES_REQUESTED",
+                            "submittedAt": "2026-05-02T00:00:00Z",
+                        },
+                        {
+                            "author": {"login": "dave"},
+                            "state": "CHANGES_REQUESTED",
+                            "submittedAt": "2026-05-01T12:00:00Z",
+                        },
+                    ]
+                },
+            }
+        )
+        self.assertEqual(summary["mergeability"]["mergeable"], "MERGEABLE")
+        self.assertEqual(summary["mergeability"]["merge_state_status"], "BLOCKED")
+        self.assertEqual(summary["mergeability"]["review_decision"], "REVIEW_REQUIRED")
+        self.assertFalse(summary["mergeability"]["is_draft"])
+        self.assertEqual(summary["reviews"]["pending_users"], ["alice", "bob"])
+        self.assertEqual(summary["reviews"]["pending_teams"], ["platform"])
+        self.assertEqual(summary["reviews"]["pending_codeowner_users"], ["alice"])
+        self.assertEqual(summary["reviews"]["pending_codeowner_teams"], ["platform"])
+        self.assertEqual(summary["reviews"]["changes_requested"], ["carol", "dave"])
+
+    def test_get_pull_request_mergeability_uses_graphql_and_maps_output(self) -> None:
+        graphql_calls: list[tuple[str, dict[str, Any], str]] = []
+        access_token_payloads: list[dict[str, Any]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            path = request_path(request)
+            if path == "/repos/acme/widgets/installation":
+                return FakeHTTPResponse({"id": 99})
+            if path == "/app/installations/99/access_tokens":
+                access_token_payloads.append(request_json(request))
+                return FakeHTTPResponse({"token": "pr-token"})
+            self.fail(f"unexpected request {path}")
+
+        def fake_graphql_json(
+            query: str, token: str | None, variables: Mapping[str, Any] | None = None
+        ) -> dict[str, Any]:
+            graphql_calls.append((query, dict(variables or {}), token or ""))
+            self.assertIn("GestaltPullRequestMergeability", query)
+            return {
+                "data": {
+                    "repository": {
+                        "pullRequest": {
+                            "mergeable": "MERGEABLE",
+                            "mergeStateStatus": "BLOCKED",
+                            "reviewDecision": "REVIEW_REQUIRED",
+                            "isDraft": False,
+                            "reviewRequests": {"nodes": []},
+                            "reviews": {"nodes": []},
+                        }
+                    }
+                }
+            }
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch(
+                "internals.client.graphql_json", side_effect=fake_graphql_json
+            ),
+        ):
+            result = provider_module.bot_get_pull_request_mergeability(
+                provider_module.GetPullRequestMergeabilityInput(
+                    owner="acme",
+                    repo="widgets",
+                    pull_number=7,
+                ),
+                github_request(),
+            )
+
+        data = cast(dict[str, Any], result)
+        self.assertEqual(data["mergeability"]["merge_state_status"], "BLOCKED")
+        self.assertEqual(data["reviews"]["pending_users"], [])
+        self.assertEqual(len(graphql_calls), 1)
+        self.assertEqual(graphql_calls[0][1]["number"], 7)
+        self.assertEqual(
+            access_token_payloads,
+            [
+                {
+                    "repositories": ["widgets"],
+                    "permissions": {
+                        "pull_requests": "read",
+                        "members": "read",
+                    },
+                }
+            ],
+        )
+        self.assertIn("asCodeOwner", PULL_REQUEST_MERGEABILITY_QUERY)
+        self.assertIn("mergeStateStatus", PULL_REQUEST_MERGEABILITY_QUERY)
+        self.assertNotIn("mergeRequest", PULL_REQUEST_MERGEABILITY_QUERY)
+
+    def test_get_pull_request_mergeability_missing_pull_request_returns_error(self) -> None:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            path = request_path(request)
+            if path == "/repos/acme/widgets/installation":
+                return FakeHTTPResponse({"id": 99})
+            if path == "/app/installations/99/access_tokens":
+                return FakeHTTPResponse({"token": "pr-token"})
+            self.fail(f"unexpected request {path}")
+
+        def fake_graphql_json(
+            query: str, token: str | None, variables: Mapping[str, Any] | None = None
+        ) -> dict[str, Any]:
+            return {"data": {"repository": {"pullRequest": None}}}
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch(
+                "internals.client.graphql_json", side_effect=fake_graphql_json
+            ),
+        ):
+            result = provider_module.bot_get_pull_request_mergeability(
+                provider_module.GetPullRequestMergeabilityInput(
+                    owner="acme",
+                    repo="widgets",
+                    pull_number=404,
+                ),
+                github_request(),
+            )
+
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.BAD_GATEWAY)
+        self.assertIn("pullRequest", response.body["error"])
 
 
 if __name__ == "__main__":
