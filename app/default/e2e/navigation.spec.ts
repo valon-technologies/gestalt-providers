@@ -77,9 +77,9 @@ test.describe("Navigation", () => {
   test("settings page renders", async ({ authenticatedPage: page }) => {
     await page.goto("/settings");
     await expect(page).toHaveURL(/\/settings\/tokens$/);
-    await expect(page.getByRole("navigation", { name: "breadcrumb" })).toContainText(
-      "Settings",
-    );
+    await expect(
+      page.getByRole("heading", { name: "Settings" }),
+    ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Your API tokens" }),
     ).toBeVisible();
