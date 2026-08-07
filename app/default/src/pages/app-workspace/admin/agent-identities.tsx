@@ -1,6 +1,8 @@
+import { Link as RouterLink } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { APIError, isAPIErrorStatus } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
+import { Link } from "@/components/ui/link";
 import {
   PageHeader,
   PageHeaderContent,
@@ -9,7 +11,14 @@ import {
 } from "@/components/ui/page-header";
 import { SpinnerIcon } from "@/components/icons";
 import { useAppWorkspace } from "@/features/app-workspace/app-workspace-context";
-import { SummaryStat } from "@/features/app-workspace/app-workspace-shared";
+import {
+  SERVICE_ACCOUNTS_COPY,
+  toAgentIdentityRowView,
+} from "@/features/app-workspace/app-agent-identity-presentation";
+import {
+  AUTHORIZATION_DOCS_PATH,
+  AUTHORIZATION_DOCS_SERVICE_ACCOUNTS_HASH,
+} from "@/features/app-workspace/operations/handoffs";
 import { useAppAdminIdentitiesQuery } from "@/lib/queries";
 
 export default function AppAdminAgentIdentitiesPage() {
@@ -25,43 +34,38 @@ export default function AppAdminAgentIdentitiesPage() {
         ? identitiesQuery.error.message
         : identitiesQuery.error instanceof Error
           ? identitiesQuery.error.message
-          : "Failed to load identities"
+          : "Failed to load service accounts"
       : null;
 
-  const counts = useMemo(() => {
-    const effective = identities.filter((row) => row.effective !== false).length;
-    const staticCount = identities.filter((row) => row.source === "static").length;
-    const dynamicCount = identities.filter(
-      (row) => row.source === "dynamic",
-    ).length;
-    return { effective, staticCount, dynamicCount };
-  }, [identities]);
+  const rows = useMemo(
+    () => identities.map((identity, index) => toAgentIdentityRowView(identity, index)),
+    [identities],
+  );
 
   return (
-    <section aria-label="Agent identities">
+    <section aria-label={SERVICE_ACCOUNTS_COPY.sectionAriaLabel}>
       <PageHeader>
         <PageHeaderContent size="md">
-          <PageHeaderTitle>Agent identities</PageHeaderTitle>
+          <PageHeaderTitle>{SERVICE_ACCOUNTS_COPY.title}</PageHeaderTitle>
           <PageHeaderDescription>
-            Service accounts with an authorization grant on this app — typically
-            the <code className="font-mono text-xs">runAs</code> subject for
-            schedules and automation. Grants are defined in deployment policy.
+            {SERVICE_ACCOUNTS_COPY.descriptionBeforeLink}{" "}
+            <Link asChild>
+              <RouterLink
+                to={AUTHORIZATION_DOCS_PATH}
+                hash={AUTHORIZATION_DOCS_SERVICE_ACCOUNTS_HASH}
+              >
+                {SERVICE_ACCOUNTS_COPY.docsLinkLabel}
+              </RouterLink>
+            </Link>{" "}
+            {SERVICE_ACCOUNTS_COPY.descriptionAfterLink}
           </PageHeaderDescription>
         </PageHeaderContent>
       </PageHeader>
 
-      {!loading && !forbidden && !loadError ? (
-        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <SummaryStat label="Effective" value={String(counts.effective)} />
-          <SummaryStat label="Static" value={String(counts.staticCount)} />
-          <SummaryStat label="Dynamic" value={String(counts.dynamicCount)} />
-        </div>
-      ) : null}
-
       {loading ? (
         <p className="mt-5 flex items-center gap-1.5 text-sm text-muted-foreground">
           <SpinnerIcon className="size-4 animate-spin" aria-hidden />
-          Loading identities…
+          {SERVICE_ACCOUNTS_COPY.loading}
         </p>
       ) : null}
 
@@ -70,7 +74,7 @@ export default function AppAdminAgentIdentitiesPage() {
           className="mt-5 text-sm text-muted-foreground"
           data-testid="app-admin-access-denied"
         >
-          Agent identities require app authorization admin access.
+          {SERVICE_ACCOUNTS_COPY.forbidden}
         </p>
       ) : null}
 
@@ -78,52 +82,46 @@ export default function AppAdminAgentIdentitiesPage() {
         <p className="mt-5 text-sm text-ember-500">{loadError}</p>
       ) : null}
 
-      {!loading && !forbidden && !loadError && identities.length === 0 ? (
+      {!loading && !forbidden && !loadError && rows.length === 0 ? (
         <p className="mt-5 text-sm text-muted-foreground">
-          No agent identities have a grant for this app yet.
+          {SERVICE_ACCOUNTS_COPY.empty}
         </p>
       ) : null}
 
-      {!loading && !forbidden && !loadError && identities.length > 0 ? (
+      {!loading && !forbidden && !loadError && rows.length > 0 ? (
         <ul
           className="mt-5 divide-y divide-border rounded-lg border border-border"
-          data-testid="app-agent-identities-list"
+          data-testid={SERVICE_ACCOUNTS_COPY.listTestId}
         >
-          {identities.map((identity, index) => (
+          {rows.map((row) => (
             <li
-              key={`${identity.subjectId}:${identity.role}:${identity.source}:${index}`}
+              key={row.key}
               className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-foreground">
-                  {identity.displayName || identity.subjectId}
+                  {row.title}
                 </p>
-                <p className="mt-0.5 font-mono text-xs text-muted-foreground">
-                  {identity.subjectId}
-                </p>
-                {identity.effective === false && identity.shadowedBy ? (
+                {row.showAccountId ? (
+                  <p className="mt-0.5 font-mono text-xs text-muted-foreground">
+                    Account ID · {row.accountId}
+                  </p>
+                ) : null}
+                {row.exception ? (
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Shadowed by {identity.shadowedBy}
+                    {row.exception.detail}
                   </p>
                 ) : null}
               </div>
               <div className="flex flex-wrap gap-1.5">
-                <Badge variant="secondary" size="sm">
-                  {identity.role || "role"}
+                <Badge variant="secondary" size="default">
+                  {row.roleLabel}
                 </Badge>
-                <Badge
-                  variant={identity.source === "static" ? "muted" : "outline"}
-                  size="sm"
-                >
-                  {identity.source || "unknown"}
-                  {identity.mutable === false ? " · locked" : ""}
-                </Badge>
-                <Badge
-                  variant={identity.effective !== false ? "success" : "warning"}
-                  size="sm"
-                >
-                  {identity.effective !== false ? "Effective" : "Shadowed"}
-                </Badge>
+                {row.exception ? (
+                  <Badge variant="warning" size="default">
+                    {row.exception.label}
+                  </Badge>
+                ) : null}
               </div>
             </li>
           ))}

@@ -22,18 +22,27 @@ const identitiesFixture: AppAdminIdentity[] = [
   },
   {
     subjectId: "service_account:ci-runner",
-    displayName: "ci-runner",
+    displayName: "CI Runner",
     role: "editor",
     source: "dynamic",
     mutable: true,
     effective: true,
   },
+  {
+    subjectId: "service_account:old-bot",
+    displayName: "old-bot",
+    role: "viewer",
+    source: "dynamic",
+    mutable: true,
+    effective: false,
+    shadowedBy: "static viewer grant",
+  },
 ];
 
-test.describe("App admin agent identities", () => {
+test.describe("App admin service accounts", () => {
   test.skip(
     hasBackend,
-    "Agent identity tests use mocked routes and do not apply when running against a real server",
+    "Service account tests use mocked routes and do not apply when running against a real server",
   );
 
   test.beforeEach(async ({ authenticatedPage: page }) => {
@@ -60,31 +69,44 @@ test.describe("App admin agent identities", () => {
     });
   });
 
-  test("lists service accounts with grants on the app", async ({
+  test("lists service accounts with name and role only", async ({
     authenticatedPage: page,
   }) => {
     await mockAppAdminIdentities(page, "httpbin", identitiesFixture);
 
     await page.goto("/apps/httpbin/admin/agent-identities");
     await expect(
-      page.getByRole("heading", { name: "Agent identities" }),
+      page.getByRole("heading", { name: "Service accounts" }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "How to create a service account" }),
+    ).toHaveAttribute("href", "/docs/authorization#authz-service-accounts");
     await expect(page.getByTestId("app-agent-identities-list")).toBeVisible();
-    await expect(page.getByText("slack-bot")).toBeVisible();
-    await expect(page.getByText("service_account:slack-bot")).toBeVisible();
-    await expect(page.getByText("ci-runner")).toBeVisible();
-    await expect(page.getByText("viewer").first()).toBeVisible();
-    await expect(page.getByText("editor").first()).toBeVisible();
+
+    await expect(page.getByText("slack-bot", { exact: true })).toBeVisible();
+    await expect(page.getByText("service_account:slack-bot")).toHaveCount(0);
+    await expect(page.getByText("static · locked")).toHaveCount(0);
+    await expect(page.getByText("Effective", { exact: true })).toHaveCount(0);
+
+    await expect(page.getByText("CI Runner", { exact: true })).toBeVisible();
+    await expect(page.getByText("Account ID · ci-runner")).toBeVisible();
+    await expect(page.getByText("Viewer").first()).toBeVisible();
+    await expect(page.getByText("Editor").first()).toBeVisible();
+
+    await expect(page.getByText("Overridden")).toBeVisible();
+    await expect(
+      page.getByText("Not used — static viewer grant takes priority"),
+    ).toBeVisible();
   });
 
-  test("shows empty state when no agent identities have grants", async ({
+  test("shows empty state when no service accounts have access", async ({
     authenticatedPage: page,
   }) => {
     await mockAppAdminIdentities(page, "httpbin", []);
 
     await page.goto("/apps/httpbin/admin/agent-identities");
     await expect(
-      page.getByText("No agent identities have a grant for this app yet."),
+      page.getByText("No service accounts have access to this app yet."),
     ).toBeVisible();
   });
 
