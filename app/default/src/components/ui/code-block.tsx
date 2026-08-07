@@ -14,7 +14,6 @@ import {
   CodeFenceShell,
   codeFenceHighlightClass,
   codeFencePreClass,
-  codeFenceShellVariants,
   codeLineEmphasisRowClass,
   type CodeFenceShellProps,
 } from "@/components/ui/code-fence";
@@ -457,25 +456,41 @@ function CodeBlockHeader({
   code,
   leading,
 }: {
-  label: React.ReactNode;
+  /** Filename chrome only — omit for copy-only header (language is not a label). */
+  label?: React.ReactNode;
   code: string;
   leading?: React.ReactNode;
 }) {
+  const hasLabel =
+    label != null && !(typeof label === "string" && label.trim() === "");
+
   return (
     <CodeFenceHeader data-slot="code-block-header">
       <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
-        {leading ?? <FileCode2 className="size-3.5 shrink-0" aria-hidden />}
-        <span className="truncate font-mono text-xs">{label}</span>
+        {hasLabel ? (
+          <>
+            {leading ?? <FileCode2 className="size-3.5 shrink-0" aria-hidden />}
+            <span className="truncate font-mono text-xs">{label}</span>
+          </>
+        ) : null}
       </div>
       <CopyIconButton value={() => normalizeCodeNewlines(code)} />
     </CodeFenceHeader>
   );
 }
 
+/** Snippet chrome layout — header row vs inset copy (docs / blog style). */
+export type CodeBlockChrome = "header" | "inset";
+
 export type CodeBlockProps = {
   code: string;
   language?: string;
   filename?: string;
+  /**
+   * Chrome layout. `header` = optional filename row + copy (default).
+   * `inset` = no header; copy overlays the code body (Vercel-style docs fence).
+   */
+  chrome?: CodeBlockChrome;
   showLineNumbers?: boolean;
   scrollable?: boolean;
   maxHeight?: number;
@@ -486,10 +501,32 @@ export type CodeBlockProps = {
   className?: string;
 };
 
+/** True when the fence is one visual row — tighten body so inset copy insets match. */
+function isSingleLineCode(code: string): boolean {
+  return !normalizeCodeNewlines(code).includes("\n");
+}
+
+/**
+ * Inset copy sits outside the horizontal scrollport (always visible on the end).
+ * Use padding-token top/end — never `%` of the wrapper — so classic scrollbars
+ * cannot shift the control off the code row (InstallCommand long URLs).
+ */
+function CodeBlockInsetCopy({ code }: { code: string }) {
+  return (
+    <div className="absolute end-1.5 top-1.5 z-10">
+      <CopyIconButton
+        value={() => normalizeCodeNewlines(code)}
+        className="bg-background/80 text-muted-foreground hover:bg-background hover:text-foreground"
+      />
+    </div>
+  );
+}
+
 function CodeBlock({
   code,
   language = "tsx",
   filename,
+  chrome = "header",
   showLineNumbers = false,
   scrollable = false,
   maxHeight = 400,
@@ -497,17 +534,42 @@ function CodeBlock({
   variant,
   className,
 }: CodeBlockProps) {
+  const inset = chrome === "inset";
+  const singleLineInset = inset && isSingleLineCode(code);
+  const body = (
+    <CodeBody
+      code={code}
+      language={language}
+      showLineNumbers={showLineNumbers}
+      scrollable={scrollable}
+      maxHeight={maxHeight}
+      highlightLines={highlightLines}
+      className={cn(
+        // End padding clears the overlaid copy control.
+        inset && "[&_pre]:pe-10",
+        // Single-line: py + line box sized to icon-xs so top/end/bottom inset match
+        // end-1.5/top-1.5 without %-centering against a scrollbar-inflated wrapper.
+        singleLineInset &&
+          "[&_pre]:py-1.5 [&_pre]:leading-[length:var(--size-control-xs)]",
+      )}
+    />
+  );
+
+  if (inset) {
+    return (
+      <CodeBlockShell className={className} variant={variant}>
+        <div data-slot="code-block-inset" className="relative">
+          <CodeBlockInsetCopy code={code} />
+          {body}
+        </div>
+      </CodeBlockShell>
+    );
+  }
+
   return (
     <CodeBlockShell className={className} variant={variant}>
-      <CodeBlockHeader label={filename ?? language} code={code} />
-      <CodeBody
-        code={code}
-        language={language}
-        showLineNumbers={showLineNumbers}
-        scrollable={scrollable}
-        maxHeight={maxHeight}
-        highlightLines={highlightLines}
-      />
+      <CodeBlockHeader label={filename} code={code} />
+      {body}
     </CodeBlockShell>
   );
 }
@@ -724,28 +786,20 @@ function InstallCommand({ registryUrl, variant, className }: InstallCommandProps
   const [pm, setPm] = React.useState<PackageManager>("pnpm");
   const command = buildInstallCommand(pm, registryUrl);
 
+  // PM picker + inset fence — copy inset/margins owned by chrome="inset", not a
+  // parallel single-line flex row (that drifted to asymmetric pe vs py).
   return (
-    <TooltipProvider delayDuration={0}>
-      <div data-slot="install-command" className={cn("space-y-2", className)}>
-        <SegmentedControl
-          size="sm"
-          label="Package manager"
-          value={pm}
-          onValueChange={setPm}
-          options={PACKAGE_MANAGER_OPTIONS}
-          showLabels
-        />
-        <div
-          className={cn(
-            codeFenceShellVariants({ variant }),
-            "flex h-10 items-center justify-between gap-2 px-3",
-          )}
-        >
-          <code className="grow truncate font-mono text-sm">{command}</code>
-          <CopyIconButton value={() => normalizeCodeNewlines(command)} />
-        </div>
-      </div>
-    </TooltipProvider>
+    <div data-slot="install-command" className={cn("space-y-2", className)}>
+      <SegmentedControl
+        size="sm"
+        label="Package manager"
+        value={pm}
+        onValueChange={setPm}
+        options={PACKAGE_MANAGER_OPTIONS}
+        showLabels
+      />
+      <CodeBlock chrome="inset" language="cli" code={command} variant={variant} />
+    </div>
   );
 }
 

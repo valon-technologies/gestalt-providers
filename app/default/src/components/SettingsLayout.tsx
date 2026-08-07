@@ -52,7 +52,7 @@ export default function SettingsLayout() {
         header={
           <PageHeader>
             <PageHeaderContent size="lg">
-              <Eyebrow tone="brand">Account</Eyebrow>
+              <Eyebrow tone="accent">Account</Eyebrow>
               <PageHeaderTitle>Settings</PageHeaderTitle>
               <PageHeaderDescription>
                 Manage authorization for your account — personal API tokens and

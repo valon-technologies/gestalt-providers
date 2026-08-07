@@ -161,13 +161,23 @@ Registry `tabs` is vendored as `ui/tabs.tsx` (line underline + sliding
 indicator). Use for content navigation; mode switching stays on
 `SegmentedControl`. Do not invent gold/brand underline chrome at call sites.
 
+## SegmentedControl / ThemeToggle
+
+Registry `segmented-control` ships `variant="default"` (borderless muted well on
+paper) and `variant="outline"` (bordered well on muted chrome). ThemeToggle
+forwards `variant`; keep local `placement` (`header` | `menu`). Use `outline`
+only when the parent is muted (sidebar / rail).
+
 ## CodeBlock / code-fence
 
 Registry `code-block` + `code-fence` are vendored here for display snippets
 (Build MCP install, etc.). Keep highlighting on lowlight → `.typeset-code-hljs`
 (`src/styles/typeset-code-hljs.css`). Do not reintroduce
 Shiki for these surfaces. Shell paint maps Registry `bg-muted/50` /
-`border-border/50` to console `bg-alpha-5` / `border-alpha`. Multi-file /
+`border-border/50` to console `bg-alpha-5` / `border-alpha`. Pass
+`chrome="inset"` for docs/blog fences (no header; copy overlays the body).
+Pass `filename` only for real file paths with `chrome="header"` (default) —
+language is highlighting only, not a status label. Multi-file /
 language-tab recipes (`MultiFileCodeBlock`, `LanguageTabsCodeBlock`) use
 vendored `tabs`.
 
@@ -195,7 +205,9 @@ router-agnostic section navigation for rails, sheets, and flyouts. Set
 `--page-layout-pane-top` / `--page-layout-pane-bottom` and track widths
 (`--page-layout-pane-width` / `--page-layout-aside-width`) in `globals.css` next
 to nav-height tokens — do not scatter `sticky top-*` or hand-roll grid tracks per
-page. Use `tracks="compact"` (11rem for both rails) for dense section rails;
+page. Console sticky top is `calc(--app-sticky-chrome-height + --page-layout-pane-gap)`
+so rails clear the measured banner+topbar stack with a constant gap. Use
+`tracks="compact"` (11rem for both rails) for dense section rails;
 Settings keeps the default 13.75rem for both. `NavListItem` defaults to outward `focus-ring`;
 `PageLayoutPane` / `PageLayoutAside` own scrollport padding so rings stay visible.
 Action rows use `actions` plus

@@ -339,13 +339,18 @@
   }
 
   :root {
-    /* Sticky offset for PageLayout's Pane / Aside — clears the sticky app Nav
-       (~65px) with breathing room. Read by `page-layout.tsx`; set here so the
-       value lives next to the chrome that causes it rather than as a `top-24`
-       repeated per page. */
-    --page-layout-pane-top: 6rem;
+    /* Measured sticky stack (DevWorktreeBanner + AppTopBar). Root layout
+       publishes the live height; this is the Nav-only fallback before measure. */
+    --app-sticky-chrome-height: 4.0625rem;
+    /* Breathing room between sticky chrome and PageLayout Pane / Aside. */
+    --page-layout-pane-gap: 1.5rem;
+    /* Sticky offset = live chrome height + gap — stays correct with or without
+       the worktree banner. Read by `page-layout.tsx`. */
+    --page-layout-pane-top: calc(
+      var(--app-sticky-chrome-height) + var(--page-layout-pane-gap)
+    );
     --page-layout-pane-bottom: 2rem;
-    /* Track widths for PageLayout column templates — default and compact tiers
+    /* PageLayout column track widths (page-layout.md). Default and compact tiers
        keep pane and aside at the same rem; `tracks="compact"` sets both to 11rem. */
     --page-layout-pane-width: 13.75rem;
     --page-layout-aside-width: 13.75rem;

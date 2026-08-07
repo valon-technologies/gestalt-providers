@@ -88,7 +88,7 @@ function NavListGroupLabel({ className, ...props }: React.ComponentProps<"div">)
     <div
       data-slot="nav-list-group-label"
       className={cn(
-        eyebrowVariants({ size: "sm", tone: "secondary" }),
+        eyebrowVariants({ size: "sm" }),
         "px-3 pt-4 pb-1.5",
         className,
       )}

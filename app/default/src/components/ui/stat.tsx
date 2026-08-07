@@ -67,8 +67,8 @@ function StatGroup({ className, children, ...props }: React.ComponentProps<"div"
   );
 }
 
-function StatLabel({ tone = "secondary", ...props }: React.ComponentProps<typeof Eyebrow>) {
-  return <Eyebrow tone={tone} {...props} />;
+function StatLabel(props: React.ComponentProps<typeof Eyebrow>) {
+  return <Eyebrow {...props} />;
 }
 
 function StatValue({ className, ...props }: React.ComponentProps<"div">) {

@@ -1,13 +1,29 @@
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import Container from "@/components/Container";
 import {
   NavList,
-  NavListGroup,
   NavListItem,
   NavListItemLabel,
 } from "@/components/ui/nav-list";
 import { PageLayout } from "@/components/ui/page-layout";
+import {
+  TableOfContents,
+  type TableOfContentsItem,
+} from "@/components/ui/table-of-contents";
+import { useScrollSpy } from "@/hooks/use-scroll-spy";
 import { docsNavItems, getActiveDocsNavItem } from "./docs-data";
+
+/** Fallback before CSS vars resolve — nav + gap (~65px + 24px). */
+const DOCS_TOC_ACTIVATION_OFFSET_FALLBACK = 112;
+
+function readPageLayoutPaneTopPx(): number {
+  const raw = getComputedStyle(document.documentElement)
+    .getPropertyValue("--page-layout-pane-top")
+    .trim();
+  const px = Number.parseFloat(raw);
+  return Number.isFinite(px) ? px : DOCS_TOC_ACTIVATION_OFFSET_FALLBACK;
+}
 
 export default function DocsShell({
   children,
@@ -17,6 +33,70 @@ export default function DocsShell({
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const activeItem = getActiveDocsNavItem(pathname);
   const hasOnThisPage = activeItem.subsections.length > 0;
+
+  const tocItems = useMemo((): TableOfContentsItem[] => {
+    return activeItem.subsections.map((subsection) => ({
+      id: subsection.id,
+      title: subsection.label,
+      depth: 1,
+    }));
+  }, [activeItem.subsections]);
+
+  const scrollRootRef = useRef<HTMLElement | null>(null);
+  const [activationOffset, setActivationOffset] = useState(
+    DOCS_TOC_ACTIVATION_OFFSET_FALLBACK,
+  );
+
+  useLayoutEffect(() => {
+    scrollRootRef.current = document.documentElement;
+    const syncOffset = () => setActivationOffset(readPageLayoutPaneTopPx());
+    syncOffset();
+    window.addEventListener("resize", syncOffset);
+    const ro =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(syncOffset)
+        : null;
+    const chrome = document.querySelector("[data-slot='app-sticky-chrome']");
+    if (chrome && ro) ro.observe(chrome);
+    return () => {
+      window.removeEventListener("resize", syncOffset);
+      ro?.disconnect();
+    };
+  }, []);
+
+  const sectionsKey = `${pathname}:${tocItems.map((item) => item.id).join(",")}`;
+  const getEntries = useCallback(() => {
+    return tocItems.flatMap((item) => {
+      if (item.kind === "separator") return [];
+      const el = document.getElementById(item.id);
+      return el
+        ? [{ id: item.id, top: el.getBoundingClientRect().top }]
+        : [];
+    });
+  }, [tocItems]);
+
+  const { activeId, activate } = useScrollSpy({
+    scrollRootRef,
+    getEntries,
+    sectionsKey,
+    activationOffset,
+    forceLastAtBottom: true,
+    enabled: hasOnThisPage,
+    observeWindow: true,
+  });
+
+  const onTocSelect = useCallback(
+    (id: string) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      activate(id);
+      const url = new URL(window.location.href);
+      url.hash = id;
+      window.history.replaceState(null, "", url);
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    },
+    [activate],
+  );
 
   return (
     <Container className="py-16">
@@ -41,15 +121,12 @@ export default function DocsShell({
         // the center column grows on pages without an on-this-page list.
         aside={
           hasOnThisPage ? (
-            <NavList aria-label="On This Page">
-              <NavListGroup label="On This Page">
-                {activeItem.subsections.map((subsection) => (
-                  <NavListItem key={subsection.id} href={`#${subsection.id}`}>
-                    <NavListItemLabel>{subsection.label}</NavListItemLabel>
-                  </NavListItem>
-                ))}
-              </NavListGroup>
-            </NavList>
+            <TableOfContents
+              items={tocItems}
+              activeId={activeId}
+              onItemSelect={onTocSelect}
+              label="On this page"
+            />
           ) : (
             <div aria-hidden="true" />
           )

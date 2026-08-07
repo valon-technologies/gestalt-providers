@@ -77,6 +77,7 @@ test.describe("Docs page", () => {
       leftNav.getByRole("link", { name: "Use With MCP" }),
     ).toHaveAttribute("href", "/docs/mcp");
     await expect(page.getByText("Base URL", { exact: true })).toBeVisible();
+    await expect(page.locator("article")).toContainText(expectedOrigin);
     await expect(page.getByText("Current Host")).toHaveCount(0);
     await expect(page.locator("article")).not.toContainText("gestaltd --version");
 

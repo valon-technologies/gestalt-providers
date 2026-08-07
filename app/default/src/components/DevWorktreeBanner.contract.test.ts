@@ -34,6 +34,8 @@ describe("DevWorktreeBanner", () => {
     expect(ROOT).toContain("isLocalDevChrome");
     expect(ROOT).toContain("ThemeSwitcher");
     expect(ROOT).toContain("sticky top-0 z-50");
+    expect(ROOT).toContain('data-slot="app-sticky-chrome"');
+    expect(ROOT).toContain("useSyncStickyAppChromeHeight");
     expect(NAV).not.toContain("sticky top-0");
     const bannerIndex = ROOT.indexOf("<DevWorktreeBanner");
     const navIndex = ROOT.indexOf("<Nav");

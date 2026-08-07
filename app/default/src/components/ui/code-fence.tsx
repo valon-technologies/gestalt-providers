@@ -26,7 +26,7 @@ const codeFenceShellVariants = cva("overflow-hidden rounded-md", {
   },
 });
 
-/** Default outline shell — InstallCommand and other one-off chrome. */
+/** Default outline shell — one-off fences that skip CodeBlock composition. */
 export const codeFenceShellClass = codeFenceShellVariants();
 
 /** Hairline header row above the code body. */

@@ -90,6 +90,20 @@ describe("PageLayout theme contract", () => {
     expect(extractCssTokenValue(GLOBALS_CSS, "--page-layout-pane-width")).toBe("13.75rem");
     expect(extractCssTokenValue(GLOBALS_CSS, "--page-layout-aside-width")).toBe("13.75rem");
   });
+
+  test("derives sticky top from measured chrome height plus a gap", () => {
+    expect(GLOBALS_CSS).toContain("--app-sticky-chrome-height:");
+    expect(GLOBALS_CSS).toContain("--page-layout-pane-gap:");
+    expect(extractCssTokenValue(GLOBALS_CSS, "--page-layout-pane-gap")).toBe(
+      "1.5rem",
+    );
+    expect(extractCssTokenValue(GLOBALS_CSS, "--page-layout-pane-top")).toContain(
+      "var(--app-sticky-chrome-height)",
+    );
+    expect(extractCssTokenValue(GLOBALS_CSS, "--page-layout-pane-top")).toContain(
+      "var(--page-layout-pane-gap)",
+    );
+  });
 });
 
 /**

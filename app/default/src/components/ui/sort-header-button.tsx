@@ -59,7 +59,7 @@ export function SortHeaderButton({
     >
       <span
         className={cn(
-          eyebrowVariants({ tone: "secondary" }),
+          eyebrowVariants(),
           "leading-none text-inherit",
         )}
       >

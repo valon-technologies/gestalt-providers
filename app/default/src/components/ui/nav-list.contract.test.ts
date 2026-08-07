@@ -80,7 +80,7 @@ describe("NavList semantics contract", () => {
 
   test("group labels are never heading elements", () => {
     expect(SOURCE).toContain("eyebrowVariants");
-    expect(SOURCE).toContain('tone: "secondary"');
+    expect(SOURCE).toContain('eyebrowVariants({ size: "sm" })');
     expect(SOURCE).not.toMatch(/<h[1-6]/);
   });
 });
