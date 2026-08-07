@@ -245,7 +245,7 @@ test.describe("Docs page", () => {
     );
     await mcpSwitch.getByRole("radio", { name: "Cursor" }).click();
     await expect(mcpPanel).toContainText(".cursor/mcp.json");
-    await mcpSwitch.getByRole("radio", { name: "Other Clients" }).click();
+    await mcpSwitch.getByRole("radio", { name: "Other clients" }).click();
     await expect(
       page.getByRole("cell", { name: `${expectedOrigin}/mcp` }).first(),
     ).toBeVisible();

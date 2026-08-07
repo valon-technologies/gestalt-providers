@@ -312,6 +312,7 @@ export default function AppsCatalogPageClient() {
   return (
     <Container className="pt-12 pb-24">
       <PageLayout
+        tracks="compact"
         header={
           <PageHeader>
             <PageHeaderContent size="lg">

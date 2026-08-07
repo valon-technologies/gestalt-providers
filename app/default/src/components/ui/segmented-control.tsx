@@ -90,6 +90,12 @@ export type SegmentedControlProps<V extends string = string> = {
    * hairline border for placement on muted surfaces (sidebar, rail).
    */
   variant?: SegmentedControlVariant;
+  /**
+   * When this control swaps a single content region, pass that region's DOM
+   * id so every radio exposes `aria-controls`. Use a stable `useId()` — never
+   * the selected option value when that value is also written to the URL hash.
+   */
+  panelId?: string;
   className?: string;
 } & SegmentedControlNameProps;
 
@@ -137,6 +143,7 @@ export function SegmentedControl<V extends string>({
   tooltips = true,
   size = "default",
   variant = "default",
+  panelId,
   className,
 }: SegmentedControlProps<V>) {
   const containerRef = React.useRef<HTMLDivElement>(null);
@@ -276,6 +283,7 @@ export function SegmentedControl<V extends string>({
             role="radio"
             aria-checked={checked}
             aria-label={option.label}
+            aria-controls={panelId}
             tabIndex={checked ? 0 : -1}
             onClick={() => onValueChange(option.value)}
             className={cn(

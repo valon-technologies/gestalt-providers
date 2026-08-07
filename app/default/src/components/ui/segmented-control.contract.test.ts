@@ -80,6 +80,11 @@ describe("SegmentedControl track variants contract", () => {
     expect(SOURCE).toContain("focus({ preventScroll: true })");
   });
 
+  test("optional panelId wires aria-controls on every radio", () => {
+    expect(SOURCE).toContain("panelId?: string");
+    expect(SOURCE).toContain("aria-controls={panelId}");
+  });
+
   test("track uses control-radius rounded-md (not rounded-lg)", () => {
     expect(SOURCE).toContain('"relative inline-flex rounded-md"');
     expect(SOURCE).not.toContain('"relative inline-flex rounded-lg"');

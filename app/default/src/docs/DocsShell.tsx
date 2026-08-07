@@ -108,6 +108,7 @@ export default function DocsShell({
   return (
     <Container className="py-16">
       <PageLayout
+        tracks="compact"
         pane={
           <NavList aria-label="Documentation">
             {docsNavItems.map((item) => (

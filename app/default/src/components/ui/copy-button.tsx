@@ -88,9 +88,15 @@ function CopyIconButton({
           }}
           onClick={() => {
             const text = typeof value === "function" ? value() : value;
-            void navigator.clipboard.writeText(text);
-            setCopied(true);
-            setIntentOpen(true);
+            void navigator.clipboard.writeText(text).then(
+              () => {
+                setCopied(true);
+                setIntentOpen(true);
+              },
+              () => {
+                // Keep "Copy" on denial / insecure context — never fake success.
+              },
+            );
           }}
         >
           {copied ? <CheckIcon /> : <CopyIcon />}

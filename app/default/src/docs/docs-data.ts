@@ -20,7 +20,7 @@ export const docsNavItems: DocsNavItem[] = [
       { id: "point-cli", label: "Point the CLI" },
       { id: "authenticate", label: "Authenticate" },
       { id: "authorization", label: "Grant authorization" },
-      { id: "agent-environments", label: "Cloud environments" },
+      { id: "agent-environments", label: "Configure cloud environments" },
       { id: "workflows", label: "Inspect workflows" },
     ],
   },

@@ -1,6 +1,6 @@
 
 import { Link } from "@tanstack/react-router";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { CodeBlock } from "@/components/ui/code-block";
 import { Eyebrow } from "@/components/ui/eyebrow";
 import {
@@ -25,7 +25,7 @@ const mcpTabs = [
   { id: "mcp-claude-code", label: "Claude Code" },
   { id: "mcp-codex", label: "Codex" },
   { id: "mcp-cursor", label: "Cursor" },
-  { id: "mcp-other", label: "Other Clients" },
+  { id: "mcp-other", label: "Other clients" },
 ] as const;
 
 const agentEnvironmentTabs = [
@@ -637,6 +637,13 @@ function DocsOptionSwitcher<V extends string>({
   density?: "default" | "relaxed";
   children: ReactNode;
 }) {
+  // Stable panel id — never the option value. Hash-backed switchers write
+  // `#${value}` for shareable selection; a matching DOM id would scroll the
+  // panel under sticky app chrome.
+  const panelId = useId();
+  const activeLabel =
+    options.find((option) => option.value === value)?.label ?? label;
+
   return (
     <div className="flex flex-col gap-4">
       {/*
@@ -652,15 +659,17 @@ function DocsOptionSwitcher<V extends string>({
           value={value}
           onValueChange={onValueChange}
           options={options}
+          panelId={panelId}
           showLabels
         />
       </div>
-      {/*
-        Do not put `id={value}` here. Hash-backed switchers write `#${value}` for
-        shareable selection state; a matching DOM id makes the browser scroll the
-        panel to the top and tuck the control under the sticky app nav.
-      */}
-      <div className={density === "relaxed" ? "space-y-5" : "space-y-4"}>
+      <div
+        id={panelId}
+        role="region"
+        aria-label={`${label}: ${activeLabel}`}
+        aria-live="polite"
+        className={density === "relaxed" ? "space-y-5" : "space-y-4"}
+      >
         {children}
       </div>
     </div>

@@ -38,7 +38,7 @@ function collectHljsClasses(node: ReactNode): string[] {
   return out;
 }
 
-describe("code-block language aliases (PR #4089)", () => {
+describe("code-block language aliases (cli grammar)", () => {
   test("maps sh/shell onto cli; keeps bash as bash", () => {
     expect(resolveLanguage("sh")).toBe("cli");
     expect(resolveLanguage("shell")).toBe("cli");
@@ -47,7 +47,7 @@ describe("code-block language aliases (PR #4089)", () => {
   });
 });
 
-describe("code-block cli grammar (PR #4089)", () => {
+describe("code-block cli grammar", () => {
   test("commands map to keyword, not built_in", () => {
     expect(CLI_SOURCE).toContain('className: "keyword"');
     expect(CLI_SOURCE).not.toContain('className: "built_in"');
@@ -81,7 +81,7 @@ describe("code-block cli grammar (PR #4089)", () => {
   });
 });
 
-describe("code-fence line emphasis (PR #4089)", () => {
+describe("code-fence line emphasis", () => {
   test("uses inset accent-solid edge and shared bleed, not border-l shift", () => {
     expect(codeLineEmphasisWashClass).toBe("bg-code-line-emphasis");
     expect(codeLineRowBleedClass).toBe("-mx-4 px-4");

@@ -17,4 +17,12 @@ describe("CopyIconButton copied tooltip", () => {
     expect(SOURCE).toContain("setIntentOpen(true)");
     expect(SOURCE).toContain('copiedLabel = "Copied"');
   });
+
+  test("only confirms Copied after clipboard.writeText resolves", () => {
+    expect(SOURCE).toContain("navigator.clipboard.writeText(text).then(");
+    expect(SOURCE).toContain("setCopied(true)");
+    expect(SOURCE).toMatch(
+      /writeText\(text\)\.then\(\s*\(\)\s*=>\s*\{[\s\S]*?setCopied\(true\)/,
+    );
+  });
 });
