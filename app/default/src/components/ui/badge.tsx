@@ -62,11 +62,11 @@ const badgeVariants = cva(
   // distinct envelopes (badges-and-tags.md), never padding-only nudges.
   // No transition: Badge is static metadata; color/surface feedback snaps
   // (`transitions.md`). Bare Tailwind color-transition utilities carry a 150ms
-  // default — never add them here. toolshed#4057 / #4081
-  // `text-box: trim-both cap alphabetic` trims font ascent/descent so flex
-  // centering aligns glyph ink (counts look top-heavy otherwise). Ignored where
-  // unsupported — degrades to ordinary leading-none centering.
-  "inline-flex items-center justify-center whitespace-nowrap rounded-sm font-normal [text-box:trim-both_cap_alphabetic] [&>svg]:shrink-0",
+  // default — never add them here. toolshed#4057 / #4081 / #4113 / #4119
+  // Chrome shell is inline-flex (icon + label gap). Ink trim lives on the label
+  // text box (`badgeLabelClassName`) — text-box-trim does not apply to flex
+  // formatting contexts (css-inline-3) and does not inherit.
+  "inline-flex items-center justify-center whitespace-nowrap rounded-sm font-normal [&>svg]:shrink-0",
   {
     variants: {
       variant: {
@@ -95,9 +95,11 @@ const badgeVariants = cva(
         // pad + icon climb with it. Dense chrome → default metadata → emphasized.
         // `leading-none` lives on size (after text-*) — tailwind-merge drops a
         // base leading when size adds font-size (cn / font-size↔leading conflict).
-        sm: "gap-0.5 px-1 py-px text-2xs leading-none [&>svg]:size-2.5",
-        default: "gap-1 px-1.5 py-0.5 text-xs leading-none [&>svg]:size-3",
-        lg: "gap-1.5 px-2 py-1 text-sm leading-none [&>svg]:size-3.5",
+        // After text-box trim (#4113), size pad is the *only* vertical air — keep it
+        // readable on count chips (`py-px` / `py-0.5` collapsed to ink+thin strip).
+        sm: "gap-0.5 px-1 py-1 text-2xs leading-none [&>svg]:size-2.5",
+        default: "gap-1 px-1.5 py-1.5 text-xs leading-none [&>svg]:size-3",
+        lg: "gap-1.5 px-2 py-2 text-sm leading-none [&>svg]:size-3.5",
       },
     },
     defaultVariants: {
@@ -109,6 +111,53 @@ const badgeVariants = cva(
 
 // `custom` is internal — selected only by passing `color`, never by a consumer.
 type BadgeVariant = Exclude<NonNullable<VariantProps<typeof badgeVariants>["variant"]>, "custom">;
+
+/**
+ * Cap/alphabetic text-box trim for Badge label ink. Owned by the label text box
+ * (not the flex chrome): css-inline-3 text-box-trim does not apply to flex/grid
+ * and does not inherit. Unsupported browsers ignore it.
+ */
+export const badgeLabelClassName = "[text-box:trim-both_cap_alphabetic]";
+
+/**
+ * Partition Badge children for the flex chrome shell: one trimmed label span per
+ * contiguous primitive run; element children (icons) stay flex siblings.
+ * Adjacent primitives such as `{n} selected` must share one text box — wrapping
+ * each child separately would insert size `gap` inside the label.
+ */
+export function partitionBadgeChildren(children: React.ReactNode): React.ReactNode {
+  const items = React.Children.toArray(children);
+  if (items.length === 0) {
+    return children;
+  }
+
+  const out: React.ReactNode[] = [];
+  let run: Array<string | number> = [];
+
+  const flushRun = () => {
+    if (run.length === 0) {
+      return;
+    }
+    const text = run.length === 1 ? run[0] : run.map(String).join("");
+    run = [];
+    out.push(
+      <span key={`badge-label-${out.length}`} data-slot="badge-label" className={badgeLabelClassName}>
+        {text}
+      </span>,
+    );
+  };
+
+  for (const child of items) {
+    if (typeof child === "string" || typeof child === "number") {
+      run.push(child);
+      continue;
+    }
+    flushRun();
+    out.push(child);
+  }
+  flushRun();
+  return out;
+}
 
 export interface BadgeProps extends Omit<React.HTMLAttributes<HTMLSpanElement>, "color"> {
   variant?: BadgeVariant;
@@ -122,9 +171,21 @@ export interface BadgeProps extends Omit<React.HTMLAttributes<HTMLSpanElement>, 
   color?: string;
 }
 
-function Badge({ className, variant, size, color, asChild = false, style, ...props }: BadgeProps) {
+function Badge({
+  className,
+  variant,
+  size,
+  color,
+  asChild = false,
+  style,
+  children,
+  ...props
+}: BadgeProps) {
   const Comp = asChild ? Slot : "span";
   const custom = color != null;
+  // asChild: Slot merges onto one element child — callers own inner label markup
+  // (use `badgeLabelClassName` on the text box). Default path partitions primitives.
+  const content = asChild ? children : partitionBadgeChildren(children);
   return (
     <Comp
       data-slot="badge"
@@ -132,7 +193,9 @@ function Badge({ className, variant, size, color, asChild = false, style, ...pro
       className={cn(badgeVariants({ variant: custom ? "custom" : variant, size }), className)}
       style={custom ? { ...badgeCustomColorStyle(color), ...style } : style}
       {...props}
-    />
+    >
+      {content}
+    </Comp>
   );
 }
 
