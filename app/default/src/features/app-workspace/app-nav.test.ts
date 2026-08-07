@@ -36,7 +36,7 @@ describe("workspaceLocationForPathname", () => {
       workspaceLocationForPathname("/apps/slack/admin/agent-identities", "slack"),
     ).toMatchObject({
       id: "agent-identities",
-      label: "Agent identities",
+      label: "Service accounts",
     });
   });
 

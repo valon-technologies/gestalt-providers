@@ -31,15 +31,9 @@ import AppAdminMembersPage from "@/pages/app-workspace/admin/members";
 import AppsPage from "@/pages/apps";
 import BuildPage, { BuildIndexRedirect } from "@/pages/build";
 import SettingsPage from "@/pages/settings";
-import SettingsIdentitiesList from "@/components/SettingsIdentitiesList";
-import SettingsIdentityDetail from "@/components/SettingsIdentityDetail";
 import SettingsTokenCreate from "@/components/SettingsTokenCreate";
 import SettingsTokensSection from "@/components/SettingsTokensSection";
 import { appBasepath } from "@/lib/mount";
-import {
-  legacyIdentityIdFromLocation,
-  managedIdentityLocalId,
-} from "@/lib/managed-identity-paths";
 import { rootRoute } from "./routes/__root";
 
 function DocsLayout() {
@@ -282,7 +276,7 @@ const settingsIndexRoute = createRoute({
   beforeLoad: ({ location }) => {
     const hash = location.hash.replace(/^#/, "");
     if (hash === "identities") {
-      throw redirect({ to: "/settings/identities" });
+      throw redirect({ to: "/apps" });
     }
     if (hash === "authorization") {
       throw redirect({ to: "/settings/tokens/new" });
@@ -312,16 +306,21 @@ const settingsTokensRoute = createRoute({
   component: SettingsTokensSection,
 });
 
-const settingsIdentitiesRoute = createRoute({
+/** Legacy Settings → Identities; agent identities now live under each app's Admin. */
+const settingsIdentitiesRedirectRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/identities",
-  component: SettingsIdentitiesList,
+  beforeLoad: () => {
+    throw redirect({ to: "/apps" });
+  },
 });
 
-const settingsIdentityDetailRoute = createRoute({
+const settingsIdentityDetailRedirectRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/identities/$identityLocalId",
-  component: SettingsIdentityDetail,
+  beforeLoad: () => {
+    throw redirect({ to: "/apps" });
+  },
 });
 
 const authorizationRoute = createRoute({
@@ -335,16 +334,8 @@ const authorizationRoute = createRoute({
 const identitiesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/identities",
-  beforeLoad: ({ location }) => {
-    const id = legacyIdentityIdFromLocation(location);
-    if (id) {
-      throw redirect({
-        to: "/settings/identities/$identityLocalId",
-        params: { identityLocalId: managedIdentityLocalId(id) },
-        hash: location.hash,
-      });
-    }
-    throw redirect({ to: "/settings/identities", hash: location.hash });
+  beforeLoad: () => {
+    throw redirect({ to: "/apps" });
   },
 });
 
@@ -462,8 +453,8 @@ const routeTree = rootRoute.addChildren([
     settingsIndexRoute,
     settingsTokenCreateRoute,
     settingsTokensRoute,
-    settingsIdentitiesRoute,
-    settingsIdentityDetailRoute,
+    settingsIdentitiesRedirectRoute,
+    settingsIdentityDetailRedirectRoute,
   ]),
   authorizationRoute,
   identitiesRoute,

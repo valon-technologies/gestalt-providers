@@ -843,32 +843,6 @@ function optionalRecord(value: unknown): Record<string, unknown> | undefined {
   return isRecord(value) ? value : undefined;
 }
 
-export interface ManagedIdentity {
-  id: string;
-  subjectId: string;
-  kind: "service_account";
-  displayName: string;
-  description?: string;
-  credentialSubjectId: string;
-  createdBySubjectId?: string;
-  createdAt: string;
-  updatedAt: string;
-  deletedAt?: string;
-}
-
-export interface ManagedIdentityMember {
-  subjectId: string;
-  email?: string;
-  role: "viewer" | "editor" | "admin";
-}
-
-export interface ManagedIdentityGrant {
-  plugin: string;
-  role: "viewer" | "editor" | "admin";
-  source: "static" | "dynamic" | string;
-  mutable: boolean;
-}
-
 export interface ConnectIntegrationResult {
   status: string;
   integration?: string;
@@ -991,8 +965,8 @@ export async function getAuthSession(): Promise<AuthSession> {
 }
 
 /**
- * App authorization member row from the admin control plane.
- * Same shape as `/admin/` Authorization → app members.
+ * App authorization member row — human/group grants on an app.
+ * Service-account grants live on AppAdminIdentity.
  */
 export interface AppAuthorizationMember {
   email?: string;
@@ -1007,8 +981,22 @@ export interface AppAuthorizationMember {
 }
 
 /**
- * List app-access grants (people and service accounts) for an app.
- * Requires explicit `admin` on `app/{app}`; callers should handle 403.
+ * Agent identity grant on an app (service_account subject).
+ * Sourced from the same authorization relationships as members.
+ */
+export interface AppAdminIdentity {
+  subjectId: string;
+  displayName: string;
+  role: string;
+  source?: "static" | "dynamic" | string;
+  mutable?: boolean;
+  effective?: boolean;
+  shadowedBy?: string;
+}
+
+/**
+ * List humans (and selectors) with access to an app.
+ * Requires admin authorization for the app; callers should handle 403.
  */
 export async function getAppAuthorizationMembers(
   appName: string,
@@ -1018,6 +1006,20 @@ export async function getAppAuthorizationMembers(
   >(`/api/v1/apps/${encodeURIComponent(appName)}/admin/members`);
   if (Array.isArray(response)) return response;
   return response.members ?? [];
+}
+
+/**
+ * List service-account identities with a grant on this app.
+ * Requires admin authorization for the app; callers should handle 403.
+ */
+export async function getAppAdminIdentities(
+  appName: string,
+): Promise<AppAdminIdentity[]> {
+  const response = await fetchAPI<
+    AppAdminIdentity[] | { identities?: AppAdminIdentity[] }
+  >(`/api/v1/apps/${encodeURIComponent(appName)}/admin/identities`);
+  if (Array.isArray(response)) return response;
+  return response.identities ?? [];
 }
 
 export async function logout(): Promise<void> {
@@ -1194,184 +1196,4 @@ export async function createToken(
 
 export async function revokeToken(id: string): Promise<void> {
   return revokePersonalAPIToken(fetchAPI, id);
-}
-
-const MANAGED_SUBJECTS_PATH = "/api/v1/authorization/subjects";
-
-function managedSubjectPath(id: string): string {
-  return `${MANAGED_SUBJECTS_PATH}/${encodeURIComponent(id)}`;
-}
-
-function unwrapManagedIdentityGrant(
-  response: ManagedIdentityGrant | { grant?: ManagedIdentityGrant },
-): ManagedIdentityGrant {
-  if ("grant" in response && response.grant) {
-    return response.grant;
-  }
-  return response as ManagedIdentityGrant;
-}
-
-export async function getManagedIdentities(): Promise<ManagedIdentity[]> {
-  return fetchAPI(MANAGED_SUBJECTS_PATH);
-}
-
-export async function createManagedIdentity(
-  id: string,
-  displayName: string,
-  description?: string,
-): Promise<ManagedIdentity> {
-  return fetchAPI(MANAGED_SUBJECTS_PATH, {
-    method: "POST",
-    body: JSON.stringify({ id, displayName, description }),
-  });
-}
-
-export async function getManagedIdentity(id: string): Promise<ManagedIdentity> {
-  return fetchAPI(managedSubjectPath(id));
-}
-
-export async function getManagedIdentityIntegrations(
-  id: string,
-): Promise<Integration[]> {
-  return fetchAPI<Integration[]>(`${managedSubjectPath(id)}/apps`);
-}
-
-export async function startManagedIdentityIntegrationOAuth(
-  id: string,
-  integration: string,
-  scopes?: string[],
-  connectionParams?: Record<string, string>,
-  instance?: string,
-  connection?: string,
-  returnPath?: string,
-): Promise<{ url: string; state: string }> {
-  return fetchAPI(`${managedSubjectPath(id)}/auth/start-oauth`, {
-    method: "POST",
-    body: JSON.stringify({
-      integration,
-      instance,
-      connection,
-      scopes: scopes || [],
-      connectionParams,
-      returnPath,
-    }),
-  });
-}
-
-export async function connectManagedIdentityManualIntegration(
-  id: string,
-  integration: string,
-  credential: string | Record<string, string>,
-  connectionParams?: Record<string, string>,
-  instance?: string,
-  connection?: string,
-  returnPath?: string,
-): Promise<ConnectIntegrationResult> {
-  const body: Record<string, unknown> = {
-    integration,
-    instance,
-    connection,
-    connectionParams,
-    returnPath,
-  };
-  if (typeof credential === "string") {
-    body.credential = credential;
-  } else {
-    body.credentials = credential;
-  }
-  return fetchAPI(`${managedSubjectPath(id)}/auth/connect-manual`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-}
-
-export async function disconnectManagedIdentityIntegration(
-  id: string,
-  name: string,
-  instance?: string,
-  connection?: string,
-): Promise<void> {
-  const query = new URLSearchParams();
-  if (instance) query.set("_instance", instance);
-  if (connection) query.set("_connection", connection);
-  const params = query.toString();
-  await fetchAPI(
-    `${managedSubjectPath(id)}/apps/${encodeURIComponent(name)}${params ? `?${params}` : ""}`,
-    {
-      method: "DELETE",
-    },
-  );
-}
-
-export async function updateManagedIdentity(
-  id: string,
-  displayName: string,
-): Promise<ManagedIdentity> {
-  return fetchAPI(managedSubjectPath(id), {
-    method: "PATCH",
-    body: JSON.stringify({ displayName }),
-  });
-}
-
-export async function deleteManagedIdentity(id: string): Promise<void> {
-  await fetchAPI(managedSubjectPath(id), {
-    method: "DELETE",
-  });
-}
-
-export async function getManagedIdentityMembers(
-  id: string,
-): Promise<ManagedIdentityMember[]> {
-  return fetchAPI(`${managedSubjectPath(id)}/members`);
-}
-
-export async function putManagedIdentityMember(
-  id: string,
-  email: string,
-  role: ManagedIdentityMember["role"],
-): Promise<ManagedIdentityMember> {
-  return fetchAPI(`${managedSubjectPath(id)}/members`, {
-    method: "PUT",
-    body: JSON.stringify({ email, role }),
-  });
-}
-
-export async function deleteManagedIdentityMember(
-  id: string,
-  memberSubjectID: string,
-): Promise<void> {
-  await fetchAPI(
-    `${managedSubjectPath(id)}/members/${encodeURIComponent(memberSubjectID)}`,
-    { method: "DELETE" },
-  );
-}
-
-export async function getManagedIdentityGrants(
-  id: string,
-): Promise<ManagedIdentityGrant[]> {
-  return fetchAPI(`${managedSubjectPath(id)}/grants`);
-}
-
-export async function putManagedIdentityGrant(
-  id: string,
-  plugin: string,
-  role: ManagedIdentityGrant["role"],
-): Promise<ManagedIdentityGrant> {
-  const response = await fetchAPI<
-    ManagedIdentityGrant | { grant?: ManagedIdentityGrant }
-  >(`${managedSubjectPath(id)}/grants/${encodeURIComponent(plugin)}`, {
-    method: "PUT",
-    body: JSON.stringify({ role }),
-  });
-  return unwrapManagedIdentityGrant(response);
-}
-
-export async function deleteManagedIdentityGrant(
-  id: string,
-  plugin: string,
-): Promise<void> {
-  await fetchAPI(
-    `${managedSubjectPath(id)}/grants/${encodeURIComponent(plugin)}`,
-    { method: "DELETE" },
-  );
 }

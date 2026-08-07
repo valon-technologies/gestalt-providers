@@ -1,136 +1,125 @@
-import { managedIdentityLocalId } from "@/lib/managed-identity-paths";
-import { Link as RouterLink } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import {
-  getManagedIdentities,
-  getManagedIdentityGrants,
-  type ManagedIdentity,
-  type ManagedIdentityGrant,
-} from "@/lib/api";
+import { isAPIErrorStatus } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "@/components/ui/link";
 import {
   PageHeader,
-  PageHeaderActions,
   PageHeaderContent,
   PageHeaderDescription,
   PageHeaderTitle,
 } from "@/components/ui/page-header";
 import { SpinnerIcon } from "@/components/icons";
 import { useAppWorkspace } from "@/features/app-workspace/app-workspace-context";
-
-type AppAccessGrant = {
-  identity: ManagedIdentity;
-  grant: ManagedIdentityGrant;
-};
+import {
+  SERVICE_ACCOUNTS_COPY,
+  serviceAccountsLoadErrorMessage,
+  toAgentIdentityRowView,
+} from "@/features/app-workspace/app-agent-identity-presentation";
+import {
+  AUTHORIZATION_DOCS_PATH,
+  AUTHORIZATION_DOCS_SERVICE_ACCOUNTS_HASH,
+} from "@/features/app-workspace/operations/handoffs";
+import { useAppAdminIdentitiesQuery } from "@/lib/queries";
+import { Link as RouterLink } from "@tanstack/react-router";
+import { useMemo } from "react";
 
 export default function AppAdminAgentIdentitiesPage() {
   const { app } = useAppWorkspace();
-  const [accessGrants, setAccessGrants] = useState<AppAccessGrant[]>([]);
-  const [accessLoading, setAccessLoading] = useState(true);
-  const [accessError, setAccessError] = useState<string | null>(null);
+  const identitiesQuery = useAppAdminIdentitiesQuery(app);
+  const identities = identitiesQuery.data ?? [];
+  const loading = identitiesQuery.isPending;
+  const forbidden =
+    identitiesQuery.isError && isAPIErrorStatus(identitiesQuery.error, 403);
+  const loadError =
+    identitiesQuery.isError && !forbidden
+      ? serviceAccountsLoadErrorMessage(identitiesQuery.error)
+      : null;
 
-  useEffect(() => {
-    let active = true;
-    setAccessLoading(true);
-    setAccessError(null);
-
-    getManagedIdentities()
-      .then(async (identities) => {
-        const grants = await Promise.all(
-          identities.map(async (identity) => {
-            try {
-              const identityGrants = await getManagedIdentityGrants(
-                identity.subjectId,
-              );
-              return identityGrants
-                .filter((grant) => grant.plugin === app)
-                .map((grant) => ({ identity, grant }));
-            } catch {
-              return [] as AppAccessGrant[];
-            }
-          }),
-        );
-        if (!active) return;
-        setAccessGrants(grants.flat());
-      })
-      .catch((err) => {
-        if (!active) return;
-        setAccessError(
-          err instanceof Error ? err.message : "Failed to load access",
-        );
-        setAccessGrants([]);
-      })
-      .finally(() => {
-        if (active) setAccessLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [app]);
+  const rows = useMemo(
+    () => identities.map((identity, index) => toAgentIdentityRowView(identity, index)),
+    [identities],
+  );
 
   return (
-    <section aria-label="Agent identities">
+    <section aria-label={SERVICE_ACCOUNTS_COPY.sectionAriaLabel}>
       <PageHeader>
         <PageHeaderContent size="md">
-          <PageHeaderTitle>Agent identities</PageHeaderTitle>
+          <PageHeaderTitle>{SERVICE_ACCOUNTS_COPY.title}</PageHeaderTitle>
           <PageHeaderDescription>
-            Managed identities with an authorization grant for this app —
-            usually the <code className="font-mono text-xs">runAs</code> subject
-            for schedules.
+            {SERVICE_ACCOUNTS_COPY.descriptionBeforeLink}{" "}
+            <Link asChild>
+              <RouterLink
+                to={AUTHORIZATION_DOCS_PATH}
+                hash={AUTHORIZATION_DOCS_SERVICE_ACCOUNTS_HASH}
+              >
+                {SERVICE_ACCOUNTS_COPY.docsLinkLabel}
+              </RouterLink>
+            </Link>{" "}
+            {SERVICE_ACCOUNTS_COPY.descriptionAfterLink}
           </PageHeaderDescription>
         </PageHeaderContent>
-        <PageHeaderActions>
-          <Link asChild>
-            <RouterLink to="/settings/identities">Manage identities</RouterLink>
-          </Link>
-        </PageHeaderActions>
       </PageHeader>
 
-      {accessLoading ? (
+      {loading ? (
         <p className="mt-5 flex items-center gap-1.5 text-sm text-muted-foreground">
           <SpinnerIcon className="size-4 animate-spin" aria-hidden />
-          Loading access…
+          {SERVICE_ACCOUNTS_COPY.loading}
         </p>
       ) : null}
 
-      {accessError ? (
-        <p className="mt-5 text-sm text-ember-500">{accessError}</p>
+      {forbidden ? (
+        <p
+          className="mt-5 text-sm text-muted-foreground"
+          data-testid="app-admin-access-denied"
+        >
+          {SERVICE_ACCOUNTS_COPY.forbidden}
+        </p>
       ) : null}
 
-      {!accessLoading && !accessError && accessGrants.length === 0 ? (
+      {loadError ? (
+        <p className="mt-5 text-sm text-destructive">{loadError}</p>
+      ) : null}
+
+      {!loading && !forbidden && !loadError && rows.length === 0 ? (
         <p className="mt-5 text-sm text-muted-foreground">
-          No agent identities have a grant for this app yet.
+          {SERVICE_ACCOUNTS_COPY.empty}
         </p>
       ) : null}
 
-      {!accessLoading && accessGrants.length > 0 ? (
-        <ul className="mt-5 divide-y divide-border rounded-lg border border-border">
-          {accessGrants.map(({ identity, grant }) => (
+      {!loading && !forbidden && !loadError && rows.length > 0 ? (
+        <ul
+          className="mt-5 divide-y divide-border rounded-lg border border-border"
+          data-testid={SERVICE_ACCOUNTS_COPY.listTestId}
+        >
+          {rows.map((row) => (
             <li
-              key={`${identity.subjectId}:${grant.plugin}`}
-              className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+              key={row.key}
+              className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="min-w-0">
-                <Link asChild>
-                  <RouterLink
-                    to="/settings/identities/$identityLocalId"
-                    params={{
-                      identityLocalId: managedIdentityLocalId(identity.subjectId),
-                    }}
-                  >
-                    {identity.displayName || identity.subjectId}
-                  </RouterLink>
-                </Link>
-                <p className="mt-0.5 font-mono text-xs text-muted-foreground">
-                  {identity.subjectId}
+                <p className="truncate text-sm font-medium text-foreground">
+                  {row.title}
                 </p>
+                {row.showAccountId ? (
+                  <p className="mt-0.5 font-mono text-xs text-muted-foreground">
+                    Account ID · {row.accountId}
+                  </p>
+                ) : null}
+                {row.exception ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {row.exception.detail}
+                  </p>
+                ) : null}
               </div>
-              <Badge variant="secondary" size="sm">
-                {grant.role}
-                {grant.source === "static" ? " · static" : ""}
-              </Badge>
+              <div className="flex flex-wrap gap-1.5">
+                <Badge variant="secondary" size="default">
+                  {row.roleLabel}
+                </Badge>
+                {row.exception ? (
+                  <Badge variant="warning" size="default">
+                    {row.exception.label}
+                  </Badge>
+                ) : null}
+              </div>
             </li>
           ))}
         </ul>

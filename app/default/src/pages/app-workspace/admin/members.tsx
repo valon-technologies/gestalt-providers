@@ -25,7 +25,7 @@ import {
   rolesForMembers,
   toMemberAccessPerson,
 } from "@/features/app-workspace/app-member-access";
-import { partitionAppMembers } from "@/features/app-workspace/app-workspace-shared";
+import { SERVICE_ACCOUNTS_COPY } from "@/features/app-workspace/app-agent-identity-presentation";
 import { useAppAuthorizationMembersQuery } from "@/lib/queries";
 
 function membersLoadErrorMessage(error: unknown): string {
@@ -56,21 +56,9 @@ export default function AppAdminMembersPage() {
   const [inviteValue, setInviteValue] = useState("");
   const [inviteRole, setInviteRole] = useState("viewer");
 
-  const { peopleMembers, serviceAccountMembers } = useMemo(() => {
-    const partitioned = partitionAppMembers(members);
-    return {
-      peopleMembers: partitioned.people,
-      serviceAccountMembers: partitioned.serviceAccounts,
-    };
-  }, [members]);
-
   const people = useMemo(
-    () => peopleMembers.map(toMemberAccessPerson),
-    [peopleMembers],
-  );
-  const serviceAccounts = useMemo(
-    () => serviceAccountMembers.map(toMemberAccessPerson),
-    [serviceAccountMembers],
+    () => members.map(toMemberAccessPerson),
+    [members],
   );
   const roles = useMemo(() => rolesForMembers(members), [members]);
 
@@ -83,8 +71,8 @@ export default function AppAdminMembersPage() {
         <PageHeaderContent size="md">
           <PageHeaderTitle>Members</PageHeaderTitle>
           <PageHeaderDescription>
-            People and service accounts with an authorization grant on this app.
-            This roster is read-only — use{" "}
+            People and groups with an authorization grant on this app. This
+            roster is read-only — use{" "}
             <Link asChild>
               <RouterLink
                 to={AUTHORIZATION_DOCS_PATH}
@@ -93,14 +81,13 @@ export default function AppAdminMembersPage() {
                 How to grant access
               </RouterLink>
             </Link>{" "}
-            to add or change access. To create or edit service account identity
-            records, use{" "}
+            to add or change access. Service accounts appear under{" "}
             <Link asChild>
               <RouterLink
                 to="/apps/$app/admin/agent-identities"
                 params={{ app }}
               >
-                Agent identities
+                {SERVICE_ACCOUNTS_COPY.navLabel}
               </RouterLink>
             </Link>
             .
@@ -148,12 +135,12 @@ export default function AppAdminMembersPage() {
                 >
                   People
                   <Badge variant="secondary" size="sm">
-                    {peopleMembers.length}
+                    {members.length}
                   </Badge>
                 </SectionHeaderTitle>
               </SectionHeaderContent>
             </SectionHeader>
-            {peopleMembers.length === 0 ? (
+            {members.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No people have been granted access yet.
               </p>
@@ -171,35 +158,6 @@ export default function AppAdminMembersPage() {
                   allowCustomValue: true,
                   placeholder: "Select person",
                 }}
-                onRoleChange={() => {}}
-                onRemove={() => {}}
-                disabled
-              />
-            )}
-          </section>
-
-          <section aria-label="Service accounts" className="flex flex-col gap-4">
-            <SectionHeader>
-              <SectionHeaderContent size="sm">
-                <SectionHeaderTitle
-                  as="h2"
-                  className="inline-flex items-baseline gap-1.5"
-                >
-                  Service accounts
-                  <Badge variant="secondary" size="sm">
-                    {serviceAccountMembers.length}
-                  </Badge>
-                </SectionHeaderTitle>
-              </SectionHeaderContent>
-            </SectionHeader>
-            {serviceAccountMembers.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No service accounts have been granted access yet.
-              </p>
-            ) : (
-              <MemberAccess
-                people={serviceAccounts}
-                roles={roles}
                 onRoleChange={() => {}}
                 onRemove={() => {}}
                 disabled

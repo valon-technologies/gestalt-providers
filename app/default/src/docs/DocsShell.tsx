@@ -55,6 +55,9 @@ export default function DocsShell({
 
   const scrollRootRef = useRef<HTMLElement | null>(null);
   const activationOffset = usePageLayoutAnchorOffsetPx();
+  const locationHash = useRouterState({
+    select: (state) => state.location.hash,
+  });
 
   useLayoutEffect(() => {
     scrollRootRef.current = document.documentElement;
@@ -80,6 +83,18 @@ export default function DocsShell({
     enabled: hasOnThisPage,
     observeWindow: true,
   });
+
+  // Client navigations land under sticky chrome (worktree banner + top bar).
+  // Root publishes `--app-sticky-chrome-height` in its layout effect first;
+  // `scroll-mt` on the hash target then clears that measured stack.
+  useLayoutEffect(() => {
+    const id = locationHash.replace(/^#/, "");
+    if (!id) return;
+    const el = document.getElementById(id);
+    if (!el) return;
+    activate(id);
+    el.scrollIntoView({ block: "start" });
+  }, [activate, locationHash, pathname, sectionsKey]);
 
   const onTocSelect = useCallback(
     (id: string) => {
