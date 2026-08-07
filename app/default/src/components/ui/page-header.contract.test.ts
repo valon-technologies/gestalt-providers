@@ -22,10 +22,11 @@ describe("PageHeader", () => {
     );
   });
 
-  test("aligns between-mode actions to the content last baseline", () => {
-    expect(SOURCE).toContain(
+  test("aligns between-mode actions to the content first baseline", () => {
+    expect(SOURCE).toContain('alignBetweenItems: "sm:items-baseline"');
+    expect(SOURCE).not.toContain('alignBetweenItems: "sm:items-end"');
+    expect(SOURCE).not.toContain(
       'alignBetweenItems: "sm:[align-items:last_baseline]"',
     );
-    expect(SOURCE).not.toContain('alignBetweenItems: "sm:items-end"');
   });
 });

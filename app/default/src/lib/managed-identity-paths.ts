@@ -1,4 +1,5 @@
 export const SETTINGS_TOKENS_PATH = "/settings/tokens";
+export const SETTINGS_TOKENS_NEW_PATH = "/settings/tokens/new";
 export const SETTINGS_IDENTITIES_PATH = "/settings/identities";
 
 /** Legacy `/identities?id=…` query — TanStack Router exposes search as a parsed object. */

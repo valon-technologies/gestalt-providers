@@ -57,6 +57,17 @@ export function encodeTokenScopes(
   return tokens.join(" ");
 }
 
+/**
+ * App id for a personal-token scope token (`app` or `app:operation`).
+ * Returns null when the scope is not app-routable (empty / literal `all`).
+ */
+export function appIdFromTokenScope(scope: string): string | null {
+  const trimmed = scope.trim();
+  if (!trimmed || trimmed === "all") return null;
+  const appId = trimmed.split(":")[0]?.trim() ?? "";
+  return appId.length > 0 ? appId : null;
+}
+
 export function hasEffectiveScopes(
   mode: TokenScopeMode,
   selections: readonly AppScopeSelection[],

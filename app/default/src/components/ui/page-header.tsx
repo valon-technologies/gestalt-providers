@@ -86,10 +86,8 @@ const {
 } = createHeaderChrome<"header", PageHeaderSize>({
   slotPrefix: "page-header",
   rootElement: "header",
-  // Last baseline (not box-end / first-baseline): actions share the
-  // description's final text line. Arbitrary form — Tailwind has no
-  // `items-last-baseline` utility yet.
-  alignBetweenItems: "sm:[align-items:last_baseline]",
+  // First baseline: actions share the title line (not the description).
+  alignBetweenItems: "sm:items-baseline",
   alignCenterClasses: PAGE_HEADER_ALIGN_CENTER,
   defaultSize: "default",
   title: { kind: "page" },

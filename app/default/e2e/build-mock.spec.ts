@@ -258,7 +258,7 @@ test.describe("Build page", () => {
 
     await page.getByRole("radio", { name: "Create new token" }).click();
     await page.getByLabel("Token name").fill("ci-pipeline");
-    await expect(page.getByRole("button", { name: "Create Token" })).toHaveCount(
+    await expect(page.getByRole("button", { name: "Create token" })).toHaveCount(
       0,
     );
     await expect(page.getByTestId("build-step-next")).toBeEnabled();
@@ -435,7 +435,7 @@ test.describe("Build page", () => {
     await expect(page.getByLabel("Token name")).toBeVisible();
     await expect(page.getByText("Expiration", { exact: true })).toBeVisible();
     await expect(page.getByText("App access", { exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Create Token" })).toHaveCount(
+    await expect(page.getByRole("button", { name: "Create token" })).toHaveCount(
       0,
     );
   });

@@ -55,22 +55,21 @@ test.describe("Theme", () => {
     await mockIntegrations(page, []);
     await mockTokens(page, []);
 
-    await page.goto("/settings");
+    await page.goto("/settings/tokens/new");
 
     const body = page.locator("body");
-    const heading = page.getByRole("heading", { name: "Settings", exact: true });
+    const heading = page.getByRole("heading", { name: "Create token", exact: true });
     const bodyCopy = page.getByText(
-      /Create personal tokens for local tooling/,
+      /Name the token, choose an expiration/,
     );
-    const card = page.locator("#authorization");
-    const primaryButton = page.getByRole("button", { name: "Create Token" });
+    const primaryButton = page.getByRole("button", { name: "Create token" });
+
+    await expect(heading).toBeVisible();
+    await expect(primaryButton).toBeVisible();
 
     async function expectSemanticColors(colors: {
       background: string;
       foreground: string;
-      card: string;
-      cardForeground: string;
-      border: string;
       mutedForeground: string;
       primary: string;
       primaryForeground: string;
@@ -79,9 +78,6 @@ test.describe("Theme", () => {
       await expect(body).toHaveCSS("color", colors.foreground);
       await expect(heading).toHaveCSS("color", colors.foreground);
       await expect(bodyCopy).toHaveCSS("color", colors.mutedForeground);
-      await expect(card).toHaveCSS("background-color", colors.card);
-      await expect(card).toHaveCSS("color", colors.cardForeground);
-      await expect(card).toHaveCSS("border-color", colors.border);
       await expect(primaryButton).toHaveCSS("background-color", colors.primary);
       await expect(primaryButton).toHaveCSS("color", colors.primaryForeground);
     }
@@ -89,9 +85,6 @@ test.describe("Theme", () => {
     await expectSemanticColors({
       background: "rgb(1, 2, 3)",
       foreground: "rgb(4, 5, 6)",
-      card: "rgb(7, 8, 9)",
-      cardForeground: "rgb(10, 11, 12)",
-      border: "rgb(13, 14, 15)",
       mutedForeground: "rgb(16, 17, 18)",
       primary: "rgb(19, 20, 21)",
       primaryForeground: "rgb(22, 23, 24)",
@@ -99,19 +92,18 @@ test.describe("Theme", () => {
 
     await openAccountMenuThemeSection(page);
     await accountMenuThemeControl(page).getByRole("radio", { name: "Dark" }).click();
+    await page.keyboard.press("Escape");
+    await expect(accountMenuThemeControl(page)).toHaveCount(0);
     await expectSemanticColors({
       background: "rgb(25, 26, 27)",
       foreground: "rgb(28, 29, 30)",
-      card: "rgb(31, 32, 33)",
-      cardForeground: "rgb(34, 35, 36)",
-      border: "rgb(37, 38, 39)",
       mutedForeground: "rgb(40, 41, 42)",
       primary: "rgb(43, 44, 45)",
       primaryForeground: "rgb(46, 47, 48)",
     });
   });
 
-  test("settings authorization subhead never uses the muted surface fill as text color", async ({
+  test("settings tokens subhead never uses the muted surface fill as text color", async ({
     authenticatedPage,
   }) => {
     const page = authenticatedPage;
@@ -141,7 +133,7 @@ test.describe("Theme", () => {
     await page.goto("/settings/tokens");
 
     const bodyCopy = page.getByText(
-      /Create personal tokens for local tooling/,
+      /Personal tokens for scripts, local tooling/,
     );
     await expect(bodyCopy).toHaveClass(/text-muted-foreground/);
     await expect(bodyCopy).not.toHaveCSS("color", "rgb(241, 238, 233)");

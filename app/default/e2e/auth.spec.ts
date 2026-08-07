@@ -24,9 +24,9 @@ test.describe("Authentication", () => {
       page.getByRole("heading", { name: "Apps" }),
     ).toBeVisible();
     await page.goto("/authorization");
-    await expect(page).toHaveURL(/\/settings\/tokens/);
+    await expect(page).toHaveURL(/\/settings\/tokens\/new/);
     await expect(
-      page.getByRole("heading", { name: "Settings" }),
+      page.getByRole("heading", { name: "Create token" }),
     ).toBeVisible();
   });
 });

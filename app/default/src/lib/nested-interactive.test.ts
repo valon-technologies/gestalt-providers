@@ -53,11 +53,17 @@ describe("nested-interactive", () => {
     expect(nestedInteractiveSuppress.tableRow).toBe(
       `[&_tr:hover:has(${hover})]:bg-transparent [&_tr:active:has(${active})]:bg-transparent`,
     );
+    expect(nestedInteractiveSuppress.tableStickyCell).toBe(
+      `[tbody_tr:hover:has(${hover})_&]:bg-card [tbody_tr:active:has(${active})_&]:bg-card`,
+    );
     expect(nestedInteractiveSuppress.solidSecondary).toBe(
       `[&:hover:has(${hover})]:bg-secondary [&:active:has(${active})]:bg-secondary`,
     );
     expect(nestedInteractiveSuppress.outlineCard).toBe(
       `[&:hover:has(${hover})]:bg-card [&:active:has(${active})]:bg-card`,
+    );
+    expect(nestedInteractiveSuppress.treeItemLabel).toBe(
+      `[.group:hover:has(${hover})_&]:bg-background [.group:active:has(${active})_&]:bg-background`,
     );
 
     const hoverNoLink = nestedInteractiveHasArg("hover", { omitLinkMatchers: true });
@@ -73,10 +79,12 @@ describe("nested-interactive", () => {
 
   test("suppress presets are complete string literals (Tailwind @source requires it)", () => {
     expect(SOURCE).toContain(nestedInteractiveSuppress.tableRow);
+    expect(SOURCE).toContain(nestedInteractiveSuppress.tableStickyCell);
     expect(SOURCE).toContain(nestedInteractiveSuppress.solidSecondary);
     expect(SOURCE).toContain(nestedInteractiveSuppress.solidNeutralHoverStretchLink);
     expect(SOURCE).toContain(nestedInteractiveSuppress.outlineCard);
     expect(SOURCE).toContain(nestedInteractiveSuppress.selectableRowSiblingControl);
+    expect(SOURCE).toContain(nestedInteractiveSuppress.treeItemLabel);
     expect(SOURCE).not.toContain("nestedInteractiveSuppressDescendant");
     expect(SOURCE).not.toContain("`[&:hover:has(${");
     expect(SOURCE).not.toContain("`[&_${descendant}");

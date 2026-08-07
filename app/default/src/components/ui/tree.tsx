@@ -1,4 +1,3 @@
-
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
@@ -8,7 +7,9 @@ import type { ItemInstance, TreeInstance } from "@headless-tree/core";
 import { ChevronDownIcon, MinusIcon, PlusIcon } from "lucide-react";
 import { cva, type VariantProps } from "class-variance-authority";
 
+import { Button } from "@/components/ui/button";
 import { listItemInteraction } from "@/lib/list-item-interaction";
+import { nestedInteractiveSuppress } from "@/lib/nested-interactive";
 import { cn } from "@/lib/cn";
 
 type ToggleIconType = "chevron" | "plus-minus";
@@ -25,46 +26,50 @@ export const TREE_INDENT_BY_SIZE: Record<TreeSize, number> = {
   lg: 24,
 };
 
+/** Ghost icon Button size for the expand/collapse toggle — matches control ladder. */
+const TREE_TOGGLE_BUTTON_SIZE: Record<TreeSize, "icon-xs" | "icon-sm"> = {
+  sm: "icon-xs",
+  default: "icon-xs",
+  lg: "icon-sm",
+};
+
 /** ReUI c-tree-2 vertical indent guides — 1px line centered in each indent column. */
 export const treeIndentGuidesClassName =
   "relative before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:content-[''] before:bg-[repeating-linear-gradient(to_right,transparent_0,transparent_calc(var(--tree-indent)/2-0.5px),var(--border)_calc(var(--tree-indent)/2-0.5px),var(--border)_calc(var(--tree-indent)/2+0.5px),transparent_calc(var(--tree-indent)/2+0.5px),transparent_var(--tree-indent))]";
 
-const treeGutterVariants = cva(
-  "flex shrink-0 items-center justify-center w-[var(--tree-indent)]",
-  {
-    variants: {
-      size: {
-        sm: "",
-        default: "",
-        lg: "",
-      },
-    },
-    defaultVariants: {
-      size: "default",
+/** Toggle / leaf spacer column — sized to the ghost icon Button, not indent px. */
+const treeGutterVariants = cva("flex shrink-0 items-center justify-center", {
+  variants: {
+    size: {
+      sm: "size-control-xs",
+      default: "size-control-xs",
+      lg: "size-control-sm",
     },
   },
-);
+  defaultVariants: {
+    size: "default",
+  },
+});
 
-const treeToggleIconVariants = cva(
-  "pointer-events-none shrink-0 text-muted-foreground",
-  {
-    variants: {
-      size: {
-        sm: "size-3",
-        default: "size-3.5",
-        lg: "size-4",
-      },
-    },
-    defaultVariants: {
-      size: "default",
+const treeToggleIconVariants = cva("pointer-events-none shrink-0", {
+  variants: {
+    size: {
+      sm: "size-3",
+      default: "size-3.5",
+      lg: "size-4",
     },
   },
-);
+  defaultVariants: {
+    size: "default",
+  },
+});
 
 const treeItemLabelVariants = cva(
   [
     "bg-background flex w-full min-w-0 items-center rounded-md",
     listItemInteraction({ pointer: "css-group" }),
+    // Nested toggle / checkbox own the pointer — cancel row wash (nested-interactive.md).
+    nestedInteractiveSuppress.treeItemLabel,
   ].join(" "),
   {
     variants: {
@@ -246,11 +251,15 @@ function TreeItem<T = unknown>({
           {
             ...style,
             ...itemStyle,
-            "--tree-padding": `${item.getItemMeta().level * indent}px`,
+            // headless-tree: synthetic/root = -1, visible top-level = 0, nested = 1+.
+            // Use `level * indent` (not level-1) so first children indent once.
+            "--tree-padding": `${Math.max(0, item.getItemMeta().level) * indent}px`,
           } as React.CSSProperties
         }
         className={cn(
-          "group z-10 w-full ps-(--tree-padding) text-left outline-hidden select-none focus:z-20 focus-ring disabled:pointer-events-none disabled:opacity-50",
+          // Inset focus — trees sit flush in overflow cards / scrollports;
+          // outward ring clips on the leading edge (focus-ring.md).
+          "group z-10 w-full ps-(--tree-padding) text-left outline-hidden select-none focus:z-20 focus-ring-inset disabled:pointer-events-none disabled:opacity-50",
           className,
         )}
         data-focus={
@@ -338,25 +347,33 @@ function TreeItemLabel<T = unknown>({
 
   const folderGutter =
     expandActivation === "toggle" ? (
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size={TREE_TOGGLE_BUTTON_SIZE[size]}
         data-slot="tree-item-toggle"
-        className={cn(treeGutterVariants({ size }), "focus-ring rounded-md")}
+        className={cn(
+          treeGutterVariants({ size }),
+          // Neutral affordance — same `listItemInteraction` ladder as the row
+          // plate (selectable-rows.md). Kill Button ghost's on-color scrim so
+          // hover/press are `bg-neutral-hover` / `bg-neutral-pressed`, not a
+          // different opacity wash (interaction-chrome.md).
+          "hover:after:opacity-0 active:after:opacity-0",
+          listItemInteraction({ pointer: "css" }),
+          // Override Button's outward `focus-ring` — toggle sits on the leading
+          // edge of overflow ancestors (focus-ring.md).
+          "focus-ring-inset",
+        )}
         aria-label={item.isExpanded() ? "Collapse" : "Expand"}
-        onPointerDown={(event) => {
-          // Keep nested toggles from activating an ancestor <label> (choice cards).
-          event.preventDefault();
-          event.stopPropagation();
-        }}
-        onClick={(event) => {
-          event.stopPropagation();
-          itemOnClick?.(event);
-        }}
+        onClick={itemOnClick}
       >
         {renderToggleIcon()}
-      </button>
+      </Button>
     ) : (
-      <span aria-hidden className={treeGutterVariants({ size })}>
+      <span
+        aria-hidden
+        className={cn(treeGutterVariants({ size }), "text-muted-foreground")}
+      >
         {renderToggleIcon()}
       </span>
     );

@@ -11,6 +11,9 @@ export const FLYOUT_VIEWPORT_EDGE_INSET_PX = 16;
  * - `flyoutContentPanelClassName` — arbitrary content (HoverCard, Popover tier): rounded-md, p-0.
  * Motion is shared; padding/radius follow the flyout taxonomy — do not fork per primitive.
  */
+/** Narrow-canvas viewport edge inset for flyout collision padding (flyout.md). */
+export const FLYOUT_VIEWPORT_EDGE_INSET_PX = 16;
+
 export const flyoutPanelMotionClassName =
   "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:duration-reveal data-[state=closed]:duration-dismiss data-[state=open]:ease-out-back data-[state=closed]:ease-out-expo data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2";
 

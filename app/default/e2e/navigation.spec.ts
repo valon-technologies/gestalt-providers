@@ -71,9 +71,9 @@ test.describe("Navigation", () => {
   test("identities page redirects into settings", async ({ authenticatedPage: page }) => {
     await page.goto("/identities");
     await expect(page).toHaveURL(/\/settings\/identities$/);
-    await expect(
-      page.getByRole("heading", { name: "Settings" }),
-    ).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "breadcrumb" })).toContainText(
+      "Settings",
+    );
     await expect(
       page.getByRole("heading", { name: "Managed identities" }),
     ).toBeVisible();
@@ -82,17 +82,22 @@ test.describe("Navigation", () => {
   test("settings page renders", async ({ authenticatedPage: page }) => {
     await page.goto("/settings");
     await expect(page).toHaveURL(/\/settings\/tokens$/);
+    await expect(page.getByRole("navigation", { name: "breadcrumb" })).toContainText(
+      "Settings",
+    );
     await expect(
-      page.getByRole("heading", { name: "Settings" }),
+      page.getByRole("heading", { name: "Your API tokens" }),
     ).toBeVisible();
   });
 
-  test("settings authorization hash lands on tokens anchor", async ({
+  test("settings authorization hash lands on create token", async ({
     authenticatedPage: page,
   }) => {
     await page.goto("/settings#authorization");
-    await expect(page).toHaveURL(/\/settings\/tokens#authorization$/);
-    await expect(page.locator("#authorization")).toBeVisible();
+    await expect(page).toHaveURL(/\/settings\/tokens\/new$/);
+    await expect(
+      page.getByRole("heading", { name: "Create token" }),
+    ).toBeVisible();
   });
 
   test("app admin workflows section renders", async ({ authenticatedPage: page }) => {
@@ -114,14 +119,14 @@ test.describe("Navigation", () => {
     await mockWorkflowDefinitions(page, []);
     await page.goto("/apps/slack/admin/workflows");
     await expect(page.getByTestId("app-admin-nav-workflows")).toHaveClass(/font-medium/);
-    await expect(page.getByRole("heading", { name: "Runs" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Runs", exact: true })).toBeVisible();
   });
 
-  test("authorization redirects to settings tokens", async ({ authenticatedPage: page }) => {
+  test("authorization redirects to create token", async ({ authenticatedPage: page }) => {
     await page.goto("/authorization");
-    await expect(page).toHaveURL(/\/settings\/tokens$/);
+    await expect(page).toHaveURL(/\/settings\/tokens\/new$/);
     await expect(
-      page.getByRole("heading", { name: "Settings" }),
+      page.getByRole("heading", { name: "Create token" }),
     ).toBeVisible();
   });
 
@@ -129,7 +134,7 @@ test.describe("Navigation", () => {
     await page.goto("/tokens");
     await expect(page).toHaveURL(/\/settings\/tokens$/);
     await expect(
-      page.getByRole("heading", { name: "Settings" }),
+      page.getByRole("heading", { name: "Your API tokens" }),
     ).toBeVisible();
   });
 
@@ -167,7 +172,7 @@ test.describe("Navigation", () => {
     await page.getByRole("menuitem", { name: "Settings" }).click();
     await expect(page).toHaveURL(/\/settings/);
     await expect(
-      page.getByRole("heading", { name: "Settings" }),
+      page.getByRole("heading", { name: "Your API tokens" }),
     ).toBeVisible();
     await page.getByRole("link", { name: "Apps", exact: true }).click();
     await expect(page).toHaveURL(/\/apps/);
