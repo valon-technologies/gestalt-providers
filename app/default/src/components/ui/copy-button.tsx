@@ -38,10 +38,14 @@ function CopyIconButton({
 }: CopyIconButtonProps) {
   const [copied, setCopied] = React.useState(false);
   // Hover/focus intent from Radix. Confirmation (`copied`) keeps the tip open
-  // after click. `pointerDownRef` ignores the pointerdown dismiss that fires
-  // *before* click — otherwise open flickers closed and the tip remounts/fades.
+  // via `open = copied || intentOpen` after leave. Suppress only the
+  // pointerdown dismiss before click. Do not use pointer capture or leave
+  // clears mid-press (those remount Copied on icon-xs slop). End-of-press
+  // without click clears intent via window pointerup + setTimeout(0) (runs
+  // after click — microtasks flush before click).
   const [intentOpen, setIntentOpen] = React.useState(false);
   const pointerDownRef = React.useRef(false);
+  const clickedRef = React.useRef(false);
   const open = copied || intentOpen;
 
   React.useEffect(() => {
@@ -57,7 +61,7 @@ function CopyIconButton({
     <Tooltip
       open={open}
       onOpenChange={(next) => {
-        if (!next && (copied || pointerDownRef.current)) return;
+        if (!next && pointerDownRef.current) return;
         setIntentOpen(next);
       }}
     >
@@ -76,27 +80,27 @@ function CopyIconButton({
           aria-label={label}
           onPointerDownCapture={(event) => {
             pointerDownRef.current = true;
+            clickedRef.current = false;
+            const endPress = () => {
+              window.removeEventListener("pointerup", endPress, true);
+              window.removeEventListener("pointercancel", endPress, true);
+              // After click (same task queue): keep confirm via `copied`.
+              // Microtasks flush *before* click — use setTimeout(0) instead.
+              // Without click (released outside): drop intent so the tip cannot stick.
+              window.setTimeout(() => {
+                pointerDownRef.current = false;
+                if (!clickedRef.current) setIntentOpen(false);
+              }, 0);
+            };
+            window.addEventListener("pointerup", endPress, true);
+            window.addEventListener("pointercancel", endPress, true);
             props.onPointerDownCapture?.(event);
-          }}
-          onPointerUpCapture={(event) => {
-            pointerDownRef.current = false;
-            props.onPointerUpCapture?.(event);
-          }}
-          onPointerCancelCapture={(event) => {
-            pointerDownRef.current = false;
-            props.onPointerCancelCapture?.(event);
           }}
           onClick={() => {
             const text = typeof value === "function" ? value() : value;
-            void navigator.clipboard.writeText(text).then(
-              () => {
-                setCopied(true);
-                setIntentOpen(true);
-              },
-              () => {
-                // Keep "Copy" on denial / insecure context — never fake success.
-              },
-            );
+            void navigator.clipboard.writeText(text);
+            clickedRef.current = true;
+            setCopied(true);
           }}
         >
           {copied ? <CheckIcon /> : <CopyIcon />}
