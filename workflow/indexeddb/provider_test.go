@@ -28,7 +28,7 @@ func TestProviderApplyDefinitionStartRunUsesGenerationInputAndProjection(t *test
 		Spec: &gestalt.WorkflowDefinitionSpec{
 			ID:     "roadmap_sync",
 			Target: workflowTarget(t, "roadmap", "sync", map[string]any{"mode": "full"}),
-			RunAs:  &gestalt.Subject{ID: "service:roadmap-sync"},
+			RunAs:  "service:roadmap-sync",
 		},
 	})
 	if err != nil {
@@ -130,7 +130,7 @@ func TestProviderRunsAndPersistsOneDurableStepAtATime(t *testing.T) {
 					},
 				},
 			}},
-			RunAs: &gestalt.Subject{ID: "service:two-step"},
+			RunAs: "service:two-step",
 		},
 	}); err != nil {
 		t.Fatalf("ApplyDefinition: %v", err)
@@ -194,7 +194,7 @@ func TestProviderSignalOrStartRequiresDefinitionAndCarriesInput(t *testing.T) {
 		Spec: &gestalt.WorkflowDefinitionSpec{
 			ID:     "slack_agent",
 			Target: workflowTarget(t, "slack", "reply", nil),
-			RunAs:  &gestalt.Subject{ID: "service:slack-agent"},
+			RunAs:  "service:slack-agent",
 		},
 	}); err != nil {
 		t.Fatalf("ApplyDefinition: %v", err)
@@ -222,7 +222,7 @@ func TestProviderDeliverEventMatchesActivationMapsInputAndPause(t *testing.T) {
 		Spec: &gestalt.WorkflowDefinitionSpec{
 			ID:     "roadmap_event",
 			Target: workflowTarget(t, "roadmap", "sync", nil),
-			RunAs:  &gestalt.Subject{ID: "service:roadmap-event"},
+			RunAs:  "service:roadmap-event",
 			Activations: []gestalt.WorkflowActivation{{
 				ID: "item_updated",
 				Event: &gestalt.WorkflowEventActivation{Match: &gestalt.WorkflowEventMatch{
