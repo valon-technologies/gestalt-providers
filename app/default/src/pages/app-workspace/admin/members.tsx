@@ -1,17 +1,9 @@
 import { Link as RouterLink } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import {
-  APIError,
-  isAPIErrorStatus,
-  type AppAuthorizationMember,
-} from "@/lib/api";
+import { APIError, isAPIErrorStatus } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "@/components/ui/link";
-import {
-  MemberAccess,
-  type MemberAccessPerson,
-  type MemberAccessRole,
-} from "@/components/ui/member-access";
+import { MemberAccess } from "@/components/ui/member-access";
 import {
   AUTHORIZATION_DOCS_GRANT_HASH,
   AUTHORIZATION_DOCS_PATH,
@@ -30,52 +22,23 @@ import {
 import { SpinnerIcon } from "@/components/icons";
 import { useAppWorkspace } from "@/features/app-workspace/app-workspace-context";
 import {
-  memberLabel,
-  memberMeta,
-  partitionAppMembers,
-} from "@/features/app-workspace/app-workspace-shared";
+  rolesForMembers,
+  toMemberAccessPerson,
+} from "@/features/app-workspace/app-member-access";
+import { partitionAppMembers } from "@/features/app-workspace/app-workspace-shared";
 import { useAppAuthorizationMembersQuery } from "@/lib/queries";
 
-const DEFAULT_ROLES: MemberAccessRole[] = [
-  { value: "admin", label: "Admin" },
-  { value: "viewer", label: "Viewer" },
-];
-
-function toMemberAccessPerson(
-  member: AppAuthorizationMember,
-  index: number,
-): MemberAccessPerson {
-  const label = memberLabel(member);
-  const meta = memberMeta(member);
-  const shadowed =
-    !member.effective && member.shadowedBy
-      ? `Shadowed by ${member.shadowedBy}`
-      : null;
-  const subtitle = [meta || null, shadowed].filter(Boolean).join(" · ");
-  return {
-    id:
-      member.subjectId?.trim() ||
-      member.selectorValue?.trim() ||
-      member.email?.trim() ||
-      `member-${index}`,
-    name: label,
-    email: subtitle || member.email?.trim() || undefined,
-    role: member.role?.trim() || "viewer",
-    locked: member.mutable === false,
-  };
-}
-
-function rolesForMembers(members: AppAuthorizationMember[]): MemberAccessRole[] {
-  const known = new Map(DEFAULT_ROLES.map((role) => [role.value, role]));
-  for (const member of members) {
-    const value = member.role?.trim();
-    if (!value || known.has(value)) continue;
-    known.set(value, {
-      value,
-      label: value.charAt(0).toUpperCase() + value.slice(1),
-    });
+function membersLoadErrorMessage(error: unknown): string {
+  const detail =
+    error instanceof APIError
+      ? error.message
+      : error instanceof Error
+        ? error.message
+        : null;
+  if (detail?.trim()) {
+    return `${detail.trim()} Try refreshing the page.`;
   }
-  return Array.from(known.values());
+  return "Couldn’t load members. Check your connection and refresh the page.";
 }
 
 export default function AppAdminMembersPage() {
@@ -87,11 +50,7 @@ export default function AppAdminMembersPage() {
     membersQuery.isError && isAPIErrorStatus(membersQuery.error, 403);
   const membersError =
     membersQuery.isError && !membersForbidden
-      ? membersQuery.error instanceof APIError
-        ? membersQuery.error.message
-        : membersQuery.error instanceof Error
-          ? membersQuery.error.message
-          : "Failed to load members"
+      ? membersLoadErrorMessage(membersQuery.error)
       : null;
 
   const [inviteValue, setInviteValue] = useState("");
@@ -198,24 +157,25 @@ export default function AppAdminMembersPage() {
               <p className="text-sm text-muted-foreground">
                 No people have been granted access yet.
               </p>
-            ) : null}
-            <MemberAccess
-              people={people}
-              roles={roles}
-              invite={{
-                value: inviteValue,
-                role: inviteRole,
-                onValueChange: setInviteValue,
-                onRoleChange: setInviteRole,
-                onInvite: () => {},
-                searchPeople: async () => [],
-                allowCustomValue: true,
-                placeholder: "Select person",
-              }}
-              onRoleChange={() => {}}
-              onRemove={() => {}}
-              disabled
-            />
+            ) : (
+              <MemberAccess
+                people={people}
+                roles={roles}
+                invite={{
+                  value: inviteValue,
+                  role: inviteRole,
+                  onValueChange: setInviteValue,
+                  onRoleChange: setInviteRole,
+                  onInvite: () => {},
+                  searchPeople: async () => [],
+                  allowCustomValue: true,
+                  placeholder: "Select person",
+                }}
+                onRoleChange={() => {}}
+                onRemove={() => {}}
+                disabled
+              />
+            )}
           </section>
 
           <section aria-label="Service accounts" className="flex flex-col gap-4">
