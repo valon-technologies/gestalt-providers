@@ -14,8 +14,8 @@ import {
   CodeFenceShell,
   codeFenceHighlightClass,
   codeFencePreClass,
-  codeFenceShellVariants,
-  codeLineEmphasisRowClass,
+  codeLineEmphasisRowClassName,
+  codeLineRowBleedClass,
   type CodeFenceShellProps,
 } from "@/components/ui/code-fence";
 import {
@@ -25,14 +25,17 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/cn";
+import cliLanguage from "@/components/ui/code-block-cli-language";
 
 // Display CodeBlock for install snippets / docs / AI messages — not the Plate
 // editor fence. Highlighting uses the same lowlight → hljs class pipeline as
 // markdown-editor, styled by typeset's `.typeset-code-hljs`. Surface
 // paint comes from `code-fence` (shared with Plate code-block-node). Chrome
 // (filename, copy, line numbers, tabs) is modeled on shadcnspace's CodeBlock.
+// CLI command lines use the registered `cli` grammar (not highlight.js bash).
 
 const lowlight = createLowlight(all);
+lowlight.register("cli", cliLanguage);
 
 type CodeFenceVariant = NonNullable<CodeFenceShellProps["variant"]>;
 
@@ -52,8 +55,12 @@ const LANGUAGE_ALIASES: Record<string, string> = {
   ts: "typescript",
   tsx: "tsx",
   md: "markdown",
-  sh: "bash",
-  shell: "bash",
+  // Display snippets tagged sh/shell are almost always command lines, not
+  // bash scripts — route them to the CLI grammar. Keep `bash` as real bash.
+  sh: "cli",
+  shell: "cli",
+  "console-command": "cli",
+  "shell-command": "cli",
   yml: "yaml",
   plaintext: "plaintext",
   text: "plaintext",
@@ -187,6 +194,7 @@ function CodeBody({
     () => new Set(highlightLines ?? []),
     [highlightLines],
   );
+  const lineNoCh = String(Math.max(lines.length, 1)).length;
 
   return (
     <div
@@ -197,38 +205,45 @@ function CodeBody({
       )}
       style={scrollable ? { maxHeight } : undefined}
     >
-      <pre className={codeFencePreClass}>
+      <pre className={cn(codeFencePreClass, "overflow-x-visible")}>
         <code
           className={cn(
             codeFenceHighlightClass,
-            "grid min-w-full text-[length:inherit] leading-[inherit]",
-            showLineNumbers &&
-              "grid-cols-[auto_1fr] gap-x-4 [counter-reset:line]",
+            "block min-w-full",
+            showLineNumbers && "[counter-reset:line]",
           )}
+          style={
+            showLineNumbers
+              ? ({ "--code-line-no-ch": `${lineNoCh}ch` } as React.CSSProperties)
+              : undefined
+          }
         >
           {lines.map((line, index) => {
             const lineNumber = index + 1;
             const isHighlighted = highlighted.has(lineNumber);
             return (
-              <React.Fragment key={lineNumber}>
+              <span
+                key={lineNumber}
+                className={cn(
+                  // One row owns gutter + code. Bleed is on every row so
+                  // gutters stay column-aligned; wash/edge are highlight-only
+                  // (inset shadow — no border box shift).
+                  "flex w-max min-w-full items-baseline",
+                  codeLineRowBleedClass,
+                  isHighlighted && codeLineEmphasisRowClassName,
+                )}
+              >
                 {showLineNumbers ? (
                   <span
                     aria-hidden
                     className={cn(
-                      "select-none text-right text-xs leading-[inherit] text-muted-foreground/55 [counter-increment:line] before:content-[counter(line)]",
+                      "w-[var(--code-line-no-ch)] shrink-0 select-none pr-4 text-right text-xs leading-[inherit] text-muted-foreground/55 tabular-nums [counter-increment:line] before:content-[counter(line)]",
                       isHighlighted && "text-muted-foreground",
                     )}
                   />
                 ) : null}
-                <span
-                  className={cn(
-                    "min-w-0 whitespace-pre",
-                    isHighlighted && codeLineEmphasisRowClass(showLineNumbers),
-                  )}
-                >
-                  {lineRowContent(line)}
-                </span>
-              </React.Fragment>
+                <span className="whitespace-pre">{lineRowContent(line)}</span>
+              </span>
             );
           })}
         </code>
@@ -450,25 +465,43 @@ function CodeBlockHeader({
   code,
   leading,
 }: {
-  label: React.ReactNode;
+  /** Filename chrome only — omit for copy-only header (language is not a label). */
+  label?: React.ReactNode;
   code: string;
   leading?: React.ReactNode;
 }) {
+  const hasLabel =
+    label != null && !(typeof label === "string" && label.trim() === "");
+
   return (
     <CodeFenceHeader data-slot="code-block-header">
       <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
-        {leading ?? <FileCode2 className="size-3.5 shrink-0" aria-hidden />}
-        <span className="truncate font-mono text-xs">{label}</span>
+        {hasLabel ? (
+          <>
+            {leading ?? <FileCode2 className="size-3.5 shrink-0" aria-hidden />}
+            <span className="truncate font-mono text-xs">{label}</span>
+          </>
+        ) : null}
       </div>
       <CopyIconButton value={() => normalizeCodeNewlines(code)} />
     </CodeFenceHeader>
   );
 }
 
+/** Snippet chrome layout — header row vs inset copy (docs / blog style). */
+export type CodeBlockChrome = "header" | "inset";
+
 export type CodeBlockProps = {
   code: string;
   language?: string;
   filename?: string;
+  /**
+   * Chrome layout. `header` = optional filename row + copy (default).
+   * `inset` = no header; copy overlays the code body (Vercel-style docs fence).
+   */
+  chrome?: CodeBlockChrome;
+  /** Idle copy tooltip / aria-label (defaults to "Copy"). */
+  copyLabel?: string;
   showLineNumbers?: boolean;
   scrollable?: boolean;
   maxHeight?: number;
@@ -479,10 +512,40 @@ export type CodeBlockProps = {
   className?: string;
 };
 
+/** True when the fence is one visual row — tighten body so inset copy insets match. */
+function isSingleLineCode(code: string): boolean {
+  return !normalizeCodeNewlines(code).includes("\n");
+}
+
+/**
+ * Inset copy sits outside the horizontal scrollport (always visible on the end).
+ * Use padding-token top/end — never `%` of the wrapper — so classic scrollbars
+ * cannot shift the control off the code row (InstallCommand long URLs).
+ */
+function CodeBlockInsetCopy({
+  code,
+  copyLabel,
+}: {
+  code: string;
+  copyLabel?: string;
+}) {
+  return (
+    <div className="absolute end-1.5 top-1.5 z-10">
+      <CopyIconButton
+        value={() => normalizeCodeNewlines(code)}
+        tooltip={copyLabel}
+        className="bg-background/80 text-muted-foreground hover:bg-background hover:text-foreground"
+      />
+    </div>
+  );
+}
+
 function CodeBlock({
   code,
   language = "tsx",
   filename,
+  chrome = "header",
+  copyLabel,
   showLineNumbers = false,
   scrollable = false,
   maxHeight = 400,
@@ -490,17 +553,46 @@ function CodeBlock({
   variant,
   className,
 }: CodeBlockProps) {
+  const inset = chrome === "inset";
+  const singleLineInset = inset && isSingleLineCode(code);
+  const body = (
+    <CodeBody
+      code={code}
+      language={language}
+      showLineNumbers={showLineNumbers}
+      scrollable={scrollable}
+      maxHeight={maxHeight}
+      highlightLines={highlightLines}
+      className={cn(
+        // End padding clears the overlaid copy control.
+        inset && "[&_pre]:pe-10",
+        // Single-line: py + line box sized to icon-xs so top/end/bottom inset match
+        // end-1.5/top-1.5 without %-centering against a scrollbar-inflated wrapper.
+        singleLineInset &&
+          "[&_pre]:py-1.5 [&_pre]:leading-[length:var(--size-control-xs)]",
+      )}
+    />
+  );
+
+  if (inset) {
+    return (
+      <CodeBlockShell className={className} variant={variant}>
+        {/*
+          Focus ring on inset copy can paint past the fence edge; keep a hair of
+          room so overflow clip on the shell does not truncate it.
+        */}
+        <div data-slot="code-block-inset" className="relative p-px">
+          <CodeBlockInsetCopy code={code} copyLabel={copyLabel} />
+          {body}
+        </div>
+      </CodeBlockShell>
+    );
+  }
+
   return (
     <CodeBlockShell className={className} variant={variant}>
-      <CodeBlockHeader label={filename ?? language} code={code} />
-      <CodeBody
-        code={code}
-        language={language}
-        showLineNumbers={showLineNumbers}
-        scrollable={scrollable}
-        maxHeight={maxHeight}
-        highlightLines={highlightLines}
-      />
+      <CodeBlockHeader label={filename} code={code} />
+      {body}
     </CodeBlockShell>
   );
 }
@@ -717,28 +809,20 @@ function InstallCommand({ registryUrl, variant, className }: InstallCommandProps
   const [pm, setPm] = React.useState<PackageManager>("pnpm");
   const command = buildInstallCommand(pm, registryUrl);
 
+  // PM picker + inset fence — copy inset/margins owned by chrome="inset", not a
+  // parallel single-line flex row (that drifted to asymmetric pe vs py).
   return (
-    <TooltipProvider delayDuration={0}>
-      <div data-slot="install-command" className={cn("space-y-2", className)}>
-        <SegmentedControl
-          size="sm"
-          label="Package manager"
-          value={pm}
-          onValueChange={setPm}
-          options={PACKAGE_MANAGER_OPTIONS}
-          showLabels
-        />
-        <div
-          className={cn(
-            codeFenceShellVariants({ variant }),
-            "flex h-10 items-center justify-between gap-2 px-3",
-          )}
-        >
-          <code className="grow truncate font-mono text-sm">{command}</code>
-          <CopyIconButton value={() => normalizeCodeNewlines(command)} />
-        </div>
-      </div>
-    </TooltipProvider>
+    <div data-slot="install-command" className={cn("space-y-2", className)}>
+      <SegmentedControl
+        size="sm"
+        label="Package manager"
+        value={pm}
+        onValueChange={setPm}
+        options={PACKAGE_MANAGER_OPTIONS}
+        showLabels
+      />
+      <CodeBlock chrome="inset" language="cli" code={command} variant={variant} />
+    </div>
   );
 }
 

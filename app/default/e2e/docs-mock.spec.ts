@@ -77,6 +77,7 @@ test.describe("Docs page", () => {
       leftNav.getByRole("link", { name: "Use With MCP" }),
     ).toHaveAttribute("href", "/docs/mcp");
     await expect(page.getByText("Base URL", { exact: true })).toBeVisible();
+    await expect(page.locator("article")).toContainText(expectedOrigin);
     await expect(page.getByText("Current Host")).toHaveCount(0);
     await expect(page.locator("article")).not.toContainText("gestaltd --version");
 
@@ -86,20 +87,20 @@ test.describe("Docs page", () => {
       page.getByRole("heading", { name: "Getting Started" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("tab", { name: "gestalt init" }),
+      page.getByRole("radio", { name: "gestalt init" }),
     ).toBeVisible();
-    await page.getByRole("tab", { name: "gestalt config set url" }).click();
+    await page.getByRole("radio", { name: "gestalt config set url" }).click();
+    await expect(page.locator("article")).toContainText(
+      `gestalt config set url ${expectedOrigin}`,
+    );
     await expect(
-      page.locator("#setup-config-set-panel"),
-    ).toContainText(`gestalt config set url ${expectedOrigin}`);
-    await expect(
-      page.getByRole("tab", { name: "gestalt auth" }),
+      page.getByRole("radio", { name: "gestalt auth" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("tab", { name: "GESTALT_API_KEY" }),
+      page.getByRole("radio", { name: "GESTALT_API_KEY" }),
     ).toBeVisible();
-    await page.getByRole("tab", { name: "GESTALT_API_KEY" }).click();
-    await expect(page.locator("#auth-token-panel")).toContainText(
+    await page.getByRole("radio", { name: "GESTALT_API_KEY" }).click();
+    await expect(page.locator("article")).toContainText(
       "export GESTALT_API_KEY=gst_api_your_token_here",
     );
     await expect(page.getByText("gestalt apps list", { exact: true })).toBeVisible();
@@ -115,17 +116,23 @@ test.describe("Docs page", () => {
     await expect(
       page.getByRole("heading", { name: "Configure cloud environments" }),
     ).toBeVisible();
-    const agentTabs = page.getByRole("tablist", {
+    const agentSwitch = page.getByRole("radiogroup", {
       name: "Cloud environment configuration",
     });
+    const agentPanel = agentSwitch
+      .locator("xpath=ancestor::div[contains(@class,'gap-4')][1]")
+      .locator(":scope > div")
+      .last();
     await expect(
-      agentTabs.getByRole("tab", { name: "Claude Code web" }),
+      agentSwitch.getByRole("radio", { name: "Claude Code web" }),
     ).toBeVisible();
-    await expect(agentTabs.getByRole("tab", { name: "Codex Cloud" })).toBeVisible();
     await expect(
-      agentTabs.getByRole("tab", { name: "Cursor Cloud Agents" }),
+      agentSwitch.getByRole("radio", { name: "Codex Cloud" }),
     ).toBeVisible();
-    await expect(agentTabs.getByRole("tab")).toHaveText([
+    await expect(
+      agentSwitch.getByRole("radio", { name: "Cursor Cloud Agents" }),
+    ).toBeVisible();
+    await expect(agentSwitch.getByRole("radio")).toHaveText([
       "Claude Code web",
       "Codex Cloud",
       "Cursor Cloud Agents",
@@ -138,58 +145,46 @@ test.describe("Docs page", () => {
         "Claude Code web environment picker with the settings control highlighted",
       ),
     ).toBeVisible();
-    await expect(page.locator("#agent-claude-code-panel")).toContainText(
-      `GESTALT_URL=${expectedOrigin}`,
-    );
-    await expect(page.locator("#agent-claude-code-panel")).not.toContainText("BASE_URL");
-    await expect(page.locator("#agent-claude-code-panel")).not.toContainText(
-      "dedicated secrets store",
-    );
-    await agentTabs.getByRole("tab", { name: "Codex Cloud" }).click();
+    await expect(agentPanel).toContainText(`GESTALT_URL=${expectedOrigin}`);
+    await expect(agentPanel).not.toContainText("BASE_URL");
+    await expect(agentPanel).not.toContainText("dedicated secrets store");
+    await agentSwitch.getByRole("radio", { name: "Codex Cloud" }).click();
     await expect(
       page.getByRole("link", { name: "Codex environment settings" }),
     ).toHaveAttribute("href", "https://chatgpt.com/codex/settings/environments");
-    await expect(page.locator("#agent-codex-panel")).toContainText(
+    await expect(agentPanel).toContainText(
       "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh",
     );
-    await expect(page.locator("#agent-codex-panel")).not.toContainText("BASE_URL");
-    await expect(page.locator("#agent-codex-panel")).toContainText(
-      `GESTALT_URL=${expectedOrigin}`,
-    );
-    await expect(page.locator("#agent-codex-panel")).not.toContainText(
-      "export GESTALT_API_KEY",
-    );
-    await expect(page.locator("#agent-codex-panel")).toContainText(
+    await expect(agentPanel).not.toContainText("BASE_URL");
+    await expect(agentPanel).toContainText(`GESTALT_URL=${expectedOrigin}`);
+    await expect(agentPanel).not.toContainText("export GESTALT_API_KEY");
+    await expect(agentPanel).toContainText(
       "Codex secrets are only available during setup",
     );
-    await agentTabs.getByRole("tab", { name: "Cursor Cloud Agents" }).click();
+    await agentSwitch.getByRole("radio", { name: "Cursor Cloud Agents" }).click();
     await expect(
       page.getByRole("link", { name: "Cursor Cloud Agents settings" }),
     ).toHaveAttribute("href", "https://cursor.com/dashboard/cloud-agents#environments");
-    await expect(page.locator("#agent-cursor-panel")).toContainText(
-      ".cursor/environment.json",
-    );
-    await expect(page.locator("#agent-cursor-panel")).toContainText(
+    await expect(agentPanel).toContainText(".cursor/environment.json");
+    await expect(agentPanel).toContainText(
       '"install": "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh"',
     );
-    await expect(page.locator("#agent-cursor-panel")).toContainText(
+    await expect(agentPanel).toContainText(
       `Set GESTALT_URL to ${expectedOrigin}`,
     );
-    await expect(page.locator("#agent-cursor-panel")).toContainText(
+    await expect(agentPanel).toContainText(
       "GESTALT_API_KEY as a Cursor Cloud Agent secret",
     );
-    await expect(page.locator("#agent-cursor-panel")).not.toContainText(
-      "export GESTALT_API_KEY",
-    );
+    await expect(agentPanel).not.toContainText("export GESTALT_API_KEY");
 
     await leftNav.getByRole("link", { name: "Invoke Operations" }).click();
     await expect(page).toHaveURL(/\/docs\/invoke/);
     await expect(
       page.getByRole("heading", { name: "Invoke Operations" }),
     ).toBeVisible();
-    await expect(page.getByRole("tab", { name: "CLI" })).toBeVisible();
-    await expect(page.getByRole("tab", { name: "HTTP" })).toBeVisible();
-    await page.getByRole("tab", { name: "HTTP" }).click();
+    await expect(page.getByRole("radio", { name: "CLI" })).toBeVisible();
+    await expect(page.getByRole("radio", { name: "HTTP" })).toBeVisible();
+    await page.getByRole("radio", { name: "HTTP" }).click();
     await expect(
       page.getByText("/api/v1/apps").first(),
     ).toBeVisible();
@@ -232,22 +227,25 @@ test.describe("Docs page", () => {
     await expect(page.locator("article")).toContainText(
       "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh",
     );
+    const mcpSwitch = page.getByRole("radiogroup", {
+      name: "MCP client configuration",
+    });
+    const mcpPanel = mcpSwitch
+      .locator("xpath=ancestor::div[contains(@class,'gap-4')][1]")
+      .locator(":scope > div")
+      .last();
     await expect(
-      page.getByRole("tab", { name: "Claude Code" }),
+      mcpSwitch.getByRole("radio", { name: "Claude Code" }),
     ).toBeVisible();
-    await expect(page.getByRole("tab", { name: "Codex" })).toBeVisible();
-    await expect(page.getByRole("tab", { name: "Cursor" })).toBeVisible();
-    await page.getByRole("tab", { name: "Codex" }).click();
-    await expect(
-      page.locator("#mcp-codex-panel"),
-    ).toContainText(
+    await expect(mcpSwitch.getByRole("radio", { name: "Codex" })).toBeVisible();
+    await expect(mcpSwitch.getByRole("radio", { name: "Cursor" })).toBeVisible();
+    await mcpSwitch.getByRole("radio", { name: "Codex" }).click();
+    await expect(mcpPanel).toContainText(
       'codex mcp add gestalt --url "$GESTALT_URL/mcp" --bearer-token-env-var GESTALT_API_KEY',
     );
-    await page.getByRole("tab", { name: "Cursor" }).click();
-    await expect(
-      page.locator("#mcp-cursor-panel"),
-    ).toContainText(".cursor/mcp.json");
-    await page.getByRole("tab", { name: "Other Clients" }).click();
+    await mcpSwitch.getByRole("radio", { name: "Cursor" }).click();
+    await expect(mcpPanel).toContainText(".cursor/mcp.json");
+    await mcpSwitch.getByRole("radio", { name: "Other clients" }).click();
     await expect(
       page.getByRole("cell", { name: `${expectedOrigin}/mcp` }).first(),
     ).toBeVisible();

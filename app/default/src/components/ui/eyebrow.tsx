@@ -21,16 +21,16 @@ const eyebrowVariants = cva(
         sm: "text-2xs",
       },
       // Ink roles map to color.md text hierarchy — pick a tone, never override
-      // text-* after eyebrowVariants().
+      // text-* after eyebrowVariants(). Default is dense-chrome 60% ink.
       tone: {
+        default: "text-muted-foreground",
         muted: "text-muted-foreground-soft",
-        secondary: "text-muted-foreground",
-        brand: "text-brand",
+        accent: "text-accent-strong",
       },
     },
     defaultVariants: {
       size: "default",
-      tone: "muted",
+      tone: "default",
     },
   },
 );

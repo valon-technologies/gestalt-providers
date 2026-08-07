@@ -1,9 +1,9 @@
-
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
 
 import * as React from "react";
+
 import { CheckIcon, CopyIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -37,6 +37,12 @@ function CopyIconButton({
   ...props
 }: CopyIconButtonProps) {
   const [copied, setCopied] = React.useState(false);
+  // Hover/focus intent from Radix. Confirmation (`copied`) keeps the tip open
+  // after click. `pointerDownRef` ignores the pointerdown dismiss that fires
+  // *before* click — otherwise open flickers closed and the tip remounts/fades.
+  const [intentOpen, setIntentOpen] = React.useState(false);
+  const pointerDownRef = React.useRef(false);
+  const open = copied || intentOpen;
 
   React.useEffect(() => {
     if (!copied) return;
@@ -48,7 +54,13 @@ function CopyIconButton({
   const size = sizeProp ?? "icon-xs";
 
   return (
-    <Tooltip>
+    <Tooltip
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && (copied || pointerDownRef.current)) return;
+        setIntentOpen(next);
+      }}
+    >
       <TooltipTrigger asChild>
         <Button
           type="button"
@@ -62,10 +74,29 @@ function CopyIconButton({
             className,
           )}
           aria-label={label}
+          onPointerDownCapture={(event) => {
+            pointerDownRef.current = true;
+            props.onPointerDownCapture?.(event);
+          }}
+          onPointerUpCapture={(event) => {
+            pointerDownRef.current = false;
+            props.onPointerUpCapture?.(event);
+          }}
+          onPointerCancelCapture={(event) => {
+            pointerDownRef.current = false;
+            props.onPointerCancelCapture?.(event);
+          }}
           onClick={() => {
             const text = typeof value === "function" ? value() : value;
-            void navigator.clipboard.writeText(text);
-            setCopied(true);
+            void navigator.clipboard.writeText(text).then(
+              () => {
+                setCopied(true);
+                setIntentOpen(true);
+              },
+              () => {
+                // Keep "Copy" on denial / insecure context — never fake success.
+              },
+            );
           }}
         >
           {copied ? <CheckIcon /> : <CopyIcon />}

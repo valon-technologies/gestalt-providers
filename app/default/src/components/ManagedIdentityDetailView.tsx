@@ -313,7 +313,7 @@ export default function ManagedIdentityDetailView({
         </Link>
         <PageHeader className="mt-5">
           <PageHeaderContent size="entity">
-            <Eyebrow tone="brand">Managed Identity</Eyebrow>
+            <Eyebrow tone="accent">Managed Identity</Eyebrow>
             <PageHeaderTitle>
               {identity?.displayName || "Loading identity"}
             </PageHeaderTitle>
@@ -383,7 +383,7 @@ export default function ManagedIdentityDetailView({
           <section className={SECTION_CARD}>
             <SectionHeader>
               <SectionHeaderContent size="sm">
-                <Eyebrow tone="secondary">Sharing</Eyebrow>
+                <Eyebrow>Sharing</Eyebrow>
                 <SectionHeaderTitle>Members</SectionHeaderTitle>
               </SectionHeaderContent>
             </SectionHeader>
@@ -459,7 +459,7 @@ export default function ManagedIdentityDetailView({
           <section className={SECTION_CARD}>
             <SectionHeader>
               <SectionHeaderContent size="sm">
-                <Eyebrow tone="secondary">Authorization</Eyebrow>
+                <Eyebrow>Authorization</Eyebrow>
                 <SectionHeaderTitle>Identity app access</SectionHeaderTitle>
                 <SectionHeaderDescription>
                   Grants are identity-level roles for apps that enforce authorization.
@@ -600,7 +600,7 @@ export default function ManagedIdentityDetailView({
           <section className={SECTION_CARD}>
             <SectionHeader>
               <SectionHeaderContent size="sm">
-                <Eyebrow tone="secondary">Connections</Eyebrow>
+                <Eyebrow>Connections</Eyebrow>
                 <SectionHeaderTitle>App connections</SectionHeaderTitle>
                 <SectionHeaderDescription>
                   Connections store OAuth or manual credentials for this identity. They do not add app roles.

@@ -1,4 +1,3 @@
-
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
@@ -28,14 +27,13 @@ const PREV_KEYS = new Set(["ArrowLeft", "ArrowUp"]);
 // same size — so a SegmentedControl and a Button sit the SAME height side by side:
 //   xs → 24px (dense / icon-button),  sm → 32px (control-sm),  default → 36px
 //   (control-default).
-// The track is `segment + 1px padding + 1px border` on each edge (= segment + 4px),
-// so each square is the button height minus 4. Icon-only segments are SQUARE;
+// Outer height is always `segment + 4px` chrome: default uses 2px padding (no
+// border); outline uses 1px border + 1px padding. Icon-only segments are SQUARE;
 // labelled ones grow to fit their text.
 const SIZE_STYLES = {
   xs: {
-    container: "p-px",
     // Voluntary dense toolbar fit: 20px segments (size-5) inside a 24px track
-    // (segment + 4px padding/border), paired with icon-xs buttons in the same row.
+    // (segment + 4px chrome), paired with icon-xs buttons in the same row.
     // WCAG 2.5.8's 24px minimum is intentionally waived here — do not flag.
     square: "size-5",
     labelled: "h-5 px-2",
@@ -43,20 +41,29 @@ const SIZE_STYLES = {
     text: "text-control-sm",
   },
   sm: {
-    container: "p-px",
     square: "size-7",
     labelled: "h-7 px-2.5",
     icon: "size-4",
     text: "text-control-sm",
   },
   default: {
-    container: "p-px",
     square: "size-8",
     labelled: "h-8 px-3",
     icon: "size-4",
     text: "text-control-default",
   },
 } as const;
+
+// Track chrome. `default` = Radix Themes surface (borderless muted well on paper).
+// `outline` = bordered track for muted chrome (sidebar / rail) where bg-muted
+// would otherwise vanish into the parent.
+const VARIANT_STYLES = {
+  default:
+    "bg-muted p-0.5 forced-colors:border forced-colors:border-[ButtonText] forced-colors:p-px",
+  outline: "border border-border bg-muted p-px forced-colors:border-[ButtonText]",
+} as const;
+
+export type SegmentedControlVariant = keyof typeof VARIANT_STYLES;
 
 export type SegmentedControlNameProps =
   | {
@@ -78,10 +85,21 @@ export type SegmentedControlProps<V extends string = string> = {
   showLabels?: boolean;
   tooltips?: boolean;
   size?: "xs" | "sm" | "default";
+  /**
+   * Track chrome. `default` is borderless muted (paper). `outline` adds a
+   * hairline border for placement on muted surfaces (sidebar, rail).
+   */
+  variant?: SegmentedControlVariant;
+  /**
+   * When this control swaps a single content region, pass that region's DOM
+   * id so every radio exposes `aria-controls`. Use a stable `useId()` — never
+   * the selected option value when that value is also written to the URL hash.
+   */
+  panelId?: string;
   className?: string;
 } & SegmentedControlNameProps;
 
-/** Exactly one non-empty accessible name — mirrors Registry / Slider thumb enforcement. */
+/** Exactly one non-empty accessible name — mirrors Slider thumb enforcement. */
 export function resolveSegmentedControlNameProps(
   props: SegmentedControlNameProps,
 ): { "aria-labelledby": string } | { "aria-label": string } {
@@ -124,6 +142,8 @@ export function SegmentedControl<V extends string>({
   showLabels = false,
   tooltips = true,
   size = "default",
+  variant = "default",
+  panelId,
   className,
 }: SegmentedControlProps<V>) {
   const containerRef = React.useRef<HTMLDivElement>(null);
@@ -136,14 +156,16 @@ export function SegmentedControl<V extends string>({
   );
   const isVertical = orientation === "vertical";
 
-  // Snap the pill into place on first paint; only animate subsequent moves so the
-  // post-hydration jump from an SSR default to the resolved value isn't animated.
-  const [animate, setAnimate] = React.useState(false);
-  React.useEffect(() => setAnimate(true), []);
-
-  // Measure the active segment so the pill exactly fits it (incl. its label width).
-  // offsetParent is the relative container, so offset* is already pill-space.
+  // Pill geometry is measured from the active segment (labels make widths uneven,
+  // so a CSS fraction can't track them). Two phases:
+  //   1. Unmeasured — hide the pill; never apply transitions (or CSS interpolates
+  //      from the absolute defaults 0×0 at 0,0 into the first real rect).
+  //   2. Measured — paint the correct rect once, then enable transitions so only
+  //      subsequent value / layout moves animate (incl. ThemeToggle's post-hydration
+  //      preference resolve, which must not slide from the origin).
   const [pill, setPill] = React.useState<PillRect | null>(null);
+  const [animate, setAnimate] = React.useState(false);
+
   const measure = React.useCallback(() => {
     const btn = buttonsRef.current[activeIndex];
     if (!btn) return;
@@ -162,7 +184,13 @@ export function SegmentedControl<V extends string>({
 
   useIsomorphicLayoutEffect(() => {
     measure();
-  }, [measure, count, isVertical, showLabels, size]);
+  }, [measure, count, isVertical, showLabels, size, variant]);
+
+  // Enable transitions only after a measured rect has painted — never on mount alone.
+  React.useEffect(() => {
+    if (pill == null || animate) return;
+    setAnimate(true);
+  }, [pill, animate]);
 
   // Re-measure when the control resizes or web fonts finish loading (label widths shift).
   React.useEffect(() => {
@@ -186,7 +214,8 @@ export function SegmentedControl<V extends string>({
 
   function focusOption(index: number) {
     onValueChange(options[index].value);
-    buttonsRef.current[index]?.focus();
+    // Keep page scroll stable under sticky app chrome (console).
+    buttonsRef.current[index]?.focus({ preventScroll: true });
   }
 
   function onKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
@@ -201,6 +230,7 @@ export function SegmentedControl<V extends string>({
   }
 
   const styles = SIZE_STYLES[size];
+  const variantStyles = VARIANT_STYLES[variant];
   // Labels make the meaning explicit, so tooltips would only repeat them.
   const withTooltips = tooltips && !showLabels;
   const tooltipSide = isVertical ? "right" : "top";
@@ -215,11 +245,12 @@ export function SegmentedControl<V extends string>({
     <div
       ref={containerRef}
       role="radiogroup"
+      data-variant={variant}
       {...nameProps}
       onKeyDown={onKeyDown}
       className={cn(
-        "relative inline-flex rounded-lg border border-border bg-muted",
-        styles.container,
+        "relative inline-flex rounded-md",
+        variantStyles,
         isVertical ? "flex-col" : "flex-row",
         className,
       )}
@@ -228,8 +259,13 @@ export function SegmentedControl<V extends string>({
         aria-hidden
         style={pill ? { left: pill.left, top: pill.top, width: pill.width, height: pill.height } : { opacity: 0 }}
         className={cn(
-          // No shadow — on-canvas sliding pill is flat (elevation.md); fill contrast only.
-          "pointer-events-none absolute rounded-md bg-background",
+          // Radix Themes `surface`: raised chip via fill + inset 1px hairline
+          // (elevation.md canvas rule — not shadow-md/lg). Inset (not spread)
+          // keeps the ring inside the measured pill so neighboring segment
+          // hover washes cannot paint over it — same pattern as radio-group /
+          // choice-card chrome. Forced-colors discards box-shadow; remap a
+          // system border so the active chip still delineates.
+          "pointer-events-none absolute rounded-md bg-background shadow-[inset_0_0_0_1px_var(--border)] forced-colors:border forced-colors:border-[Highlight] forced-colors:shadow-none",
           // ease-out-back-soft = gentler overshoot than the default --ease-out-back, for the
           // pill's larger travel; duration-overshoot auto-zeroes under prefers-reduced-motion.
           animate && "transition-[left,top,width,height] duration-overshoot ease-out-back-soft",
@@ -247,11 +283,12 @@ export function SegmentedControl<V extends string>({
             role="radio"
             aria-checked={checked}
             aria-label={option.label}
+            aria-controls={panelId}
             tabIndex={checked ? 0 : -1}
             onClick={() => onValueChange(option.value)}
             className={cn(
               "focus-ring relative z-10 inline-flex items-center justify-center gap-1.5 rounded-md font-medium text-muted-foreground transition-colors duration-hover-out ease-out-quart hover:duration-hover-in hover:text-foreground aria-checked:text-foreground",
-              // Track is bg-muted (= neutral-100). Idle Neutral hover is the same
+              // Track is bg-muted (= neutral-hover). Idle Neutral hover is the same
               // token — invisible here. Use Neutral dark so unselected chips read
               // like list/sidebar idle on muted chrome (selectable-rows.md).
               !checked &&

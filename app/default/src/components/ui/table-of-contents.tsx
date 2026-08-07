@@ -102,9 +102,14 @@ function TableOfContents({
         const isActive = item.id === activeId;
         return (
           <li key={item.id}>
-            <button
-              type="button"
-              onClick={() => onItemSelect?.(item.id)}
+            <a
+              href={`#${item.id}`}
+              onClick={(event) => {
+                // Parent owns scroll (sticky chrome offset). Keep href for
+                // copy-link / open-in-new-tab and AT link semantics.
+                event.preventDefault();
+                onItemSelect?.(item.id);
+              }}
               aria-current={isActive ? "true" : undefined}
               className={cn(
                 "block w-full truncate border-l-2 py-1 pr-2 text-left text-sm focus-ring",
@@ -132,7 +137,7 @@ function TableOfContents({
               ) : (
                 item.title
               )}
-            </button>
+            </a>
           </li>
         );
       })}

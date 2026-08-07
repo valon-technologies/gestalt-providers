@@ -37,6 +37,13 @@ describe("ThemeToggle placement contract", () => {
     expect(THEME_TOGGLE).toContain("tooltips: true");
   });
 
+  test("forwards Registry SegmentedControl variant (default | outline)", () => {
+    expect(THEME_TOGGLE).toContain("SegmentedControlVariant");
+    expect(THEME_TOGGLE).toContain("variant?: SegmentedControlVariant");
+    expect(THEME_TOGGLE).toContain('variant = "default"');
+    expect(THEME_TOGGLE).toContain("variant={variant}");
+  });
+
   test("placement defaults apply unless callers override", () => {
     expect(THEME_TOGGLE).toContain("showLabels={showLabels ?? defaults.showLabels}");
     expect(THEME_TOGGLE).toContain("tooltips={tooltips ?? defaults.tooltips}");

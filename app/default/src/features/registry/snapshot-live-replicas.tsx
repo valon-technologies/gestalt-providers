@@ -164,7 +164,7 @@ function ReplicaHoverBody({
     <>
       <div className="space-y-2.5">
         <div className="flex flex-col gap-1.5">
-          <Eyebrow size="sm" tone="secondary">Live replica</Eyebrow>
+          <Eyebrow size="sm">Live replica</Eyebrow>
           <CopyableCode
             value={presentation.instanceId}
             className={HOVER_COPYABLE_CODE_CLASS}

@@ -274,7 +274,7 @@ export default function BuildStepPage() {
         >
           <PageHeaderContent size="lg">
             {currentStep.eyebrow ? (
-              <Eyebrow tone="brand">{currentStep.eyebrow}</Eyebrow>
+              <Eyebrow tone="accent">{currentStep.eyebrow}</Eyebrow>
             ) : null}
             <PageHeaderTitle>{currentStep.title}</PageHeaderTitle>
             <PageHeaderDescription>
@@ -721,7 +721,7 @@ function IntroStepActions({
           onClick={handleContinue}
           className={cn(buildStepPagerCardClassName, "sm:items-end sm:text-right")}
         >
-          <Eyebrow tone="secondary">Next</Eyebrow>
+          <Eyebrow>Next</Eyebrow>
           <span className="flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground sm:flex-row-reverse">
             <ChevronRightIcon
               tight
@@ -900,7 +900,7 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
               <CodeBlock
                 variant="outline"
                 code={claudeCommand}
-                language="bash"
+                language="cli"
                 filename="Terminal"
               />
             </CollapsibleContent>
@@ -944,7 +944,7 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
               <CodeBlock
                 variant="outline"
                 code={codexCommand}
-                language="bash"
+                language="cli"
                 filename="Terminal"
               />
             </CollapsibleContent>
@@ -1207,7 +1207,7 @@ function BuildStepPager({
   const cardClass = buildStepPagerCardClassName;
 
   const nextCardClassName = cn(cardClass, "ms-auto items-end text-right");
-  const nextEyebrow = <Eyebrow tone="secondary">Next</Eyebrow>;
+  const nextEyebrow = <Eyebrow>Next</Eyebrow>;
   const nextTitle = (title: string) => (
     <span className="flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground flex-row-reverse">
       <ChevronRightIcon
@@ -1232,7 +1232,7 @@ function BuildStepPager({
           onClick={() => onGoToStep(prev.id)}
           className={cardClass}
         >
-          <Eyebrow tone="secondary">Previous</Eyebrow>
+          <Eyebrow>Previous</Eyebrow>
           <span className="flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground">
             <ChevronLeftIcon
               tight
@@ -1699,7 +1699,7 @@ function InvokeStepActions({
             <CodeBlock
               variant="outline"
               code={exemplar.invokeRecipe}
-              language="bash"
+              language="cli"
               filename="Terminal"
             />
           </CollapsibleContent>

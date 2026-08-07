@@ -142,9 +142,9 @@ export type TableHeadProps = Omit<
   align?: TableAlign;
 };
 
-// Column labels are eyebrow microtype at secondary ink (60%) — dense chrome,
-// not a kicker over a display value. Pick tone="secondary"; do not override
-// text-* after eyebrowVariants() (guidelines/eyebrow.md).
+// Column labels are eyebrow microtype at default ink (60%) — dense chrome,
+// not a kicker over a display value. Rely on Eyebrow's default tone; do not
+// override text-* after eyebrowVariants() (guidelines/eyebrow.md).
 const TableHead = React.forwardRef<HTMLTableCellElement, TableHeadProps>(
   ({ className, align, ...props }, ref) => (
     <th
@@ -152,7 +152,7 @@ const TableHead = React.forwardRef<HTMLTableCellElement, TableHeadProps>(
       data-slot="table-head"
       data-align={align}
       className={cn(
-        eyebrowVariants({ tone: "secondary" }),
+        eyebrowVariants(),
         "h-10 px-3 align-middle",
         align ? tableAlignClass[align] : "text-left",
         className,

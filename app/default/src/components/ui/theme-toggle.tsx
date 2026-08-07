@@ -1,9 +1,9 @@
-
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  *
  * Local extension: `placement` (`header` | `menu`) for chrome-specific defaults.
  * Accessible-name contract matches Registry (label XOR labelledBy).
+ * Forwards Registry `variant` (default | outline) onto SegmentedControl.
  */
 
 import { MonitorIcon, MoonIcon, SunIcon } from "@/components/icons";
@@ -12,6 +12,7 @@ import {
   SegmentedControl,
   type SegmentedControlNameProps,
   type SegmentedControlOption,
+  type SegmentedControlVariant,
 } from "@/components/ui/segmented-control";
 import { cn } from "@/lib/cn";
 
@@ -55,6 +56,11 @@ export type ThemeToggleProps = {
   /** Overrides placement default when set. */
   tooltips?: boolean;
   size?: "xs" | "sm" | "default";
+  /**
+   * Track chrome forwarded to SegmentedControl. Use `outline` on muted
+   * surfaces (sidebar, rail) so the well still reads.
+   */
+  variant?: SegmentedControlVariant;
   className?: string;
 } & ThemeToggleNameProps;
 
@@ -65,6 +71,7 @@ export function ThemeToggle({
   showLabels,
   tooltips,
   size = "default",
+  variant = "default",
   label,
   labelledBy,
   className,
@@ -85,6 +92,7 @@ export function ThemeToggle({
       showLabels={showLabels ?? defaults.showLabels}
       tooltips={tooltips ?? defaults.tooltips}
       size={size}
+      variant={variant}
       className={cn(defaults.className, className)}
       {...nameProps}
     />

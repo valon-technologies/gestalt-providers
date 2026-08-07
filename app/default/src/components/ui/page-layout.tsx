@@ -25,8 +25,8 @@ import { cn } from "@/lib/cn";
 // content-width token, so the consuming app wraps PageLayout in its own column.
 //
 // Track widths read `--page-layout-pane-width` / `--page-layout-aside-width`
-// (defaults in globals.css). `tracks="compact"` narrows the Pane to 11rem for dense
-// section rails; the default tier keeps a 13.75rem (220px) pane.
+// (defaults in globals.css). Both rails share one rem per density tier:
+// default 13.75rem, `tracks="compact"` 11rem.
 
 /** Where the header sits relative to the Pane. */
 type PageLayoutHeaderPlacement = "above" | "content";
@@ -71,7 +71,7 @@ const pageLayoutTrackVariants = cva("", {
   variants: {
     tracks: {
       default: "",
-      compact: "[--page-layout-pane-width:11rem]",
+      compact: "[--page-layout-pane-width:11rem] [--page-layout-aside-width:11rem]",
     },
   },
   defaultVariants: {
@@ -113,8 +113,9 @@ interface PageLayoutProps
     VariantProps<typeof pageLayoutVariants>,
     VariantProps<typeof pageLayoutTrackVariants> {
   /**
-   * Pane track width tier. Default keeps a 13.75rem pane (Settings); compact
-   * narrows the pane to 11rem for dense section rails (docs, catalog, workspace).
+   * Shared pane + aside track width tier. Default keeps both rails at 13.75rem
+   * (Settings); compact sets both to 11rem for dense section rails (docs,
+   * catalog, workspace).
    */
   tracks?: "default" | "compact";
   /**

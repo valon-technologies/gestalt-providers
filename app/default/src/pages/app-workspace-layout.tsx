@@ -261,7 +261,6 @@ export default function AppWorkspaceLayout() {
       <Container className="py-12">
         {(integration || isAdminPath || isVersionsPath) ? (
           <PageLayout
-            tracks="compact"
             header={
               <Breadcrumb>
                 <BreadcrumbList>
