@@ -70,13 +70,14 @@ stays distinct on Neutral / muted row hover — bridge `--muted-strong` in
 
 ## Badge / HoverCard
 
-Registry `badge` and `hover-card` are vendored here (toolshed#4057 / #4081).
-Badge `size` owns type / pad / icon; base has **no** color transitions. Ghost
-shares `@/lib/press-feedback` quiet chrome with Button (never `hover:bg-accent`);
-muted hover climbs `--neutral-dark-hover`. Keep status variants on `--badge-*`
-(`bg-badge-success`, …), not Registry `bg-success` / `error`. Strip `"use client"`;
-import `@/lib/cn`. HoverCard JSDoc documents controlled-open + trigger remount
-(Registry `guidelines/flyout.md`).
+Registry `badge` and `hover-card` are vendored here (toolshed#4057 / #4081 /
+#4113). Badge `size` owns type / pad / icon; base has **no** color transitions
+and applies `text-box: trim-both cap alphabetic` so count ink centers optically.
+Ghost shares `@/lib/press-feedback` quiet chrome with Button (never
+`hover:bg-accent`); muted hover climbs `--neutral-dark-hover`. Keep status
+variants on `--badge-*` (`bg-badge-success`, …), not Registry `bg-success` /
+`error`. Strip `"use client"`; import `@/lib/cn`. HoverCard JSDoc documents
+controlled-open + trigger remount (Registry `guidelines/flyout.md`).
 
 ## MemberAccess
 

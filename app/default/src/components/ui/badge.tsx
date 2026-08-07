@@ -63,7 +63,10 @@ const badgeVariants = cva(
   // No transition: Badge is static metadata; color/surface feedback snaps
   // (`transitions.md`). Bare Tailwind color-transition utilities carry a 150ms
   // default — never add them here. toolshed#4057 / #4081
-  "inline-flex items-center justify-center whitespace-nowrap rounded-sm font-normal [&>svg]:shrink-0",
+  // `text-box: trim-both cap alphabetic` trims font ascent/descent so flex
+  // centering aligns glyph ink (counts look top-heavy otherwise). Ignored where
+  // unsupported — degrades to ordinary leading-none centering.
+  "inline-flex items-center justify-center whitespace-nowrap rounded-sm font-normal [text-box:trim-both_cap_alphabetic] [&>svg]:shrink-0",
   {
     variants: {
       variant: {
