@@ -14,20 +14,12 @@ export const queryKeys = {
     root: ["tokens"] as const,
     list: () => ["tokens", "list"] as const,
   },
-  managedIdentities: {
-    root: ["managed-identities"] as const,
-    list: () => ["managed-identities", "list"] as const,
-    detail: (id: string) => ["managed-identities", "detail", id] as const,
-    members: (id: string) => ["managed-identities", id, "members"] as const,
-    grants: (id: string) => ["managed-identities", id, "grants"] as const,
-    integrations: (id: string) =>
-      ["managed-identities", id, "integrations"] as const,
-  },
   appAdmin: {
     root: ["app-admin"] as const,
     registry: (app: string) => ["app-admin", app, "registry"] as const,
     history: (app: string) => ["app-admin", app, "history"] as const,
     members: (app: string) => ["app-admin", app, "members"] as const,
+    identities: (app: string) => ["app-admin", app, "identities"] as const,
   },
   workflows: {
     root: ["workflows"] as const,

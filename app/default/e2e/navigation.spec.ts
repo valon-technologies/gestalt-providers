@@ -4,7 +4,6 @@ import {
   mockAppAdminRegistry,
   mockAuthInfo,
   mockIntegrations,
-  mockManagedIdentities,
   mockTokens,
   mockWorkflowRuns,
   mockWorkflowDefinitions,
@@ -17,7 +16,6 @@ test.describe("Navigation", () => {
       displayName: "Test SSO",
       features: { workflowDefaultProvider: "basic" },
     });
-    await mockManagedIdentities(authenticatedPage, []);
     await mockIntegrations(authenticatedPage, [
       {
         name: "httpbin",
@@ -68,15 +66,12 @@ test.describe("Navigation", () => {
     ).toBeVisible();
   });
 
-  test("identities page redirects into settings", async ({ authenticatedPage: page }) => {
+  test("legacy identities paths redirect to apps", async ({ authenticatedPage: page }) => {
     await page.goto("/identities");
-    await expect(page).toHaveURL(/\/settings\/identities$/);
-    await expect(page.getByRole("navigation", { name: "breadcrumb" })).toContainText(
-      "Settings",
-    );
-    await expect(
-      page.getByRole("heading", { name: "Managed identities" }),
-    ).toBeVisible();
+    await expect(page).toHaveURL(/\/apps$/);
+
+    await page.goto("/settings/identities");
+    await expect(page).toHaveURL(/\/apps$/);
   });
 
   test("settings page renders", async ({ authenticatedPage: page }) => {

@@ -4,7 +4,6 @@ import {
   mockAuthInfo,
   mockIntegrations,
   mockIntegrationOperations,
-  mockManagedIdentities,
   mockTokens,
 } from "./fixtures";
 
@@ -99,7 +98,6 @@ test.describe("Build page", () => {
       provider: "test-sso",
       displayName: "Test SSO",
     });
-    await mockManagedIdentities(authenticatedPage, []);
     await mockIntegrations(authenticatedPage, catalogFixtures);
     await mockTokens(authenticatedPage, []);
   });
