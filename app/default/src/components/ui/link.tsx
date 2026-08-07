@@ -16,10 +16,10 @@ const linkColor =
   "text-link outline-none hover:text-link-hover active:text-link-pressed focus-visible:rounded-sm focus-visible:ring-4 focus-visible:ring-accent/55";
 
 const linkUnderlineHover =
-  "box-decoration-clone bg-no-repeat bg-[image:linear-gradient(var(--accent-solid),var(--accent-solid))] [background-position:100%_calc(100%_-_0.02em)] [background-size:0%_1.5px] transition-[background-size] duration-[var(--motion-move)] ease-[var(--ease-out-quart)] hover:[background-position:0%_calc(100%_-_0.02em)] hover:[background-size:100%_1.5px] group-hover/link:[background-position:0%_calc(100%_-_0.02em)] group-hover/link:[background-size:100%_1.5px] motion-reduce:transition-none";
+  "box-decoration-clone bg-no-repeat bg-[image:linear-gradient(var(--accent-solid),var(--accent-solid))] [background-position:100%_calc(100%_+_0.04em)] [background-size:0%_1.5px] transition-[background-size] duration-[var(--motion-move)] ease-[var(--ease-out-quart)] hover:[background-position:0%_calc(100%_+_0.04em)] hover:[background-size:100%_1.5px] group-hover/link:[background-position:0%_calc(100%_+_0.04em)] group-hover/link:[background-size:100%_1.5px] motion-reduce:transition-none";
 
 const linkUnderlineAlways =
-  "box-decoration-clone bg-no-repeat bg-[image:linear-gradient(var(--accent-solid),var(--accent-solid))] [background-position:0%_calc(100%_-_0.02em)] [background-size:100%_1.5px]";
+  "box-decoration-clone bg-no-repeat bg-[image:linear-gradient(var(--accent-solid),var(--accent-solid))] [background-position:0%_calc(100%_+_0.04em)] [background-size:100%_1.5px]";
 
 const linkUnderline = linkUnderlineHover;
 

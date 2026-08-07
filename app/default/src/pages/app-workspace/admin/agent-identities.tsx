@@ -73,7 +73,7 @@ export default function AppAdminAgentIdentitiesPage() {
   return (
     <section aria-label="Agent identities">
       <PageHeader>
-        <PageHeaderContent>
+        <PageHeaderContent size="md">
           <PageHeaderTitle>Agent identities</PageHeaderTitle>
           <PageHeaderDescription>
             Managed identities with an authorization grant for this app —

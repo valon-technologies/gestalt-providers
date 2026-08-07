@@ -1007,7 +1007,7 @@ export interface AppAuthorizationMember {
 }
 
 /**
- * List humans (and selectors) with access to an app.
+ * List app-access grants (people and service accounts) for an app.
  * Requires explicit `admin` on `app/{app}`; callers should handle 403.
  */
 export async function getAppAuthorizationMembers(

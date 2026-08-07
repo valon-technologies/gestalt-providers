@@ -1,22 +1,82 @@
-import { useMemo } from "react";
-import { APIError, isAPIErrorStatus } from "@/lib/api";
+import { Link as RouterLink } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
+import {
+  APIError,
+  isAPIErrorStatus,
+  type AppAuthorizationMember,
+} from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "@/components/ui/link";
 import {
+  MemberAccess,
+  type MemberAccessPerson,
+  type MemberAccessRole,
+} from "@/components/ui/member-access";
+import {
+  AUTHORIZATION_DOCS_GRANT_HASH,
+  AUTHORIZATION_DOCS_PATH,
+} from "@/features/app-workspace/operations/handoffs";
+import {
   PageHeader,
-  PageHeaderActions,
   PageHeaderContent,
   PageHeaderDescription,
   PageHeaderTitle,
 } from "@/components/ui/page-header";
+import {
+  SectionHeader,
+  SectionHeaderContent,
+  SectionHeaderTitle,
+} from "@/components/ui/section-header";
 import { SpinnerIcon } from "@/components/icons";
 import { useAppWorkspace } from "@/features/app-workspace/app-workspace-context";
 import {
+  appMemberSubjectKind,
   memberLabel,
   memberMeta,
-  SummaryStat,
 } from "@/features/app-workspace/app-workspace-shared";
 import { useAppAuthorizationMembersQuery } from "@/lib/queries";
+
+const DEFAULT_ROLES: MemberAccessRole[] = [
+  { value: "admin", label: "Admin" },
+  { value: "viewer", label: "Viewer" },
+];
+
+function toMemberAccessPerson(
+  member: AppAuthorizationMember,
+  index: number,
+): MemberAccessPerson {
+  const label = memberLabel(member);
+  const meta = memberMeta(member);
+  const shadowed =
+    !member.effective && member.shadowedBy
+      ? `Shadowed by ${member.shadowedBy}`
+      : null;
+  const subtitle = [meta || null, shadowed].filter(Boolean).join(" · ");
+  return {
+    id:
+      member.subjectId?.trim() ||
+      member.selectorValue?.trim() ||
+      member.email?.trim() ||
+      `member-${index}`,
+    name: label,
+    email: subtitle || member.email?.trim() || undefined,
+    role: member.role?.trim() || "viewer",
+    locked: member.mutable === false,
+  };
+}
+
+function rolesForMembers(members: AppAuthorizationMember[]): MemberAccessRole[] {
+  const known = new Map(DEFAULT_ROLES.map((role) => [role.value, role]));
+  for (const member of members) {
+    const value = member.role?.trim();
+    if (!value || known.has(value)) continue;
+    known.set(value, {
+      value,
+      label: value.charAt(0).toUpperCase() + value.slice(1),
+    });
+  }
+  return Array.from(known.values());
+}
 
 export default function AppAdminMembersPage() {
   const { app } = useAppWorkspace();
@@ -34,47 +94,68 @@ export default function AppAdminMembersPage() {
           : "Failed to load members"
       : null;
 
-  const memberCounts = useMemo(() => {
-    const effective = members.filter((row) => row.effective).length;
-    const staticCount = members.filter((row) => row.source === "static").length;
-    const dynamicCount = members.filter((row) => row.source === "dynamic").length;
-    const shadowed = members.filter(
-      (row) => row.source === "dynamic" && !row.effective,
-    ).length;
-    return { effective, staticCount, dynamicCount, shadowed };
+  const [inviteValue, setInviteValue] = useState("");
+  const [inviteRole, setInviteRole] = useState("viewer");
+
+  const { peopleMembers, serviceAccountMembers } = useMemo(() => {
+    const people: AppAuthorizationMember[] = [];
+    const serviceAccounts: AppAuthorizationMember[] = [];
+    for (const member of members) {
+      if (appMemberSubjectKind(member) === "service_account") {
+        serviceAccounts.push(member);
+      } else {
+        people.push(member);
+      }
+    }
+    return {
+      peopleMembers: people,
+      serviceAccountMembers: serviceAccounts,
+    };
   }, [members]);
+
+  const people = useMemo(
+    () => peopleMembers.map(toMemberAccessPerson),
+    [peopleMembers],
+  );
+  const serviceAccounts = useMemo(
+    () => serviceAccountMembers.map(toMemberAccessPerson),
+    [serviceAccountMembers],
+  );
+  const roles = useMemo(() => rolesForMembers(members), [members]);
+
+  const showRoster =
+    !membersLoading && !membersForbidden && !membersError;
 
   return (
     <section aria-label="Members">
       <PageHeader>
-        <PageHeaderContent>
+        <PageHeaderContent size="md">
           <PageHeaderTitle>Members</PageHeaderTitle>
           <PageHeaderDescription>
-<<<<<<< HEAD
-            Who has access to this app (static policy + dynamic grants). Same
-            roster as the admin authorization tab.
-=======
-            Who has access to this app (static policy and runtime grants). To
-            add or change grants until self-serve writes ship, follow the
-            authorization runbook.
->>>>>>> f9c3712a (Wire Members page to app-admin members read API.)
+            People and service accounts with an authorization grant on this app.
+            This roster is read-only — use{" "}
+            <Link asChild>
+              <RouterLink
+                to={AUTHORIZATION_DOCS_PATH}
+                hash={AUTHORIZATION_DOCS_GRANT_HASH}
+              >
+                How to grant access
+              </RouterLink>
+            </Link>{" "}
+            to add or change access. To create or edit service account identity
+            records, use{" "}
+            <Link asChild>
+              <RouterLink
+                to="/apps/$app/admin/agent-identities"
+                params={{ app }}
+              >
+                Agent identities
+              </RouterLink>
+            </Link>
+            .
           </PageHeaderDescription>
         </PageHeaderContent>
-        <PageHeaderActions>
-          <Link href="/admin/" underlineVariant="always">
-            Open admin authorization
-          </Link>
-        </PageHeaderActions>
       </PageHeader>
-
-      {!membersLoading && !membersForbidden && !membersError ? (
-        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <SummaryStat label="Effective" value={String(memberCounts.effective)} />
-          <SummaryStat label="Static" value={String(memberCounts.staticCount)} />
-          <SummaryStat label="Dynamic" value={String(memberCounts.dynamicCount)} />
-          <SummaryStat label="Shadowed" value={String(memberCounts.shadowed)} />
-        </div>
-      ) : null}
 
       {membersLoading ? (
         <p className="mt-5 flex items-center gap-1.5 text-sm text-muted-foreground">
@@ -88,11 +169,16 @@ export default function AppAdminMembersPage() {
           className="mt-5 text-sm text-muted-foreground"
           data-testid="app-admin-access-denied"
         >
-          Member roster requires app authorization admin access. Manage members in{" "}
-          <Link href="/admin/" underlineVariant="always">
-            /admin/
+          You don&apos;t have permission to view this roster. See{" "}
+          <Link asChild>
+            <RouterLink
+              to={AUTHORIZATION_DOCS_PATH}
+              hash={AUTHORIZATION_DOCS_GRANT_HASH}
+            >
+              How to grant access
+            </RouterLink>
           </Link>{" "}
-          or ask a Gestalt admin.
+          for admin requirements, or ask a Gestalt admin.
         </p>
       ) : null}
 
@@ -100,56 +186,75 @@ export default function AppAdminMembersPage() {
         <p className="mt-5 text-sm text-ember-500">{membersError}</p>
       ) : null}
 
-      {!membersLoading && !membersForbidden && !membersError && members.length === 0 ? (
-        <p className="mt-5 text-sm text-muted-foreground">No members found for this app.</p>
-      ) : null}
+      {showRoster ? (
+        <div className="mt-8 flex flex-col gap-10" data-testid="app-members-list">
+          <section aria-label="People" className="flex flex-col gap-4">
+            <SectionHeader>
+              <SectionHeaderContent size="sm">
+                <SectionHeaderTitle
+                  as="h2"
+                  className="inline-flex items-baseline gap-1.5"
+                >
+                  People
+                  <Badge variant="secondary" size="sm">
+                    {peopleMembers.length}
+                  </Badge>
+                </SectionHeaderTitle>
+              </SectionHeaderContent>
+            </SectionHeader>
+            {peopleMembers.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No people have been granted access yet.
+              </p>
+            ) : null}
+            <MemberAccess
+              people={people}
+              roles={roles}
+              invite={{
+                value: inviteValue,
+                role: inviteRole,
+                onValueChange: setInviteValue,
+                onRoleChange: setInviteRole,
+                onInvite: () => {},
+                searchPeople: async () => [],
+                allowCustomValue: true,
+                placeholder: "Select person",
+              }}
+              onRoleChange={() => {}}
+              onRemove={() => {}}
+              disabled
+            />
+          </section>
 
-      {!membersLoading && members.length > 0 ? (
-        <ul
-          className="mt-5 divide-y divide-border rounded-lg border border-border"
-          data-testid="app-members-list"
-        >
-          {members.map((member, index) => (
-            <li
-              key={`${memberLabel(member)}:${member.role}:${index}`}
-              className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-foreground">
-                  {memberLabel(member)}
-                </p>
-                {memberMeta(member) ? (
-                  <p className="mt-0.5 font-mono text-xs text-muted-foreground">
-                    {memberMeta(member)}
-                  </p>
-                ) : null}
-                {!member.effective && member.shadowedBy ? (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Shadowed by {member.shadowedBy}
-                  </p>
-                ) : null}
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                <Badge variant="secondary" size="sm">
-                  {member.role || "role"}
-                </Badge>
-                <Badge
-                  variant={member.source === "static" ? "muted" : "outline"}
-                  size="sm"
+          <section aria-label="Service accounts" className="flex flex-col gap-4">
+            <SectionHeader>
+              <SectionHeaderContent size="sm">
+                <SectionHeaderTitle
+                  as="h2"
+                  className="inline-flex items-baseline gap-1.5"
                 >
-                  {member.source || "unknown"}
-                  {member.mutable === false ? " · locked" : ""}
-                </Badge>
-                <Badge
-                  variant={member.effective ? "success" : "warning"}
-                  size="sm"
-                >
-                  {member.effective ? "Effective" : "Shadowed"}
-                </Badge>
-              </div>
-            </li>
-          ))}
-        </ul>
+                  Service accounts
+                  <Badge variant="secondary" size="sm">
+                    {serviceAccountMembers.length}
+                  </Badge>
+                </SectionHeaderTitle>
+              </SectionHeaderContent>
+            </SectionHeader>
+            {serviceAccountMembers.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No service accounts have been granted access yet.
+              </p>
+            ) : (
+              <MemberAccess
+                people={serviceAccounts}
+                roles={roles}
+                onRoleChange={() => {}}
+                onRemove={() => {}}
+                disabled
+              />
+            )}
+          </section>
+        </div>
       ) : null}
     </section>
   );

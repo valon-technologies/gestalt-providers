@@ -172,6 +172,60 @@ const registry = {
   autoDeploy: { enabled: false },
 };
 
+/** Seeded app-admin members roster for /apps/slack/admin/members. */
+const members = [
+  {
+    email: "michael.wang@valon.com",
+    role: "admin",
+    source: "static",
+    mutable: false,
+    effective: true,
+    selectorKind: "subject_id",
+    selectorValue: "user:7770003b-127b-44dc-b5aa-38c0310e4e23",
+    subjectId: "user:7770003b-127b-44dc-b5aa-38c0310e4e23",
+  },
+  {
+    email: "gio.vocale@valon.com",
+    role: "admin",
+    source: "static",
+    mutable: false,
+    effective: true,
+    selectorKind: "subject_id",
+    selectorValue: "user:0a18c94d-7ad8-40be-af17-21fc61149712",
+    subjectId: "user:0a18c94d-7ad8-40be-af17-21fc61149712",
+  },
+  {
+    email: "tyler.campbell@valon.com",
+    role: "viewer",
+    source: "static",
+    mutable: false,
+    effective: true,
+    selectorKind: "subject_id",
+    selectorValue: "user:e63e1325-07b6-4f09-a42c-9a4af468d9b7",
+    subjectId: "user:e63e1325-07b6-4f09-a42c-9a4af468d9b7",
+  },
+  {
+    role: "viewer",
+    source: "dynamic",
+    mutable: true,
+    effective: true,
+    selectorKind: "subject_id",
+    selectorValue: "service_account:slack-bot",
+    subjectId: "service_account:slack-bot",
+  },
+  {
+    email: "shadowed@valon.com",
+    role: "viewer",
+    source: "dynamic",
+    mutable: true,
+    effective: false,
+    shadowedBy: "static viewer grant",
+    selectorKind: "subject_id",
+    selectorValue: "user:shadowed-example",
+    subjectId: "user:shadowed-example",
+  },
+];
+
 /** Mirrors WorkflowDefinition + WorkflowRun from gestalt workflow.proto. */
 const definitions = [
   {
@@ -827,7 +881,7 @@ export function handleWorkflowsLocalMock(req, res, pathname, url) {
     pathname === `/api/v1/apps/${SLACK_APP}/admin/members` &&
     method === "GET"
   ) {
-    sendJson(res, 200, { members: [] });
+    sendJson(res, 200, members);
     return true;
   }
   if (pathname === "/api/v2/workflow/runs" && method === "GET") {

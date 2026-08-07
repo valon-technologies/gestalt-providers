@@ -43,6 +43,10 @@
   --transition-duration-overshoot: 200ms;
   --transition-duration-toast: 250ms;
 
+  /* Semantic motion aliases consumed by Registry primitives (Link underline
+     draw, step rails). Keep in sync with --transition-duration-*. */
+  --motion-move: 200ms;
+
   --height-control-xs: 1.75rem;
   --height-control-sm: 2rem;
   --height-control-default: 2.25rem;
