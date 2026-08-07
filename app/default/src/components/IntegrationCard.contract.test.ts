@@ -38,6 +38,16 @@ describe("IntegrationCard navigation contract", () => {
     );
   });
 
+  test("Open app is a bottom-right primary CTA, not trailing ghost chrome", () => {
+    expect(SOURCE).toContain('className="relative z-10 mt-3 flex justify-end"');
+    expect(SOURCE).toMatch(
+      /data-testid=\{`open-app-\$\{integration\.name\}`\}[\s\S]*?variant="default"|variant="default"[\s\S]*?data-testid=\{`open-app-\$\{integration\.name\}`\}/,
+    );
+    expect(SOURCE).not.toMatch(
+      /showOpenAppButton[\s\S]{0,200}variant="ghost"/,
+    );
+  });
+
   test("does not hand-roll :has() suppress or title-only navigation", () => {
     expect(SOURCE).not.toContain("hover:has-[button:hover");
     expect(SOURCE).not.toContain('className="block rounded-sm focus-ring"');

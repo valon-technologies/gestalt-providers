@@ -70,13 +70,16 @@ stays distinct on Neutral / muted row hover — bridge `--muted-strong` in
 
 ## Badge / HoverCard
 
-Registry `badge` and `hover-card` are vendored here (toolshed#4057 / #4081).
-Badge `size` owns type / pad / icon; base has **no** color transitions. Ghost
-shares `@/lib/press-feedback` quiet chrome with Button (never `hover:bg-accent`);
-muted hover climbs `--neutral-dark-hover`. Keep status variants on `--badge-*`
-(`bg-badge-success`, …), not Registry `bg-success` / `error`. Strip `"use client"`;
-import `@/lib/cn`. HoverCard JSDoc documents controlled-open + trigger remount
-(Registry `guidelines/flyout.md`).
+Registry `badge` and `hover-card` are vendored here (toolshed#4057 / #4081 /
+#4113 / #4119). Badge `size` owns type / pad / icon (`py-1` / `py-1.5` / `py-2`
+after text-box trim); base has **no** color transitions. Ink trim (`text-box:
+trim-both cap alphabetic`) lives on a `badge-label` text box via
+`partitionBadgeChildren` — not on the `inline-flex` chrome (css-inline-3).
+Ghost shares `@/lib/press-feedback` quiet chrome with Button (never
+`hover:bg-accent`); muted hover climbs `--neutral-dark-hover`. Keep status
+variants on `--badge-*` (`bg-badge-success`, …), not Registry `bg-success` /
+`error`. Strip `"use client"`; import `@/lib/cn`. HoverCard JSDoc documents
+controlled-open + trigger remount (Registry `guidelines/flyout.md`).
 
 ## MemberAccess
 
@@ -268,6 +271,20 @@ Catalog filtering (`lib/integrationSearch.ts`, `lib/catalogFilters.ts`) must
 delegate matching to `search-highlight.ts` — one normalization stack for filter
 and highlight. Strip `"use client"` from vendored copies (Vite SPA; Registry
 carry-over is a no-op here).
+
+## Chip / ChipGroup
+
+Registry interactive `Chip` + `ChipGroup` (M3 filter / assist) are vendored as
+`ui/chip.tsx` and `ui/chip-group.tsx`. Supporting helpers:
+
+- `lib/selection-interaction.ts` — Neutral idle + Accent vivid selected ladders
+- `lib/disabled-selection.ts` — disabled on/off recolor for selectable controls
+- `ui/selection-check.tsx` — includes `drawFrom="toggle"` for Chip hosts
+
+Strip `"use client"`. Import `@/lib/cn` (not Registry `@/lib/utils`). Depends on
+`@radix-ui/react-toggle` and `@radix-ui/react-toggle-group`. Prefer Chip for
+catalog facet toggles; keep static card labels on `Badge`. Segmented
+field·operator·value bars stay Registry `Filters` (not yet required here).
 
 ## Held local overrides (discuss before dropping)
 

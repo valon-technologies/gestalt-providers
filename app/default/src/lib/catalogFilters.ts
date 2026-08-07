@@ -241,16 +241,22 @@ export function filterCatalogIntegrations(
     query: string;
     connection: ConnectionFilter;
     surface: SurfaceFilter;
+    /** When true, keep only apps the user can administer. */
+    admin?: boolean;
     context?: ConnectionContext;
   },
 ): Integration[] {
   const context = options.context ?? "current_user";
   const query = options.query.trim();
+  const adminOnly = options.admin === true;
   const filtered = integrations.filter((integration) => {
     if (!matchesConnectionFilter(integration, options.connection, context)) {
       return false;
     }
     if (!matchesSurfaceFilter(integration, options.surface)) {
+      return false;
+    }
+    if (adminOnly && !canManageApp(integration)) {
       return false;
     }
     if (!query) return true;

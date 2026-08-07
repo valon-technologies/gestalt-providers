@@ -1,4 +1,3 @@
-
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
@@ -7,12 +6,13 @@ import * as React from "react";
 
 import { cn } from "@/lib/cn";
 
-// Shared selection checkmark — stroke-draw glyph used by Checkbox,
-// Combobox, Select, and Listbox. Two paths (down into the vertex, then up out
-// of it) with pathLength=1 dashoffset draw-in; bounce finishes after both enter
-// strokes. Bounce (self-drawn only): celebrates unchecked → checked while
-// mounted. Mount-as-checked is presence (popover reopen / ItemIndicator) — no
-// bounce. Checkbox drives bounce from the root `group/checkbox` instead.
+// Canonical Valon selection checkmark — stroke-draw glyph shared by Checkbox,
+// Combobox, Select, Listbox, Chip, and Stepper. Two paths (down into the
+// vertex, then up out of it) with pathLength=1 dashoffset draw-in; bounce
+// finishes after both enter strokes. Bounce (self-drawn only): celebrates
+// unchecked → checked while mounted. Mount-as-checked is presence (popover
+// reopen / ItemIndicator / applied Chip) — no bounce. Checkbox / Chip toggle
+// hosts drive draw from the parent group instead.
 //
 // Enter vs exit (pure CSS, asymmetric):
 // - Enter: clip snaps open; strokes draw with dashoffset (down, then up).
@@ -20,18 +20,18 @@ import { cn } from "@/lib/cn";
 //   drawn; after the wipe, dashoffset snaps to 1 so the next enter can redraw.
 //
 // Density:
-// - `default` — menu/list indicators (Select / Combobox / Listbox): thinner
-//   stroke, wider mark so the check reads open on an unfilled row
+// - `default` — menu/list indicators (Select / Combobox / Listbox / Chip): thinner
+//   stroke, wider mark so the check reads open on a blank or gold row
 // - `condensed` — Checkbox: tighter mark + heavier stroke that fits the box
 //
 // Tone (self-drawn only):
 // - `solid` — blank-row indicators (Select / Combobox flyouts): --accent-solid ink
-// - `current` — filled-row indicators (Listbox): currentColor
+// - `current` — filled-row indicators (Listbox / accent Chip): currentColor
 
 type CheckDensity = "default" | "condensed";
 
 /** Who owns checked state for the stroke-draw selectors. */
-type CheckDrawFrom = "self" | "checkbox";
+type CheckDrawFrom = "self" | "checkbox" | "toggle";
 
 const DENSITY = {
   // Wider arms (~3→21 in the 24 box) + lighter stroke for menu rows.
@@ -77,12 +77,35 @@ const SELF_EXIT_CLIP =
 
 const CHECKBOX_EXIT_CLIP =
   "[clip-path:inset(0_0_0_100%)] transition-[clip-path] duration-[var(--duration-200)] ease-out-quart group-data-[state=checked]/checkbox:[clip-path:inset(0_0_0_0)] group-data-[state=checked]/checkbox:duration-0 group-data-[state=checked]/checkbox:group-data-[check-draw=pending]/checkbox:[clip-path:inset(0_0_0_100%)] group-data-[state=checked]/checkbox:group-data-[check-draw=pending]/checkbox:duration-0";
+
+// Radix Toggle / Chip / ChipGroupItem — host is `group/chip` with data-state=on|off.
+// Enter: expand slot → then stroke-draw (clip opens with the draw).
+// Exit: wipe → then collapse slot (delay = wipe duration).
+const TOGGLE_LAYOUT_COLLAPSE =
+  "max-w-0 overflow-hidden me-0 transition-[max-width,margin-inline-end] duration-[var(--duration-200)] delay-[var(--duration-200)] ease-out-quart motion-reduce:transition-none motion-reduce:delay-0 group-data-[state=on]/chip:max-w-4 group-data-[state=on]/chip:me-1 group-data-[state=on]/chip:delay-0";
+
+const TOGGLE_DOWN_DRAW =
+  "[stroke-dashoffset:1] transition-[stroke-dashoffset] duration-0 delay-[var(--duration-200)] ease-out-quart motion-reduce:delay-0 group-data-[state=on]/chip:[stroke-dashoffset:0] group-data-[state=on]/chip:duration-[var(--duration-200)] group-data-[state=on]/chip:delay-[var(--duration-200)] motion-reduce:group-data-[state=on]/chip:duration-0 motion-reduce:group-data-[state=on]/chip:delay-0";
+
+const TOGGLE_UP_DRAW =
+  "[stroke-dashoffset:1] transition-[stroke-dashoffset] duration-0 delay-[var(--duration-200)] ease-out-quart motion-reduce:delay-0 group-data-[state=on]/chip:[stroke-dashoffset:0] group-data-[state=on]/chip:duration-[var(--duration-200)] group-data-[state=on]/chip:delay-[calc(2*var(--duration-200))] motion-reduce:group-data-[state=on]/chip:duration-0 motion-reduce:group-data-[state=on]/chip:delay-0";
+
+const TOGGLE_EXIT_CLIP =
+  "[clip-path:inset(0_0_0_100%)] transition-[clip-path] duration-[var(--duration-200)] delay-0 ease-out-quart motion-reduce:transition-none group-data-[state=on]/chip:[clip-path:inset(0_0_0_0)] group-data-[state=on]/chip:duration-0 group-data-[state=on]/chip:delay-[var(--duration-200)] motion-reduce:group-data-[state=on]/chip:delay-0";
+
 function drawClasses(drawFrom: CheckDrawFrom) {
   if (drawFrom === "checkbox") {
     return {
       down: CHECKBOX_DOWN_DRAW,
       up: CHECKBOX_UP_DRAW,
       clip: CHECKBOX_EXIT_CLIP,
+    };
+  }
+  if (drawFrom === "toggle") {
+    return {
+      down: TOGGLE_DOWN_DRAW,
+      up: TOGGLE_UP_DRAW,
+      clip: TOGGLE_EXIT_CLIP,
     };
   }
   return { down: SELF_DOWN_DRAW, up: SELF_UP_DRAW, clip: SELF_EXIT_CLIP };
@@ -94,7 +117,8 @@ export type SelectionCheckProps = {
   /**
    * `self` (default) — this node is the `group/selection-check` and owns
    * `data-state`. `checkbox` — strokes follow the parent `group/checkbox`
-   * (Checkbox Indicator with forceMount); no local bounce.
+   * (Checkbox Indicator with forceMount); no local bounce. `toggle` — strokes
+   * follow the parent `group/chip` `data-state=on|off` (Chip / ChipGroupItem).
    */
   drawFrom?: CheckDrawFrom;
   tone?: "current" | "solid";
@@ -139,6 +163,7 @@ export function SelectionCheck({
       className={cn(
         drawFrom === "self" && "group/selection-check",
         "flex size-4 shrink-0 items-center justify-center",
+        drawFrom === "toggle" && TOGGLE_LAYOUT_COLLAPSE,
         tone === "solid" ? "text-accent-solid" : "text-current",
         drawFrom === "self" &&
           bounce &&

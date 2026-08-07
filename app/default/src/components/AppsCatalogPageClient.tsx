@@ -12,6 +12,15 @@ import { CircleAlert } from "lucide-react";
 import type { Integration } from "@/lib/api";
 import { groupCatalogForBrowse } from "@/lib/catalogBuckets";
 import {
+  catalogFacetChipAriaLabel,
+  catalogFacetsToFilterOptions,
+  CATALOG_FACETS,
+  countCatalogFacets,
+  isCatalogFacetId,
+  pruneActiveCatalogFacets,
+  type CatalogFacetId,
+} from "@/lib/catalogFacets";
+import {
   filterCatalogIntegrations,
   listNeedsAttention,
 } from "@/lib/catalogFilters";
@@ -51,6 +60,8 @@ import {
   AlertTitle,
 } from "@/components/ui/alert";
 import { Button as UiButton } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { ChipGroup, ChipGroupItem } from "@/components/ui/chip-group";
 import { useScrollSpy } from "@/hooks/use-scroll-spy";
 import { usePageLayoutAnchorOffsetPx } from "@/lib/page-layout-anchor-offset";
 import { CheckCircleIcon, CloseIcon, SpinnerIcon } from "@/components/icons";
@@ -144,15 +155,46 @@ export default function AppsCatalogPageClient() {
 
   const [query, setQuery] = useState("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [activeFacets, setActiveFacets] = useState<CatalogFacetId[]>([]);
   const [connectedNotice, setConnectedNotice] = useState<string | null>(() =>
     connectedParam,
   );
   const [flashError, setFlashError] = useState<string | null>(null);
   const deferredQuery = useDeferredValue(query);
+  // Facet counts / visibility own the search universe, not the full catalog —
+  // chips must not overstate apps that search already excluded. Other facets
+  // stay independent (AND axes), so counts ignore active facet selection.
+  const searchScopedIntegrations = useMemo(
+    () =>
+      filterCatalogIntegrations(integrations, {
+        query: deferredQuery,
+        connection: "all",
+        surface: "all",
+        admin: false,
+      }),
+    [integrations, deferredQuery],
+  );
+  const facetCounts = useMemo(
+    () => countCatalogFacets(searchScopedIntegrations),
+    [searchScopedIntegrations],
+  );
+  const visibleFacets = useMemo(
+    () => CATALOG_FACETS.filter((facet) => facetCounts[facet.id] > 0),
+    [facetCounts],
+  );
+  useEffect(() => {
+    setActiveFacets((prev) => {
+      const next = pruneActiveCatalogFacets(prev, facetCounts);
+      return next.length === prev.length &&
+        next.every((id, index) => id === prev[index])
+        ? prev
+        : next;
+    });
+  }, [facetCounts]);
+  const facetFilter = catalogFacetsToFilterOptions(activeFacets);
   const filteredIntegrations = filterCatalogIntegrations(integrations, {
     query: deferredQuery,
-    connection: "all",
-    surface: "all",
+    ...facetFilter,
   });
   const { installed, sections: catalogSections } = useMemo(
     () => groupCatalogForBrowse(filteredIntegrations),
@@ -170,7 +212,18 @@ export default function AppsCatalogPageClient() {
     ? resolveConnectedAppLabel(connectedNotice, integrations)
     : null;
   const hasSearchQuery = query.trim().length > 0;
+  const hasActiveFacets = activeFacets.length > 0;
+  const hasActiveNarrowing = hasSearchQuery || hasActiveFacets;
   const hasCatalogContent = installed.length > 0 || catalogSections.length > 0;
+
+  function onFacetsChange(next: string[]) {
+    setActiveFacets(next.filter(isCatalogFacetId));
+  }
+
+  function clearFilters() {
+    setQuery("");
+    setActiveFacets([]);
+  }
 
   const catalogNavSections = useMemo(() => {
     const sections: { id: string; label: string }[] = [];
@@ -335,8 +388,8 @@ export default function AppsCatalogPageClient() {
           <PageHeaderContent size="lg">
             <PageHeaderTitle>Apps</PageHeaderTitle>
             <PageHeaderDescription>
-              Browse installed apps, then discover more by category. Connect
-              an account, then open an app to manage access.
+              Browse installed apps by category, or connect a new one. Open a
+              web app from its card when one is available.
             </PageHeaderDescription>
           </PageHeaderContent>
           <PageHeaderActions className="w-full max-w-md sm:w-auto">
@@ -347,6 +400,34 @@ export default function AppsCatalogPageClient() {
             />
           </PageHeaderActions>
         </PageHeader>
+        {!loading && !error && visibleFacets.length > 0 ? (
+          <ChipGroup
+            type="multiple"
+            size="sm"
+            value={activeFacets}
+            onValueChange={onFacetsChange}
+            aria-label="Filter apps"
+            className="mb-6"
+            data-testid="apps-catalog-facets"
+          >
+            {visibleFacets.map((facet) => {
+              const count = facetCounts[facet.id];
+              return (
+                <ChipGroupItem
+                  key={facet.id}
+                  value={facet.id}
+                  aria-label={catalogFacetChipAriaLabel(facet.label, count)}
+                  data-testid={`apps-catalog-facet-${facet.id}`}
+                >
+                  {facet.label}
+                  <Badge size="sm" variant="secondary" aria-hidden>
+                    {count}
+                  </Badge>
+                </ChipGroupItem>
+              );
+            })}
+          </ChipGroup>
+        ) : null}
         {connectedSuccessLabel ||
         needsAttentionCopy ||
         flashError ? (
@@ -449,22 +530,34 @@ export default function AppsCatalogPageClient() {
           !hasCatalogContent && (
             <div className="flex flex-col items-start gap-3">
               <p className="text-sm text-muted-foreground-soft">
-                {hasSearchQuery ? (
+                {hasSearchQuery && hasActiveFacets ? (
+                  <>
+                    No apps match <span>{`"${query.trim()}"`}</span> with the
+                    current filters. Try adjusting search or filters.
+                  </>
+                ) : hasSearchQuery ? (
                   <>
                     No apps match <span>{`"${query.trim()}"`}</span>. Try a
                     different search, or clear it.
                   </>
+                ) : hasActiveFacets ? (
+                  "No apps match these filters. Try clearing one or more filters."
                 ) : (
                   "No apps are available yet. Ask your admin if you expected to see ones here."
                 )}
               </p>
-              {hasSearchQuery ? (
+              {hasActiveNarrowing ? (
                 <Button
                   type="button"
                   variant="secondary"
-                  onClick={() => setQuery("")}
+                  data-testid="apps-catalog-clear-filters"
+                  onClick={clearFilters}
                 >
-                  Clear search
+                  {hasSearchQuery && hasActiveFacets
+                    ? "Clear search and filters"
+                    : hasActiveFacets
+                      ? "Clear filters"
+                      : "Clear search"}
                 </Button>
               ) : null}
             </div>
@@ -481,7 +574,7 @@ export default function AppsCatalogPageClient() {
                 <CatalogBucketSectionHeader
                   id="catalog-bucket-installed"
                   title="Installed"
-                  description="Apps you’re already connected to — open one to manage access."
+                  description="Apps you’re already connected to. Open a web app from the card, or use the menu to manage the app."
                 />
                 <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                   {installed.map((integration) => (

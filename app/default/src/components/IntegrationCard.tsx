@@ -171,6 +171,12 @@ export default function IntegrationCard({
       connectLabel !== null);
   const showOpenAppButton =
     !readOnly && catalogShowOpenAppButton(integration, connectionContext);
+  /** Top-right utility chrome only — Open app is the bottom-right primary CTA. */
+  const showTrailingChrome =
+    showInstalledCheck ||
+    showInstalledMenu ||
+    settingsAvailable ||
+    showAddButton;
   const activateRoute = catalogCardActivateRoute(integration);
   /** Catalog tiles: real stretch link. Modal entry: whole-card click → settings. */
   const useStretchLink = cardNavigationEnabled && useAppDetailConnection;
@@ -334,7 +340,7 @@ export default function IntegrationCard({
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 {surfaces.hasUi ? (
                   <Badge size="sm" variant="secondary">
-                    App
+                    Web App
                   </Badge>
                 ) : null}
                 {isAppAdmin ? (
@@ -346,128 +352,118 @@ export default function IntegrationCard({
             )}
           </div>
         </div>
-        <div
-          {...{ [NESTED_INTERACTIVE_OPT_OUT_ATTR]: "" }}
-          className="relative z-10 flex shrink-0 flex-col items-end gap-1.5 sm:flex-row sm:items-center"
-          onClick={(event) => event.stopPropagation()}
-          onKeyDown={(event) => event.stopPropagation()}
-        >
-          <TooltipProvider>
-            {showInstalledCheck ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span
-                    className="flex size-control-sm items-center justify-center text-success"
-                    aria-label="Installed"
-                  >
-                    <SelectionCheck
-                      checked
-                      tone="current"
-                      density="default"
-                    />
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="top">Installed</TooltipContent>
-              </Tooltip>
-            ) : null}
-
-            {showOpenAppButton ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                data-testid={`open-app-${integration.name}`}
-                onClick={navigateToMountedApp}
-              >
-                Open app
-              </Button>
-            ) : null}
-
-            {showInstalledMenu ? (
-              <DropdownMenu>
+        {showTrailingChrome ? (
+          <div
+            {...{ [NESTED_INTERACTIVE_OPT_OUT_ATTR]: "" }}
+            className="relative z-10 flex shrink-0 flex-col items-end gap-1.5 sm:flex-row sm:items-center"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            <TooltipProvider>
+              {showInstalledCheck ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span className="inline-flex">
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`${label} options`}
-                        >
-                          <MoreHorizontalIcon />
-                        </Button>
-                      </DropdownMenuTrigger>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">More</TooltipContent>
-                </Tooltip>
-                <DropdownMenuContent align="end" className="w-44">
-                  <DropdownMenuItem
-                    onClick={openRemoveApp}
-                    className="text-destructive"
-                  >
-                    <TrashIcon />
-                    Remove app
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
-
-            {settingsAvailable ? (
-              <DropdownMenu>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="inline-flex">
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`${label} options`}
-                        >
-                          <MoreHorizontalIcon />
-                        </Button>
-                      </DropdownMenuTrigger>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">More</TooltipContent>
-                </Tooltip>
-                <DropdownMenuContent align="end" className="w-44">
-                  <DropdownMenuItem onClick={() => openConnectionModal()}>
-                    Manage connection
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={openRemoveApp}
-                    className="text-destructive"
-                  >
-                    <TrashIcon />
-                    Remove app
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
-
-            {showAddButton ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Add ${label}`}
-                      onClick={() => navigateToAppDetail({ connection: true })}
+                    <span
+                      className="flex size-control-sm items-center justify-center text-success"
+                      aria-label="Installed"
                     >
-                      <PlusIcon />
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="top">Add</TooltipContent>
-              </Tooltip>
-            ) : null}
-          </TooltipProvider>
-        </div>
+                      <SelectionCheck
+                        checked
+                        tone="current"
+                        density="default"
+                      />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Installed</TooltipContent>
+                </Tooltip>
+              ) : null}
+
+              {showInstalledMenu ? (
+                <DropdownMenu>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex">
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`${label} options`}
+                          >
+                            <MoreHorizontalIcon />
+                          </Button>
+                        </DropdownMenuTrigger>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">More</TooltipContent>
+                  </Tooltip>
+                  <DropdownMenuContent align="end" className="w-44">
+                    <DropdownMenuItem
+                      onClick={openRemoveApp}
+                      className="text-destructive"
+                    >
+                      <TrashIcon />
+                      Remove app
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
+
+              {settingsAvailable ? (
+                <DropdownMenu>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex">
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`${label} options`}
+                          >
+                            <MoreHorizontalIcon />
+                          </Button>
+                        </DropdownMenuTrigger>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">More</TooltipContent>
+                  </Tooltip>
+                  <DropdownMenuContent align="end" className="w-44">
+                    <DropdownMenuItem onClick={() => openConnectionModal()}>
+                      Manage connection
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={openRemoveApp}
+                      className="text-destructive"
+                    >
+                      <TrashIcon />
+                      Remove app
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
+
+              {showAddButton ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Add ${label}`}
+                        onClick={() => navigateToAppDetail({ connection: true })}
+                      >
+                        <PlusIcon />
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Add</TooltipContent>
+                </Tooltip>
+              ) : null}
+            </TooltipProvider>
+          </div>
+        ) : null}
       </div>
       {attentionMessage ? (
         <Alert
@@ -478,6 +474,24 @@ export default function IntegrationCard({
           <CircleAlert aria-hidden />
           <AlertDescription>{attentionMessage}</AlertDescription>
         </Alert>
+      ) : null}
+      {showOpenAppButton ? (
+        <div
+          {...{ [NESTED_INTERACTIVE_OPT_OUT_ATTR]: "" }}
+          className="relative z-10 mt-3 flex justify-end"
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            data-testid={`open-app-${integration.name}`}
+            onClick={navigateToMountedApp}
+          >
+            Open app
+          </Button>
+        </div>
       ) : null}
       {connection.error && !settingsOpen && (
         <p className="mt-3 text-sm text-ember-500">{connection.error}</p>
