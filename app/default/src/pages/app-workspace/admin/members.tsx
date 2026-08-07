@@ -30,9 +30,9 @@ import {
 import { SpinnerIcon } from "@/components/icons";
 import { useAppWorkspace } from "@/features/app-workspace/app-workspace-context";
 import {
-  appMemberSubjectKind,
   memberLabel,
   memberMeta,
+  partitionAppMembers,
 } from "@/features/app-workspace/app-workspace-shared";
 import { useAppAuthorizationMembersQuery } from "@/lib/queries";
 
@@ -98,18 +98,10 @@ export default function AppAdminMembersPage() {
   const [inviteRole, setInviteRole] = useState("viewer");
 
   const { peopleMembers, serviceAccountMembers } = useMemo(() => {
-    const people: AppAuthorizationMember[] = [];
-    const serviceAccounts: AppAuthorizationMember[] = [];
-    for (const member of members) {
-      if (appMemberSubjectKind(member) === "service_account") {
-        serviceAccounts.push(member);
-      } else {
-        people.push(member);
-      }
-    }
+    const partitioned = partitionAppMembers(members);
     return {
-      peopleMembers: people,
-      serviceAccountMembers: serviceAccounts,
+      peopleMembers: partitioned.people,
+      serviceAccountMembers: partitioned.serviceAccounts,
     };
   }, [members]);
 

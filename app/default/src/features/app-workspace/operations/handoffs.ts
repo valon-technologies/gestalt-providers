@@ -2,6 +2,8 @@ import { appOperationsPath } from "@/lib/appAdminPaths";
 
 export const INVOKE_DOCS_PATH = "/docs/invoke" as const;
 export const AUTHORIZATION_DOCS_PATH = "/docs/authorization" as const;
+/** Docs subheading for granting app-level access (`Grant app access`). */
+export const AUTHORIZATION_DOCS_GRANT_HASH = "authz-plugin-access" as const;
 
 /** Absolute path + hash for an operation deep link (inbound navigation / tests). */
 export function operationDeepLinkPath(

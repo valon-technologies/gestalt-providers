@@ -23,6 +23,23 @@ export function appMemberSubjectKind(
   return "person";
 }
 
+/** Split roster rows into People vs Service accounts for Members sections. */
+export function partitionAppMembers(members: AppAuthorizationMember[]): {
+  people: AppAuthorizationMember[];
+  serviceAccounts: AppAuthorizationMember[];
+} {
+  const people: AppAuthorizationMember[] = [];
+  const serviceAccounts: AppAuthorizationMember[] = [];
+  for (const member of members) {
+    if (appMemberSubjectKind(member) === "service_account") {
+      serviceAccounts.push(member);
+    } else {
+      people.push(member);
+    }
+  }
+  return { people, serviceAccounts };
+}
+
 export function memberLabel(member: AppAuthorizationMember): string {
   if (member.email?.trim()) return member.email.trim();
   if (member.selectorValue?.trim()) return member.selectorValue.trim();

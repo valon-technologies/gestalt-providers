@@ -1,7 +1,10 @@
 import { describe, expect, test } from "vitest";
 
 import type { AppAuthorizationMember } from "@/lib/api";
-import { appMemberSubjectKind } from "./app-workspace-shared";
+import {
+  appMemberSubjectKind,
+  partitionAppMembers,
+} from "./app-workspace-shared";
 
 function member(
   partial: Partial<AppAuthorizationMember>,
@@ -41,8 +44,23 @@ describe("appMemberSubjectKind", () => {
       ),
     ).toBe("person");
     expect(
-      appMemberSubjectKind(member({ email: "gio@valon.com" })),
+      appMemberSubjectKind(member({ email: "alice@example.com" })),
     ).toBe("person");
     expect(appMemberSubjectKind(member({}))).toBe("person");
+  });
+});
+
+describe("partitionAppMembers", () => {
+  test("splits people and service accounts preserving order", () => {
+    const alice = member({
+      email: "alice@example.com",
+      subjectId: "user:alice",
+    });
+    const bot = member({ subjectId: "service_account:slack-bot" });
+    const bob = member({ email: "bob@example.com", subjectId: "user:bob" });
+    expect(partitionAppMembers([alice, bot, bob])).toEqual({
+      people: [alice, bob],
+      serviceAccounts: [bot],
+    });
   });
 });
