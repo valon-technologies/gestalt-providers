@@ -2,9 +2,6 @@
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
 
-/** Shared minimum viewport edge inset for flyout collision padding (px). */
-export const FLYOUT_VIEWPORT_EDGE_INSET_PX = 16;
-
 /**
  * Flyout panel chrome (guidelines/flyout.md).
  * - `flyoutMenuPanelClassName` — menu/list surfaces (DropdownMenu, Select): rounded-xl, p-1.
