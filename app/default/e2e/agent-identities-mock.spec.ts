@@ -60,7 +60,7 @@ test.describe("App admin service accounts", () => {
     ]);
     await mockAppAdminRegistry(page, "httpbin", {
       app: "httpbin",
-      registry: "toolshed",
+      registry: "example-registry",
       desiredVersion: "1.0.0",
       knownVersions: [],
       publishedVersions: [],
@@ -95,7 +95,7 @@ test.describe("App admin service accounts", () => {
 
     await expect(page.getByText("Overridden")).toBeVisible();
     await expect(
-      page.getByText("Not used — static viewer grant takes priority"),
+      page.getByText("Not used — another grant takes priority"),
     ).toBeVisible();
   });
 

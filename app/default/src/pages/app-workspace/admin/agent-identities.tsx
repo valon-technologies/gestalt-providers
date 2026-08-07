@@ -1,6 +1,4 @@
-import { Link as RouterLink } from "@tanstack/react-router";
-import { useMemo } from "react";
-import { APIError, isAPIErrorStatus } from "@/lib/api";
+import { isAPIErrorStatus } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "@/components/ui/link";
 import {
@@ -13,6 +11,7 @@ import { SpinnerIcon } from "@/components/icons";
 import { useAppWorkspace } from "@/features/app-workspace/app-workspace-context";
 import {
   SERVICE_ACCOUNTS_COPY,
+  serviceAccountsLoadErrorMessage,
   toAgentIdentityRowView,
 } from "@/features/app-workspace/app-agent-identity-presentation";
 import {
@@ -20,6 +19,8 @@ import {
   AUTHORIZATION_DOCS_SERVICE_ACCOUNTS_HASH,
 } from "@/features/app-workspace/operations/handoffs";
 import { useAppAdminIdentitiesQuery } from "@/lib/queries";
+import { Link as RouterLink } from "@tanstack/react-router";
+import { useMemo } from "react";
 
 export default function AppAdminAgentIdentitiesPage() {
   const { app } = useAppWorkspace();
@@ -30,11 +31,7 @@ export default function AppAdminAgentIdentitiesPage() {
     identitiesQuery.isError && isAPIErrorStatus(identitiesQuery.error, 403);
   const loadError =
     identitiesQuery.isError && !forbidden
-      ? identitiesQuery.error instanceof APIError
-        ? identitiesQuery.error.message
-        : identitiesQuery.error instanceof Error
-          ? identitiesQuery.error.message
-          : "Failed to load service accounts"
+      ? serviceAccountsLoadErrorMessage(identitiesQuery.error)
       : null;
 
   const rows = useMemo(
@@ -79,7 +76,7 @@ export default function AppAdminAgentIdentitiesPage() {
       ) : null}
 
       {loadError ? (
-        <p className="mt-5 text-sm text-ember-500">{loadError}</p>
+        <p className="mt-5 text-sm text-destructive">{loadError}</p>
       ) : null}
 
       {!loading && !forbidden && !loadError && rows.length === 0 ? (

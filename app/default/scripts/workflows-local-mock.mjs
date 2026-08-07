@@ -205,15 +205,6 @@ const members = [
     subjectId: "user:carol-example",
   },
   {
-    role: "viewer",
-    source: "dynamic",
-    mutable: true,
-    effective: true,
-    selectorKind: "subject_id",
-    selectorValue: "service_account:slack-bot",
-    subjectId: "service_account:slack-bot",
-  },
-  {
     email: "shadowed@example.com",
     role: "viewer",
     source: "dynamic",
@@ -223,6 +214,21 @@ const members = [
     selectorKind: "subject_id",
     selectorValue: "user:shadowed-example",
     subjectId: "user:shadowed-example",
+  },
+];
+
+/**
+ * Seeded service-account grants for /apps/slack/admin/identities.
+ * Kept separate from members — matches gestaltd members/identities partition.
+ */
+const identities = [
+  {
+    subjectId: "service_account:slack-bot",
+    displayName: "slack-bot",
+    role: "viewer",
+    source: "dynamic",
+    mutable: true,
+    effective: true,
   },
 ];
 
@@ -882,6 +888,13 @@ export function handleWorkflowsLocalMock(req, res, pathname, url) {
     method === "GET"
   ) {
     sendJson(res, 200, members);
+    return true;
+  }
+  if (
+    pathname === `/api/v1/apps/${SLACK_APP}/admin/identities` &&
+    method === "GET"
+  ) {
+    sendJson(res, 200, identities);
     return true;
   }
   if (pathname === "/api/v2/workflow/runs" && method === "GET") {
