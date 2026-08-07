@@ -4,6 +4,7 @@ import type { AppAuthorizationMember } from "@/lib/api";
 import {
   appMemberSubjectKind,
   partitionAppMembers,
+  serviceAccountLocalId,
 } from "./app-workspace-shared";
 
 function member(
@@ -27,6 +28,12 @@ describe("appMemberSubjectKind", () => {
         }),
       ),
     ).toBe("service_account");
+  });
+
+  test("strips the wire prefix for local account ids", () => {
+    expect(serviceAccountLocalId("service_account:slack-bot")).toBe("slack-bot");
+    expect(serviceAccountLocalId("SERVICE_ACCOUNT:Runner")).toBe("Runner");
+    expect(serviceAccountLocalId("plain-bot")).toBe("plain-bot");
   });
 
   test("falls back to selectorValue when subjectId is empty", () => {

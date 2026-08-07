@@ -1054,9 +1054,15 @@ function InlineCode({ children }: { children: React.ReactNode }) {
 
 function Subheading({ id, title }: { id?: string; title: string }) {
   return (
-    <SectionHeader className="scroll-mt-[var(--page-layout-anchor-offset)] pt-2">
+    // `id` and `scroll-mt` must share the same node — hash / scrollIntoView
+    // targets only apply scroll-margin on the matched element (not ancestors).
+    // Offset token includes measured sticky chrome (worktree banner + top bar).
+    <SectionHeader
+      id={id}
+      className="scroll-mt-[var(--page-layout-anchor-offset)] pt-2"
+    >
       <SectionHeaderContent size="sm">
-        <SectionHeaderTitle id={id}>{title}</SectionHeaderTitle>
+        <SectionHeaderTitle>{title}</SectionHeaderTitle>
       </SectionHeaderContent>
     </SectionHeader>
   );

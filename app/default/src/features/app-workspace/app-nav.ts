@@ -1,4 +1,5 @@
 import { CONNECTION_SURFACE_NAV_LABEL } from "./connection-surface-copy";
+import { SERVICE_ACCOUNTS_COPY } from "./app-agent-identity-presentation";
 
 export type AppUserNavId = "overview" | "connection" | "operations";
 
@@ -97,7 +98,7 @@ export const APP_ADMIN_NAV = [
   },
   {
     id: "agent-identities" as const,
-    label: "Agent identities",
+    label: SERVICE_ACCOUNTS_COPY.navLabel,
     to: "/apps/$app/admin/agent-identities" as const,
     requires: "authorization" as const satisfies AppAdminSurface,
   },

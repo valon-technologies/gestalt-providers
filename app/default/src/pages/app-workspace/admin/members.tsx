@@ -25,6 +25,7 @@ import {
   rolesForMembers,
   toMemberAccessPerson,
 } from "@/features/app-workspace/app-member-access";
+import { SERVICE_ACCOUNTS_COPY } from "@/features/app-workspace/app-agent-identity-presentation";
 import { useAppAuthorizationMembersQuery } from "@/lib/queries";
 
 function membersLoadErrorMessage(error: unknown): string {
@@ -86,7 +87,7 @@ export default function AppAdminMembersPage() {
                 to="/apps/$app/admin/agent-identities"
                 params={{ app }}
               >
-                Agent identities
+                {SERVICE_ACCOUNTS_COPY.navLabel}
               </RouterLink>
             </Link>
             .
