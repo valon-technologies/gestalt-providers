@@ -4,6 +4,8 @@
  * Local forks vs Registry baseline (preserve on re-vendor):
  * - `onFolderExpand` for lazy-loaded folder children
  * - `isItemFolder` treats `children: []` as a folder (empty array OK before load)
+ * - Leaf helpers still treat `children: []` as a selectable bare id until real
+ *   children arrive — Token create bridges that via `token-scope-selection.ts`
  * - `rebuildTree` when `loaderItems` changes
  * - auto-expand parents with checked leaves / on toggle-check
  * - `defaultExpanded` defaults to none (Registry defaults to all roots)

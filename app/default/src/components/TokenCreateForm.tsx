@@ -9,7 +9,6 @@ import { useId, useImperativeHandle, useMemo, useState } from "react";
 import {
   createToken,
   getIntegrationOperations,
-  type IntegrationOperation,
 } from "@/lib/api";
 import {
   encodeTokenScopes,
@@ -20,15 +19,19 @@ import {
   type TokenScopeMode,
 } from "@/lib/tokenScopes";
 import {
+  buildCatalogAccessTree,
+  leafValueFromSelectedApps,
+  selectedAppsFromLeafValue,
+  type OpsByApp,
+  type SelectedAppState,
+} from "@/lib/token-scope-selection";
+import {
   useIntegrationsQuery,
   useInvalidateTokens,
 } from "@/lib/queries";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import {
-  CheckboxTree,
-  type CheckboxTreeNode,
-} from "@/components/ui/checkbox-tree";
+import { CheckboxTree } from "@/components/ui/checkbox-tree";
 import {
   Field,
   FieldContent,
@@ -74,6 +77,12 @@ interface TokenCreateFormProps {
     plaintext: string,
     created: { id: string; name: string },
   ) => void | Promise<void>;
+  /**
+   * Fired when the one-time secret reveal block appears or clears.
+   * Surfaces that own chrome (Settings title / Cancel) should derive from this
+   * instead of mirroring plaintext state locally.
+   */
+  onRevealChange?: (revealed: boolean) => void;
   /** Controlled token name — persists via parent when provided with onNameChange. */
   name?: string;
   onNameChange?: (name: string) => void;
@@ -108,18 +117,6 @@ interface TokenCreateFormProps {
 /** Safe default when a caller shows plaintext without surface-specific copy. */
 const DEFAULT_PLAINTEXT_RESULT_DESCRIPTION =
   "Copy this token now. We won't show the full value again. Store it in your secret manager or shell environment.";
-
-/**
- * Settings create-token form tracks an 8-column content grid:
- * form shell = 8, token/expiration controls = 2, app-access panel = 3,
- * actions divider = 4.
- */
-export const SETTINGS_TOKEN_CREATE_TRACK = {
-  form: "w-full",
-  controls: "w-[calc(2/8*100%)] min-w-0",
-  appAccessPanel: "w-[calc(3/8*100%)] min-w-0",
-  actions: "w-[calc(4/8*100%)] min-w-0",
-} as const;
 
 export type TokenCreateFormHandle = {
   create: () => Promise<boolean>;
@@ -157,140 +154,13 @@ function expirationOptionLabel(option: ExpirationOption, now: Date): string {
   return "No expiration";
 }
 
-type SelectedAppState = {
-  /** When true (default), encode bare appId. When false, encode checked ops only. */
-  allOperations: boolean;
-  /** Checked operation ids when allOperations is false. */
-  operationIds: Set<string>;
-};
-
-/** Scope grammar leaf: `app:operation` — matches encodeTokenScopes. */
-function operationLeafId(appName: string, operationId: string): string {
-  return `${appName}:${operationId}`;
-}
-
-function parseOperationLeafId(
-  leafId: string,
-): { appName: string; operationId: string } | null {
-  const sep = leafId.indexOf(":");
-  if (sep <= 0) return null;
-  return {
-    appName: leafId.slice(0, sep),
-    operationId: leafId.slice(sep + 1),
-  };
-}
-
-function listedOperations(
-  opsState: IntegrationOperation[] | "loading" | "error" | undefined,
-): IntegrationOperation[] | null {
-  return Array.isArray(opsState) && opsState.length > 0 ? opsState : null;
-}
-
-/** Build CheckboxTree nodes for the searchable app catalog. */
-function buildCatalogAccessTree(
-  filteredApps: readonly { name: string; displayName?: string }[],
-  opsByApp: Record<string, IntegrationOperation[] | "loading" | "error">,
-): CheckboxTreeNode[] {
-  return filteredApps.map((app) => {
-    const label = app.displayName?.trim() || app.name;
-    const ops = listedOperations(opsByApp[app.name]);
-    if (!ops) {
-      // Empty `children` keeps folder +/- chrome before operations load.
-      return { id: app.name, label, children: [] };
-    }
-    return {
-      id: app.name,
-      label,
-      children: ops.map((op) => ({
-        id: operationLeafId(app.name, op.id),
-        label: op.title?.trim() || op.id,
-      })),
-    };
-  });
-}
-
-/** Derive CheckboxTree leaf value from SelectedAppState + loaded ops. */
-function leafValueFromSelectedApps(
-  selectedApps: Record<string, SelectedAppState>,
-  opsByApp: Record<string, IntegrationOperation[] | "loading" | "error">,
-): string[] {
-  const leaves: string[] = [];
-  for (const [appName, state] of Object.entries(selectedApps)) {
-    const ops = listedOperations(opsByApp[appName]);
-    if (!ops) {
-      leaves.push(appName);
-      continue;
-    }
-    if (state.allOperations) {
-      for (const op of ops) {
-        leaves.push(operationLeafId(appName, op.id));
-      }
-      continue;
-    }
-    for (const opId of state.operationIds) {
-      leaves.push(operationLeafId(appName, opId));
-    }
-  }
-  return leaves;
-}
-
-/**
- * Map CheckboxTree leaf ids back to SelectedAppState.
- * Unchecking every leaf under an app removes it from the selection set.
- */
-function selectedAppsFromLeafValue(
-  leafIds: readonly string[],
-  previous: Record<string, SelectedAppState>,
-  opsByApp: Record<string, IntegrationOperation[] | "loading" | "error">,
-): Record<string, SelectedAppState> {
-  const byApp = new Map<string, Set<string>>();
-  const bareApps = new Set<string>();
-
-  for (const leafId of leafIds) {
-    const parsed = parseOperationLeafId(leafId);
-    if (parsed) {
-      const set = byApp.get(parsed.appName) ?? new Set<string>();
-      set.add(parsed.operationId);
-      byApp.set(parsed.appName, set);
-      continue;
-    }
-    bareApps.add(leafId);
-  }
-
-  const next: Record<string, SelectedAppState> = {};
-
-  for (const appName of bareApps) {
-    next[appName] = previous[appName] ?? {
-      allOperations: true,
-      operationIds: new Set(),
-    };
-    if (!listedOperations(opsByApp[appName])) {
-      next[appName] = { allOperations: true, operationIds: new Set() };
-    }
-  }
-
-  for (const [appName, operationIds] of byApp) {
-    const ops = listedOperations(opsByApp[appName]);
-    if (!ops) {
-      next[appName] = { allOperations: true, operationIds: new Set() };
-      continue;
-    }
-    const allSelected =
-      ops.length > 0 && ops.every((op) => operationIds.has(op.id));
-    next[appName] = allSelected
-      ? { allOperations: true, operationIds: new Set() }
-      : { allOperations: false, operationIds };
-  }
-
-  return next;
-}
-
 const TokenCreateForm = React.forwardRef<
   TokenCreateFormHandle,
   TokenCreateFormProps
 >(function TokenCreateForm(
   {
     onCreated,
+    onRevealChange,
     name: nameProp,
     onNameChange,
     defaultName = "",
@@ -342,9 +212,7 @@ const TokenCreateForm = React.forwardRef<
   const [selectedApps, setSelectedApps] = useState<
     Record<string, SelectedAppState>
   >({});
-  const [opsByApp, setOpsByApp] = useState<
-    Record<string, IntegrationOperation[] | "loading" | "error">
-  >({});
+  const [opsByApp, setOpsByApp] = useState<OpsByApp>({});
 
   const invalidateTokens = useInvalidateTokens();
   const integrationsQuery = useIntegrationsQuery({
@@ -427,6 +295,7 @@ const TokenCreateForm = React.forwardRef<
     setError(null);
     if (showPlaintextResult) {
       setPlaintext(null);
+      onRevealChange?.(false);
     }
 
     const scopes = encodeTokenScopes(scopeMode, selections);
@@ -437,6 +306,7 @@ const TokenCreateForm = React.forwardRef<
       if (showPlaintextResult) {
         setPlaintext(result.token);
         setTokenCopied(false);
+        onRevealChange?.(true);
       }
       if (!isNameControlled) {
         setName("");

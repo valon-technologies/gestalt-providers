@@ -1,8 +1,6 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import TokenCreateForm, {
-  SETTINGS_TOKEN_CREATE_TRACK,
-} from "@/components/TokenCreateForm";
+import TokenCreateForm from "@/components/TokenCreateForm";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   PageHeader,
@@ -10,6 +8,7 @@ import {
   PageHeaderDescription,
   PageHeaderTitle,
 } from "@/components/ui/page-header";
+import { SETTINGS_TOKEN_CREATE_TRACK } from "@/features/settings/token-create-layout";
 import {
   SETTINGS_TOKEN_CREATE_CANCEL,
   SETTINGS_TOKEN_CREATE_DESCRIPTION,
@@ -34,8 +33,7 @@ import { SETTINGS_TOKENS_PATH } from "@/lib/managed-identity-paths";
  */
 export default function SettingsTokenCreate() {
   useDocumentTitle(SETTINGS_TOKEN_CREATE_DOCUMENT_TITLE);
-  const [phase, setPhase] = useState<"compose" | "reveal">("compose");
-  const revealed = phase === "reveal";
+  const [revealed, setRevealed] = useState(false);
 
   return (
     <section
@@ -62,9 +60,7 @@ export default function SettingsTokenCreate() {
         appAccessPanelClassName={SETTINGS_TOKEN_CREATE_TRACK.appAccessPanel}
         actionsClassName={SETTINGS_TOKEN_CREATE_TRACK.actions}
         plaintextResultDescription={SETTINGS_TOKEN_PLAINTEXT_DESCRIPTION}
-        onCreated={async () => {
-          setPhase("reveal");
-        }}
+        onRevealChange={setRevealed}
         plaintextResultActions={
           <Button asChild className="w-fit">
             <Link to={SETTINGS_TOKENS_PATH}>{SETTINGS_TOKEN_CREATE_DONE}</Link>
