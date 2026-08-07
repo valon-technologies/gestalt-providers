@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import {
   SETTINGS_TOKEN_CREATE_TITLE,
   SETTINGS_TOKEN_PLAINTEXT_DESCRIPTION,
