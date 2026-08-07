@@ -12,6 +12,7 @@ import { CircleAlert } from "lucide-react";
 import type { Integration } from "@/lib/api";
 import { groupCatalogForBrowse } from "@/lib/catalogBuckets";
 import {
+  catalogFacetChipAriaLabel,
   catalogFacetsToFilterOptions,
   CATALOG_FACETS,
   countCatalogFacets,
@@ -160,9 +161,22 @@ export default function AppsCatalogPageClient() {
   );
   const [flashError, setFlashError] = useState<string | null>(null);
   const deferredQuery = useDeferredValue(query);
+  // Facet counts / visibility own the search universe, not the full catalog —
+  // chips must not overstate apps that search already excluded. Other facets
+  // stay independent (AND axes), so counts ignore active facet selection.
+  const searchScopedIntegrations = useMemo(
+    () =>
+      filterCatalogIntegrations(integrations, {
+        query: deferredQuery,
+        connection: "all",
+        surface: "all",
+        admin: false,
+      }),
+    [integrations, deferredQuery],
+  );
   const facetCounts = useMemo(
-    () => countCatalogFacets(integrations),
-    [integrations],
+    () => countCatalogFacets(searchScopedIntegrations),
+    [searchScopedIntegrations],
   );
   const visibleFacets = useMemo(
     () => CATALOG_FACETS.filter((facet) => facetCounts[facet.id] > 0),
@@ -374,7 +388,7 @@ export default function AppsCatalogPageClient() {
           <PageHeaderContent size="lg">
             <PageHeaderTitle>Apps</PageHeaderTitle>
             <PageHeaderDescription>
-              Browse connected apps by category, or connect a new one. Open a
+              Browse installed apps by category, or connect a new one. Open a
               web app from its card when one is available.
             </PageHeaderDescription>
           </PageHeaderContent>
@@ -402,7 +416,7 @@ export default function AppsCatalogPageClient() {
                 <ChipGroupItem
                   key={facet.id}
                   value={facet.id}
-                  aria-label={`${facet.label}, ${count} apps`}
+                  aria-label={catalogFacetChipAriaLabel(facet.label, count)}
                   data-testid={`apps-catalog-facet-${facet.id}`}
                 >
                   {facet.label}

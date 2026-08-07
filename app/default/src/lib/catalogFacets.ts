@@ -32,6 +32,11 @@ export function isCatalogFacetId(value: string): value is CatalogFacetId {
   return CATALOG_FACET_IDS.has(value);
 }
 
+/**
+ * Count how many apps in `integrations` match each facet axis.
+ * Callers pass the browse universe (e.g. search-scoped catalog); axes stay
+ * independent so AND selection does not shrink sibling chip counts.
+ */
 export function countCatalogFacets(
   integrations: Integration[],
 ): CatalogFacetCounts {
@@ -68,4 +73,13 @@ export function catalogFacetsToFilterOptions(
     surface: active.includes("web_app") ? "has_ui" : "all",
     admin: active.includes("admin"),
   };
+}
+
+/** Accessible name for a facet chip — count agrees with the Badge, pluralized. */
+export function catalogFacetChipAriaLabel(
+  label: string,
+  count: number,
+): string {
+  const unit = count === 1 ? "app" : "apps";
+  return `${label}, ${count} ${unit}`;
 }

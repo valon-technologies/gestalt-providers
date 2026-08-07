@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  catalogFacetChipAriaLabel,
   catalogFacetsToFilterOptions,
   countCatalogFacets,
   pruneActiveCatalogFacets,
@@ -168,5 +169,24 @@ describe("catalogFacets model", () => {
         { web_app: 2, admin: 0, needs_attention: 1 },
       ),
     ).toEqual(["web_app", "needs_attention"]);
+  });
+
+  test("counts reflect a search-narrowed universe", () => {
+    const searchScoped = filterCatalogIntegrations(catalog, {
+      query: "plain",
+      connection: "all",
+      surface: "all",
+      admin: false,
+    });
+    expect(countCatalogFacets(searchScoped)).toEqual({
+      web_app: 1,
+      admin: 0,
+      needs_attention: 0,
+    });
+  });
+
+  test("chip aria-label pluralizes the count unit", () => {
+    expect(catalogFacetChipAriaLabel("Web App", 1)).toBe("Web App, 1 app");
+    expect(catalogFacetChipAriaLabel("Web App", 5)).toBe("Web App, 5 apps");
   });
 });
