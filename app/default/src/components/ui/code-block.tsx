@@ -14,7 +14,8 @@ import {
   CodeFenceShell,
   codeFenceHighlightClass,
   codeFencePreClass,
-  codeLineEmphasisRowClass,
+  codeLineEmphasisRowClassName,
+  codeLineRowBleedClass,
   type CodeFenceShellProps,
 } from "@/components/ui/code-fence";
 import {
@@ -193,6 +194,7 @@ function CodeBody({
     () => new Set(highlightLines ?? []),
     [highlightLines],
   );
+  const lineNoCh = String(Math.max(lines.length, 1)).length;
 
   return (
     <div
@@ -203,38 +205,45 @@ function CodeBody({
       )}
       style={scrollable ? { maxHeight } : undefined}
     >
-      <pre className={codeFencePreClass}>
+      <pre className={cn(codeFencePreClass, "overflow-x-visible")}>
         <code
           className={cn(
             codeFenceHighlightClass,
-            "grid min-w-full text-[length:inherit] leading-[inherit]",
-            showLineNumbers &&
-              "grid-cols-[auto_1fr] gap-x-4 [counter-reset:line]",
+            "block min-w-full",
+            showLineNumbers && "[counter-reset:line]",
           )}
+          style={
+            showLineNumbers
+              ? ({ "--code-line-no-ch": `${lineNoCh}ch` } as React.CSSProperties)
+              : undefined
+          }
         >
           {lines.map((line, index) => {
             const lineNumber = index + 1;
             const isHighlighted = highlighted.has(lineNumber);
             return (
-              <React.Fragment key={lineNumber}>
+              <span
+                key={lineNumber}
+                className={cn(
+                  // One row owns gutter + code. Bleed is on every row so
+                  // gutters stay column-aligned; wash/edge are highlight-only
+                  // (inset shadow — no border box shift).
+                  "flex w-max min-w-full items-baseline",
+                  codeLineRowBleedClass,
+                  isHighlighted && codeLineEmphasisRowClassName,
+                )}
+              >
                 {showLineNumbers ? (
                   <span
                     aria-hidden
                     className={cn(
-                      "select-none text-right text-xs leading-[inherit] text-muted-foreground/55 [counter-increment:line] before:content-[counter(line)]",
+                      "w-[var(--code-line-no-ch)] shrink-0 select-none pr-4 text-right text-xs leading-[inherit] text-muted-foreground/55 tabular-nums [counter-increment:line] before:content-[counter(line)]",
                       isHighlighted && "text-muted-foreground",
                     )}
                   />
                 ) : null}
-                <span
-                  className={cn(
-                    "min-w-0 whitespace-pre",
-                    isHighlighted && codeLineEmphasisRowClass(showLineNumbers),
-                  )}
-                >
-                  {lineRowContent(line)}
-                </span>
-              </React.Fragment>
+                <span className="whitespace-pre">{lineRowContent(line)}</span>
+              </span>
             );
           })}
         </code>

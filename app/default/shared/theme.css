@@ -170,6 +170,8 @@
   /* ── Registry UI extensions ──────────────────────────────────────────── */
   --alpha-dark: var(--foreground);
   --base-white: var(--background);
+  /* Code fence line emphasis — lighter than --accent-highlight so the
+     accent-solid edge reads against the wash. */
   --code-line-emphasis: color-mix(in oklch, var(--accent-wash), var(--accent-highlight));
   --scrollbar-thumb: var(--border);
 
@@ -347,6 +349,8 @@
 
   --alpha-dark: var(--foreground);
   --base-white: var(--background);
+  /* Code fence line emphasis — lighter than --accent-highlight so the
+     accent-solid edge reads against the wash. */
   --code-line-emphasis: color-mix(in oklch, var(--accent-wash), var(--accent-highlight));
   --scrollbar-thumb: var(--border);
 }

@@ -23,4 +23,13 @@ describe("CodeBlock chrome contract", () => {
     );
     expect(SOURCE).not.toContain("flex h-10 items-center justify-between gap-2 px-3");
   });
+
+  test("highlighted lines use full-bleed flex rows with inset accent edge", () => {
+    expect(SOURCE).toContain("codeLineRowBleedClass");
+    expect(SOURCE).toContain("codeLineEmphasisRowClassName");
+    expect(SOURCE).toContain("flex w-max min-w-full items-baseline");
+    expect(SOURCE).toContain("isHighlighted && codeLineEmphasisRowClassName");
+    expect(SOURCE).not.toContain("codeLineEmphasisRowClass(showLineNumbers)");
+    expect(SOURCE).not.toContain("grid-cols-[auto_1fr]");
+  });
 });

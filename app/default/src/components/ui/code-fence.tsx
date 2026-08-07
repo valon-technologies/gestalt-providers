@@ -44,24 +44,32 @@ export const codeFencePreClass =
 export const codeFenceHighlightClass = "typeset-code-hljs";
 
 /** Left edge for a highlighted source line — pairs with --code-line-emphasis wash. */
-export const codeLineEmphasisEdgeClass = "border-l-2 border-accent-vivid";
-
-/** Inset edge for gutter rows — paints the accent stroke without shifting code columns. */
-export const codeLineEmphasisInsetEdgeClass =
-  "shadow-[inset_2px_0_0_0_var(--color-accent-vivid)]";
+export const codeLineEmphasisEdgeClass =
+  "shadow-[inset_2px_0_0_0_var(--color-accent-solid)]";
 
 /** Wash fill for a highlighted source line (`--code-line-emphasis` in theme). */
 export const codeLineEmphasisWashClass = "bg-code-line-emphasis";
 
 /**
- * Highlighted line row inside the pre body. With a line-number gutter, keep the
- * `gap-x-4` lane — do not negative-margin left into the gutter.
+ * Full-bleed horizontal inset shared by every source row (highlighted or not)
+ * so gutters stay column-aligned when a row picks up the emphasis wash.
+ * Matches `codeFencePreClass` `px-4`.
  */
-export function codeLineEmphasisRowClass(showLineNumbers: boolean): string {
-  const wash = codeLineEmphasisWashClass;
-  return showLineNumbers
-    ? `${wash} ${codeLineEmphasisInsetEdgeClass} -mr-4 pr-4`
-    : `${codeLineEmphasisEdgeClass} ${wash} -mx-4 px-4 block`;
+export const codeLineRowBleedClass = "-mx-4 px-4";
+
+/**
+ * Highlighted source row paint only — wash + inset accent edge.
+ * Layout bleed lives on every row via `codeLineRowBleedClass` so a 2px
+ * `border-l` never shifts the gutter relative to siblings.
+ */
+export const codeLineEmphasisRowClassName = cn(
+  codeLineEmphasisEdgeClass,
+  codeLineEmphasisWashClass,
+);
+
+/** @deprecated Use `codeLineEmphasisRowClassName` (+ `codeLineRowBleedClass`). */
+export function codeLineEmphasisRowClass(_showLineNumbers?: boolean): string {
+  return cn(codeLineEmphasisRowClassName, codeLineRowBleedClass);
 }
 
 export type CodeFenceShellProps = React.ComponentProps<"div"> &

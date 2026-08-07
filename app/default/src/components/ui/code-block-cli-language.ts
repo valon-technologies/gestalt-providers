@@ -7,6 +7,11 @@
  * tokens under highlight.js `bash`; this grammar tags the command word, flags,
  * strings, env vars, comments, and line-continuation `\`, using stock `hljs-*`
  * classes so `.typeset-code-hljs` paints them without a second theme.
+ *
+ * Role → class choices mirror TSX roles in that same theme (not a CLI palette):
+ * command → `keyword` (like `import` / `const`), flags → `attr` (like JSX
+ * attrs), strings / vars / comments unchanged. Avoid `built_in` for commands —
+ * that orange is reserved for builtins (`console`) and made CLI look foreign.
  */
 
 type HljsMode = Record<string, unknown>;
@@ -32,7 +37,8 @@ export default function cli(_hljs: unknown): {
 
   const FLAG: HljsMode = {
     className: "attr",
-    begin: /--?[\w-]+/,
+    // Require a token boundary so `us-east-1` / `my-app` are not painted as flags.
+    begin: /(?<=^|\s)--?[\w-]+/,
   };
 
   const CONTINUATION: HljsMode = {
@@ -53,13 +59,15 @@ export default function cli(_hljs: unknown): {
     FLAG,
   ];
 
-  // `$` = end of line in highlight.js lexing; also stop before list operators
-  // so a following command (`| jq`, `&& gestalt`) can start.
-  const LINE_OR_LIST_END = /(?=\s*(?:\|\||&&|[|;&]))|$/;
+  // Stop before shell list operators so `| jq` / `&& gestalt` can start a new
+  // command. Do not treat bare `&` as an operator — that splits `2>&1` and
+  // unquoted query strings mid-argument.
+  const LIST_OPERATOR = /(?:\|\||&&|[|;])/;
+  const LINE_OR_LIST_END = new RegExp(`(?=\\s*${LIST_OPERATOR.source})|$`);
 
   const COMMAND: HljsMode = {
-    className: "built_in",
-    begin: /[^\s\\|;&]+/,
+    className: "keyword",
+    begin: /[^\s\\|;]+/,
     starts: {
       end: LINE_OR_LIST_END,
       contains: ARGS,
@@ -88,7 +96,7 @@ export default function cli(_hljs: unknown): {
         contains: ARGS,
       },
       {
-        begin: /(?:\|\||&&|[|;&])\s*/,
+        begin: new RegExp(`${LIST_OPERATOR.source}\\s*`),
         end: LINE_OR_LIST_END,
         contains: [COMMAND],
       },
