@@ -28,25 +28,8 @@ import {
   type TableOfContentsItem,
 } from "@/components/ui/table-of-contents";
 import { useScrollSpy } from "@/hooks/use-scroll-spy";
+import { usePageLayoutAnchorOffsetPx } from "@/lib/page-layout-anchor-offset";
 import { docsNavItems, getActiveDocsNavItem } from "./docs-data";
-
-/** Fallback before CSS vars resolve — chrome + Menu + gap. */
-const DOCS_TOC_ACTIVATION_OFFSET_FALLBACK = 172;
-
-/**
- * Resolve `--page-layout-anchor-offset` to used pixels. The custom property is a
- * `calc(...)` string; `parseFloat` cannot evaluate it — probe height instead.
- */
-function readPageLayoutAnchorOffsetPx(): number {
-  const probe = document.createElement("div");
-  probe.setAttribute("aria-hidden", "true");
-  probe.style.cssText =
-    "position:absolute;visibility:hidden;pointer-events:none;height:var(--page-layout-anchor-offset)";
-  document.documentElement.appendChild(probe);
-  const px = Number.parseFloat(getComputedStyle(probe).height);
-  probe.remove();
-  return Number.isFinite(px) ? px : DOCS_TOC_ACTIVATION_OFFSET_FALLBACK;
-}
 
 export default function DocsShell({
   children,
@@ -71,25 +54,10 @@ export default function DocsShell({
   }, [activeItem.subsections]);
 
   const scrollRootRef = useRef<HTMLElement | null>(null);
-  const [activationOffset, setActivationOffset] = useState(
-    DOCS_TOC_ACTIVATION_OFFSET_FALLBACK,
-  );
+  const activationOffset = usePageLayoutAnchorOffsetPx();
 
   useLayoutEffect(() => {
     scrollRootRef.current = document.documentElement;
-    const syncOffset = () => setActivationOffset(readPageLayoutAnchorOffsetPx());
-    syncOffset();
-    window.addEventListener("resize", syncOffset);
-    const ro =
-      typeof ResizeObserver !== "undefined"
-        ? new ResizeObserver(syncOffset)
-        : null;
-    const chrome = document.querySelector("[data-slot='app-sticky-chrome']");
-    if (chrome && ro) ro.observe(chrome);
-    return () => {
-      window.removeEventListener("resize", syncOffset);
-      ro?.disconnect();
-    };
   }, []);
 
   const sectionsKey = `${pathname}:${tocItems.map((item) => item.id).join(",")}`;
@@ -151,6 +119,7 @@ export default function DocsShell({
           <PageLayoutPaneMobileNav
             open={mobileNavOpen}
             onOpenChange={setMobileNavOpen}
+            panelLabel="Documentation sections"
           >
             {nav}
           </PageLayoutPaneMobileNav>

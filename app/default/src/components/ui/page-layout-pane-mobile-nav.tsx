@@ -35,6 +35,11 @@ interface PageLayoutPaneMobileNavProps
    * Pass a section name only when the product needs a contextual bar title.
    */
   label?: string;
+  /**
+   * Accessible name for the open panel region. Defaults to `Sections` so it
+   * stays distinct from the Menu trigger label.
+   */
+  panelLabel?: string;
   /** Nav body — normally the same `NavList` as desktop `pane`. */
   children: React.ReactNode;
   /** Controlled open state. Omit for uncontrolled. */
@@ -68,12 +73,56 @@ function useDocumentScrollLock(locked: boolean) {
 }
 
 /**
+ * While the overlay owns the gesture: Esc closes, page columns are `inert`
+ * (focus cannot land under the panel), and focus returns to the Menu trigger.
+ */
+function useOpenOverlayChrome(
+  open: boolean,
+  onClose: () => void,
+  triggerRef: React.RefObject<HTMLButtonElement | null>,
+  panelRef: React.RefObject<HTMLDivElement | null>,
+) {
+  React.useEffect(() => {
+    if (!open) return;
+
+    const columns = document.querySelector(
+      '[data-slot="page-layout-columns"]',
+    );
+    const columnsEl = columns instanceof HTMLElement ? columns : null;
+    const hadInert = columnsEl?.hasAttribute("inert") ?? false;
+    columnsEl?.setAttribute("inert", "");
+
+    const panel = panelRef.current;
+    const firstFocusable = panel?.querySelector<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    (firstFocusable ?? panel)?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      if (columnsEl && !hadInert) {
+        columnsEl.removeAttribute("inert");
+      }
+      triggerRef.current?.focus();
+    };
+  }, [open, onClose, triggerRef, panelRef]);
+}
+
+/**
  * Next.js-docs-style mobile pane: Menu bar + caret → viewport-filling overlay.
  * Sticky is owned by `PageLayout`'s tall `paneMobile` wrapper (same bounce as
  * AppTopBar). Place in `PageLayout`'s `paneMobile` slot.
  */
 function PageLayoutPaneMobileNav({
   label = "Menu",
+  panelLabel = "Sections",
   children,
   open: openProp,
   onOpenChange,
@@ -84,6 +133,9 @@ function PageLayoutPaneMobileNav({
   const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false);
   const isControlled = openProp !== undefined;
   const open = isControlled ? openProp : uncontrolledOpen;
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
+  const panelRef = React.useRef<HTMLDivElement>(null);
+  const panelId = React.useId();
 
   const handleOpenChange = React.useCallback(
     (next: boolean) => {
@@ -95,7 +147,14 @@ function PageLayoutPaneMobileNav({
     [isControlled, onOpenChange],
   );
 
+  const close = React.useCallback(() => {
+    handleOpenChange(false);
+  }, [handleOpenChange]);
+
   useDocumentScrollLock(open);
+  useOpenOverlayChrome(open, close, triggerRef, panelRef);
+
+  const triggerName = ariaLabel ?? label;
 
   return (
     <div
@@ -115,12 +174,14 @@ function PageLayoutPaneMobileNav({
         className="relative w-full"
       >
         <CollapsibleTrigger
+          ref={triggerRef}
           className={cn(
             // In-flow secondary chrome — scrolls/bounces with sticky AppTopBar.
             "group flex h-[length:var(--page-layout-mobile-nav-height,3rem)] w-full items-center border-b border-border bg-background text-sm font-medium",
             "hover:bg-background active:bg-background",
           )}
-          aria-label={ariaLabel ?? label}
+          aria-label={triggerName}
+          aria-controls={open ? panelId : undefined}
         >
           <span
             className={cn(
@@ -135,9 +196,13 @@ function PageLayoutPaneMobileNav({
 
         {open ? (
           <div
+            ref={panelRef}
+            id={panelId}
             role="region"
-            aria-label={ariaLabel ?? label}
-            className="fixed inset-x-0 bottom-0 top-[calc(var(--page-layout-pane-top,0px)+var(--page-layout-mobile-nav-height,3rem))] z-40 bg-background"
+            aria-label={panelLabel}
+            aria-modal="true"
+            tabIndex={-1}
+            className="fixed inset-x-0 bottom-0 top-[calc(var(--page-layout-pane-top,0px)+var(--page-layout-mobile-nav-height,3rem))] z-40 bg-background outline-none"
           >
             <div
               className={cn(

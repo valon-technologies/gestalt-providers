@@ -55,6 +55,20 @@ describe("PageLayoutPaneMobileNav disclosure contract", () => {
     expect(SOURCE).toContain("h-full overflow-y-auto");
   });
 
+  test("closes on Escape, inerts page columns, and restores trigger focus", () => {
+    expect(SOURCE).toContain("useOpenOverlayChrome");
+    expect(SOURCE).toContain('event.key !== "Escape"');
+    expect(SOURCE).toContain('[data-slot="page-layout-columns"]');
+    expect(SOURCE).toContain('setAttribute("inert", "")');
+    expect(SOURCE).toContain("triggerRef.current?.focus()");
+  });
+
+  test("keeps the panel accessible name distinct from the Menu trigger", () => {
+    expect(SOURCE).toContain('panelLabel = "Sections"');
+    expect(SOURCE).toContain("aria-controls={open ? panelId : undefined}");
+    expect(SOURCE).toContain('aria-modal="true"');
+  });
+
   test("supports controlled and uncontrolled open state", () => {
     expect(SOURCE).toContain("open?: boolean");
     expect(SOURCE).toContain("onOpenChange?: (open: boolean) => void");

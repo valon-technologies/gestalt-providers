@@ -104,6 +104,21 @@ describe("PageLayout theme contract", () => {
       "var(--page-layout-pane-gap)",
     );
   });
+
+  test("defines mobile Menu height and a shared anchor clearance token", () => {
+    expect(extractCssTokenValue(GLOBALS_CSS, "--page-layout-mobile-nav-height")).toBe(
+      "3rem",
+    );
+    expect(extractCssTokenValue(GLOBALS_CSS, "--page-layout-anchor-gap")).toBe(
+      "0.75rem",
+    );
+    expect(GLOBALS_CSS).toContain("--page-layout-anchor-offset:");
+    expect(GLOBALS_CSS).toContain("var(--page-layout-mobile-nav-height)");
+    // Desktop drops Menu height from the clearance stack.
+    expect(GLOBALS_CSS).toMatch(
+      /@media\s*\(min-width:\s*1024px\)[\s\S]*--page-layout-anchor-offset:\s*calc\(\s*var\(--page-layout-pane-top\)\s*\+\s*var\(--page-layout-anchor-gap\)/,
+    );
+  });
 });
 
 /**

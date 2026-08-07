@@ -52,6 +52,7 @@ import {
 } from "@/components/ui/alert";
 import { Button as UiButton } from "@/components/ui/button";
 import { useScrollSpy } from "@/hooks/use-scroll-spy";
+import { usePageLayoutAnchorOffsetPx } from "@/lib/page-layout-anchor-offset";
 import { CheckCircleIcon, CloseIcon, SpinnerIcon } from "@/components/icons";
 import Button from "@/components/Button";
 import {
@@ -95,12 +96,6 @@ function needsAttentionAlertCopy(apps: Integration[]): {
 }
 
 const APPS_PATH = appPath("/apps");
-/** Offset below the viewport top for section scroll-spy.
- *  Must sit slightly below `--page-layout-anchor-offset` so a clicked heading
- *  still counts as crossed after `scrollIntoView` parks on the scroll-margin.
- *  Mobile: 6rem + 3rem Menu + 0.75rem gap ≈ 156px → 172. Desktop: 6rem + gap → 124. */
-const CATALOG_TOC_ACTIVATION_OFFSET_MOBILE = 172;
-const CATALOG_TOC_ACTIVATION_OFFSET_DESKTOP = 124;
 
 function CatalogBucketSectionHeader({
   id,
@@ -210,23 +205,7 @@ export default function AppsCatalogPageClient() {
     });
   }, [linkItems]);
 
-  const [tocActivationOffset, setTocActivationOffset] = useState(
-    CATALOG_TOC_ACTIVATION_OFFSET_MOBILE,
-  );
-
-  useEffect(() => {
-    const mq = window.matchMedia("(min-width: 1024px)");
-    const sync = () => {
-      setTocActivationOffset(
-        mq.matches
-          ? CATALOG_TOC_ACTIVATION_OFFSET_DESKTOP
-          : CATALOG_TOC_ACTIVATION_OFFSET_MOBILE,
-      );
-    };
-    sync();
-    mq.addEventListener("change", sync);
-    return () => mq.removeEventListener("change", sync);
-  }, []);
+  const tocActivationOffset = usePageLayoutAnchorOffsetPx();
 
   const { activeId, activate } = useScrollSpy({
     scrollRootRef,
@@ -345,6 +324,7 @@ export default function AppsCatalogPageClient() {
             <PageLayoutPaneMobileNav
               open={mobileNavOpen}
               onOpenChange={setMobileNavOpen}
+              panelLabel="App catalog sections"
             >
               {catalogPane}
             </PageLayoutPaneMobileNav>

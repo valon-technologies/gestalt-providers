@@ -224,7 +224,11 @@ for longer lists prefer `PageLayoutPaneMobileNav`. Compose breadcrumbs in the
 content column below the Menu bar and above the page title. Sticky for the Menu
 bar is owned by `PageLayout`'s tall `page-layout-main` / `pane-mobile` wrapper
 (same sticky model as AppTopBar, so overscroll bounce matches) — do not
-`position: fixed` the closed bar. Host pages with Menu must not put top padding
+`position: fixed` the closed bar. Open overlay owns Esc dismiss, document scroll
+lock, and `inert` on `page-layout-columns` so focus cannot land under the panel.
+Scroll-spy activation offsets must use `usePageLayoutAnchorOffsetPx` from
+`@/lib/page-layout-anchor-offset` (live probe of `--page-layout-anchor-offset`) —
+do not hardcode mobile/desktop px. Host pages with Menu must not put top padding
 on `Container` above the bar. Keep the Menu label column as
 `mx-auto max-w-7xl px-6` (same as `AppTopBarInner`) so the caret aligns with the
 brand. Do not put `overflow-x-*` on `PageLayout`'s `paneMobile` slot. Wrap a
