@@ -354,10 +354,28 @@
       var(--app-sticky-chrome-height) + var(--page-layout-pane-gap)
     );
     --page-layout-pane-bottom: 2rem;
+    /* Mobile Menu bar (PageLayoutPaneMobileNav) — h-12. Sticky under pane-top. */
+    --page-layout-mobile-nav-height: 3rem;
+    /* Gap between sticky Menu / chrome and an in-page scroll target. */
+    --page-layout-anchor-gap: 0.75rem;
+    /* scrollIntoView / scroll-mt clearance under sticky chrome. Mobile includes
+       the Menu bar; lg+ hides paneMobile so only pane-top + gap remain. */
+    --page-layout-anchor-offset: calc(
+      var(--page-layout-pane-top) + var(--page-layout-mobile-nav-height) +
+        var(--page-layout-anchor-gap)
+    );
     /* PageLayout column track widths (page-layout.md). Default and compact tiers
        keep pane and aside at the same rem; `tracks="compact"` sets both to 11rem. */
     --page-layout-pane-width: 13.75rem;
     --page-layout-aside-width: 13.75rem;
+  }
+
+  @media (min-width: 1024px) {
+    :root {
+      --page-layout-anchor-offset: calc(
+        var(--page-layout-pane-top) + var(--page-layout-anchor-gap)
+      );
+    }
   }
 
   html {

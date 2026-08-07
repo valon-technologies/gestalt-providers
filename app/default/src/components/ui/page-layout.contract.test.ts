@@ -104,6 +104,21 @@ describe("PageLayout theme contract", () => {
       "var(--page-layout-pane-gap)",
     );
   });
+
+  test("defines mobile Menu height and a shared anchor clearance token", () => {
+    expect(extractCssTokenValue(GLOBALS_CSS, "--page-layout-mobile-nav-height")).toBe(
+      "3rem",
+    );
+    expect(extractCssTokenValue(GLOBALS_CSS, "--page-layout-anchor-gap")).toBe(
+      "0.75rem",
+    );
+    expect(GLOBALS_CSS).toContain("--page-layout-anchor-offset:");
+    expect(GLOBALS_CSS).toContain("var(--page-layout-mobile-nav-height)");
+    // Desktop drops Menu height from the clearance stack.
+    expect(GLOBALS_CSS).toMatch(
+      /@media\s*\(min-width:\s*1024px\)[\s\S]*--page-layout-anchor-offset:\s*calc\(\s*var\(--page-layout-pane-top\)\s*\+\s*var\(--page-layout-anchor-gap\)/,
+    );
+  });
 });
 
 /**
@@ -133,6 +148,17 @@ describe("PageLayout sticky contract", () => {
     expect(SOURCE).toContain("var(--page-layout-pane-top,0px)");
     expect(SOURCE).toContain("var(--page-layout-pane-bottom,0px)");
     expect(SOURCE).not.toMatch(/\btop-\d/);
+  });
+
+  test("sticks paneMobile inside a tall main that includes the columns", () => {
+    // Sticky fails if the parent is only as tall as the Menu bar. paneMobile +
+    // columns share page-layout-main so sticky outlives the short bar and
+    // rubber-bands with sticky AppTopBar.
+    expect(SOURCE).toContain('data-slot="page-layout-main"');
+    expect(SOURCE).toContain('data-slot="page-layout-pane-mobile"');
+    expect(SOURCE).toContain(
+      "sticky top-[var(--page-layout-pane-top,0px)] z-40",
+    );
   });
 
   test("leaves a spacing band for outward focus rings in scrollable rails", () => {

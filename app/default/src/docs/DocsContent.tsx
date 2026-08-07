@@ -574,7 +574,7 @@ function DocsPageHeader({
   const showEyebrow = eyebrow != null && eyebrow !== title;
 
   return (
-    <PageHeader className="scroll-mt-[var(--page-layout-pane-top)] border-b border-alpha pb-10">
+    <PageHeader className="scroll-mt-[var(--page-layout-anchor-offset)] border-b border-alpha pb-10">
       <PageHeaderContent size="lg">
         {showEyebrow ? <Eyebrow>{eyebrow}</Eyebrow> : null}
         <PageHeaderTitle>{title}</PageHeaderTitle>
@@ -1054,7 +1054,7 @@ function InlineCode({ children }: { children: React.ReactNode }) {
 
 function Subheading({ id, title }: { id?: string; title: string }) {
   return (
-    <SectionHeader className="scroll-mt-[var(--page-layout-pane-top)] pt-2">
+    <SectionHeader className="scroll-mt-[var(--page-layout-anchor-offset)] pt-2">
       <SectionHeaderContent size="sm">
         <SectionHeaderTitle id={id}>{title}</SectionHeaderTitle>
       </SectionHeaderContent>

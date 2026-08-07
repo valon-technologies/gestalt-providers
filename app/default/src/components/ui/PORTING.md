@@ -220,19 +220,40 @@ detail sibling navigation; do not invent custom pager chrome at call sites.
 
 ## PageLayout / NavList
 
-Registry `page-layout` and `nav-list` are vendored here. `PageLayout` owns
-in-page geometry (header band, start Pane, content, end Aside); `NavList` is
-router-agnostic section navigation for rails, sheets, and flyouts. Set
-`--page-layout-pane-top` / `--page-layout-pane-bottom` and track widths
+Registry `page-layout`, `page-layout-pane-mobile-nav`, and `nav-list` are
+vendored here. `PageLayout` owns in-page geometry (header band, start Pane,
+content, end Aside); `PageLayoutPaneMobileNav` is secondary mobile chrome for
+long-list `paneMobile` (sticky Menu bar under AppTopBar → overlay disclosure +
+document scroll lock, Next.js docs pattern); `NavList` is router-agnostic
+section navigation for rails, sheets, and flyouts. Set
+`--page-layout-pane-top` / `--page-layout-pane-bottom` /
+`--page-layout-mobile-nav-height` / `--page-layout-anchor-offset` and track widths
 (`--page-layout-pane-width` / `--page-layout-aside-width`) in `globals.css` next
 to nav-height tokens — do not scatter `sticky top-*` or hand-roll grid tracks per
 page. Console sticky top is `calc(--app-sticky-chrome-height + --page-layout-pane-gap)`
 so rails clear the measured banner+topbar stack with a constant gap. Use
-`tracks="compact"` (11rem for both rails) for dense section rails;
-Settings keeps the default 13.75rem for both. `NavListItem` defaults to outward `focus-ring`;
+`scroll-mt-[var(--page-layout-anchor-offset)]` on in-page anchors so
+`scrollIntoView` clears sticky chrome + the mobile Menu bar (includes
+`--page-layout-anchor-gap` breathing room). Use `tracks="compact"` (11rem for
+both rails) for dense section rails; Settings keeps the default 13.75rem for
+both. `NavListItem` defaults to outward `focus-ring`;
 `PageLayoutPane` / `PageLayoutAside` own scrollport padding so rings stay visible.
 Action rows use `actions` plus
 `nestedInteractiveSuppress.selectableRowSiblingControl` from `@/lib/nested-interactive`.
+For a handful of mobile destinations prefer `SegmentedControl` in `paneMobile`;
+for longer lists prefer `PageLayoutPaneMobileNav`. Compose breadcrumbs in the
+content column below the Menu bar and above the page title. Sticky for the Menu
+bar is owned by `PageLayout`'s tall `page-layout-main` / `pane-mobile` wrapper
+(same sticky model as AppTopBar, so overscroll bounce matches) — do not
+`position: fixed` the closed bar. Open overlay owns Esc dismiss, document scroll
+lock, and `inert` on `page-layout-columns` so focus cannot land under the panel.
+Scroll-spy activation offsets must use `usePageLayoutAnchorOffsetPx` from
+`@/lib/page-layout-anchor-offset` (live probe of `--page-layout-anchor-offset`) —
+do not hardcode mobile/desktop px. Host pages with Menu must not put top padding
+on `Container` above the bar. Keep the Menu label column as
+`mx-auto max-w-7xl px-6` (same as `AppTopBarInner`) so the caret aligns with the
+brand. Do not put `overflow-x-*` on `PageLayout`'s `paneMobile` slot. Wrap a
+scrolling `SegmentedControl` at the call site instead.
 
 ## SearchHighlight
 

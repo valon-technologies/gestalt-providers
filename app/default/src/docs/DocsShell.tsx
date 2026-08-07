@@ -1,36 +1,35 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import Container from "@/components/Container";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 import {
   NavList,
   NavListItem,
   NavListItemLabel,
 } from "@/components/ui/nav-list";
 import { PageLayout } from "@/components/ui/page-layout";
+import { PageLayoutPaneMobileNav } from "@/components/ui/page-layout-pane-mobile-nav";
 import {
   TableOfContents,
   type TableOfContentsItem,
 } from "@/components/ui/table-of-contents";
 import { useScrollSpy } from "@/hooks/use-scroll-spy";
+import { usePageLayoutAnchorOffsetPx } from "@/lib/page-layout-anchor-offset";
 import { docsNavItems, getActiveDocsNavItem } from "./docs-data";
-
-/** Fallback before CSS vars resolve — nav + gap (~65px + 24px). */
-const DOCS_TOC_ACTIVATION_OFFSET_FALLBACK = 112;
-
-/**
- * Resolve `--page-layout-pane-top` to used pixels. The custom property is a
- * `calc(...)` string; `parseFloat` cannot evaluate it — probe height instead.
- */
-function readPageLayoutPaneTopPx(): number {
-  const probe = document.createElement("div");
-  probe.setAttribute("aria-hidden", "true");
-  probe.style.cssText =
-    "position:absolute;visibility:hidden;pointer-events:none;height:var(--page-layout-pane-top)";
-  document.documentElement.appendChild(probe);
-  const px = Number.parseFloat(getComputedStyle(probe).height);
-  probe.remove();
-  return Number.isFinite(px) ? px : DOCS_TOC_ACTIVATION_OFFSET_FALLBACK;
-}
 
 export default function DocsShell({
   children,
@@ -40,6 +39,11 @@ export default function DocsShell({
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const activeItem = getActiveDocsNavItem(pathname);
   const hasOnThisPage = activeItem.subsections.length > 0;
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [pathname]);
 
   const tocItems = useMemo((): TableOfContentsItem[] => {
     return activeItem.subsections.map((subsection) => ({
@@ -50,25 +54,10 @@ export default function DocsShell({
   }, [activeItem.subsections]);
 
   const scrollRootRef = useRef<HTMLElement | null>(null);
-  const [activationOffset, setActivationOffset] = useState(
-    DOCS_TOC_ACTIVATION_OFFSET_FALLBACK,
-  );
+  const activationOffset = usePageLayoutAnchorOffsetPx();
 
   useLayoutEffect(() => {
     scrollRootRef.current = document.documentElement;
-    const syncOffset = () => setActivationOffset(readPageLayoutPaneTopPx());
-    syncOffset();
-    window.addEventListener("resize", syncOffset);
-    const ro =
-      typeof ResizeObserver !== "undefined"
-        ? new ResizeObserver(syncOffset)
-        : null;
-    const chrome = document.querySelector("[data-slot='app-sticky-chrome']");
-    if (chrome && ro) ro.observe(chrome);
-    return () => {
-      window.removeEventListener("resize", syncOffset);
-      ro?.disconnect();
-    };
   }, []);
 
   const sectionsKey = `${pathname}:${tocItems.map((item) => item.id).join(",")}`;
@@ -105,24 +94,35 @@ export default function DocsShell({
     [activate],
   );
 
+  const nav = (
+    <NavList aria-label="Documentation">
+      {docsNavItems.map((item) => (
+        <NavListItem
+          key={item.id}
+          asChild
+          active={item.id === activeItem.id}
+        >
+          <Link to={item.href}>
+            <NavListItemLabel>{item.label}</NavListItemLabel>
+          </Link>
+        </NavListItem>
+      ))}
+    </NavList>
+  );
+
   return (
-    <Container className="py-16">
+    <Container className="pb-16">
       <PageLayout
         tracks="compact"
-        pane={
-          <NavList aria-label="Documentation">
-            {docsNavItems.map((item) => (
-              <NavListItem
-                key={item.id}
-                asChild
-                active={item.id === activeItem.id}
-              >
-                <Link to={item.href}>
-                  <NavListItemLabel>{item.label}</NavListItemLabel>
-                </Link>
-              </NavListItem>
-            ))}
-          </NavList>
+        pane={nav}
+        paneMobile={
+          <PageLayoutPaneMobileNav
+            open={mobileNavOpen}
+            onOpenChange={setMobileNavOpen}
+            panelLabel="Documentation sections"
+          >
+            {nav}
+          </PageLayoutPaneMobileNav>
         }
         // Always pass an Aside so PageLayout keeps the three-track template
         // (pane | content | aside). Omitting it collapses to pane+content and
@@ -140,7 +140,22 @@ export default function DocsShell({
           )
         }
       >
-        <article className="min-w-0">{children}</article>
+        <article className="min-w-0">
+          <Breadcrumb className="mt-6 mb-6">
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink asChild>
+                  <Link to="/docs/getting-started">Docs</Link>
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>{activeItem.label}</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+          {children}
+        </article>
       </PageLayout>
     </Container>
   );

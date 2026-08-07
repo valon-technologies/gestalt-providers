@@ -131,9 +131,11 @@ interface PageLayoutProps
   pane?: React.ReactNode;
   /**
    * Stand-in shown *instead of* `pane` below `lg`, where the rail track collapses.
-   * Supply a `SegmentedControl` for a handful of destinations, or a disclosure /
-   * `Sheet` for a longer list. Omitting it means the navigation is unreachable on
-   * small viewports — acceptable only when the Pane is a pure convenience (a TOC).
+   * Supply a `SegmentedControl` for a handful of destinations, or
+   * `PageLayoutPaneMobileNav` (sticky Menu bar via tall `page-layout-main` →
+   * viewport overlay + scroll lock) for a longer list. Omitting it means the
+   * navigation is unreachable on small viewports — acceptable only when the Pane
+   * is a pure convenience (a TOC).
    */
   paneMobile?: React.ReactNode;
   /** End-side rail content — normally a `TableOfContents`. Hidden below `xl`. */
@@ -182,31 +184,38 @@ function PageLayout({
       >
         {header ? <PageLayoutHeader>{header}</PageLayoutHeader> : null}
 
-        {paneMobile ? (
-          <div
-            data-slot="page-layout-pane-mobile"
-            className="w-full min-w-0 overflow-x-auto lg:hidden"
-          >
-            {paneMobile}
-          </div>
-        ) : null}
-
         {/*
-          One nested grid holds the tracks so the header and footer above/below can
-          span the full width without being grid items of the same template. Source
-          order carries side — there is no `position` prop, so the DOM order a
-          screen reader and a keyboard walk always matches the visual order.
+          paneMobile + columns share one tall parent so a sticky Menu bar can
+          outlive the short bar height (sticky is clipped to its parent). App
+          chrome in `__root` is also sticky — same model, same overscroll bounce.
         */}
-        <div
-          data-slot="page-layout-columns"
-          className={cn(
-            pageLayoutColumnsVariants({ gap }),
-            pageLayoutColumnsTracksClassName({ pane, aside }),
-          )}
-        >
-          {pane ? <PageLayoutPane>{pane}</PageLayoutPane> : null}
-          <PageLayoutContent>{children}</PageLayoutContent>
-          {aside ? <PageLayoutAside>{aside}</PageLayoutAside> : null}
+        <div data-slot="page-layout-main">
+          {paneMobile ? (
+            <div
+              data-slot="page-layout-pane-mobile"
+              className="sticky top-[var(--page-layout-pane-top,0px)] z-40 w-full min-w-0 lg:hidden"
+            >
+              {paneMobile}
+            </div>
+          ) : null}
+
+          {/*
+            One nested grid holds the tracks so the header and footer above/below can
+            span the full width without being grid items of the same template. Source
+            order carries side — there is no `position` prop, so the DOM order a
+            screen reader and a keyboard walk always matches the visual order.
+          */}
+          <div
+            data-slot="page-layout-columns"
+            className={cn(
+              pageLayoutColumnsVariants({ gap }),
+              pageLayoutColumnsTracksClassName({ pane, aside }),
+            )}
+          >
+            {pane ? <PageLayoutPane>{pane}</PageLayoutPane> : null}
+            <PageLayoutContent>{children}</PageLayoutContent>
+            {aside ? <PageLayoutAside>{aside}</PageLayoutAside> : null}
+          </div>
         </div>
 
         {footer ? <PageLayoutFooter>{footer}</PageLayoutFooter> : null}

@@ -77,16 +77,18 @@ export default function SettingsLayout() {
           </NavList>
         }
         paneMobile={
-          <SegmentedControl
-            label="Settings sections"
-            options={SECTION_OPTIONS}
-            value={section}
-            onValueChange={(next) => {
-              void navigate({ to: SECTION_PATHS[next] });
-            }}
-            showLabels
-            size="sm"
-          />
+          <div className="overflow-x-auto p-1">
+            <SegmentedControl
+              label="Settings sections"
+              options={SECTION_OPTIONS}
+              value={section}
+              onValueChange={(next) => {
+                void navigate({ to: SECTION_PATHS[next] });
+              }}
+              showLabels
+              size="sm"
+            />
+          </div>
         }
       >
         <Outlet />

@@ -43,6 +43,7 @@ import {
   NavListItemLabel,
 } from "@/components/ui/nav-list";
 import { PageLayout } from "@/components/ui/page-layout";
+import { PageLayoutPaneMobileNav } from "@/components/ui/page-layout-pane-mobile-nav";
 import {
   Alert,
   AlertActions,
@@ -51,6 +52,7 @@ import {
 } from "@/components/ui/alert";
 import { Button as UiButton } from "@/components/ui/button";
 import { useScrollSpy } from "@/hooks/use-scroll-spy";
+import { usePageLayoutAnchorOffsetPx } from "@/lib/page-layout-anchor-offset";
 import { CheckCircleIcon, CloseIcon, SpinnerIcon } from "@/components/icons";
 import Button from "@/components/Button";
 import {
@@ -94,10 +96,6 @@ function needsAttentionAlertCopy(apps: Integration[]): {
 }
 
 const APPS_PATH = appPath("/apps");
-/** Offset below the viewport top for section scroll-spy + scroll-margin on headings. */
-/** Must sit below `scroll-mt-24` (96px) so a clicked heading still counts as
- *  crossed after `scrollIntoView` parks it on the scroll-margin. */
-const CATALOG_TOC_ACTIVATION_OFFSET = 112;
 
 function CatalogBucketSectionHeader({
   id,
@@ -111,7 +109,10 @@ function CatalogBucketSectionHeader({
   return (
     <SectionHeader>
       <SectionHeaderContent size="lg">
-        <SectionHeaderTitle id={id} className="scroll-mt-24">
+        <SectionHeaderTitle
+          id={id}
+          className="scroll-mt-[var(--page-layout-anchor-offset)]"
+        >
           {title}
         </SectionHeaderTitle>
         {description ? (
@@ -142,6 +143,7 @@ export default function AppsCatalogPageClient() {
         : null;
 
   const [query, setQuery] = useState("");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [connectedNotice, setConnectedNotice] = useState<string | null>(() =>
     connectedParam,
   );
@@ -203,11 +205,13 @@ export default function AppsCatalogPageClient() {
     });
   }, [linkItems]);
 
+  const tocActivationOffset = usePageLayoutAnchorOffsetPx();
+
   const { activeId, activate } = useScrollSpy({
     scrollRootRef,
     getEntries,
     sectionsKey,
-    activationOffset: CATALOG_TOC_ACTIVATION_OFFSET,
+    activationOffset: tocActivationOffset,
     forceLastAtBottom: true,
     enabled: hasCatalogContent && linkItems.length > 0,
     observeWindow: true,
@@ -219,6 +223,7 @@ export default function AppsCatalogPageClient() {
       if (!el) return;
       activate(id);
       el.scrollIntoView({ behavior: "smooth", block: "start" });
+      setMobileNavOpen(false);
     },
     [activate],
   );
@@ -310,29 +315,38 @@ export default function AppsCatalogPageClient() {
     ) : undefined;
 
   return (
-    <Container className="pt-12 pb-24">
+    <Container className="pb-24">
       <PageLayout
         tracks="compact"
-        header={
-          <PageHeader>
-            <PageHeaderContent size="lg">
-              <PageHeaderTitle>Apps</PageHeaderTitle>
-              <PageHeaderDescription>
-                Browse installed apps, then discover more by category. Connect
-                an account, then open an app to manage access.
-              </PageHeaderDescription>
-            </PageHeaderContent>
-            <PageHeaderActions className="w-full max-w-md sm:w-auto">
-              <PluginSearchBar
-                query={query}
-                onQueryChange={setQuery}
-                disabled={loading || !!error || integrations.length === 0}
-              />
-            </PageHeaderActions>
-          </PageHeader>
-        }
         pane={catalogPane}
+        paneMobile={
+          catalogPane ? (
+            <PageLayoutPaneMobileNav
+              open={mobileNavOpen}
+              onOpenChange={setMobileNavOpen}
+              panelLabel="App catalog sections"
+            >
+              {catalogPane}
+            </PageLayoutPaneMobileNav>
+          ) : undefined
+        }
       >
+        <PageHeader className="mt-8 mb-8">
+          <PageHeaderContent size="lg">
+            <PageHeaderTitle>Apps</PageHeaderTitle>
+            <PageHeaderDescription>
+              Browse installed apps, then discover more by category. Connect
+              an account, then open an app to manage access.
+            </PageHeaderDescription>
+          </PageHeaderContent>
+          <PageHeaderActions className="w-full max-w-md sm:w-auto">
+            <PluginSearchBar
+              query={query}
+              onQueryChange={setQuery}
+              disabled={loading || !!error || integrations.length === 0}
+            />
+          </PageHeaderActions>
+        </PageHeader>
         {connectedSuccessLabel ||
         needsAttentionCopy ||
         flashError ? (
