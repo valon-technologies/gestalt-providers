@@ -607,9 +607,10 @@ func TestProviderCheckAccess(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
-		request *CheckAccessRequest
-		allowed bool
+		name             string
+		request          *CheckAccessRequest
+		allowed          bool
+		matchedRelations []string
 	}{
 		{
 			name: "allows subject set reader",
@@ -618,7 +619,8 @@ func TestProviderCheckAccess(t *testing.T) {
 				Action:   &Action{Name: "read"},
 				Resource: &Resource{Type: "repository", Id: "valon-tools"},
 			},
-			allowed: true,
+			allowed:          true,
+			matchedRelations: []string{"reader"},
 		},
 		{
 			name: "allows direct maintainer",
@@ -627,7 +629,8 @@ func TestProviderCheckAccess(t *testing.T) {
 				Action:   &Action{Name: "administer"},
 				Resource: &Resource{Type: "repository", Id: "valon-tools"},
 			},
-			allowed: true,
+			allowed:          true,
+			matchedRelations: []string{"maintainer"},
 		},
 		{
 			name: "allows chained subject set reader",
@@ -636,7 +639,8 @@ func TestProviderCheckAccess(t *testing.T) {
 				Action:   &Action{Name: "read"},
 				Resource: &Resource{Type: "repository", Id: "valon-tools"},
 			},
-			allowed: true,
+			allowed:          true,
+			matchedRelations: []string{"reader"},
 		},
 		{
 			name: "denies missing relationship",
@@ -654,7 +658,8 @@ func TestProviderCheckAccess(t *testing.T) {
 				Action:   &Action{Name: "readMetrics"},
 				Resource: &Resource{Type: "telemetry", Id: "metrics"},
 			},
-			allowed: true,
+			allowed:          true,
+			matchedRelations: []string{"reader"},
 		},
 		{
 			name: "denies unknown action",
@@ -681,7 +686,8 @@ func TestProviderCheckAccess(t *testing.T) {
 				Action:   &Action{Name: "some.arbitrary.operation"},
 				Resource: &Resource{Type: "wildcardApp", Id: "instance"},
 			},
-			allowed: true,
+			allowed:          true,
+			matchedRelations: []string{"viewer"},
 		},
 		{
 			name: "wildcard action grants another operation to default role",
@@ -690,7 +696,8 @@ func TestProviderCheckAccess(t *testing.T) {
 				Action:   &Action{Name: "totally.different.op"},
 				Resource: &Resource{Type: "wildcardApp", Id: "instance"},
 			},
-			allowed: true,
+			allowed:          true,
+			matchedRelations: []string{"viewer"},
 		},
 		{
 			name: "specific action takes precedence over wildcard and denies default role",
@@ -713,6 +720,9 @@ func TestProviderCheckAccess(t *testing.T) {
 			}
 			if resp.ModelId != "model-1" {
 				t.Fatalf("CheckAccess().ModelId = %q, want model-1", resp.ModelId)
+			}
+			if !reflect.DeepEqual(resp.MatchedRelations, tt.matchedRelations) {
+				t.Fatalf("CheckAccess().MatchedRelations = %#v, want %#v", resp.MatchedRelations, tt.matchedRelations)
 			}
 		})
 	}
