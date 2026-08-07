@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { PageLayoutPaneMobileNav } from "@/components/ui/page-layout-pane-mobile-nav";
 import type { AppAdminNavId, AppUserNavId } from "./app-nav";
 import { AppWorkspaceNav } from "./app-workspace-nav";
@@ -11,30 +11,9 @@ type NavItem = {
   to: string;
 };
 
-function activeWorkspaceNavLabel(
-  pathname: string,
-  app: string,
-  userItems: ReadonlyArray<NavItem>,
-  adminItems: ReadonlyArray<NavItem>,
-  adminGroupVisible: boolean,
-): string {
-  const items = [
-    ...userItems,
-    ...(adminGroupVisible ? adminItems : []),
-  ];
-  for (const item of items) {
-    if (item.id === "overview") continue;
-    const path = item.to.replace("$app", app);
-    if (pathname === path || pathname.startsWith(`${path}/`)) {
-      return item.label;
-    }
-  }
-  return items.find((item) => item.id === "overview")?.label ?? "Overview";
-}
-
 /**
  * Mobile stand-in for the app-workspace Pane: same NavList (incl. Admin group)
- * inside PageLayoutPaneMobileNav (menu + label → left Sheet).
+ * inside PageLayoutPaneMobileNav (Menu bar + caret → full-width disclosure).
  */
 export function AppWorkspaceMobileNav({
   app,
@@ -53,18 +32,6 @@ export function AppWorkspaceMobileNav({
   const destinationCount =
     userItems.length + (adminGroupVisible ? adminItems.length : 0);
 
-  const activeLabel = useMemo(
-    () =>
-      activeWorkspaceNavLabel(
-        pathname,
-        app,
-        userItems,
-        adminItems,
-        adminGroupVisible,
-      ),
-    [adminGroupVisible, adminItems, app, pathname, userItems],
-  );
-
   useEffect(() => {
     setOpen(false);
   }, [pathname]);
@@ -73,7 +40,6 @@ export function AppWorkspaceMobileNav({
 
   return (
     <PageLayoutPaneMobileNav
-      label={activeLabel}
       open={open}
       onOpenChange={setOpen}
       data-testid="app-workspace-mobile-nav"

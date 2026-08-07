@@ -95,10 +95,12 @@ function needsAttentionAlertCopy(apps: Integration[]): {
 }
 
 const APPS_PATH = appPath("/apps");
-/** Offset below the viewport top for section scroll-spy + scroll-margin on headings. */
-/** Must sit below `scroll-mt-24` (96px) so a clicked heading still counts as
- *  crossed after `scrollIntoView` parks it on the scroll-margin. */
-const CATALOG_TOC_ACTIVATION_OFFSET = 112;
+/** Offset below the viewport top for section scroll-spy.
+ *  Must sit slightly below `--page-layout-anchor-offset` so a clicked heading
+ *  still counts as crossed after `scrollIntoView` parks on the scroll-margin.
+ *  Mobile: 6rem + 3rem Menu + 0.75rem gap ≈ 156px → 172. Desktop: 6rem + gap → 124. */
+const CATALOG_TOC_ACTIVATION_OFFSET_MOBILE = 172;
+const CATALOG_TOC_ACTIVATION_OFFSET_DESKTOP = 124;
 
 function CatalogBucketSectionHeader({
   id,
@@ -112,7 +114,10 @@ function CatalogBucketSectionHeader({
   return (
     <SectionHeader>
       <SectionHeaderContent size="lg">
-        <SectionHeaderTitle id={id} className="scroll-mt-24">
+        <SectionHeaderTitle
+          id={id}
+          className="scroll-mt-[var(--page-layout-anchor-offset)]"
+        >
           {title}
         </SectionHeaderTitle>
         {description ? (
@@ -205,11 +210,29 @@ export default function AppsCatalogPageClient() {
     });
   }, [linkItems]);
 
+  const [tocActivationOffset, setTocActivationOffset] = useState(
+    CATALOG_TOC_ACTIVATION_OFFSET_MOBILE,
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const sync = () => {
+      setTocActivationOffset(
+        mq.matches
+          ? CATALOG_TOC_ACTIVATION_OFFSET_DESKTOP
+          : CATALOG_TOC_ACTIVATION_OFFSET_MOBILE,
+      );
+    };
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
   const { activeId, activate } = useScrollSpy({
     scrollRootRef,
     getEntries,
     sectionsKey,
-    activationOffset: CATALOG_TOC_ACTIVATION_OFFSET,
+    activationOffset: tocActivationOffset,
     forceLastAtBottom: true,
     enabled: hasCatalogContent && linkItems.length > 0,
     observeWindow: true,
@@ -225,14 +248,6 @@ export default function AppsCatalogPageClient() {
     },
     [activate],
   );
-
-  const catalogActiveLabel = useMemo(() => {
-    return (
-      catalogNavSections.find((section) => section.id === activeId)?.label ??
-      catalogNavSections[0]?.label ??
-      "Sections"
-    );
-  }, [activeId, catalogNavSections]);
 
   useEffect(() => {
     if (!connectedNotice) {
@@ -321,32 +336,13 @@ export default function AppsCatalogPageClient() {
     ) : undefined;
 
   return (
-    <Container className="pt-12 pb-24">
+    <Container className="pb-24">
       <PageLayout
         tracks="compact"
-        header={
-          <PageHeader>
-            <PageHeaderContent size="lg">
-              <PageHeaderTitle>Apps</PageHeaderTitle>
-              <PageHeaderDescription>
-                Browse installed apps, then discover more by category. Connect
-                an account, then open an app to manage access.
-              </PageHeaderDescription>
-            </PageHeaderContent>
-            <PageHeaderActions className="w-full max-w-md sm:w-auto">
-              <PluginSearchBar
-                query={query}
-                onQueryChange={setQuery}
-                disabled={loading || !!error || integrations.length === 0}
-              />
-            </PageHeaderActions>
-          </PageHeader>
-        }
         pane={catalogPane}
         paneMobile={
           catalogPane ? (
             <PageLayoutPaneMobileNav
-              label={catalogActiveLabel}
               open={mobileNavOpen}
               onOpenChange={setMobileNavOpen}
             >
@@ -355,6 +351,22 @@ export default function AppsCatalogPageClient() {
           ) : undefined
         }
       >
+        <PageHeader className="mt-8 mb-8">
+          <PageHeaderContent size="lg">
+            <PageHeaderTitle>Apps</PageHeaderTitle>
+            <PageHeaderDescription>
+              Browse installed apps, then discover more by category. Connect
+              an account, then open an app to manage access.
+            </PageHeaderDescription>
+          </PageHeaderContent>
+          <PageHeaderActions className="w-full max-w-md sm:w-auto">
+            <PluginSearchBar
+              query={query}
+              onQueryChange={setQuery}
+              disabled={loading || !!error || integrations.length === 0}
+            />
+          </PageHeaderActions>
+        </PageHeader>
         {connectedSuccessLabel ||
         needsAttentionCopy ||
         flashError ? (

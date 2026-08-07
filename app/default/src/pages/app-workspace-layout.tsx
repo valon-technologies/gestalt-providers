@@ -256,81 +256,82 @@ export default function AppWorkspaceLayout() {
       !fleetView.ownsActiveRolloutHeadline,
   );
   const workflowTrail = workflowAdminBreadcrumbTrail(pathname, app);
+  const workspaceBreadcrumb = (
+    <Breadcrumb>
+      <BreadcrumbList>
+        <BreadcrumbItem>
+          <BreadcrumbLink asChild>
+            <Link to="/apps">Apps</Link>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator />
+        {workspaceLocation.isOverview ? (
+          <BreadcrumbItem>
+            <BreadcrumbPage>{label}</BreadcrumbPage>
+          </BreadcrumbItem>
+        ) : (
+          <>
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link to="/apps/$app" params={{ app }}>
+                  {label}
+                </Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            {workflowTrail ? (
+              <>
+                <BreadcrumbItem>
+                  <BreadcrumbLink asChild>
+                    <Link
+                      to="/apps/$app/admin/workflows"
+                      params={{ app }}
+                    >
+                      {workspaceLocation.label}
+                    </Link>
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                {workflowTrail.map((segment, index) => {
+                  const isLast = index === workflowTrail.length - 1;
+                  return (
+                    <span key={`${segment.label}-${index}`} className="contents">
+                      <BreadcrumbSeparator />
+                      <BreadcrumbItem>
+                        {isLast || !segment.link ? (
+                          <BreadcrumbPage>{segment.label}</BreadcrumbPage>
+                        ) : (
+                          <BreadcrumbLink asChild>
+                            <Link
+                              to={segment.link.to}
+                              params={segment.link.params}
+                            >
+                              {segment.label}
+                            </Link>
+                          </BreadcrumbLink>
+                        )}
+                      </BreadcrumbItem>
+                    </span>
+                  );
+                })}
+              </>
+            ) : (
+              <BreadcrumbItem>
+                <BreadcrumbPage>
+                  {workspaceLocation.label}
+                </BreadcrumbPage>
+              </BreadcrumbItem>
+            )}
+          </>
+        )}
+      </BreadcrumbList>
+    </Breadcrumb>
+  );
   const content = (
     <AppWorkspaceProvider value={workspaceValue}>
-      <Container className="py-12">
+      <Container className="pb-12">
         {(integration || isAdminPath || isVersionsPath) ? (
           <PageLayout
-            header={
-              <Breadcrumb>
-                <BreadcrumbList>
-                  <BreadcrumbItem>
-                    <BreadcrumbLink asChild>
-                      <Link to="/apps">Apps</Link>
-                    </BreadcrumbLink>
-                  </BreadcrumbItem>
-                  <BreadcrumbSeparator />
-                  {workspaceLocation.isOverview ? (
-                    <BreadcrumbItem>
-                      <BreadcrumbPage>{label}</BreadcrumbPage>
-                    </BreadcrumbItem>
-                  ) : (
-                    <>
-                      <BreadcrumbItem>
-                        <BreadcrumbLink asChild>
-                          <Link to="/apps/$app" params={{ app }}>
-                            {label}
-                          </Link>
-                        </BreadcrumbLink>
-                      </BreadcrumbItem>
-                      <BreadcrumbSeparator />
-                      {workflowTrail ? (
-                        <>
-                          <BreadcrumbItem>
-                            <BreadcrumbLink asChild>
-                              <Link
-                                to="/apps/$app/admin/workflows"
-                                params={{ app }}
-                              >
-                                {workspaceLocation.label}
-                              </Link>
-                            </BreadcrumbLink>
-                          </BreadcrumbItem>
-                          {workflowTrail.map((segment, index) => {
-                            const isLast = index === workflowTrail.length - 1;
-                            return (
-                              <span key={`${segment.label}-${index}`} className="contents">
-                                <BreadcrumbSeparator />
-                                <BreadcrumbItem>
-                                  {isLast || !segment.link ? (
-                                    <BreadcrumbPage>{segment.label}</BreadcrumbPage>
-                                  ) : (
-                                    <BreadcrumbLink asChild>
-                                      <Link
-                                        to={segment.link.to}
-                                        params={segment.link.params}
-                                      >
-                                        {segment.label}
-                                      </Link>
-                                    </BreadcrumbLink>
-                                  )}
-                                </BreadcrumbItem>
-                              </span>
-                            );
-                          })}
-                        </>
-                      ) : (
-                        <BreadcrumbItem>
-                          <BreadcrumbPage>
-                            {workspaceLocation.label}
-                          </BreadcrumbPage>
-                        </BreadcrumbItem>
-                      )}
-                    </>
-                  )}
-                </BreadcrumbList>
-              </Breadcrumb>
-            }
+            tracks="compact"
             pane={
               <AppWorkspaceNav
                 app={app}
@@ -349,7 +350,8 @@ export default function AppWorkspaceLayout() {
               />
             }
           >
-            <div className="space-y-8">
+            <div className="mt-6 space-y-8">
+              {workspaceBreadcrumb}
               <ReplicaHoverExclusiveProvider>
               {showRolloutBanner && registry?.rollout ? (
                 <Alert
@@ -425,7 +427,7 @@ export default function AppWorkspaceLayout() {
             </div>
           </PageLayout>
         ) : (
-          <>
+          <div className="pt-12">
             <div className="mb-6">
               <Breadcrumb>
                 <BreadcrumbList>
@@ -459,7 +461,7 @@ export default function AppWorkspaceLayout() {
                 </p>
               </div>
             ) : null}
-          </>
+          </div>
         )}
       </Container>
     </AppWorkspaceProvider>

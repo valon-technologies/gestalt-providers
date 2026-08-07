@@ -135,6 +135,17 @@ describe("PageLayout sticky contract", () => {
     expect(SOURCE).not.toMatch(/\btop-\d/);
   });
 
+  test("sticks paneMobile inside a tall main that includes the columns", () => {
+    // Sticky fails if the parent is only as tall as the Menu bar. paneMobile +
+    // columns share page-layout-main so sticky outlives the short bar and
+    // rubber-bands with sticky AppTopBar.
+    expect(SOURCE).toContain('data-slot="page-layout-main"');
+    expect(SOURCE).toContain('data-slot="page-layout-pane-mobile"');
+    expect(SOURCE).toContain(
+      "sticky top-[var(--page-layout-pane-top,0px)] z-40",
+    );
+  });
+
   test("leaves a spacing band for outward focus rings in scrollable rails", () => {
     expect(SOURCE).toContain("lg:overflow-y-auto");
     expect(SOURCE).toContain("lg:p-1");
