@@ -1,74 +1,41 @@
-import { managedIdentityLocalId } from "@/lib/managed-identity-paths";
-import { Link as RouterLink } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import {
-  getManagedIdentities,
-  getManagedIdentityGrants,
-  type ManagedIdentity,
-  type ManagedIdentityGrant,
-} from "@/lib/api";
+import { useMemo } from "react";
+import { APIError, isAPIErrorStatus } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
-import { Link } from "@/components/ui/link";
 import {
   PageHeader,
-  PageHeaderActions,
   PageHeaderContent,
   PageHeaderDescription,
   PageHeaderTitle,
 } from "@/components/ui/page-header";
 import { SpinnerIcon } from "@/components/icons";
 import { useAppWorkspace } from "@/features/app-workspace/app-workspace-context";
-
-type AppAccessGrant = {
-  identity: ManagedIdentity;
-  grant: ManagedIdentityGrant;
-};
+import { SummaryStat } from "@/features/app-workspace/app-workspace-shared";
+import { useAppAdminIdentitiesQuery } from "@/lib/queries";
 
 export default function AppAdminAgentIdentitiesPage() {
   const { app } = useAppWorkspace();
-  const [accessGrants, setAccessGrants] = useState<AppAccessGrant[]>([]);
-  const [accessLoading, setAccessLoading] = useState(true);
-  const [accessError, setAccessError] = useState<string | null>(null);
+  const identitiesQuery = useAppAdminIdentitiesQuery(app);
+  const identities = identitiesQuery.data ?? [];
+  const loading = identitiesQuery.isPending;
+  const forbidden =
+    identitiesQuery.isError && isAPIErrorStatus(identitiesQuery.error, 403);
+  const loadError =
+    identitiesQuery.isError && !forbidden
+      ? identitiesQuery.error instanceof APIError
+        ? identitiesQuery.error.message
+        : identitiesQuery.error instanceof Error
+          ? identitiesQuery.error.message
+          : "Failed to load identities"
+      : null;
 
-  useEffect(() => {
-    let active = true;
-    setAccessLoading(true);
-    setAccessError(null);
-
-    getManagedIdentities()
-      .then(async (identities) => {
-        const grants = await Promise.all(
-          identities.map(async (identity) => {
-            try {
-              const identityGrants = await getManagedIdentityGrants(
-                identity.subjectId,
-              );
-              return identityGrants
-                .filter((grant) => grant.plugin === app)
-                .map((grant) => ({ identity, grant }));
-            } catch {
-              return [] as AppAccessGrant[];
-            }
-          }),
-        );
-        if (!active) return;
-        setAccessGrants(grants.flat());
-      })
-      .catch((err) => {
-        if (!active) return;
-        setAccessError(
-          err instanceof Error ? err.message : "Failed to load access",
-        );
-        setAccessGrants([]);
-      })
-      .finally(() => {
-        if (active) setAccessLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [app]);
+  const counts = useMemo(() => {
+    const effective = identities.filter((row) => row.effective !== false).length;
+    const staticCount = identities.filter((row) => row.source === "static").length;
+    const dynamicCount = identities.filter(
+      (row) => row.source === "dynamic",
+    ).length;
+    return { effective, staticCount, dynamicCount };
+  }, [identities]);
 
   return (
     <section aria-label="Agent identities">
@@ -76,61 +43,88 @@ export default function AppAdminAgentIdentitiesPage() {
         <PageHeaderContent size="md">
           <PageHeaderTitle>Agent identities</PageHeaderTitle>
           <PageHeaderDescription>
-            Managed identities with an authorization grant for this app —
-            usually the <code className="font-mono text-xs">runAs</code> subject
-            for schedules.
+            Service accounts with an authorization grant on this app — typically
+            the <code className="font-mono text-xs">runAs</code> subject for
+            schedules and automation. Grants are defined in deployment policy.
           </PageHeaderDescription>
         </PageHeaderContent>
-        <PageHeaderActions>
-          <Link asChild>
-            <RouterLink to="/settings/identities">Manage identities</RouterLink>
-          </Link>
-        </PageHeaderActions>
       </PageHeader>
 
-      {accessLoading ? (
+      {!loading && !forbidden && !loadError ? (
+        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <SummaryStat label="Effective" value={String(counts.effective)} />
+          <SummaryStat label="Static" value={String(counts.staticCount)} />
+          <SummaryStat label="Dynamic" value={String(counts.dynamicCount)} />
+        </div>
+      ) : null}
+
+      {loading ? (
         <p className="mt-5 flex items-center gap-1.5 text-sm text-muted-foreground">
           <SpinnerIcon className="size-4 animate-spin" aria-hidden />
-          Loading access…
+          Loading identities…
         </p>
       ) : null}
 
-      {accessError ? (
-        <p className="mt-5 text-sm text-ember-500">{accessError}</p>
+      {forbidden ? (
+        <p
+          className="mt-5 text-sm text-muted-foreground"
+          data-testid="app-admin-access-denied"
+        >
+          Agent identities require app authorization admin access.
+        </p>
       ) : null}
 
-      {!accessLoading && !accessError && accessGrants.length === 0 ? (
+      {loadError ? (
+        <p className="mt-5 text-sm text-ember-500">{loadError}</p>
+      ) : null}
+
+      {!loading && !forbidden && !loadError && identities.length === 0 ? (
         <p className="mt-5 text-sm text-muted-foreground">
           No agent identities have a grant for this app yet.
         </p>
       ) : null}
 
-      {!accessLoading && accessGrants.length > 0 ? (
-        <ul className="mt-5 divide-y divide-border rounded-lg border border-border">
-          {accessGrants.map(({ identity, grant }) => (
+      {!loading && !forbidden && !loadError && identities.length > 0 ? (
+        <ul
+          className="mt-5 divide-y divide-border rounded-lg border border-border"
+          data-testid="app-agent-identities-list"
+        >
+          {identities.map((identity, index) => (
             <li
-              key={`${identity.subjectId}:${grant.plugin}`}
-              className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+              key={`${identity.subjectId}:${identity.role}:${identity.source}:${index}`}
+              className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="min-w-0">
-                <Link asChild>
-                  <RouterLink
-                    to="/settings/identities/$identityLocalId"
-                    params={{
-                      identityLocalId: managedIdentityLocalId(identity.subjectId),
-                    }}
-                  >
-                    {identity.displayName || identity.subjectId}
-                  </RouterLink>
-                </Link>
+                <p className="truncate text-sm font-medium text-foreground">
+                  {identity.displayName || identity.subjectId}
+                </p>
                 <p className="mt-0.5 font-mono text-xs text-muted-foreground">
                   {identity.subjectId}
                 </p>
+                {identity.effective === false && identity.shadowedBy ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Shadowed by {identity.shadowedBy}
+                  </p>
+                ) : null}
               </div>
-              <Badge variant="secondary" size="sm">
-                {grant.role}
-                {grant.source === "static" ? " · static" : ""}
-              </Badge>
+              <div className="flex flex-wrap gap-1.5">
+                <Badge variant="secondary" size="sm">
+                  {identity.role || "role"}
+                </Badge>
+                <Badge
+                  variant={identity.source === "static" ? "muted" : "outline"}
+                  size="sm"
+                >
+                  {identity.source || "unknown"}
+                  {identity.mutable === false ? " · locked" : ""}
+                </Badge>
+                <Badge
+                  variant={identity.effective !== false ? "success" : "warning"}
+                  size="sm"
+                >
+                  {identity.effective !== false ? "Effective" : "Shadowed"}
+                </Badge>
+              </div>
             </li>
           ))}
         </ul>

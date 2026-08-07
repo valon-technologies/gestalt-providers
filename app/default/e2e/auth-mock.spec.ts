@@ -5,7 +5,6 @@ import {
   mockAuthSession,
   mockAuthSessionUnauthorized,
   mockIntegrations,
-  mockManagedIdentities,
   mockTokens,
 } from "./fixtures";
 import { PERSONAL_IDENTITY_GRANTS_PATH } from "../src/lib/personalGrants";
@@ -32,7 +31,7 @@ test.describe("Authentication", () => {
     });
     await mockAuthSessionUnauthorized(page);
 
-    await page.goto("/identities?id=agent-1#profile", { waitUntil: "networkidle" });
+    await page.goto("/settings/tokens", { waitUntil: "networkidle" });
     await page.waitForFunction(
       () => window.location.pathname === "/api/v1/auth/login",
       null,
@@ -41,7 +40,7 @@ test.describe("Authentication", () => {
     await expect(page).toHaveURL((url) => {
       return (
         url.pathname === "/api/v1/auth/login" &&
-        url.searchParams.get("next") === "/settings/identities/agent-1#profile"
+        url.searchParams.get("next") === "/settings/tokens"
       );
     });
   });
@@ -72,16 +71,13 @@ test.describe("Authentication", () => {
     await expect(page.getByRole("menuitem", { name: /Log out/i })).toHaveCount(0);
 
     await page.goto("/identities");
-    await expect(page).toHaveURL(/\/settings\/identities$/);
-    await expect(
-      page.getByRole("heading", { name: "Managed identities" }),
-    ).toBeVisible();
+    await expect(page).toHaveURL(/\/apps$/);
 
     await page.goto("/identities?id=agent-1");
-    await expect(page).toHaveURL(/\/settings\/identities\/agent-1$/);
-    await expect(page.getByRole("navigation", { name: "breadcrumb" })).toContainText(
-      "Settings",
-    );
+    await expect(page).toHaveURL(/\/apps$/);
+
+    await page.goto("/settings/identities");
+    await expect(page).toHaveURL(/\/apps$/);
   });
 
   test("authenticated user sees apps home", async ({ authenticatedPage }) => {
@@ -89,7 +85,6 @@ test.describe("Authentication", () => {
     await page.route("**/api/v1/auth/info", (route) => {
       route.abort();
     });
-    await mockManagedIdentities(page, []);
     await mockIntegrations(page, [
       { name: "test-svc", displayName: "Test Service" },
     ]);
@@ -134,7 +129,6 @@ test.describe("Authentication", () => {
       provider: "test-sso",
       displayName: "Test SSO",
     });
-    await mockManagedIdentities(page, []);
     await mockIntegrations(page, []);
     await mockTokens(page, []);
     await page.route("**/api/v1/auth/logout", (route) => {
