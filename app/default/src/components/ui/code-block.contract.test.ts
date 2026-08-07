@@ -10,6 +10,7 @@ describe("CodeBlock chrome contract", () => {
   test("exposes header | inset chrome with inset overlay copy", () => {
     expect(SOURCE).toContain('export type CodeBlockChrome = "header" | "inset"');
     expect(SOURCE).toContain('chrome = "header"');
+    expect(SOURCE).toContain("copyLabel?: string");
     expect(SOURCE).toContain('if (inset)');
     expect(SOURCE).toContain('data-slot="code-block-inset"');
     expect(SOURCE).toContain("CodeBlockInsetCopy");

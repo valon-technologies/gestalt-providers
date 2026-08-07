@@ -74,7 +74,12 @@ export function GettingStartedDocsPage() {
       <DocsPageBody>
         <div className="flex flex-col gap-2.5">
           <Eyebrow className="block">Base URL</Eyebrow>
-          <CodeBlock chrome="inset" language="plaintext" code={origin} />
+          <CodeBlock
+            chrome="inset"
+            language="plaintext"
+            code={origin}
+            copyLabel="Copy base URL"
+          />
         </div>
         <Subheading id="install" title="Install" />
         <p className="doc-copy">
@@ -1019,7 +1024,9 @@ function McpClientTabs({ origin }: { origin: string }) {
 }
 
 function useDeploymentOrigin() {
-  const [origin, setOrigin] = useState(FALLBACK_ORIGIN);
+  const [origin, setOrigin] = useState(() =>
+    typeof window === "undefined" ? FALLBACK_ORIGIN : window.location.origin,
+  );
 
   useEffect(() => {
     setOrigin(window.location.origin);

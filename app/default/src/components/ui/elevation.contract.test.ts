@@ -57,6 +57,7 @@ test("segmented-control sliding pill stays flat on canvas", () => {
     join(dirname(fileURLToPath(import.meta.url)), "segmented-control.tsx"),
     "utf8",
   );
-  expect(source).toContain("No shadow — on-canvas sliding pill is flat");
+  expect(source).toContain("elevation.md canvas rule");
+  expect(source).toContain("shadow-[inset_0_0_0_1px_var(--border)]");
   expect(source).not.toMatch(/shadow-sm/);
 });

@@ -491,6 +491,8 @@ export type CodeBlockProps = {
    * `inset` = no header; copy overlays the code body (Vercel-style docs fence).
    */
   chrome?: CodeBlockChrome;
+  /** Idle copy tooltip / aria-label (defaults to "Copy"). */
+  copyLabel?: string;
   showLineNumbers?: boolean;
   scrollable?: boolean;
   maxHeight?: number;
@@ -511,11 +513,18 @@ function isSingleLineCode(code: string): boolean {
  * Use padding-token top/end — never `%` of the wrapper — so classic scrollbars
  * cannot shift the control off the code row (InstallCommand long URLs).
  */
-function CodeBlockInsetCopy({ code }: { code: string }) {
+function CodeBlockInsetCopy({
+  code,
+  copyLabel,
+}: {
+  code: string;
+  copyLabel?: string;
+}) {
   return (
     <div className="absolute end-1.5 top-1.5 z-10">
       <CopyIconButton
         value={() => normalizeCodeNewlines(code)}
+        tooltip={copyLabel}
         className="bg-background/80 text-muted-foreground hover:bg-background hover:text-foreground"
       />
     </div>
@@ -527,6 +536,7 @@ function CodeBlock({
   language = "tsx",
   filename,
   chrome = "header",
+  copyLabel,
   showLineNumbers = false,
   scrollable = false,
   maxHeight = 400,
@@ -558,8 +568,12 @@ function CodeBlock({
   if (inset) {
     return (
       <CodeBlockShell className={className} variant={variant}>
-        <div data-slot="code-block-inset" className="relative">
-          <CodeBlockInsetCopy code={code} />
+        {/*
+          Focus ring on inset copy can paint past the fence edge; keep a hair of
+          room so overflow clip on the shell does not truncate it.
+        */}
+        <div data-slot="code-block-inset" className="relative p-px">
+          <CodeBlockInsetCopy code={code} copyLabel={copyLabel} />
           {body}
         </div>
       </CodeBlockShell>

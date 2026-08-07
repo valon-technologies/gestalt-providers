@@ -17,11 +17,18 @@ import { docsNavItems, getActiveDocsNavItem } from "./docs-data";
 /** Fallback before CSS vars resolve — nav + gap (~65px + 24px). */
 const DOCS_TOC_ACTIVATION_OFFSET_FALLBACK = 112;
 
+/**
+ * Resolve `--page-layout-pane-top` to used pixels. The custom property is a
+ * `calc(...)` string; `parseFloat` cannot evaluate it — probe height instead.
+ */
 function readPageLayoutPaneTopPx(): number {
-  const raw = getComputedStyle(document.documentElement)
-    .getPropertyValue("--page-layout-pane-top")
-    .trim();
-  const px = Number.parseFloat(raw);
+  const probe = document.createElement("div");
+  probe.setAttribute("aria-hidden", "true");
+  probe.style.cssText =
+    "position:absolute;visibility:hidden;pointer-events:none;height:var(--page-layout-pane-top)";
+  document.documentElement.appendChild(probe);
+  const px = Number.parseFloat(getComputedStyle(probe).height);
+  probe.remove();
   return Number.isFinite(px) ? px : DOCS_TOC_ACTIVATION_OFFSET_FALLBACK;
 }
 
