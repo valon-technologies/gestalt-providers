@@ -1,17 +1,37 @@
-import TokenCreateForm from "@/components/TokenCreateForm";
+import { Link } from "@tanstack/react-router";
 import TokenTable from "@/components/TokenTable";
 import { SpinnerIcon } from "@/components/icons";
+import { Button } from "@/components/ui/button";
+import {
+  PageHeader,
+  PageHeaderActions,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
 import {
   SectionHeader,
   SectionHeaderContent,
-  SectionHeaderDescription,
   SectionHeaderTitle,
 } from "@/components/ui/section-header";
-import { useInvalidateTokens, useTokensQuery } from "@/lib/queries";
+import {
+  SETTINGS_TOKENS_ACTIVE_SECTION,
+  SETTINGS_TOKENS_CREATE_CTA,
+  SETTINGS_TOKENS_DOCUMENT_TITLE,
+  SETTINGS_TOKENS_LIST_DESCRIPTION,
+  SETTINGS_TOKENS_LIST_TITLE,
+} from "@/features/settings/tokens-copy";
+import { useDocumentTitle } from "@/hooks/use-document-title";
+import { SETTINGS_TOKENS_NEW_PATH } from "@/lib/managed-identity-paths";
+import { useTokensQuery } from "@/lib/queries";
 
+/**
+ * Settings tokens inventory — list + single CTA into the create route.
+ * Create/mint lives on `/settings/tokens/new` (SettingsTokenCreate).
+ */
 export default function SettingsTokensSection() {
+  useDocumentTitle(SETTINGS_TOKENS_DOCUMENT_TITLE);
   const tokensQuery = useTokensQuery();
-  const invalidateTokens = useInvalidateTokens();
 
   const tokens = tokensQuery.data ?? [];
   const tokensLoading = tokensQuery.isPending;
@@ -21,46 +41,39 @@ export default function SettingsTokensSection() {
       : "Failed to load tokens"
     : null;
 
-  async function refreshTokens() {
-    await invalidateTokens();
-  }
-
   return (
-    <section className="scroll-mt-24 space-y-8" aria-label="Your API tokens">
-      <SectionHeader>
-        <SectionHeaderContent>
-          <SectionHeaderTitle>Your API tokens</SectionHeaderTitle>
-          <SectionHeaderDescription>
-            Create personal tokens for local tooling, scripts, and one-off
-            integrations. These act as you.
-          </SectionHeaderDescription>
-        </SectionHeaderContent>
-      </SectionHeader>
-
-      <div
-        id="authorization"
-        className="rounded-xl border border-border bg-card p-5 text-card-foreground"
-      >
-        <TokenCreateForm
-          controlsClassName="max-w-[50%]"
-          onCreated={async () => {
-            await refreshTokens();
-          }}
-        />
-      </div>
+    <section
+      className="scroll-mt-24 space-y-8"
+      aria-label={SETTINGS_TOKENS_LIST_TITLE}
+    >
+      <PageHeader>
+        <PageHeaderContent size="md">
+          <PageHeaderTitle>{SETTINGS_TOKENS_LIST_TITLE}</PageHeaderTitle>
+          <PageHeaderDescription>
+            {SETTINGS_TOKENS_LIST_DESCRIPTION}
+          </PageHeaderDescription>
+        </PageHeaderContent>
+        <PageHeaderActions>
+          <Button asChild>
+            <Link to={SETTINGS_TOKENS_NEW_PATH}>{SETTINGS_TOKENS_CREATE_CTA}</Link>
+          </Button>
+        </PageHeaderActions>
+      </PageHeader>
 
       {tokensError ? (
         <p className="text-sm text-destructive">{tokensError}</p>
       ) : null}
 
       <div className="space-y-4">
-        <SectionHeader>
-          <SectionHeaderContent size="sm">
-            <SectionHeaderTitle as="h3" size="sm">
-              Active tokens
-            </SectionHeaderTitle>
-          </SectionHeaderContent>
-        </SectionHeader>
+        {!tokensLoading && !tokensError && tokens.length > 0 ? (
+          <SectionHeader>
+            <SectionHeaderContent size="sm">
+              <SectionHeaderTitle as="h2" size="sm">
+                {SETTINGS_TOKENS_ACTIVE_SECTION}
+              </SectionHeaderTitle>
+            </SectionHeaderContent>
+          </SectionHeader>
+        ) : null}
 
         {tokensLoading ? (
           <p className="flex items-center gap-1.5 text-sm text-muted-foreground">

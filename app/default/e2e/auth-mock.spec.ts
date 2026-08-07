@@ -79,9 +79,9 @@ test.describe("Authentication", () => {
 
     await page.goto("/identities?id=agent-1");
     await expect(page).toHaveURL(/\/settings\/identities\/agent-1$/);
-    await expect(
-      page.getByRole("heading", { name: "Settings" }),
-    ).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "breadcrumb" })).toContainText(
+      "Settings",
+    );
   });
 
   test("authenticated user sees apps home", async ({ authenticatedPage }) => {

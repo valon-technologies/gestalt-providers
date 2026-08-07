@@ -33,6 +33,7 @@ import BuildPage, { BuildIndexRedirect } from "@/pages/build";
 import SettingsPage from "@/pages/settings";
 import SettingsIdentitiesList from "@/components/SettingsIdentitiesList";
 import SettingsIdentityDetail from "@/components/SettingsIdentityDetail";
+import SettingsTokenCreate from "@/components/SettingsTokenCreate";
 import SettingsTokensSection from "@/components/SettingsTokensSection";
 import { appBasepath } from "@/lib/mount";
 import {
@@ -279,8 +280,12 @@ const settingsIndexRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/",
   beforeLoad: ({ location }) => {
-    if (location.hash === "#identities") {
+    const hash = location.hash.replace(/^#/, "");
+    if (hash === "identities") {
       throw redirect({ to: "/settings/identities" });
+    }
+    if (hash === "authorization") {
+      throw redirect({ to: "/settings/tokens/new" });
     }
     throw redirect({
       to: "/settings/tokens",
@@ -289,9 +294,21 @@ const settingsIndexRoute = createRoute({
   },
 });
 
+const settingsTokenCreateRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/tokens/new",
+  component: SettingsTokenCreate,
+});
+
 const settingsTokensRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/tokens",
+  beforeLoad: ({ location }) => {
+    const hash = location.hash.replace(/^#/, "");
+    if (hash === "authorization") {
+      throw redirect({ to: "/settings/tokens/new" });
+    }
+  },
   component: SettingsTokensSection,
 });
 
@@ -311,7 +328,7 @@ const authorizationRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/authorization",
   beforeLoad: () => {
-    throw redirect({ to: "/settings/tokens" });
+    throw redirect({ to: "/settings/tokens/new" });
   },
 });
 
@@ -443,6 +460,7 @@ const routeTree = rootRoute.addChildren([
   buildStepRoute,
   settingsRoute.addChildren([
     settingsIndexRoute,
+    settingsTokenCreateRoute,
     settingsTokensRoute,
     settingsIdentitiesRoute,
     settingsIdentityDetailRoute,

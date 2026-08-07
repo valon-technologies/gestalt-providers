@@ -17,11 +17,11 @@ import {
   InputGroupText,
 } from "@/components/ui/input-group";
 import {
-  SectionHeader,
-  SectionHeaderContent,
-  SectionHeaderDescription,
-  SectionHeaderTitle,
-} from "@/components/ui/section-header";
+  PageHeader,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
 import { managedIdentityLocalId } from "@/lib/managed-identity-paths";
 import {
   useAuthInfoQuery,
@@ -44,12 +44,12 @@ function IdentitiesSectionHeader({
   description: string;
 }) {
   return (
-    <SectionHeader>
-      <SectionHeaderContent>
-        <SectionHeaderTitle>Managed identities</SectionHeaderTitle>
-        <SectionHeaderDescription>{description}</SectionHeaderDescription>
-      </SectionHeaderContent>
-    </SectionHeader>
+    <PageHeader>
+      <PageHeaderContent size="md">
+        <PageHeaderTitle>Managed identities</PageHeaderTitle>
+        <PageHeaderDescription>{description}</PageHeaderDescription>
+      </PageHeaderContent>
+    </PageHeader>
   );
 }
 

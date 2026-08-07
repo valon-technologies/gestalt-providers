@@ -101,6 +101,14 @@ export const nestedInteractiveSuppress = {
     "[&_tr:hover:has(a:not([data-row-link]):hover,button:hover,input:hover,select:hover,textarea:hover,[role=button]:hover,[role=checkbox]:hover,[role=combobox]:hover,[data-no-row-click]:hover)]:bg-transparent [&_tr:active:has(a:not([data-row-link]):active,button:active,input:active,select:active,textarea:active,[role=button]:active,[role=checkbox]:active,[role=combobox]:active,[data-no-row-click]:active)]:bg-transparent",
 
   /**
+   * Sticky body cell paints its own opaque fill; restore `bg-card` when a nested
+   * control owns the pointer (same membership as `tableRow`). Scoped to tbody so
+   * header sticky cells (SortHeaderButton) do not flash off `bg-muted`.
+   */
+  tableStickyCell:
+    "[tbody_tr:hover:has(a:not([data-row-link]):hover,button:hover,input:hover,select:hover,textarea:hover,[role=button]:hover,[role=checkbox]:hover,[role=combobox]:hover,[data-no-row-click]:hover)_&]:bg-card [tbody_tr:active:has(a:not([data-row-link]):active,button:active,input:active,select:active,textarea:active,[role=button]:active,[role=checkbox]:active,[role=combobox]:active,[data-no-row-click]:active)_&]:bg-card",
+
+  /**
    * Self-target solid card / secondary rest (`bg-secondary` ≡ `--neutral-hover`).
    */
   solidSecondary:
@@ -129,6 +137,14 @@ export const nestedInteractiveSuppress = {
    */
   selectableRowSiblingControl:
     "[&:hover:has(button:hover,input:hover,select:hover,textarea:hover,[role=button]:hover,[role=checkbox]:hover,[role=combobox]:hover,[data-no-row-click]:hover):not([data-selected]):not([data-soft])]:bg-transparent [&:active:has(button:active,input:active,select:active,textarea:active,[role=button]:active,[role=checkbox]:active,[role=combobox]:active,[data-no-row-click]:active):not([data-selected]):not([data-soft])]:bg-transparent [&:hover:has(button:hover,input:hover,select:hover,textarea:hover,[role=button]:hover,[role=checkbox]:hover,[role=combobox]:hover,[data-no-row-click]:hover):not([data-selected]):not([data-soft])]:text-muted-foreground [&:active:has(button:active,input:active,select:active,textarea:active,[role=button]:active,[role=checkbox]:active,[role=combobox]:active,[data-no-row-click]:active):not([data-selected]):not([data-soft])]:text-muted-foreground [&:hover:has(button:hover,input:hover,select:hover,textarea:hover,[role=button]:hover,[role=checkbox]:hover,[role=combobox]:hover,[data-no-row-click]:hover)[data-selected]]:bg-accent-vivid [&:active:has(button:active,input:active,select:active,textarea:active,[role=button]:active,[role=checkbox]:active,[role=combobox]:active,[data-no-row-click]:active)[data-selected]]:bg-accent-vivid [&:hover:has(button:hover,input:hover,select:hover,textarea:hover,[role=button]:hover,[role=checkbox]:hover,[role=combobox]:hover,[data-no-row-click]:hover)[data-selected]]:text-accent-vivid-foreground [&:active:has(button:active,input:active,select:active,textarea:active,[role=button]:active,[role=checkbox]:active,[role=combobox]:active,[data-no-row-click]:active)[data-selected]]:text-accent-vivid-foreground",
+
+  /**
+   * Tree item label on a `.group` `TreeItem` (`listItemInteraction` css-group).
+   * Restore opaque `bg-background` (indent-guide mask) while a nested control
+   * owns the pointer — expand toggle, checkbox, etc.
+   */
+  treeItemLabel:
+    "[.group:hover:has(a:not([data-row-link]):hover,button:hover,input:hover,select:hover,textarea:hover,[role=button]:hover,[role=checkbox]:hover,[role=combobox]:hover,[data-no-row-click]:hover)_&]:bg-background [.group:active:has(a:not([data-row-link]):active,button:active,input:active,select:active,textarea:active,[role=button]:active,[role=checkbox]:active,[role=combobox]:active,[data-no-row-click]:active)_&]:bg-background",
 } as const;
 
 export type NestedInteractiveSuppressPreset =

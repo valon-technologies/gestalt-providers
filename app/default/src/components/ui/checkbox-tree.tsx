@@ -1,6 +1,14 @@
-
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ *
+ * Local forks vs Registry baseline (preserve on re-vendor):
+ * - `onFolderExpand` for lazy-loaded folder children
+ * - `isItemFolder` treats `children: []` as a folder (empty array OK before load)
+ * - Leaf helpers still treat `children: []` as a selectable bare id until real
+ *   children arrive — Token create bridges that via `token-scope-selection.ts`
+ * - `rebuildTree` when `loaderItems` changes
+ * - auto-expand parents with checked leaves / on toggle-check
+ * - `defaultExpanded` defaults to none (Registry defaults to all roots)
  */
 
 import * as React from "react";
@@ -10,6 +18,10 @@ import { useTree } from "@headless-tree/react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Tree, TreeItem, TreeItemLabel, TREE_INDENT_BY_SIZE, type TreeDensity } from "@/components/ui/tree";
+import {
+  isInteractiveTarget,
+  NESTED_INTERACTIVE_OPT_OUT_ATTR,
+} from "@/lib/nested-interactive";
 import { cn } from "@/lib/cn";
 
 const CHECKBOX_TREE_ROOT_ID = "__checkbox-tree-root__";
@@ -137,6 +149,11 @@ export type CheckboxTreeProps = {
   /** Uncontrolled initial leaf ids. */
   defaultValue?: readonly string[];
   onValueChange?: (value: string[]) => void;
+  /**
+   * Fired the first time a folder id becomes expanded.
+   * Used for lazy-loading children (e.g. app operations).
+   */
+  onFolderExpand?: (folderId: string) => void;
   /** Branch ids expanded on first render. Defaults to none — parents with checked leaves auto-expand. */
   defaultExpanded?: readonly string[];
   /** Per-level indent in px. Defaults from `size` (`TREE_INDENT_BY_SIZE`). */
@@ -164,6 +181,7 @@ const CheckboxTree = React.forwardRef<HTMLDivElement, CheckboxTreeProps>(
       value,
       defaultValue,
       onValueChange,
+      onFolderExpand,
       defaultExpanded,
       indent: indentProp,
       className,
@@ -211,7 +229,9 @@ const CheckboxTree = React.forwardRef<HTMLDivElement, CheckboxTreeProps>(
       indent,
       rootItemId: CHECKBOX_TREE_ROOT_ID,
       getItemName: (item) => item.getItemData().label,
-      isItemFolder: (item) => (item.getItemData()?.children?.length ?? 0) > 0,
+      // Presence of `children` (including `[]`) marks a folder so +/- shows
+      // before lazy-loaded descendants arrive.
+      isItemFolder: (item) => Array.isArray(item.getItemData()?.children),
       dataLoader: {
         getItem: (itemId) => loaderItems[itemId],
         getChildren: (itemId) => loaderItems[itemId]?.children ?? [],
@@ -224,6 +244,18 @@ const CheckboxTree = React.forwardRef<HTMLDivElement, CheckboxTreeProps>(
     React.useLayoutEffect(() => {
       headlessTree.rebuildTree();
     }, [loaderItems, headlessTree]);
+
+    const onFolderExpandRef = React.useRef(onFolderExpand);
+    onFolderExpandRef.current = onFolderExpand;
+    const seenExpandedRef = React.useRef<Set<string>>(new Set());
+    React.useLayoutEffect(() => {
+      const expanded = headlessTree.getState().expandedItems ?? [];
+      for (const id of expanded) {
+        if (seenExpandedRef.current.has(id)) continue;
+        seenExpandedRef.current.add(id);
+        onFolderExpandRef.current?.(id);
+      }
+    });
 
     // Open branches when lazy-loaded children arrive for an already-checked app.
     React.useLayoutEffect(() => {
@@ -290,56 +322,59 @@ const CheckboxTree = React.forwardRef<HTMLDivElement, CheckboxTreeProps>(
           tree={headlessTree}
           toggleIconType="plus-minus"
         >
-          {headlessTree.getItems().map((item) => {
-            const id = item.getId();
-            if (id === CHECKBOX_TREE_ROOT_ID) return null;
+          {headlessTree
+            .getItems()
+            .filter((item) => item.getId() !== CHECKBOX_TREE_ROOT_ID)
+            .map((item) => {
+              const id = item.getId();
+              const data = loaderItems[id]!;
+              const leaves = getCheckboxTreeLeafIdsFromFlat(data, loaderItems);
+              const state = getCheckboxTreeCheckStateFromFlat(
+                data,
+                loaderItems,
+                checkedLeafIds,
+              );
+              const inputId = `${idPrefix}-${id}`;
 
-            const data = loaderItems[id]!;
-            const leaves = getCheckboxTreeLeafIdsFromFlat(data, loaderItems);
-            const state = getCheckboxTreeCheckStateFromFlat(
-              data,
-              loaderItems,
-              checkedLeafIds,
-            );
-            const inputId = `${idPrefix}-${id}`;
-
-            const rowSoft = state === true || state === "indeterminate";
-
-            return (
-              <TreeItem key={id} item={item}>
-                <TreeItemLabel data-soft={rowSoft || undefined}>
-                  <span
-                    className={cn(
-                      "flex min-w-0 items-center",
-                      checkboxTreeRowGap[size],
-                    )}
+              return (
+                <TreeItem key={id} item={item}>
+                  <TreeItemLabel
+                    className="cursor-pointer"
+                    onClick={(event) => {
+                      // Expand toggle / checkbox / label own the hit — row
+                      // chrome elsewhere toggles selection (nested-interactive.md).
+                      if (isInteractiveTarget(event.target)) return;
+                      onToggle(leaves, state !== true);
+                    }}
                   >
-                    <Checkbox
-                      id={inputId}
-                      size={size}
-                      checked={state}
-                      onCheckedChange={(next) =>
-                        onToggle(leaves, next === true)
-                      }
-                      onPointerDown={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                      }}
-                      onClick={(event) => event.stopPropagation()}
-                    />
-                    <Label
-                      htmlFor={inputId}
-                      variant="inline"
-                      className="truncate font-normal"
-                      onPointerDown={(event) => event.stopPropagation()}
+                    <span
+                      {...{ [NESTED_INTERACTIVE_OPT_OUT_ATTR]: "" }}
+                      className={cn(
+                        "flex min-w-0 items-center",
+                        checkboxTreeRowGap[size],
+                      )}
                     >
-                      {item.getItemName()}
-                    </Label>
-                  </span>
-                </TreeItemLabel>
-              </TreeItem>
-            );
-          })}
+                      <Checkbox
+                        id={inputId}
+                        size={size}
+                        checked={state}
+                        onCheckedChange={(next) =>
+                          onToggle(leaves, next === true)
+                        }
+                        onClick={(event) => event.stopPropagation()}
+                      />
+                      <Label
+                        htmlFor={inputId}
+                        variant="inline"
+                        className="truncate font-normal"
+                      >
+                        {item.getItemName()}
+                      </Label>
+                    </span>
+                  </TreeItemLabel>
+                </TreeItem>
+              );
+            })}
         </Tree>
       </div>
     );

@@ -305,13 +305,15 @@ export default function ManagedIdentityDetailView({
   const detailBody = (
     <>
       <div className={embedded ? undefined : "animate-fade-in-up"}>
-        <Link
-          to={listTo}
-          className="text-sm text-muted-foreground hover:text-foreground transition-colors duration-150"
-        >
-          &larr; Back to identities
-        </Link>
-        <PageHeader className="mt-5">
+        {embedded ? null : (
+          <Link
+            to={listTo}
+            className="text-sm text-muted-foreground hover:text-foreground transition-colors duration-150"
+          >
+            &larr; Back to identities
+          </Link>
+        )}
+        <PageHeader className={embedded ? undefined : "mt-5"}>
           <PageHeaderContent size="entity">
             <Eyebrow tone="accent">Managed Identity</Eyebrow>
             <PageHeaderTitle>

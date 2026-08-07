@@ -30,11 +30,12 @@ test.describe("Token Management", () => {
     await page.goto("/settings/tokens");
     await expect(page).toHaveURL(/\/settings/);
     await expect(
-      page.getByRole("heading", { name: "Settings" }),
+      page.getByRole("heading", { name: "Your API tokens" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Your API Tokens" }),
+      page.getByRole("link", { name: "Create token" }),
     ).toBeVisible();
+    await expect(page.getByLabel("Token name")).toHaveCount(0);
     await expect(page.getByText("tok-1")).toBeVisible();
     await expect(page.getByText("tok-2")).toBeVisible();
     await expect(page.getByText("my-app")).toBeVisible();
@@ -48,6 +49,13 @@ test.describe("Token Management", () => {
 
     await page.goto("/settings/tokens");
     await expect(page.getByText("No API tokens yet.")).toBeVisible();
+    await expect(
+      page.getByText(
+        "Create a token for scripts, MCP clients, and other non-interactive tools.",
+      ),
+    ).toBeVisible();
+    // Single CTA path: page header only (empty state is orientation, not a second button).
+    await expect(page.getByRole("link", { name: "Create token" })).toHaveCount(1);
   });
 
   test("creates a scoped token and shows plaintext once", async ({
@@ -70,15 +78,42 @@ test.describe("Token Management", () => {
     });
     await mockIntegrations(page, []);
 
-    await page.goto("/settings/tokens");
+    await page.goto("/settings/tokens/new");
+    await expect(page.getByRole("navigation", { name: "breadcrumb" })).toContainText(
+      "Create token",
+    );
+    await expect(page.getByRole("link", { name: "Cancel" })).toBeVisible();
+
     await page.getByLabel("Token name").fill("audit-label");
     await page.getByRole("radio", { name: /all apps/i }).click();
-    await page.getByRole("button", { name: "Create Token" }).click();
+    await page.getByRole("button", { name: "Create token" }).click();
 
     await expect(page.getByRole("textbox", { name: "API token" })).toHaveValue(
       "gestalt_abc123secret",
     );
+    await expect(
+      page.getByText(/Copy this token now\. We won't show the full value again/),
+    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Token created" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Cancel" })).toHaveCount(0);
+
+    await page.getByRole("link", { name: "Done" }).click();
+    await expect(page).toHaveURL(/\/settings\/tokens$/);
     await expect(page.locator("tr", { hasText: "tok-new" })).toBeVisible();
+  });
+
+  test("cancel returns to the token inventory without creating", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    await mockTokens(page, []);
+    await mockIntegrations(page, []);
+
+    await page.goto("/settings/tokens/new");
+    await page.getByLabel("Token name").fill("abandoned");
+    await page.getByRole("link", { name: "Cancel" }).click();
+    await expect(page).toHaveURL(/\/settings\/tokens$/);
+    await expect(page.getByText("No API tokens yet.")).toBeVisible();
   });
 
   test("keeps the created token visible when stale list requests finish later", async ({
@@ -98,16 +133,24 @@ test.describe("Token Management", () => {
     });
     await mockIntegrations(page, []);
 
+    // Prime the delayed first list request on the inventory page, then create.
     await page.goto("/settings/tokens");
+    await expect(page.getByText("No API tokens yet.")).toBeVisible();
+    await page.getByRole("link", { name: "Create token" }).click();
+    await expect(page).toHaveURL(/\/settings\/tokens\/new$/);
+
     await page.getByLabel("Token name").fill("race-token");
     await page.getByRole("radio", { name: /all apps/i }).click();
-    await page.getByRole("button", { name: "Create Token" }).click();
+    await page.getByRole("button", { name: "Create token" }).click();
 
     await expect(page.getByRole("textbox", { name: "API token" })).toHaveValue(
       "gestalt_race_secret",
     );
+
+    await page.getByRole("link", { name: "Done" }).click();
+    await expect(page).toHaveURL(/\/settings\/tokens$/);
     await expect(page.locator("tr", { hasText: "tok-race" })).toBeVisible();
-    await expect(page.getByText("No API tokens yet.")).toBeHidden();
+    await expect(page.getByText("No API tokens yet.")).toHaveCount(0);
   });
 
   test("revokes a token by grant ID", async ({ authenticatedPage }) => {

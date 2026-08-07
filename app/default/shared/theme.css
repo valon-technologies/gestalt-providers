@@ -62,7 +62,9 @@
   --muted-foreground-soft: color-mix(in oklab, var(--foreground) 40%, transparent);
   /* Structural chrome stays neutral — never derive borders from --brand*. */
   --border: color-mix(in oklab, var(--foreground) 12%, var(--background));
-  --input: var(--border);
+  /* Control border (Checkbox / Radio / Input) — stronger than structural
+   * `--border` so idle rings pop on white (Registry: dedicated --input). */
+  --input: color-mix(in oklab, var(--foreground) 28%, var(--background));
   --ring: var(--brand);
 
   /* ── Accent ladder (semantic brand wash → vivid → solid → strong) ─────── */
@@ -266,7 +268,8 @@
   --muted-foreground-soft: color-mix(in oklab, var(--foreground) 40%, transparent);
   /* Structural chrome stays neutral — never derive borders from --brand*. */
   --border: color-mix(in oklab, var(--foreground) 16%, var(--background));
-  --input: var(--border);
+  /* Control border — stronger than structural `--border` (see light). */
+  --input: color-mix(in oklab, var(--foreground) 36%, var(--background));
   --ring: var(--brand);
 
   --accent: var(--brand-soft);
