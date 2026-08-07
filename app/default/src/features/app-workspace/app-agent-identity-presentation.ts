@@ -18,9 +18,23 @@ export const SERVICE_ACCOUNTS_COPY = {
   empty: "No service accounts have access to this app yet.",
   forbidden: "You need admin access on this app to view this list.",
   loading: "Loading service accounts…",
+  loadErrorFallback:
+    "Couldn’t load service accounts. Check your connection and refresh the page.",
   sectionAriaLabel: "Service accounts",
   listTestId: "app-agent-identities-list",
 } as const;
+
+/** User-facing load error — never surface bare transport text alone. */
+export function serviceAccountsLoadErrorMessage(error: unknown): string {
+  const detail =
+    error instanceof Error && error.message.trim()
+      ? error.message.trim()
+      : null;
+  if (detail) {
+    return `${detail} Try refreshing the page.`;
+  }
+  return SERVICE_ACCOUNTS_COPY.loadErrorFallback;
+}
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "Admin",
@@ -64,12 +78,10 @@ function exceptionFor(
   identity: AppAdminIdentity,
 ): AgentIdentityException | null {
   if (identity.effective !== false) return null;
-  const shadowedBy = identity.shadowedBy?.trim();
+  // Do not echo opaque wire `shadowedBy` prose (e.g. "static viewer grant").
   return {
     label: "Overridden",
-    detail: shadowedBy
-      ? `Not used — ${shadowedBy} takes priority`
-      : "Not used — another grant takes priority",
+    detail: "Not used — another grant takes priority",
   };
 }
 

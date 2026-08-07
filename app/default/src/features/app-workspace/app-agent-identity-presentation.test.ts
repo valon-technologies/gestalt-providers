@@ -89,7 +89,7 @@ describe("toAgentIdentityRowView", () => {
       ).exception,
     ).toEqual({
       label: "Overridden",
-      detail: "Not used — static viewer grant takes priority",
+      detail: "Not used — another grant takes priority",
     });
   });
 
