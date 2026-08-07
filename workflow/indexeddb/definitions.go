@@ -44,10 +44,7 @@ func (p *Provider) ApplyDefinition(ctx context.Context, req *gestalt.ApplyWorkfl
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	runAs := ""
-	if spec.RunAs != nil {
-		runAs = strings.TrimSpace(spec.RunAs.ID)
-	}
+	runAs := strings.TrimSpace(spec.RunAs)
 	for _, activation := range activations {
 		if activation.Event == nil && activation.Schedule == nil {
 			continue

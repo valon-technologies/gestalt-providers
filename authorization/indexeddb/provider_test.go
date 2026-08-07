@@ -540,7 +540,7 @@ func TestProviderCheckAccess(t *testing.T) {
 					{Name: "admin"},
 				},
 				Actions: []*AuthorizationModelAction{
-					{Name: "*", Relations: []string{"viewer"}},
+					{Name: "*", Relations: []string{"viewer", "admin"}},
 					{Name: "adminOnly", Relations: []string{"admin"}},
 				},
 			},
@@ -598,6 +598,30 @@ func TestProviderCheckAccess(t *testing.T) {
 			},
 			SourceLayer: SourceLayerRuntime,
 		},
+		{
+			Tuple: &RelationshipTuple{
+				Target:   &RelationshipTarget{Subject: &Subject{Type: "subject", Id: "user:bob"}},
+				Relation: "reader",
+				Resource: &Resource{Type: "repository", Id: "valon-tools"},
+			},
+			SourceLayer: SourceLayerRuntime,
+		},
+		{
+			Tuple: &RelationshipTuple{
+				Target:   &RelationshipTarget{Subject: &Subject{Type: "subject", Id: "user:erin"}},
+				Relation: "reader",
+				Resource: &Resource{Type: "repository", Id: "other"},
+			},
+			SourceLayer: SourceLayerRuntime,
+		},
+		{
+			Tuple: &RelationshipTuple{
+				Target:   &RelationshipTarget{Subject: &Subject{Type: "subject", Id: "user:frank"}},
+				Relation: "admin",
+				Resource: &Resource{Type: "wildcardApp", Id: "instance"},
+			},
+			SourceLayer: SourceLayerRuntime,
+		},
 	}
 	if _, err := provider.SetAuthorizationState(ctx, &SetAuthorizationStateRequest{
 		Model:         model,
@@ -607,9 +631,10 @@ func TestProviderCheckAccess(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
-		request *CheckAccessRequest
-		allowed bool
+		name             string
+		request          *CheckAccessRequest
+		allowed          bool
+		matchedRelations []string
 	}{
 		{
 			name: "allows subject set reader",
@@ -618,7 +643,8 @@ func TestProviderCheckAccess(t *testing.T) {
 				Action:   &Action{Name: "read"},
 				Resource: &Resource{Type: "repository", Id: "valon-tools"},
 			},
-			allowed: true,
+			allowed:          true,
+			matchedRelations: []string{"reader"},
 		},
 		{
 			name: "allows direct maintainer",
@@ -627,7 +653,18 @@ func TestProviderCheckAccess(t *testing.T) {
 				Action:   &Action{Name: "administer"},
 				Resource: &Resource{Type: "repository", Id: "valon-tools"},
 			},
-			allowed: true,
+			allowed:          true,
+			matchedRelations: []string{"maintainer"},
+		},
+		{
+			name: "returns multiple explicit matches in action order",
+			request: &CheckAccessRequest{
+				Subject:  &Subject{Type: "subject", Id: "user:bob"},
+				Action:   &Action{Name: "read"},
+				Resource: &Resource{Type: "repository", Id: "valon-tools"},
+			},
+			allowed:          true,
+			matchedRelations: []string{"reader", "maintainer"},
 		},
 		{
 			name: "allows chained subject set reader",
@@ -636,7 +673,8 @@ func TestProviderCheckAccess(t *testing.T) {
 				Action:   &Action{Name: "read"},
 				Resource: &Resource{Type: "repository", Id: "valon-tools"},
 			},
-			allowed: true,
+			allowed:          true,
+			matchedRelations: []string{"reader"},
 		},
 		{
 			name: "denies missing relationship",
@@ -648,13 +686,32 @@ func TestProviderCheckAccess(t *testing.T) {
 			allowed: false,
 		},
 		{
+			name: "does not leak a role from another resource",
+			request: &CheckAccessRequest{
+				Subject:  &Subject{Type: "subject", Id: "user:erin"},
+				Action:   &Action{Name: "read"},
+				Resource: &Resource{Type: "repository", Id: "valon-tools"},
+			},
+			allowed: false,
+		},
+		{
+			name: "does not return a relation excluded from the action",
+			request: &CheckAccessRequest{
+				Subject:  &Subject{Type: "subject", Id: "user:alice"},
+				Action:   &Action{Name: "administer"},
+				Resource: &Resource{Type: "repository", Id: "valon-tools"},
+			},
+			allowed: false,
+		},
+		{
 			name: "allows default role resource type without relationship",
 			request: &CheckAccessRequest{
 				Subject:  &Subject{Type: "subject", Id: "user:dana"},
 				Action:   &Action{Name: "readMetrics"},
 				Resource: &Resource{Type: "telemetry", Id: "metrics"},
 			},
-			allowed: true,
+			allowed:          true,
+			matchedRelations: []string{"reader"},
 		},
 		{
 			name: "denies unknown action",
@@ -681,7 +738,8 @@ func TestProviderCheckAccess(t *testing.T) {
 				Action:   &Action{Name: "some.arbitrary.operation"},
 				Resource: &Resource{Type: "wildcardApp", Id: "instance"},
 			},
-			allowed: true,
+			allowed:          true,
+			matchedRelations: []string{"viewer"},
 		},
 		{
 			name: "wildcard action grants another operation to default role",
@@ -690,7 +748,18 @@ func TestProviderCheckAccess(t *testing.T) {
 				Action:   &Action{Name: "totally.different.op"},
 				Resource: &Resource{Type: "wildcardApp", Id: "instance"},
 			},
-			allowed: true,
+			allowed:          true,
+			matchedRelations: []string{"viewer"},
+		},
+		{
+			name: "explicit match suppresses an otherwise allowed default role",
+			request: &CheckAccessRequest{
+				Subject:  &Subject{Type: "subject", Id: "user:frank"},
+				Action:   &Action{Name: "some.arbitrary.operation"},
+				Resource: &Resource{Type: "wildcardApp", Id: "instance"},
+			},
+			allowed:          true,
+			matchedRelations: []string{"admin"},
 		},
 		{
 			name: "specific action takes precedence over wildcard and denies default role",
@@ -714,27 +783,39 @@ func TestProviderCheckAccess(t *testing.T) {
 			if resp.ModelId != "model-1" {
 				t.Fatalf("CheckAccess().ModelId = %q, want model-1", resp.ModelId)
 			}
+			if !reflect.DeepEqual(resp.MatchedRelations, tt.matchedRelations) {
+				t.Fatalf("CheckAccess().MatchedRelations = %#v, want %#v", resp.MatchedRelations, tt.matchedRelations)
+			}
 		})
 	}
 
 	manyResp, err := provider.CheckAccessMany(ctx, &CheckAccessManyRequest{
 		Requests: []*CheckAccessRequest{
 			tests[0].request,
-			tests[3].request,
 			tests[4].request,
-			tests[1].request,
+			tests[7].request,
+			tests[2].request,
 		},
 	})
 	if err != nil {
 		t.Fatalf("CheckAccessMany() error = %v", err)
 	}
 	wantAllowed := []bool{true, false, true, true}
+	wantMatchedRelations := [][]string{{"reader"}, nil, {"reader"}, {"reader", "maintainer"}}
 	if len(manyResp.Decisions) != len(wantAllowed) {
 		t.Fatalf("CheckAccessMany() decisions = %d, want %d", len(manyResp.Decisions), len(wantAllowed))
 	}
 	for i, decision := range manyResp.Decisions {
 		if decision.Allowed != wantAllowed[i] {
 			t.Fatalf("CheckAccessMany().Decisions[%d].Allowed = %v, want %v", i, decision.Allowed, wantAllowed[i])
+		}
+		if !reflect.DeepEqual(decision.MatchedRelations, wantMatchedRelations[i]) {
+			t.Fatalf(
+				"CheckAccessMany().Decisions[%d].MatchedRelations = %#v, want %#v",
+				i,
+				decision.MatchedRelations,
+				wantMatchedRelations[i],
+			)
 		}
 	}
 }

@@ -24,6 +24,7 @@ from mcp import types as mcp_types
 
 import provider as provider_module
 from gestalt import ENV_HOST_SERVICE_SOCKET, ENV_HOST_SERVICE_TOKEN, ProviderKind, _runtime
+from gestalt.migrations import provider_migration_ledger_store
 from gestalt._gen.v1 import agent_pb2 as _agent_pb2
 from gestalt._gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
 from gestalt._gen.v1 import app_pb2 as _app_pb2
@@ -1002,7 +1003,8 @@ class ClaudeProviderTests(unittest.TestCase):
 
         store.initialize()
 
-        data_stores = [name for name in indexeddb.created_stores() if name != "_gestalt_migrations"]
+        migration_store = provider_migration_ledger_store("claude")
+        data_stores = [name for name in indexeddb.created_stores() if name != migration_store]
         self.assertEqual(
             data_stores,
             [

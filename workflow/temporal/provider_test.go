@@ -160,7 +160,7 @@ func TestBackendApplyDefinitionListAndActivationPause(t *testing.T) {
 					Event: &gestalt.WorkflowEventActivation{Match: &gestalt.WorkflowEventMatch{Type: "message.created"}},
 				},
 			},
-			RunAs: &gestalt.Subject{ID: "service-account"},
+			RunAs: "service-account",
 		},
 	})
 	if err != nil {
@@ -214,7 +214,7 @@ func TestBackendStartRunUsesDefinitionSnapshotInputAndVisibility(t *testing.T) {
 		Spec: &gestalt.WorkflowDefinitionSpec{
 			ID:     "definition-1",
 			Target: nativeAppTargetInput("slack", "postMessage"),
-			RunAs:  &gestalt.Subject{ID: "service:slack-post"},
+			RunAs:  "service:slack-post",
 		},
 	})
 	if err != nil {
@@ -278,7 +278,7 @@ func TestBackendStartRunWorkflowKeyRejectsActiveRun(t *testing.T) {
 		Spec: &gestalt.WorkflowDefinitionSpec{
 			ID:     "definition-1",
 			Target: nativeAppTargetInput("slack", "postMessage"),
-			RunAs:  &gestalt.Subject{ID: "service:slack-post"},
+			RunAs:  "service:slack-post",
 		},
 	})
 	if err != nil {
@@ -321,7 +321,7 @@ func TestBackendSignalOrStartUsesWorkflowKeyTemporalID(t *testing.T) {
 		Spec: &gestalt.WorkflowDefinitionSpec{
 			ID:     "definition-1",
 			Target: nativeAppTargetInput("slack", "postMessage"),
-			RunAs:  &gestalt.Subject{ID: "service:slack-post"},
+			RunAs:  "service:slack-post",
 		},
 	})
 	if err != nil {
@@ -379,7 +379,7 @@ func TestBackendDeliverEventStartsMatchingActivation(t *testing.T) {
 		Spec: &gestalt.WorkflowDefinitionSpec{
 			ID:     "definition-1",
 			Target: nativeAppTargetInput("slack", "postMessage"),
-			RunAs:  &gestalt.Subject{ID: "service:slack-events"},
+			RunAs:  "service:slack-events",
 			Activations: []gestalt.WorkflowActivation{{
 				ID:    "message-created",
 				Input: gestalt.WorkflowValue{Object: map[string]gestalt.WorkflowValue{"channel": {Signal: "data.channel"}}},
@@ -393,7 +393,7 @@ func TestBackendDeliverEventStartsMatchingActivation(t *testing.T) {
 		Spec: &gestalt.WorkflowDefinitionSpec{
 			ID:     "definition-2",
 			Target: nativeAppTargetInput("github", "createIssue"),
-			RunAs:  &gestalt.Subject{ID: "service:github-events"},
+			RunAs:  "service:github-events",
 			Activations: []gestalt.WorkflowActivation{{
 				ID:    "issue-created",
 				Event: &gestalt.WorkflowEventActivation{Match: &gestalt.WorkflowEventMatch{Type: "issue.created", Source: "github"}},

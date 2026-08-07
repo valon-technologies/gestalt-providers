@@ -98,12 +98,8 @@ func evaluateAccess(snapshot *authorizationSnapshot, req *CheckAccessRequest) (*
 	if len(allowedRelations) == 0 {
 		return &CheckAccessResponse{Allowed: false, ModelId: modelID}, nil
 	}
-	if defaultRole := strings.TrimSpace(resourceType.DefaultRole); defaultRole != "" {
-		if _, ok := allowedRelations[defaultRole]; ok {
-			return &CheckAccessResponse{Allowed: true, ModelId: modelID}, nil
-		}
-	}
 
+	matchedRelations := make(map[string]struct{})
 	for _, relationship := range snapshot.relationships {
 		if relationship == nil || relationship.Tuple == nil {
 			continue
@@ -115,7 +111,23 @@ func evaluateAccess(snapshot *authorizationSnapshot, req *CheckAccessRequest) (*
 			continue
 		}
 		if relationshipTargetMatchesSubject(subject, relationship.Tuple.Target, snapshot.relationships, make(map[string]struct{})) {
-			return &CheckAccessResponse{Allowed: true, ModelId: modelID}, nil
+			matchedRelations[relationship.Tuple.Relation] = struct{}{}
+		}
+	}
+	if len(matchedRelations) > 0 {
+		return &CheckAccessResponse{
+			Allowed:          true,
+			ModelId:          modelID,
+			MatchedRelations: orderedRelations(modelAction, matchedRelations),
+		}, nil
+	}
+	if defaultRole := strings.TrimSpace(resourceType.DefaultRole); defaultRole != "" {
+		if _, ok := allowedRelations[defaultRole]; ok {
+			return &CheckAccessResponse{
+				Allowed:          true,
+				ModelId:          modelID,
+				MatchedRelations: []string{defaultRole},
+			}, nil
 		}
 	}
 
@@ -184,6 +196,23 @@ func modelActionAllowedRelations(action *AuthorizationModelAction) map[string]st
 			continue
 		}
 		relations[relation] = struct{}{}
+	}
+	return relations
+}
+
+func orderedRelations(action *AuthorizationModelAction, included map[string]struct{}) []string {
+	relations := make([]string, 0, len(included))
+	seen := make(map[string]struct{}, len(included))
+	for _, relation := range action.Relations {
+		relation = strings.TrimSpace(relation)
+		if _, ok := included[relation]; !ok {
+			continue
+		}
+		if _, ok := seen[relation]; ok {
+			continue
+		}
+		seen[relation] = struct{}{}
+		relations = append(relations, relation)
 	}
 	return relations
 }
