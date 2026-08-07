@@ -3,12 +3,13 @@
  */
 
 import * as React from "react";
-import { MenuIcon } from "lucide-react";
+import { MenuIcon, XIcon } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
+  SheetClose,
   SheetContent,
   SheetDescription,
   SheetHeader,
@@ -100,13 +101,30 @@ function PageLayoutPaneMobileNav({
         </span>
         <SheetContent
           side="left"
+          showCloseButton={false}
           className="flex w-[min(100%,18rem)] flex-col gap-0 p-0 sm:max-w-xs"
         >
-          <SheetHeader className="border-b border-border px-4 py-3">
-            <SheetTitle>{sheetTitle}</SheetTitle>
+          {/*
+            Titled bar owns title + dismiss. Sheet's default absolute close
+            (top-4/right-4) is Dialog geometry and fights this header's py-3
+            inset — one chrome row keeps top/bottom/right equal.
+          */}
+          <SheetHeader className="flex-row items-center justify-between gap-2 space-y-0 border-b border-border p-3">
+            <SheetTitle className="min-w-0 truncate">{sheetTitle}</SheetTitle>
             <SheetDescription className="sr-only">
               Section navigation for this page.
             </SheetDescription>
+            <SheetClose asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="shrink-0"
+                aria-label="Close"
+              >
+                <XIcon />
+              </Button>
+            </SheetClose>
           </SheetHeader>
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
             {children}
