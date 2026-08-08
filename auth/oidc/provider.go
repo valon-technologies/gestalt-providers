@@ -786,6 +786,13 @@ func (p *Provider) FederatedLogoutURL(returnTo string) (string, error) {
 	if issuer == "" || clientID == "" {
 		return "", fmt.Errorf("oidc auth: federated logout is not configured")
 	}
+	issuerParsed, err := url.Parse(issuer)
+	if err != nil || issuerParsed.Scheme == "" || issuerParsed.Host == "" {
+		return "", fmt.Errorf("oidc auth: invalid issuer url")
+	}
+	if !strings.HasSuffix(strings.ToLower(issuerParsed.Hostname()), ".auth0.com") {
+		return "", fmt.Errorf("oidc auth: federated logout is not supported for issuer")
+	}
 	parsed, err := url.Parse(issuer + "/v2/logout")
 	if err != nil {
 		return "", fmt.Errorf("oidc auth: build logout url: %w", err)

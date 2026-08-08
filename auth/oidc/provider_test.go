@@ -1339,3 +1339,17 @@ func TestFederatedLogoutURL(t *testing.T) {
 		t.Fatalf("FederatedLogoutURL() = %q, want %q", got, want)
 	}
 }
+
+func TestFederatedLogoutURLRejectsNonAuth0Issuer(t *testing.T) {
+	for _, issuer := range []string{
+		"https://login.example.com/",
+		"https://tenant.auth0.com.example.com/",
+		"not-a-url",
+	} {
+		p := New()
+		p.cfg = config{IssuerURL: issuer, ClientID: "client-id"}
+		if _, err := p.FederatedLogoutURL("https://valon.tools/"); err == nil {
+			t.Errorf("FederatedLogoutURL() with issuer %q error = nil, want unsupported issuer error", issuer)
+		}
+	}
+}
