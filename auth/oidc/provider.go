@@ -41,6 +41,7 @@ const (
 )
 
 type discoveryDocument struct {
+	Issuer                string `json:"issuer"`
 	AuthorizationEndpoint string `json:"authorization_endpoint"`
 	TokenEndpoint         string `json:"token_endpoint"`
 	UserinfoEndpoint      string `json:"userinfo_endpoint"`
@@ -143,6 +144,9 @@ func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) 
 		return err
 	}
 	p.cfg = cfg
+	if issuer := strings.TrimSpace(doc.Issuer); issuer != "" {
+		p.cfg.IssuerURL = issuer
+	}
 	p.doc = doc
 	binding := strings.TrimSpace(cfg.IndexedDB)
 	if binding == "" {
@@ -767,6 +771,37 @@ func (p *Provider) currentTime() time.Time {
 		return p.now()
 	}
 	return time.Now()
+}
+
+// FederatedLogoutURL builds an Auth0 /v2/logout URL that clears the upstream SSO
+// session. returnTo must be an absolute URL allowed in the Auth0 application
+// logout allowlist.
+func (p *Provider) FederatedLogoutURL(returnTo string) (string, error) {
+	returnTo = strings.TrimSpace(returnTo)
+	if returnTo == "" {
+		return "", fmt.Errorf("oidc auth: returnTo is required")
+	}
+	issuer := strings.TrimRight(strings.TrimSpace(p.cfg.IssuerURL), "/")
+	clientID := strings.TrimSpace(p.cfg.ClientID)
+	if issuer == "" || clientID == "" {
+		return "", fmt.Errorf("oidc auth: federated logout is not configured")
+	}
+	issuerParsed, err := url.Parse(issuer)
+	if err != nil || issuerParsed.Scheme == "" || issuerParsed.Host == "" {
+		return "", fmt.Errorf("oidc auth: invalid issuer url")
+	}
+	if !strings.HasSuffix(strings.ToLower(issuerParsed.Hostname()), ".auth0.com") {
+		return "", fmt.Errorf("oidc auth: federated logout is not supported for issuer")
+	}
+	parsed, err := url.Parse(issuer + "/v2/logout")
+	if err != nil {
+		return "", fmt.Errorf("oidc auth: build logout url: %w", err)
+	}
+	query := parsed.Query()
+	query.Set("client_id", clientID)
+	query.Set("returnTo", returnTo)
+	parsed.RawQuery = query.Encode()
+	return parsed.String(), nil
 }
 
 var _ gestalt.IdentityProvider = (*Provider)(nil)
