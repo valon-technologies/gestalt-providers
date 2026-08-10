@@ -409,6 +409,9 @@ func (b *temporalBackend) countWorkflowsByStatus(ctx context.Context, req *gesta
 	base := &gestalt.ListWorkflowProviderRunsRequest{}
 	if req != nil {
 		base.TargetApp = req.TargetApp
+		// Preserve KnownApps so histogram ownership matches list/total filters
+		// once visibility can express definition-owner disambiguation.
+		base.KnownApps = append([]string(nil), req.KnownApps...)
 	}
 	type statusCount struct {
 		status gestalt.WorkflowRunStatus
