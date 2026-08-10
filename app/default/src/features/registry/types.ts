@@ -60,6 +60,10 @@ export type AppAdminPublishedVersion = {
   sourceRef?: string;
   sourceUrl?: string;
   publication?: AppAdminPublication;
+  /** Retention lifecycle: desired | redeployable | locked | available | expired. */
+  deploymentState?: string;
+  deployableUntil?: string;
+  current?: boolean;
 };
 
 export type AppAdminPendingVersion = {
@@ -123,6 +127,7 @@ export type AppAdminFleetReplica = {
   appState: string;
   runningVersion?: string;
   observedDesiredVersion?: string;
+  observedAt?: string;
   lastError?: string;
   class: AppAdminFleetReplicaClass;
 };

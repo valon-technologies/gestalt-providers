@@ -1287,26 +1287,8 @@ function tokenAddedOnLabel(createdAt: string): string {
   return `Added on ${formatted}`;
 }
 
-function tokenLastUsedLabel(lastUsedAt?: string): string | null {
-  if (!lastUsedAt) return null;
-  const used = new Date(lastUsedAt);
-  if (Number.isNaN(used.getTime())) return null;
-  const elapsed = Date.now() - used.getTime();
-  const weekMs = 7 * 24 * 60 * 60 * 1000;
-  if (elapsed < weekMs) return "Last used within the last week";
-  const monthMs = 30 * 24 * 60 * 60 * 1000;
-  if (elapsed < monthMs) return "Last used within the last month";
-  const formatted = used.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-  return `Last used on ${formatted}`;
-}
-
 function tokenRecencyMs(token: APIToken): number {
-  const stamp = token.lastUsedAt ?? token.createdAt;
-  const ms = Date.parse(stamp);
+  const ms = Date.parse(token.createdAt);
   return Number.isFinite(ms) ? ms : 0;
 }
 
@@ -1320,7 +1302,6 @@ const BUILD_MORE_TOKENS_ACCORDION_VALUE = "more-tokens";
 function ExistingTokenRadioRow({ token }: { token: APIToken }) {
   const inputId = `build-token-${token.id}`;
   const created = token.createdAt ? tokenAddedOnLabel(token.createdAt) : null;
-  const lastUsed = tokenLastUsedLabel(token.lastUsedAt);
 
   return (
     <label
@@ -1342,9 +1323,6 @@ function ExistingTokenRadioRow({ token }: { token: APIToken }) {
         </span>
         {created ? (
           <span className="block text-xs text-muted-foreground">{created}</span>
-        ) : null}
-        {lastUsed ? (
-          <span className="block text-xs text-muted-foreground">{lastUsed}</span>
         ) : null}
       </span>
     </label>

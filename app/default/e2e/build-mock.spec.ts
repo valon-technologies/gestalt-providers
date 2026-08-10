@@ -397,7 +397,7 @@ test.describe("Build page", () => {
     await mockTokens(page, [
       {
         ...defaultToken,
-        lastUsedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+        createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
       },
     ]);
     await page.addInitScript(() => {
