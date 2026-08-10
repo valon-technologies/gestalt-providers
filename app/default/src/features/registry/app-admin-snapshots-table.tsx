@@ -23,6 +23,11 @@ import {
   TableStatusIndicator,
 } from "@/components/ui/table-status-indicator";
 import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -66,6 +71,10 @@ import {
   shortInstanceId,
   type FleetReplicasForSnapshotTable,
 } from "@/features/registry/fleet-replicas";
+import {
+  publishedVersionRetentionSubline,
+  resolvePublishedVersionRetention,
+} from "@/features/registry/version-deployment";
 import type {
   AppAdminFleetReplica,
   AppAdminPublication,
@@ -82,6 +91,52 @@ const PUBLISH_DURATION_CLASS =
 
 /** Registry DataTable row actions use outline — bordered + page background, not secondary (secondary === neutral-hover in theme). */
 const TABLE_ROW_ACTION_BUTTON_VARIANT = "outline" as const;
+
+function PublishedRetentionLabel({
+  published,
+  className,
+}: {
+  published: {
+    deploymentState?: string;
+    deployableUntil?: string;
+  };
+  className?: string;
+}) {
+  const retention = resolvePublishedVersionRetention(published);
+  const label = retention.subline;
+  if (!label) return null;
+  const detail = retention.hoverDetail;
+  if (!detail) {
+    return (
+      <span className={className}>
+        <SearchHighlight text={label} />
+      </span>
+    );
+  }
+  const accessibleName = `${label}. Show retention details`;
+  return (
+    <HoverCard>
+      <HoverCardTrigger asChild>
+        <button
+          type="button"
+          data-no-row-click
+          data-testid="version-retention-label"
+          aria-label={accessibleName}
+          className={
+            className
+              ? `${className} cursor-pointer underline decoration-dotted underline-offset-2 focus-ring rounded-sm outline-none`
+              : "cursor-pointer underline decoration-dotted underline-offset-2 focus-ring rounded-sm outline-none"
+          }
+        >
+          <SearchHighlight text={label} />
+        </button>
+      </HoverCardTrigger>
+      <HoverCardContent align="start" className="w-auto max-w-xs p-3 text-xs">
+        {detail}
+      </HoverCardContent>
+    </HoverCard>
+  );
+}
 
 const columnHelper = createColumnHelper<AppAdminSnapshotRow>();
 
@@ -112,6 +167,10 @@ function snapshotRowSearchText(
       ? rolloutProgressSubline(registry.rollout)
       : null;
   const lastUpdated = snapshotLastUpdatedLabel(row);
+  const retention =
+    row.kind === "published"
+      ? publishedVersionRetentionSubline(row.published)
+      : null;
   const replicaSearch = (replicasForRow ?? []).flatMap((replica) => [
     shortInstanceId(replica.instanceId),
     replica.instanceId,
@@ -123,6 +182,7 @@ function snapshotRowSearchText(
     status.label,
     isDeployedVersion ? status.label : null,
     rolloutPhase,
+    retention,
     pullRequest?.number ? `PR #${pullRequest.number}` : null,
     pullRequest?.title,
     publication?.workflowRunUrl ? "View workflow run" : null,
@@ -490,6 +550,11 @@ const SnapshotStatusCell = memo(function SnapshotStatusCell({
       ? rolloutProgressSubline(rollout, liveNow)
       : null;
   const isReadyToDeploy = statusId === "ready_to_deploy";
+  const retentionPublished =
+    row.kind === "published" ? row.published : null;
+  const retentionSubline = retentionPublished
+    ? publishedVersionRetentionSubline(retentionPublished)
+    : null;
   const showTimerBelowBadge =
     Boolean(statusTimer) &&
     row.kind !== "pending" &&
@@ -497,7 +562,7 @@ const SnapshotStatusCell = memo(function SnapshotStatusCell({
     !isDeployedVersion;
 
   if (isReadyToDeploy) {
-    if (!statusTimer) {
+    if (!retentionSubline && !statusTimer) {
       return (
         <DataTableRegistryPrimaryLine>
           <span className="text-muted-foreground">—</span>
@@ -506,14 +571,33 @@ const SnapshotStatusCell = memo(function SnapshotStatusCell({
     }
 
     return (
-      <DataTableRegistryPrimaryLine className="min-h-0 text-xs leading-4 text-muted-foreground">
-        <SearchHighlight text={statusTimer} />
-      </DataTableRegistryPrimaryLine>
+      <DataTableRegistryCell
+        className={retentionSubline && statusTimer ? "gap-1" : undefined}
+      >
+        <DataTableRegistryPrimaryLine className="min-h-0 text-xs leading-4 text-muted-foreground">
+          {retentionPublished && retentionSubline ? (
+            <PublishedRetentionLabel published={retentionPublished} />
+          ) : statusTimer ? (
+            <SearchHighlight text={statusTimer} />
+          ) : null}
+        </DataTableRegistryPrimaryLine>
+        {retentionSubline && statusTimer ? (
+          <DataTableRegistrySecondaryLine>
+            <SearchHighlight text={statusTimer} />
+          </DataTableRegistrySecondaryLine>
+        ) : null}
+      </DataTableRegistryCell>
     );
   }
 
   return (
-    <DataTableRegistryCell className={showTimerBelowBadge ? "gap-2" : undefined}>
+    <DataTableRegistryCell
+      className={
+        showTimerBelowBadge || retentionSubline || rolloutSubline
+          ? "gap-2"
+          : undefined
+      }
+    >
       <DataTableRegistryPrimaryLine
         className={row.kind === "pending" && statusTimer ? "flex-wrap gap-2" : undefined}
       >
@@ -544,6 +628,11 @@ const SnapshotStatusCell = memo(function SnapshotStatusCell({
       {rolloutSubline ? (
         <DataTableRegistrySecondaryLine>
           <SearchHighlight text={rolloutSubline} />
+        </DataTableRegistrySecondaryLine>
+      ) : null}
+      {retentionPublished && retentionSubline ? (
+        <DataTableRegistrySecondaryLine>
+          <PublishedRetentionLabel published={retentionPublished} />
         </DataTableRegistrySecondaryLine>
       ) : null}
       {showTimerBelowBadge && statusTimer ? (
@@ -605,8 +694,14 @@ const SnapshotActionCell = memo(function SnapshotActionCell({
   const isDeploying = deployingVersion === row.version;
   const failedRolloutRetry = isFailedRolloutRetryRow(row, registry.rollout);
   const canOfferDeploy = offerManualDeploy || failedRolloutRetry;
+  const retention =
+    row.kind === "published"
+      ? resolvePublishedVersionRetention(row.published)
+      : null;
+  const retentionBlocksDeploy = retention ? !retention.manuallyDeployable : false;
   const deployDisabled =
     !isDeployable ||
+    retentionBlocksDeploy ||
     (controlsDisabled && !failedRolloutRetry) ||
     (row.version === registry.desiredVersion && !failedRolloutRetry);
   const showRolloutDeploying = isRolloutDeployingAction(registry.rollout, row.version);
@@ -631,6 +726,16 @@ const SnapshotActionCell = memo(function SnapshotActionCell({
     return (
       <DataTableRegistryPrimaryLine className="justify-end">
         <span className="text-muted-foreground">—</span>
+      </DataTableRegistryPrimaryLine>
+    );
+  }
+
+  if (isDeployable && retentionBlocksDeploy) {
+    return (
+      <DataTableRegistryPrimaryLine className="justify-end">
+        <span className="text-muted-foreground">
+          {retention?.actionUnavailableLabel ?? "Unavailable"}
+        </span>
       </DataTableRegistryPrimaryLine>
     );
   }

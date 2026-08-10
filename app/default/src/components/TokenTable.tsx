@@ -1,7 +1,4 @@
-import { appIdFromTokenScope } from "@/lib/tokenScopes";
-import { useState } from "react";
-import { Link } from "@tanstack/react-router";
-import type { APIToken } from "@/lib/api";
+import type { APIToken, APITokenScope } from "@/lib/api";
 import { useRevokeTokenMutation } from "@/lib/queries";
 import {
   AlertDialog,
@@ -28,31 +25,57 @@ import {
   SETTINGS_TOKENS_EMPTY_DESCRIPTION,
   SETTINGS_TOKENS_EMPTY_TITLE,
 } from "@/features/settings/tokens-copy";
+import { appIdFromTokenScope } from "@/lib/tokenScopes";
+import { useState } from "react";
+import { Link } from "@tanstack/react-router";
 
 interface TokenTableProps {
   tokens: APIToken[];
 }
 
-function TokenScopesCell({ scopes }: { scopes?: string[] }) {
-  if (!scopes?.length) {
+function scopeLabel(scope: string, resources?: string[]): string {
+  if (!resources?.length) return scope;
+  return `${scope} (${resources.join(", ")})`;
+}
+
+function TokenScopesCell({
+  scopes,
+  scopeDetails,
+}: {
+  scopes?: string[];
+  scopeDetails?: APITokenScope[];
+}) {
+  const entries =
+    scopeDetails?.map((entry) => ({
+      key: `${entry.scope}:${(entry.resources ?? []).join(",")}`,
+      label: scopeLabel(entry.scope, entry.resources),
+      scope: entry.scope,
+    })) ??
+    scopes?.map((scope) => ({
+      key: scope,
+      label: scope,
+      scope,
+    }));
+
+  if (!entries?.length) {
     return <span className="text-muted-foreground">all</span>;
   }
 
   return (
     <span className="flex flex-wrap gap-x-2 gap-y-1">
-      {scopes.map((scope, index) => {
-        const appId = appIdFromTokenScope(scope);
+      {entries.map((entry, index) => {
+        const appId = appIdFromTokenScope(entry.scope);
         if (!appId) {
           return (
-            <span key={`${scope}-${index}`} className="text-muted-foreground">
-              {scope}
+            <span key={`${entry.key}-${index}`} className="text-muted-foreground">
+              {entry.label}
             </span>
           );
         }
         return (
-          <UiLink key={`${scope}-${index}`} asChild>
+          <UiLink key={`${entry.key}-${index}`} asChild>
             <Link to="/apps/$app" params={{ app: appId }}>
-              {scope}
+              {entry.label}
             </Link>
           </UiLink>
         );
@@ -122,7 +145,10 @@ export default function TokenTable({ tokens }: TokenTableProps) {
                 <CopyableCode value={token.id} tooltip="Copy token ID" />
               </TableCell>
               <TableCell>
-                <TokenScopesCell scopes={token.scopes} />
+                <TokenScopesCell
+                  scopes={token.scopes}
+                  scopeDetails={token.scopeDetails}
+                />
               </TableCell>
               <TableCell className="text-muted-foreground">
                 {new Date(token.createdAt).toLocaleDateString()}

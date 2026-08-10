@@ -141,6 +141,10 @@ export interface AppAdminPublishedVersion {
   sourceRef?: string;
   sourceUrl?: string;
   publication?: AppAdminPublication;
+  /** Retention lifecycle: desired | redeployable | locked | available | expired. */
+  deploymentState?: string;
+  deployableUntil?: string;
+  current?: boolean;
 }
 
 export interface AppAdminPendingVersion {
@@ -178,6 +182,7 @@ export interface AppAdminFleetReplica {
   appState: string;
   runningVersion?: string;
   observedDesiredVersion?: string;
+  observedAt?: string;
   lastError?: string;
   class: string;
 }
@@ -290,14 +295,21 @@ export interface AccessPermission {
   actions?: string[];
 }
 
+export interface APITokenScope {
+  scope: string;
+  /** Optional resource constraints from identity grants. */
+  resources?: string[];
+}
+
 export interface APIToken {
   id: string;
   name?: string;
   scopes?: string[];
+  /** Structured scopes when the grant API returns resource bindings. */
+  scopeDetails?: APITokenScope[];
   permissions?: AccessPermission[];
   createdAt: string;
   expiresAt?: string;
-  lastUsedAt?: string;
 }
 
 export interface CreateTokenResponse {

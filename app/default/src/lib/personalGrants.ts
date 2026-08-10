@@ -1,4 +1,4 @@
-import type { APIToken } from "./api";
+import type { APIToken, APITokenScope } from "./api";
 
 /** Wire shape for GET /api/v2/identity/grants/{grant_id}. */
 export interface IdentityGrantScopeWire {
@@ -27,26 +27,51 @@ export function unixSecondsToISO(seconds?: number): string | undefined {
   return new Date(seconds * 1000).toISOString();
 }
 
-export function grantScopesToTokenScopes(
+export function grantScopesToTokenScopeDetails(
   scopes?: IdentityGrantScopeWire[],
-): string[] | undefined {
+): APITokenScope[] | undefined {
   if (!scopes?.length) {
     return undefined;
   }
-  const parts = scopes
-    .map((scope) => scope.scope.trim())
-    .filter((scope) => scope.length > 0);
-  return parts.length > 0 ? parts : undefined;
+  const details = scopes
+    .map((entry) => {
+      const scope = entry.scope.trim();
+      if (!scope) return null;
+      const resources = (entry.resource ?? [])
+        .map((resource) => resource.trim())
+        .filter((resource) => resource.length > 0);
+      return {
+        scope,
+        ...(resources.length > 0 ? { resources } : {}),
+      } satisfies APITokenScope;
+    })
+    .filter((entry): entry is APITokenScope => entry !== null);
+  return details.length > 0 ? details : undefined;
+}
+
+export function grantScopesToTokenScopes(
+  scopes?: IdentityGrantScopeWire[],
+): string[] | undefined {
+  const details = grantScopesToTokenScopeDetails(scopes);
+  if (!details?.length) {
+    return undefined;
+  }
+  return details.map((entry) => {
+    if (!entry.resources?.length) return entry.scope;
+    return `${entry.scope}:${entry.resources.join(",")}`;
+  });
 }
 
 export function identityGrantToAPIToken(
   grantId: string,
   grant: IdentityGrantWire,
 ): APIToken {
+  const scopeDetails = grantScopesToTokenScopeDetails(grant.scopes);
   return {
     id: grantId,
-    name: grantId,
+    // v2 grants do not return a display name; keep id as the only label.
     scopes: grantScopesToTokenScopes(grant.scopes),
+    scopeDetails,
     createdAt:
       unixSecondsToISO(grant.createdAt) ?? new Date(0).toISOString(),
     expiresAt: unixSecondsToISO(grant.expiresAt),
@@ -55,8 +80,14 @@ export function identityGrantToAPIToken(
 
 /** Maps console APIToken fixtures to identity grant wire responses for e2e. */
 export function apiTokenToIdentityGrantWire(token: APIToken): IdentityGrantWire {
+  const fromDetails = token.scopeDetails?.map((entry) => ({
+    scope: entry.scope,
+    resource: entry.resources ?? [],
+  }));
   return {
-    scopes: (token.scopes ?? []).map((scope) => ({ scope, resource: [] })),
+    scopes:
+      fromDetails ??
+      (token.scopes ?? []).map((scope) => ({ scope, resource: [] })),
     createdAt: Math.floor(new Date(token.createdAt).getTime() / 1000),
     expiresAt: token.expiresAt
       ? Math.floor(new Date(token.expiresAt).getTime() / 1000)
