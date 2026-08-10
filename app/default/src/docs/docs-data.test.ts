@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   DOCS_AUTHORIZATION_PATH,
   DOCS_NAV_GROUPS,
@@ -64,5 +67,27 @@ describe("docs IA invariants", () => {
       (item) => item.id === "getting-started",
     );
     expect(gettingStarted?.subsections.map((s) => s.id)).toContain("install");
+  });
+
+  it("wires every TOC subsection id to a DocsContent heading", () => {
+    const content = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "DocsContent.tsx"),
+      "utf8",
+    );
+    for (const item of docsNavItems) {
+      for (const subsection of item.subsections) {
+        expect(content).toContain(`id="${subsection.id}"`);
+      }
+    }
+  });
+
+  it("renders the admin audience callout from DocsShell for admin pages", () => {
+    const shell = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "DocsShell.tsx"),
+      "utf8",
+    );
+    expect(shell).toContain('audience === "admin"');
+    expect(shell).toContain("DocsAudienceCallout");
+    expect(docsNavItems.some((item) => item.audience === "admin")).toBe(true);
   });
 });

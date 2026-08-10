@@ -32,4 +32,12 @@ describe("page-layout anchor offset ownership", () => {
     expect(CATALOG).not.toContain("CATALOG_TOC_ACTIVATION_OFFSET_MOBILE");
     expect(DOCS_SHELL).not.toContain("function readPageLayoutAnchorOffsetPx");
   });
+
+  test("docs probes anchor offset from the chrome-var scope, not only :root", () => {
+    expect(HELPER).toContain("scopeRef");
+    expect(HELPER).toContain("scope ?? document.documentElement");
+    expect(DOCS_SHELL).toContain("pageLayoutRef");
+    expect(DOCS_SHELL).toContain("usePageLayoutAnchorOffsetPx(");
+    expect(DOCS_SHELL).toContain("pageLayoutRef");
+  });
 });

@@ -10,8 +10,7 @@
  * module edge (and Tailwind layers are already defined). A CSS `@import` of
  * typeset from this file can drop out of the served bundle after stash/rebase
  * while the rest of the app keeps painting — docs then show zero block gaps.
- * hljs theme ships inside valon-typeset; keep `typeset-code-hljs.css` only if
- * you need the host without the full reading contract.
+ * hljs theme ships inside valon-typeset.
  */
 
 /* Dark mode follows the class set by useTheme. */

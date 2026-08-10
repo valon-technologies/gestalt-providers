@@ -1,14 +1,8 @@
 
 import { useEffect, useId, useState, type CSSProperties, type ReactNode } from "react";
-import { Info } from "lucide-react";
 import { CodeBlock } from "@/components/ui/code-block";
 import { Code } from "@/components/ui/code";
 import { Eyebrow } from "@/components/ui/eyebrow";
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert";
 import {
   PageHeader,
   PageHeaderContent,
@@ -327,20 +321,6 @@ export function AuthorizationDocsPage() {
           access to app operations from the Gestalt CLI. End users cannot
           self-serve grants—ask your workspace admin.
         </p>
-        <div className="not-typeset">
-          <Alert variant="info">
-            <Info aria-hidden="true" />
-            <AlertTitle>Admin audience</AlertTitle>
-            <AlertDescription>
-              These commands manage who can invoke apps. Personal API tokens for
-              scripts and MCP live under{" "}
-              <DocsLink to={DOCS_SETTINGS_TOKENS_HREF}>
-                Settings → API tokens
-              </DocsLink>
-              , not on this page.
-            </AlertDescription>
-          </Alert>
-        </div>
         <p>
           Most teams grant access at the app level. App admins can manage
           members for apps they administer. Built-in Gestalt admins can

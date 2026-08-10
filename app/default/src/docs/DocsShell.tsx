@@ -16,6 +16,7 @@ import {
 import { useScrollSpy } from "@/hooks/use-scroll-spy";
 import { usePageLayoutAnchorOffsetPx } from "@/lib/page-layout-anchor-offset";
 import { getActiveDocsNavItem } from "./docs-data";
+import { DocsAudienceCallout } from "./DocsAudienceCallout";
 import { DocsMobileNav, DocsNavList } from "./DocsMobileNav";
 import { DocsJourneyFooter } from "./DocsOnThisPage";
 import { DOCS_PAGE_TOP_GAP } from "./docs-chrome";
@@ -25,6 +26,7 @@ const docsShellStyle = {
   "--page-layout-pane-top": `calc(var(--app-sticky-chrome-height) + ${DOCS_PAGE_TOP_GAP})`,
   "--page-layout-anchor-offset": `calc(var(--app-sticky-chrome-height) + ${DOCS_PAGE_TOP_GAP})`,
 } as CSSProperties;
+
 export default function DocsShell({
   children,
 }: {
@@ -45,7 +47,13 @@ export default function DocsShell({
   }, [activeItem.subsections]);
 
   const scrollRootRef = useRef<HTMLElement | null>(null);
-  const activationOffset = usePageLayoutAnchorOffsetPx();
+  const pageLayoutRef = useRef<HTMLDivElement | null>(null);
+  // Probe from PageLayout so docs' overridden --page-layout-anchor-offset wins
+  // over :root (scroll-mt and scroll-spy stay on the same seam).
+  const activationOffset = usePageLayoutAnchorOffsetPx(
+    undefined,
+    pageLayoutRef,
+  );
   const locationHash = useRouterState({
     select: (state) => state.location.hash,
   });
@@ -102,55 +110,62 @@ export default function DocsShell({
 
   return (
     <Container className="pb-16 pt-16">
-      <PageLayout
-        tracks="compact"
-        style={docsShellStyle}
-        pane={<DocsNavList activeId={activeItem.id} />}
-        paneMobile={
-          <DocsMobileNav pathname={pathname} activeItem={activeItem} />
-        }
-        // Always pass an Aside so PageLayout keeps the three-track template
-        // (pane | content | aside). Omitting it collapses to pane+content and
-        // the center column grows on pages without an on-this-page list.
-        aside={
-          hasOnThisPage ? (
-            <TableOfContents
-              items={tocItems}
-              activeId={activeId}
-              onItemSelect={onTocSelect}
-              label="On this page"
-            />
-          ) : (
-            <div aria-hidden="true" />
-          )
-        }
-      >
-        <article className="mx-auto min-w-0 w-full max-w-[65ch]">
-          {/*
-            Reading measure: center track is ~800px (~82–110ch) without a cap.
-            65ch keeps body lines in the comfortable 60–70 character band;
-            `mx-auto` centers that measure in the PageLayout content track.
-          */}
-          {hasOnThisPage ? (
-            <div
-              className="mb-6 rounded-xl border border-border bg-card p-4 xl:hidden"
-              data-testid="docs-on-this-page-mobile"
-            >
-              <p className="mb-2 text-sm font-medium text-foreground">
-                On this page
-              </p>
+      {/*
+        Scope chrome CSS vars here (Container does not forward `style`; PageLayout
+        does not forward `ref`). Sticky rails + scroll-mt inherit; scroll-spy
+        probes from this node so it sees the docs override, not `:root`.
+      */}
+      <div ref={pageLayoutRef} style={docsShellStyle}>
+        <PageLayout
+          tracks="compact"
+          pane={<DocsNavList activeId={activeItem.id} />}
+          paneMobile={
+            <DocsMobileNav pathname={pathname} activeItem={activeItem} />
+          }
+          // Always pass an Aside so PageLayout keeps the three-track template
+          // (pane | content | aside). Omitting it collapses to pane+content and
+          // the center column grows on pages without an on-this-page list.
+          aside={
+            hasOnThisPage ? (
               <TableOfContents
                 items={tocItems}
                 activeId={activeId}
                 onItemSelect={onTocSelect}
                 label="On this page"
               />
-            </div>
-          ) : null}
-          {children}
-          <DocsJourneyFooter item={activeItem} />
-        </article>
-      </PageLayout>
+            ) : (
+              <div aria-hidden="true" />
+            )
+          }
+        >
+          <article className="mx-auto min-w-0 w-full max-w-[65ch]">
+            {/*
+              Reading measure: center track is ~800px (~82–110ch) without a cap.
+              65ch keeps body lines in the comfortable 60–70 character band;
+              `mx-auto` centers that measure in the PageLayout content track.
+            */}
+            {hasOnThisPage ? (
+              <div
+                className="mb-6 rounded-xl border border-border bg-card p-4 xl:hidden"
+                data-testid="docs-on-this-page-mobile"
+              >
+                <p className="mb-2 text-sm font-medium text-foreground">
+                  On this page
+                </p>
+                <TableOfContents
+                  items={tocItems}
+                  activeId={activeId}
+                  onItemSelect={onTocSelect}
+                  label="On this page"
+                />
+              </div>
+            ) : null}
+            {activeItem.audience === "admin" ? <DocsAudienceCallout /> : null}
+            {children}
+            <DocsJourneyFooter item={activeItem} />
+          </article>
+        </PageLayout>
+      </div>
     </Container>
   );
 }
