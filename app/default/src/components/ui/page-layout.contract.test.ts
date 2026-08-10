@@ -191,9 +191,15 @@ describe("PageLayout sticky contract", () => {
 
   test("leaves a spacing band for outward focus rings in scrollable rails", () => {
     expect(SOURCE).toContain("lg:overflow-y-auto");
-    expect(SOURCE).toContain("lg:p-1");
+    // Horizontal + bottom pad for focus rings; no top pad so rails share a top
+    // edge with the content column (docs / catalog chrome alignment).
+    expect(SOURCE).toContain("lg:px-1");
+    expect(SOURCE).toContain("lg:pb-1");
+    expect(SOURCE).toContain("lg:pt-0");
     expect(SOURCE).toContain("xl:overflow-y-auto");
-    expect(SOURCE).toContain("xl:p-1");
+    expect(SOURCE).toContain("xl:px-1");
+    expect(SOURCE).toContain("xl:pb-1");
+    expect(SOURCE).toContain("xl:pt-0");
   });
 
   test("shares the gap variant between the outer layout, main, and track grid", () => {
