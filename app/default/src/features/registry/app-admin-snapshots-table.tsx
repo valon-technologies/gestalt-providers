@@ -72,9 +72,8 @@ import {
   type FleetReplicasForSnapshotTable,
 } from "@/features/registry/fleet-replicas";
 import {
-  isVersionManuallyDeployable,
-  publishedVersionRetentionHoverDetail,
   publishedVersionRetentionSubline,
+  resolvePublishedVersionRetention,
 } from "@/features/registry/version-deployment";
 import type {
   AppAdminFleetReplica,
@@ -103,9 +102,10 @@ function PublishedRetentionLabel({
   };
   className?: string;
 }) {
-  const label = publishedVersionRetentionSubline(published);
+  const retention = resolvePublishedVersionRetention(published);
+  const label = retention.subline;
   if (!label) return null;
-  const detail = publishedVersionRetentionHoverDetail(published);
+  const detail = retention.hoverDetail;
   if (!detail) {
     return (
       <span className={className}>
@@ -113,6 +113,7 @@ function PublishedRetentionLabel({
       </span>
     );
   }
+  const accessibleName = `${label}. Show retention details`;
   return (
     <HoverCard>
       <HoverCardTrigger asChild>
@@ -120,11 +121,11 @@ function PublishedRetentionLabel({
           type="button"
           data-no-row-click
           data-testid="version-retention-label"
-          aria-label={label}
+          aria-label={accessibleName}
           className={
             className
-              ? `${className} cursor-default underline decoration-dotted underline-offset-2`
-              : "cursor-default underline decoration-dotted underline-offset-2"
+              ? `${className} cursor-pointer underline decoration-dotted underline-offset-2 focus-ring rounded-sm outline-none`
+              : "cursor-pointer underline decoration-dotted underline-offset-2 focus-ring rounded-sm outline-none"
           }
         >
           <SearchHighlight text={label} />
@@ -693,9 +694,11 @@ const SnapshotActionCell = memo(function SnapshotActionCell({
   const isDeploying = deployingVersion === row.version;
   const failedRolloutRetry = isFailedRolloutRetryRow(row, registry.rollout);
   const canOfferDeploy = offerManualDeploy || failedRolloutRetry;
-  const retentionBlocksDeploy =
-    row.kind === "published" &&
-    !isVersionManuallyDeployable(row.published.deploymentState);
+  const retention =
+    row.kind === "published"
+      ? resolvePublishedVersionRetention(row.published)
+      : null;
+  const retentionBlocksDeploy = retention ? !retention.manuallyDeployable : false;
   const deployDisabled =
     !isDeployable ||
     retentionBlocksDeploy ||
@@ -730,7 +733,9 @@ const SnapshotActionCell = memo(function SnapshotActionCell({
   if (isDeployable && retentionBlocksDeploy) {
     return (
       <DataTableRegistryPrimaryLine className="justify-end">
-        <span className="text-muted-foreground">Unavailable</span>
+        <span className="text-muted-foreground">
+          {retention?.actionUnavailableLabel ?? "Unavailable"}
+        </span>
       </DataTableRegistryPrimaryLine>
     );
   }
