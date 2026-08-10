@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/mock"
 	relationaldb "github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb"
 	workflowfake "github.com/valon-technologies/gestalt-providers/workflow/indexeddb/fake"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
@@ -81,6 +82,55 @@ func TestTemporalRunReturnsRunState(t *testing.T) {
 		host.calls[0].Request.DefinitionID != "definition-1" ||
 		host.calls[0].Request.DefinitionGeneration != 7 {
 		t.Fatalf("host calls = %#v", host.calls)
+	}
+}
+
+func TestTemporalRunUpsertsListSummaryStartedAt(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := newTestWorkflowEnvironment(&suite)
+	host := &capturingHost{resp: &gestaltworkflow.Response{
+		Status: http.StatusOK,
+		Body:   `{"version":1,"status":"succeeded","steps":[{"id":"postMessage","status":"succeeded"}],"outputs":{"postMessage":"ok"},"finalStepId":"postMessage","finalOutput":"ok"}`,
+	}}
+	env.RegisterWorkflow(TemporalRun)
+	env.RegisterActivity(&workflowActivities{executor: host})
+
+	var upserted []runListSummaryMemo
+	env.OnUpsertMemo(mock.Anything).Return(nil).Run(func(args mock.Arguments) {
+		attrs, ok := args.Get(0).(map[string]any)
+		if !ok {
+			t.Fatalf("upsert memo attrs type = %T", args.Get(0))
+		}
+		raw, _ := attrs[memoKeyListSummary].(string)
+		if raw == "" {
+			return
+		}
+		upserted = append(upserted, decodeRunListSummaryMemo(raw))
+	})
+
+	env.ExecuteWorkflow(TemporalRun, runWorkflowInput{
+		ActivityStartToCloseTimeoutNS: time.Minute,
+		ScopeID:                       "scope",
+		ProviderName:                  "temporal",
+		DefinitionID:                  "definition-1",
+		DefinitionGeneration:          7,
+		RunAs:                         runAsID("service:workflow-test"),
+		Target:                        nativeAppTargetInput("slack", "postMessage"),
+		Trigger:                       manualTriggerInput(),
+		CreatedBy:                     actor("user-1"),
+	})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	foundStarted := false
+	for _, summary := range upserted {
+		if summary.StartedAt != nil && summary.Trigger != nil && summary.Trigger.Manual {
+			foundStarted = true
+			break
+		}
+	}
+	if !foundStarted {
+		t.Fatalf("upserted summaries = %#v, want startedAt after running transition", upserted)
 	}
 }
 
@@ -740,6 +790,63 @@ func TestBackendListRunsOmitsAggregatesWhenCountFails(t *testing.T) {
 	}
 	if len(tc.countWorkflowRequests) == 0 {
 		t.Fatalf("expected CountWorkflow attempts before omission")
+	}
+}
+
+func TestBackendListRunsLegacyOwnerOnlyMemo(t *testing.T) {
+	ctx, state := newTestWorkflowStateStore(t)
+	dc := converter.GetDefaultDataConverter()
+	ownerPayload, err := dc.ToPayload("slack")
+	if err != nil {
+		t.Fatalf("owner payload: %v", err)
+	}
+	statusPayload, err := dc.ToPayload("succeeded")
+	if err != nil {
+		t.Fatalf("status payload: %v", err)
+	}
+	definitionPayload, err := dc.ToPayload("definition-1")
+	if err != nil {
+		t.Fatalf("definition payload: %v", err)
+	}
+	startTime := timestamppb.New(time.Date(2026, 8, 10, 15, 48, 0, 0, time.UTC))
+	closeTime := timestamppb.New(startTime.AsTime().Add(time.Second))
+	tc := &recordingTemporalClient{
+		listResp: &workflowservicepb.ListWorkflowExecutionsResponse{
+			Executions: []*workflowpb.WorkflowExecutionInfo{
+				{
+					Execution: &commonpb.WorkflowExecution{WorkflowId: "workflow-legacy", RunId: "run-legacy"},
+					Status:    enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED,
+					StartTime: startTime,
+					CloseTime: closeTime,
+					Memo: &commonpb.Memo{Fields: map[string]*commonpb.Payload{
+						memoKeyOwnerKey: ownerPayload,
+					}},
+					SearchAttributes: &commonpb.SearchAttributes{IndexedFields: map[string]*commonpb.Payload{
+						searchAttrRunStatus.GetName():    statusPayload,
+						searchAttrDefinitionID.GetName(): definitionPayload,
+					}},
+				},
+			},
+		},
+	}
+	backend := newRecordingTemporalBackend(tc, state)
+
+	resp, err := backend.ListRuns(ctx, &gestalt.ListWorkflowProviderRunsRequest{PageSize: 25})
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(resp.GetRuns()) != 1 {
+		t.Fatalf("runs = %#v, want one legacy summary", resp.GetRuns())
+	}
+	got := resp.GetRuns()[0]
+	if got.DefinitionID != "definition-1" || got.StartedAt != nil || got.Trigger != nil || got.CreatedBy != "" {
+		t.Fatalf("legacy run = %#v, want no summary fields", got)
+	}
+	if !got.CreatedAt.Equal(startTime.AsTime().UTC()) || got.CompletedAt == nil || !got.CompletedAt.Equal(closeTime.AsTime().UTC()) {
+		t.Fatalf("legacy timestamps = created %#v completed %#v", got.CreatedAt, got.CompletedAt)
+	}
+	if len(tc.queryCalls) != 0 || len(tc.getWorkflowCalls) != 0 {
+		t.Fatalf("per-run calls = %#v %#v, want none", tc.queryCalls, tc.getWorkflowCalls)
 	}
 }
 

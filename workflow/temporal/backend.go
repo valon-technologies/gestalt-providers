@@ -1028,7 +1028,9 @@ func (b *temporalBackend) upsertDefinitionSchedule(ctx context.Context, definiti
 		WorkflowRunTimeout:    b.cfg.WorkflowRunTimeout,
 		WorkflowTaskTimeout:   defaultWorkflowTaskTimeout,
 		TypedSearchAttributes: workflowRunSearchAttributesFromInput(actionInput, gestalt.WorkflowRunStatusValuePending),
-		Memo:                  runStartMemo(actionInput.OwnerKey, runListSummaryFromInput(actionInput, time.Now().UTC())),
+		// Schedule actions cannot know fire time at upsert; omit ScheduledFor
+		// until TemporalRun's first visibility upsert fills it.
+		Memo: runStartMemo(actionInput.OwnerKey, runListSummaryForScheduleAction(activation.ID, definition.CreatedBy)),
 	}
 	temporalID := b.temporalScheduleID(definition.ID, activation.ID)
 	spec := client.ScheduleSpec{
