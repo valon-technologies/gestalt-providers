@@ -3,6 +3,23 @@ import type { AppAuthorizationMember } from "@/lib/api";
 export const APP_SECTION_CARD =
   "rounded-lg border border-border bg-card p-6";
 
+/** Canonical subject-id prefix for service-account principals. */
+export const SERVICE_ACCOUNT_SUBJECT_PREFIX = "service_account:";
+
+/**
+ * Strip the wire `service_account:` prefix for user-facing account ids.
+ * Non-prefixed values pass through unchanged.
+ */
+export function serviceAccountLocalId(subjectId: string): string {
+  const trimmed = subjectId.trim();
+  if (
+    trimmed.toLowerCase().startsWith(SERVICE_ACCOUNT_SUBJECT_PREFIX)
+  ) {
+    return trimmed.slice(SERVICE_ACCOUNT_SUBJECT_PREFIX.length);
+  }
+  return trimmed;
+}
+
 /** App-access grant principal kind — derived from canonical subject id. */
 export type AppMemberSubjectKind = "person" | "service_account";
 
@@ -19,7 +36,7 @@ export function appMemberSubjectKind(
     member.selectorValue?.trim() ||
     ""
   ).toLowerCase();
-  if (id.startsWith("service_account:")) return "service_account";
+  if (id.startsWith(SERVICE_ACCOUNT_SUBJECT_PREFIX)) return "service_account";
   return "person";
 }
 

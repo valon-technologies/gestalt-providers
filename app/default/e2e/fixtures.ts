@@ -1,12 +1,12 @@
 import { test as base, expect, type Page, type Route } from "@playwright/test";
 import type {
   APIToken,
+  AppAdminIdentity,
   AppAdminRegistryResponse,
   AppAdminRegistryVersionResponse,
   AppAdminRegistryHistoryResponse,
   Integration,
   IntegrationOperation,
-  ManagedIdentity,
   WorkflowDefinition,
   WorkflowRun,
 } from "../src/lib/api";
@@ -96,17 +96,21 @@ export async function mockManualConnect(
   );
 }
 
-export async function mockManagedIdentities(
+export async function mockAppAdminIdentities(
   page: Page,
-  identities: ManagedIdentity[],
+  app: string,
+  identities: AppAdminIdentity[],
 ) {
-  await page.route("**/api/v1/authorization/subjects", (route: Route, request) => {
-    if (request.method() === "GET") {
-      route.fulfill({ json: identities });
-    } else {
-      route.fallback();
-    }
-  });
+  await page.route(
+    `**/api/v1/apps/${encodeURIComponent(app)}/admin/identities`,
+    (route: Route, request) => {
+      if (request.method() === "GET") {
+        route.fulfill({ json: identities });
+      } else {
+        route.fallback();
+      }
+    },
+  );
 }
 
 export async function mockAuthInfo(

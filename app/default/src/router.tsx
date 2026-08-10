@@ -26,20 +26,14 @@ import AppWorkspaceLayout from "@/pages/app-workspace-layout";
 import AppWorkspaceConnectionPage from "@/pages/app-workspace/connection";
 import AppWorkspaceOperationsPage from "@/pages/app-workspace/operations";
 import AppWorkspaceOverviewPage from "@/pages/app-workspace/overview";
-import AppAdminAgentIdentitiesPage from "@/pages/app-workspace/admin/agent-identities";
+import AppAdminServiceAccountsPage from "@/pages/app-workspace/admin/service-accounts";
 import AppAdminMembersPage from "@/pages/app-workspace/admin/members";
 import AppsPage from "@/pages/apps";
 import BuildPage, { BuildIndexRedirect } from "@/pages/build";
 import SettingsPage from "@/pages/settings";
-import SettingsIdentitiesList from "@/components/SettingsIdentitiesList";
-import SettingsIdentityDetail from "@/components/SettingsIdentityDetail";
 import SettingsTokenCreate from "@/components/SettingsTokenCreate";
 import SettingsTokensSection from "@/components/SettingsTokensSection";
 import { appBasepath } from "@/lib/mount";
-import {
-  legacyIdentityIdFromLocation,
-  managedIdentityLocalId,
-} from "@/lib/managed-identity-paths";
 import { rootRoute } from "./routes/__root";
 
 function DocsLayout() {
@@ -264,10 +258,22 @@ const appAdminMembersRoute = createRoute({
   component: AppAdminMembersPage,
 });
 
-const appAdminAgentIdentitiesRoute = createRoute({
+const appAdminServiceAccountsRoute = createRoute({
+  getParentRoute: () => appWorkspaceLayoutRoute,
+  path: "/admin/service-accounts",
+  component: AppAdminServiceAccountsPage,
+});
+
+/** Legacy `/admin/agent-identities` → Service accounts. */
+const appAdminAgentIdentitiesRedirectRoute = createRoute({
   getParentRoute: () => appWorkspaceLayoutRoute,
   path: "/admin/agent-identities",
-  component: AppAdminAgentIdentitiesPage,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: "/apps/$app/admin/service-accounts",
+      params: { app: params.app },
+    });
+  },
 });
 
 const settingsRoute = createRoute({
@@ -282,7 +288,7 @@ const settingsIndexRoute = createRoute({
   beforeLoad: ({ location }) => {
     const hash = location.hash.replace(/^#/, "");
     if (hash === "identities") {
-      throw redirect({ to: "/settings/identities" });
+      throw redirect({ to: "/apps" });
     }
     if (hash === "authorization") {
       throw redirect({ to: "/settings/tokens/new" });
@@ -312,16 +318,21 @@ const settingsTokensRoute = createRoute({
   component: SettingsTokensSection,
 });
 
-const settingsIdentitiesRoute = createRoute({
+/** Legacy Settings → Identities; agent identities now live under each app's Admin. */
+const settingsIdentitiesRedirectRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/identities",
-  component: SettingsIdentitiesList,
+  beforeLoad: () => {
+    throw redirect({ to: "/apps" });
+  },
 });
 
-const settingsIdentityDetailRoute = createRoute({
+const settingsIdentityDetailRedirectRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/identities/$identityLocalId",
-  component: SettingsIdentityDetail,
+  beforeLoad: () => {
+    throw redirect({ to: "/apps" });
+  },
 });
 
 const authorizationRoute = createRoute({
@@ -335,16 +346,8 @@ const authorizationRoute = createRoute({
 const identitiesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/identities",
-  beforeLoad: ({ location }) => {
-    const id = legacyIdentityIdFromLocation(location);
-    if (id) {
-      throw redirect({
-        to: "/settings/identities/$identityLocalId",
-        params: { identityLocalId: managedIdentityLocalId(id) },
-        hash: location.hash,
-      });
-    }
-    throw redirect({ to: "/settings/identities", hash: location.hash });
+  beforeLoad: () => {
+    throw redirect({ to: "/apps" });
   },
 });
 
@@ -454,7 +457,8 @@ const routeTree = rootRoute.addChildren([
     appAdminWorkflowDefinitionsRoute,
     appAdminWorkflowDefinitionRoute,
     appAdminMembersRoute,
-    appAdminAgentIdentitiesRoute,
+    appAdminServiceAccountsRoute,
+    appAdminAgentIdentitiesRedirectRoute,
   ]),
   buildIndexRoute,
   buildStepRoute,
@@ -462,8 +466,8 @@ const routeTree = rootRoute.addChildren([
     settingsIndexRoute,
     settingsTokenCreateRoute,
     settingsTokensRoute,
-    settingsIdentitiesRoute,
-    settingsIdentityDetailRoute,
+    settingsIdentitiesRedirectRoute,
+    settingsIdentityDetailRedirectRoute,
   ]),
   authorizationRoute,
   identitiesRoute,

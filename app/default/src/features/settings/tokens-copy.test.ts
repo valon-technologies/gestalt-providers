@@ -11,7 +11,7 @@ describe("settings tokens copy", () => {
   it("keeps Settings terminology on Create token (not New/Add)", () => {
     expect(SETTINGS_TOKENS_CREATE_CTA).toBe("Create token");
     expect(SETTINGS_TOKEN_CREATE_TITLE).toBe("Create token");
-    expect(SETTINGS_TOKENS_LIST_TITLE).toBe("Your API tokens");
+    expect(SETTINGS_TOKENS_LIST_TITLE).toBe("API tokens");
     expect(SETTINGS_TOKENS_EMPTY_TITLE).toBe("No API tokens yet.");
   });
 

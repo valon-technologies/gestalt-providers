@@ -33,10 +33,10 @@ describe("workspaceLocationForPathname", () => {
       label: "Workflows",
     });
     expect(
-      workspaceLocationForPathname("/apps/slack/admin/agent-identities", "slack"),
+      workspaceLocationForPathname("/apps/slack/admin/service-accounts", "slack"),
     ).toMatchObject({
-      id: "agent-identities",
-      label: "Agent identities",
+      id: "service-accounts",
+      label: "Service accounts",
     });
   });
 

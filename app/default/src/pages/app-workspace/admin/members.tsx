@@ -1,6 +1,4 @@
-import { Link as RouterLink } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import { APIError, isAPIErrorStatus } from "@/lib/api";
+import { isAPIErrorStatus } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "@/components/ui/link";
 import { MemberAccess } from "@/components/ui/member-access";
@@ -25,19 +23,16 @@ import {
   rolesForMembers,
   toMemberAccessPerson,
 } from "@/features/app-workspace/app-member-access";
+import {
+  SERVICE_ACCOUNTS_COPY,
+  SERVICE_ACCOUNTS_ROUTE,
+} from "@/features/app-workspace/app-agent-identity-presentation";
 import { partitionAppMembers } from "@/features/app-workspace/app-workspace-shared";
 import { useAppAuthorizationMembersQuery } from "@/lib/queries";
+import { Link as RouterLink } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
 
-function membersLoadErrorMessage(error: unknown): string {
-  const detail =
-    error instanceof APIError
-      ? error.message
-      : error instanceof Error
-        ? error.message
-        : null;
-  if (detail?.trim()) {
-    return `${detail.trim()} Try refreshing the page.`;
-  }
+function membersLoadErrorMessage(_error: unknown): string {
   return "Couldn’t load members. Check your connection and refresh the page.";
 }
 
@@ -56,23 +51,15 @@ export default function AppAdminMembersPage() {
   const [inviteValue, setInviteValue] = useState("");
   const [inviteRole, setInviteRole] = useState("viewer");
 
-  const { peopleMembers, serviceAccountMembers } = useMemo(() => {
-    const partitioned = partitionAppMembers(members);
-    return {
-      peopleMembers: partitioned.people,
-      serviceAccountMembers: partitioned.serviceAccounts,
-    };
-  }, [members]);
-
+  const peopleMembers = useMemo(
+    () => partitionAppMembers(members).people,
+    [members],
+  );
   const people = useMemo(
     () => peopleMembers.map(toMemberAccessPerson),
     [peopleMembers],
   );
-  const serviceAccounts = useMemo(
-    () => serviceAccountMembers.map(toMemberAccessPerson),
-    [serviceAccountMembers],
-  );
-  const roles = useMemo(() => rolesForMembers(members), [members]);
+  const roles = useMemo(() => rolesForMembers(peopleMembers), [peopleMembers]);
 
   const showRoster =
     !membersLoading && !membersForbidden && !membersError;
@@ -83,8 +70,8 @@ export default function AppAdminMembersPage() {
         <PageHeaderContent size="md">
           <PageHeaderTitle>Members</PageHeaderTitle>
           <PageHeaderDescription>
-            People and service accounts with an authorization grant on this app.
-            This roster is read-only — use{" "}
+            People and groups with an authorization grant on this app. This
+            roster is read-only — use{" "}
             <Link asChild>
               <RouterLink
                 to={AUTHORIZATION_DOCS_PATH}
@@ -93,14 +80,10 @@ export default function AppAdminMembersPage() {
                 How to grant access
               </RouterLink>
             </Link>{" "}
-            to add or change access. To create or edit service account identity
-            records, use{" "}
+            to add or change access. Service accounts appear under{" "}
             <Link asChild>
-              <RouterLink
-                to="/apps/$app/admin/agent-identities"
-                params={{ app }}
-              >
-                Agent identities
+              <RouterLink to={SERVICE_ACCOUNTS_ROUTE} params={{ app }}>
+                {SERVICE_ACCOUNTS_COPY.navLabel}
               </RouterLink>
             </Link>
             .
@@ -134,7 +117,7 @@ export default function AppAdminMembersPage() {
       ) : null}
 
       {membersError ? (
-        <p className="mt-5 text-sm text-ember-500">{membersError}</p>
+        <p className="mt-5 text-sm text-destructive">{membersError}</p>
       ) : null}
 
       {showRoster ? (
@@ -171,35 +154,6 @@ export default function AppAdminMembersPage() {
                   allowCustomValue: true,
                   placeholder: "Select person",
                 }}
-                onRoleChange={() => {}}
-                onRemove={() => {}}
-                disabled
-              />
-            )}
-          </section>
-
-          <section aria-label="Service accounts" className="flex flex-col gap-4">
-            <SectionHeader>
-              <SectionHeaderContent size="sm">
-                <SectionHeaderTitle
-                  as="h2"
-                  className="inline-flex items-baseline gap-1.5"
-                >
-                  Service accounts
-                  <Badge variant="secondary" size="sm">
-                    {serviceAccountMembers.length}
-                  </Badge>
-                </SectionHeaderTitle>
-              </SectionHeaderContent>
-            </SectionHeader>
-            {serviceAccountMembers.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No service accounts have been granted access yet.
-              </p>
-            ) : (
-              <MemberAccess
-                people={serviceAccounts}
-                roles={roles}
                 onRoleChange={() => {}}
                 onRemove={() => {}}
                 disabled
