@@ -455,15 +455,22 @@ func (b *temporalBackend) countWorkflowsByStatus(ctx context.Context, req *gesta
 // listedRunFromExecutionInfo builds a run summary from visibility data alone,
 // so listing never depends on per-run worker round-trips. Runs that cannot be
 // summarized (no owner-key memo) are skipped rather than failing the page.
+//
+// Trigger, startedAt, and createdBy come from the gestaltListSummary memo so
+// the workflows table can show duration and how the run was started without
+// hydrating each run. Legacy executions without that memo keep CreatedAt /
+// CompletedAt from Temporal start/close times only.
 func listedRunFromExecutionInfo(info *workflowpb.WorkflowExecutionInfo) *gestalt.WorkflowRun {
 	if info == nil || info.GetExecution() == nil || strings.TrimSpace(info.GetExecution().GetWorkflowId()) == "" {
 		return nil
 	}
-	ownerKey := payloadString(info.GetMemo().GetFields()[memoKeyOwnerKey])
+	memoFields := info.GetMemo().GetFields()
+	ownerKey := payloadString(memoFields[memoKeyOwnerKey])
 	if ownerKey == "" {
 		return nil
 	}
 	attrs := info.GetSearchAttributes().GetIndexedFields()
+	summary := payloadListSummary(memoFields[memoKeyListSummary])
 	run := &gestalt.WorkflowRun{
 		ID: encodeTemporalRunHandle(temporalRunHandle{
 			RunWorkflowID:    strings.TrimSpace(info.GetExecution().GetWorkflowId()),
@@ -473,12 +480,18 @@ func listedRunFromExecutionInfo(info *workflowpb.WorkflowExecutionInfo) *gestalt
 		Status:       workflowRunStatusValues[payloadString(attrs[searchAttrRunStatus.GetName()])],
 		ProviderName: payloadString(attrs[searchAttrProviderName.GetName()]),
 		DefinitionID: payloadString(attrs[searchAttrDefinitionID.GetName()]),
+		Trigger:      cloneTriggerInput(summary.Trigger),
+		CreatedBy:    summary.CreatedBy,
 	}
 	if start := info.GetStartTime(); start != nil {
-		run.CreatedAt = start.AsTime()
+		run.CreatedAt = start.AsTime().UTC()
+	}
+	if summary.StartedAt != nil {
+		started := summary.StartedAt.UTC()
+		run.StartedAt = &started
 	}
 	if closed := info.GetCloseTime(); closed != nil {
-		completed := closed.AsTime()
+		completed := closed.AsTime().UTC()
 		run.CompletedAt = &completed
 	}
 	return run
@@ -1015,9 +1028,7 @@ func (b *temporalBackend) upsertDefinitionSchedule(ctx context.Context, definiti
 		WorkflowRunTimeout:    b.cfg.WorkflowRunTimeout,
 		WorkflowTaskTimeout:   defaultWorkflowTaskTimeout,
 		TypedSearchAttributes: workflowRunSearchAttributesFromInput(actionInput, gestalt.WorkflowRunStatusValuePending),
-	}
-	if ownerKey := strings.TrimSpace(actionInput.OwnerKey); ownerKey != "" {
-		action.Memo = map[string]any{memoKeyOwnerKey: ownerKey}
+		Memo:                  runStartMemo(actionInput.OwnerKey, runListSummaryFromInput(actionInput, time.Now().UTC())),
 	}
 	temporalID := b.temporalScheduleID(definition.ID, activation.ID)
 	spec := client.ScheduleSpec{

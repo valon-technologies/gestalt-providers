@@ -28,6 +28,7 @@ import (
 	"go.temporal.io/sdk/worker"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func newTestWorkflowEnvironment(suite *testsuite.WorkflowTestSuite) *testsuite.TestWorkflowEnvironment {
@@ -512,6 +513,17 @@ func TestBackendListRunsUsesTemporalVisibility(t *testing.T) {
 	if err != nil {
 		t.Fatalf("definition payload: %v", err)
 	}
+	startedAt := time.Date(2026, 8, 10, 15, 48, 0, 0, time.UTC)
+	summaryPayload, err := dc.ToPayload(encodeRunListSummaryMemo(runListSummaryMemo{
+		Trigger:   scheduleTriggerInput("weekday_morning", startedAt),
+		StartedAt: &startedAt,
+		CreatedBy: "subject:system",
+	}))
+	if err != nil {
+		t.Fatalf("summary payload: %v", err)
+	}
+	startTime := timestamppb.New(startedAt.Add(-50 * time.Millisecond))
+	closeTime := timestamppb.New(startedAt.Add(683 * time.Millisecond))
 	nextToken := []byte("next-page")
 	tc := &recordingTemporalClient{
 		listResp: &workflowservicepb.ListWorkflowExecutionsResponse{
@@ -519,7 +531,12 @@ func TestBackendListRunsUsesTemporalVisibility(t *testing.T) {
 				{
 					Execution: &commonpb.WorkflowExecution{WorkflowId: "workflow-1", RunId: "run-1"},
 					Status:    enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
-					Memo:      &commonpb.Memo{Fields: map[string]*commonpb.Payload{memoKeyOwnerKey: ownerPayload}},
+					StartTime: startTime,
+					CloseTime: closeTime,
+					Memo: &commonpb.Memo{Fields: map[string]*commonpb.Payload{
+						memoKeyOwnerKey:     ownerPayload,
+						memoKeyListSummary:  summaryPayload,
+					}},
 					SearchAttributes: &commonpb.SearchAttributes{IndexedFields: map[string]*commonpb.Payload{
 						searchAttrRunStatus.GetName():    statusPayload,
 						searchAttrDefinitionID.GetName(): definitionPayload,
@@ -553,8 +570,24 @@ func TestBackendListRunsUsesTemporalVisibility(t *testing.T) {
 		t.Fatalf("ListRuns: %v", err)
 	}
 	wantID := encodeTemporalRunHandle(temporalRunHandle{RunWorkflowID: "workflow-1", RunTemporalRunID: "run-1", OwnerKey: "slack"})
-	if len(resp.GetRuns()) != 1 || resp.GetRuns()[0].ID != wantID || resp.GetRuns()[0].DefinitionID != "definition-1" || resp.GetRuns()[0].Status != gestalt.WorkflowRunStatusValueRunning {
+	if len(resp.GetRuns()) != 1 {
 		t.Fatalf("runs = %#v, want one visibility-built summary", resp.GetRuns())
+	}
+	got := resp.GetRuns()[0]
+	if got.ID != wantID || got.DefinitionID != "definition-1" || got.Status != gestalt.WorkflowRunStatusValueRunning {
+		t.Fatalf("runs = %#v, want id/definition/status summary", got)
+	}
+	if got.StartedAt == nil || !got.StartedAt.Equal(startedAt) {
+		t.Fatalf("startedAt = %#v, want %s", got.StartedAt, startedAt)
+	}
+	if got.CompletedAt == nil || !got.CompletedAt.Equal(closeTime.AsTime()) {
+		t.Fatalf("completedAt = %#v, want close time", got.CompletedAt)
+	}
+	if got.Trigger == nil || got.Trigger.Schedule == nil || got.Trigger.Schedule.ActivationID != "weekday_morning" {
+		t.Fatalf("trigger = %#v, want schedule weekday_morning", got.Trigger)
+	}
+	if got.CreatedBy != "subject:system" {
+		t.Fatalf("createdBy = %q, want subject:system", got.CreatedBy)
 	}
 	if len(tc.queryCalls) != 0 || len(tc.getWorkflowCalls) != 0 {
 		t.Fatalf("per-run calls = %#v %#v, want none", tc.queryCalls, tc.getWorkflowCalls)
