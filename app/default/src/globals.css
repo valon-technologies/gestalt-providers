@@ -1,9 +1,18 @@
 @import "../shared/theme.css";
-@import "./styles/typeset-code-hljs.css";
 
 /* Scan src/ only — do not crawl bundled admin vendor files for candidates. */
 @import "tailwindcss" source(".");
 @import "tw-animate-css";
+
+/*
+ * Typeset is NOT imported here. `main.tsx` side-effect-imports
+ * `./styles/valon-typeset.css` after this file so Vite always tracks it as a
+ * module edge (and Tailwind layers are already defined). A CSS `@import` of
+ * typeset from this file can drop out of the served bundle after stash/rebase
+ * while the rest of the app keeps painting — docs then show zero block gaps.
+ * hljs theme ships inside valon-typeset; keep `typeset-code-hljs.css` only if
+ * you need the host without the full reading contract.
+ */
 
 /* Dark mode follows the class set by useTheme. */
 @custom-variant dark (&:is(.dark *));
@@ -14,7 +23,6 @@
  * or timing.
  */
 @theme {
-  --animate-fade-in-up: fade-in-up 0.5s cubic-bezier(0.19, 1, 0.22, 1) both;
   --tracking-eyebrow: 0.075em;
 
   --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
@@ -63,18 +71,6 @@
   --control-icon-sm: 1rem;
   --control-icon-default: 1rem;
   --control-icon-lg: 1.125rem;
-
-  @keyframes fade-in-up {
-    from {
-      opacity: 0;
-      transform: translateY(12px);
-    }
-
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
 }
 
 /*
@@ -466,12 +462,6 @@
     --muted-foreground-soft: color-mix(in oklab, var(--foreground) 40%, transparent);
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .animate-fade-in-up {
-      opacity: 1 !important;
-      animation: none !important;
-    }
-  }
 }
 
 /*
@@ -495,12 +485,23 @@
     text-transform: uppercase;
   }
 
-  .doc-copy {
-    @apply text-base leading-7 text-muted-foreground;
-  }
-
-  .doc-link {
-    @apply text-foreground underline decoration-border underline-offset-4 transition-colors duration-150 hover:text-foreground;
+  /*
+   * This app's `@theme inline reference` does not emit `--color-*` on the
+   * document — only semantic tokens (`--muted`, `--foreground`, …). Bridge
+   * them for valon-typeset, which reads the Tailwind `--color-*` names.
+   */
+  .typeset,
+  .slate-editor,
+  .group\/editor {
+    --color-foreground: var(--foreground);
+    --color-muted: var(--muted);
+    --color-border: var(--border);
+    --color-primary: var(--primary);
+    --color-accent: var(--accent);
+    --color-accent-solid: var(--accent-solid);
+    --color-link: var(--link);
+    --color-link-hover: var(--link-hover);
+    --color-link-pressed: var(--link-pressed);
   }
 }
 

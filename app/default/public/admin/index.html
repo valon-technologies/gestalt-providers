@@ -543,16 +543,6 @@
         background: linear-gradient(90deg, var(--brand) 0%, var(--brand-soft) 100%);
       }
 
-      @keyframes fade-in-up {
-        0% { opacity: 0; transform: translateY(12px); }
-        100% { opacity: 1; transform: translateY(0); }
-      }
-      .animate-fade-in-up {
-        animation: fade-in-up 0.5s cubic-bezier(0.19, 1, 0.22, 1) both;
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .animate-fade-in-up { animation: none !important; opacity: 1 !important; }
-      }
 
       .live-dot {
         display: inline-block;
@@ -637,7 +627,7 @@
     </nav>
 
     <main class="shell">
-      <section class="card hero animate-fade-in-up">
+      <section class="card hero">
         <span class="label-text">Admin</span>
         <h1>Control surface</h1>
         <p>
@@ -649,16 +639,16 @@
         </p>
       </section>
 
-      <nav class="tab-nav animate-fade-in-up" style="animation-delay:40ms" aria-label="Admin views">
+      <nav class="tab-nav" aria-label="Admin views">
         <button id="tab-overview" class="tab-btn" type="button" data-tab="overview" aria-selected="true">Overview</button>
         <button id="tab-authorization" class="tab-btn" type="button" data-tab="authorization" aria-selected="false">Authorization</button>
         <button id="tab-admins" class="tab-btn" type="button" data-tab="admins" aria-selected="false">Admins</button>
       </nav>
 
       <section id="panel-overview" class="tab-panel" data-tab-panel="overview">
-        <section class="status animate-fade-in-up" style="animation-delay:60ms" id="metrics-status">Loading metrics...</section>
+        <section class="status" id="metrics-status">Loading metrics...</section>
 
-        <section class="summary-grid animate-fade-in-up" style="animation-delay:80ms">
+        <section class="summary-grid">
           <article class="card summary-card">
             <span class="label-text">Total requests</span>
             <div class="metric-value" id="summary-requests">--</div>
@@ -681,7 +671,7 @@
           </article>
         </section>
 
-        <section class="card controls animate-fade-in-up" style="animation-delay:100ms">
+        <section class="card controls">
           <div class="control-cluster">
             <label class="control-group" for="time-window-select">
               <span class="label-text">Time window</span>
@@ -713,7 +703,7 @@
           </p>
         </section>
 
-        <section class="panel-grid animate-fade-in-up" style="animation-delay:120ms">
+        <section class="panel-grid">
           <article class="card panel-card">
             <span class="label-text">Recent activity</span>
             <h2>Requests and failures</h2>
@@ -747,9 +737,9 @@
       </section>
 
       <section id="panel-authorization" class="tab-panel" data-tab-panel="authorization" hidden>
-        <section class="status animate-fade-in-up" style="animation-delay:60ms" id="auth-status">Loading authorization apps...</section>
+        <section class="status" id="auth-status">Loading authorization apps...</section>
 
-        <section class="card controls animate-fade-in-up" style="animation-delay:80ms">
+        <section class="card controls">
           <div class="control-cluster">
             <label class="control-group" for="authorization-plugin-select">
               <span class="label-text">App</span>
@@ -767,7 +757,7 @@
           </p>
         </section>
 
-        <section class="summary-grid animate-fade-in-up" style="animation-delay:100ms">
+        <section class="summary-grid">
           <article class="card summary-card">
             <span class="label-text">Effective rows</span>
             <div class="metric-value" id="authorization-effective-count">--</div>
@@ -790,7 +780,7 @@
           </article>
         </section>
 
-        <section class="auth-grid animate-fade-in-up" style="animation-delay:120ms">
+        <section class="auth-grid">
           <article class="card panel-card">
             <span class="label-text">Authorization rules</span>
             <h2>Add or update a dynamic member</h2>
@@ -840,9 +830,9 @@
       </section>
 
       <section id="panel-admins" class="tab-panel" data-tab-panel="admins" hidden>
-        <section class="status animate-fade-in-up" style="animation-delay:60ms" id="admin-members-status">Loading Gestalt admins...</section>
+        <section class="status" id="admin-members-status">Loading Gestalt admins...</section>
 
-        <section class="card controls animate-fade-in-up" style="animation-delay:80ms">
+        <section class="card controls">
           <div class="control-cluster">
             <span class="label-text">Built-in admin access</span>
             <button class="action-btn secondary" type="button" id="admin-members-refresh-button">Refresh</button>
@@ -856,7 +846,7 @@
           </p>
         </section>
 
-        <section class="summary-grid animate-fade-in-up" style="animation-delay:100ms">
+        <section class="summary-grid">
           <article class="card summary-card">
             <span class="label-text">Effective rows</span>
             <div class="metric-value" id="admin-members-effective-count">--</div>
@@ -879,7 +869,7 @@
           </article>
         </section>
 
-        <section class="auth-grid animate-fade-in-up" style="animation-delay:120ms">
+        <section class="auth-grid">
           <article class="card panel-card">
             <span class="label-text">Gestalt admins</span>
             <h2>Add or update a built-in admin</h2>

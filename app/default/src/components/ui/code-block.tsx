@@ -449,11 +449,11 @@ function CodeBlockShell({
 }) {
   return (
     <TooltipProvider delayDuration={0}>
-      <CodeFenceShell
-        data-slot="code-block"
-        variant={variant}
-        className={cn("w-full", className)}
-      >
+      {/*
+        Keep CodeFenceShell's data-slot="code-fence" so valon-typeset fence
+        rules apply. Do not pass data-slot here — it would overwrite.
+      */}
+      <CodeFenceShell variant={variant} className={cn("w-full", className)}>
         {children}
       </CodeFenceShell>
     </TooltipProvider>

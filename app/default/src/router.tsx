@@ -65,7 +65,7 @@ function DocsTokensRoute() {
 }
 
 function DocsAuthorizationRoute() {
-  useDocumentTitle("Grant Authorization");
+  useDocumentTitle("Grant App Access");
   return <AuthorizationDocsPage />;
 }
 

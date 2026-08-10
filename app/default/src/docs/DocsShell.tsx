@@ -1,49 +1,40 @@
 import {
   useCallback,
-  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
 } from "react";
-import { Link, useRouterState } from "@tanstack/react-router";
+import { useRouterState } from "@tanstack/react-router";
 import Container from "@/components/Container";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
-import {
-  NavList,
-  NavListItem,
-  NavListItemLabel,
-} from "@/components/ui/nav-list";
 import { PageLayout } from "@/components/ui/page-layout";
-import { PageLayoutPaneMobileNav } from "@/components/ui/page-layout-pane-mobile-nav";
 import {
   TableOfContents,
   type TableOfContentsItem,
 } from "@/components/ui/table-of-contents";
 import { useScrollSpy } from "@/hooks/use-scroll-spy";
 import { usePageLayoutAnchorOffsetPx } from "@/lib/page-layout-anchor-offset";
-import { docsNavItems, getActiveDocsNavItem } from "./docs-data";
+import { getActiveDocsNavItem } from "./docs-data";
+import { DocsMobileNav, DocsNavList } from "./DocsMobileNav";
+import { DocsJourneyFooter } from "./DocsOnThisPage";
+import { DOCS_PAGE_TOP_GAP } from "./docs-chrome";
 
+/** Same seam for sticky rails, hash / TOC scroll-mt, and (via DocsPageBody) h2 gaps. */
+const docsShellStyle = {
+  "--page-layout-pane-top": `calc(var(--app-sticky-chrome-height) + ${DOCS_PAGE_TOP_GAP})`,
+  "--page-layout-anchor-offset": `calc(var(--app-sticky-chrome-height) + ${DOCS_PAGE_TOP_GAP})`,
+} as CSSProperties;
 export default function DocsShell({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
   const activeItem = getActiveDocsNavItem(pathname);
   const hasOnThisPage = activeItem.subsections.length > 0;
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
-
-  useEffect(() => {
-    setMobileNavOpen(false);
-  }, [pathname]);
 
   const tocItems = useMemo((): TableOfContentsItem[] => {
     return activeItem.subsections.map((subsection) => ({
@@ -109,35 +100,14 @@ export default function DocsShell({
     [activate],
   );
 
-  const nav = (
-    <NavList aria-label="Documentation">
-      {docsNavItems.map((item) => (
-        <NavListItem
-          key={item.id}
-          asChild
-          active={item.id === activeItem.id}
-        >
-          <Link to={item.href}>
-            <NavListItemLabel>{item.label}</NavListItemLabel>
-          </Link>
-        </NavListItem>
-      ))}
-    </NavList>
-  );
-
   return (
-    <Container className="pb-16">
+    <Container className="pb-16 pt-16">
       <PageLayout
         tracks="compact"
-        pane={nav}
+        style={docsShellStyle}
+        pane={<DocsNavList activeId={activeItem.id} />}
         paneMobile={
-          <PageLayoutPaneMobileNav
-            open={mobileNavOpen}
-            onOpenChange={setMobileNavOpen}
-            panelLabel="Documentation sections"
-          >
-            {nav}
-          </PageLayoutPaneMobileNav>
+          <DocsMobileNav pathname={pathname} activeItem={activeItem} />
         }
         // Always pass an Aside so PageLayout keeps the three-track template
         // (pane | content | aside). Omitting it collapses to pane+content and
@@ -155,21 +125,30 @@ export default function DocsShell({
           )
         }
       >
-        <article className="min-w-0">
-          <Breadcrumb className="mt-6 mb-6">
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink asChild>
-                  <Link to="/docs/getting-started">Docs</Link>
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>{activeItem.label}</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
+        <article className="mx-auto min-w-0 w-full max-w-[65ch]">
+          {/*
+            Reading measure: center track is ~800px (~82–110ch) without a cap.
+            65ch keeps body lines in the comfortable 60–70 character band;
+            `mx-auto` centers that measure in the PageLayout content track.
+          */}
+          {hasOnThisPage ? (
+            <div
+              className="mb-6 rounded-xl border border-border bg-card p-4 xl:hidden"
+              data-testid="docs-on-this-page-mobile"
+            >
+              <p className="mb-2 text-sm font-medium text-foreground">
+                On this page
+              </p>
+              <TableOfContents
+                items={tocItems}
+                activeId={activeId}
+                onItemSelect={onTocSelect}
+                label="On this page"
+              />
+            </div>
+          ) : null}
           {children}
+          <DocsJourneyFooter item={activeItem} />
         </article>
       </PageLayout>
     </Container>

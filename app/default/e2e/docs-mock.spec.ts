@@ -48,7 +48,7 @@ test.describe("Docs page", () => {
     const expectedOrigin =
       process.env.PLAYWRIGHT_BASE_URL ||
       `http://localhost:${process.env.API_PORT || 8080}`;
-    const leftNav = page.locator("aside").first();
+    const leftNav = page.getByRole("navigation", { name: "Documentation" });
     await mockAuthInfo(page, {
       provider: "test-sso",
       displayName: "Test SSO",
@@ -70,8 +70,11 @@ test.describe("Docs page", () => {
     await expect(
       leftNav.getByRole("link", { name: "Invoke Operations" }),
     ).toHaveAttribute("href", "/docs/invoke");
+    await expect(page.getByText("Setup", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Automate", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Administer", { exact: true }).first()).toBeVisible();
     await expect(
-      leftNav.getByRole("link", { name: "Grant Authorization" }),
+      leftNav.getByRole("link", { name: "Grant App Access" }),
     ).toHaveAttribute("href", "/docs/authorization");
     await expect(
       leftNav.getByRole("link", { name: "Use With MCP" }),
@@ -86,6 +89,24 @@ test.describe("Docs page", () => {
     await expect(
       page.getByRole("heading", { name: "Getting Started" }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("radiogroup", { name: "Install methods" }),
+    ).toBeVisible();
+    await expect(page.getByRole("radio", { name: "Installer" })).toBeVisible();
+    await expect(page.getByRole("radio", { name: "Homebrew" })).toBeVisible();
+    await expect(page.locator("article")).toContainText(
+      "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh",
+    );
+    await page.getByRole("radio", { name: "Homebrew" }).click();
+    await expect(page.locator("article")).toContainText(
+      "brew install valon-technologies/gestalt/gestalt",
+    );
+    await expect(
+      page.getByRole("link", { name: "GitHub releases page" }),
+    ).toHaveAttribute(
+      "href",
+      "https://github.com/valon-technologies/gestalt/releases",
+    );
     await expect(
       page.getByRole("radio", { name: "gestalt init" }),
     ).toBeVisible();
@@ -105,14 +126,12 @@ test.describe("Docs page", () => {
     );
     await expect(page.getByText("gestalt apps list", { exact: true })).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Grant authorization" }),
+      page.getByRole("heading", { name: "Grant App Access" }),
     ).toBeVisible();
     await expect(page.locator("article")).toContainText(
       "gestalt authorization apps members set <app>",
     );
-    await expect(page.locator("article")).toContainText(
-      "gestalt authorization subjects grants set service_account:release-bot <app>",
-    );
+    await expect(page.getByTestId("docs-journey-footer")).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Configure cloud environments" }),
     ).toBeVisible();
@@ -120,7 +139,7 @@ test.describe("Docs page", () => {
       name: "Cloud environment configuration",
     });
     const agentPanel = agentSwitch
-      .locator("xpath=ancestor::div[contains(@class,'gap-4')][1]")
+      .locator("xpath=ancestor::*[@data-docs-option-switcher][1]")
       .locator(":scope > div")
       .last();
     await expect(
@@ -189,10 +208,10 @@ test.describe("Docs page", () => {
       page.getByText("/api/v1/apps").first(),
     ).toBeVisible();
 
-    await leftNav.getByRole("link", { name: "Grant Authorization" }).click();
+    await leftNav.getByRole("link", { name: "Grant App Access" }).click();
     await expect(page).toHaveURL(/\/docs\/authorization/);
     await expect(
-      page.getByRole("heading", { name: "Grant Authorization" }),
+      page.getByRole("heading", { name: "Grant App Access" }),
     ).toBeVisible();
     await expect(page.locator("article")).toContainText(
       "App admins can manage members for apps they administer",
@@ -206,6 +225,19 @@ test.describe("Docs page", () => {
     );
     await expect(page.locator("article")).toContainText(
       "gestalt authorization admins members set",
+    );
+    await expect(page.locator("article")).toContainText("grant it an app role");
+    await expect(
+      page.getByRole("link", { name: "Settings → API tokens" }),
+    ).toHaveAttribute("href", "/settings/tokens");
+
+    await leftNav.getByRole("link", { name: "Manage API Tokens" }).click();
+    await expect(page).toHaveURL(/\/docs\/tokens/);
+    await expect(
+      page.getByRole("link", { name: "Settings → API tokens" }),
+    ).toHaveAttribute("href", "/settings/tokens");
+    await expect(page.locator("article")).not.toContainText(
+      "created from Authorization",
     );
 
     await leftNav.getByRole("link", { name: "Inspect Workflows" }).click();
@@ -227,11 +259,17 @@ test.describe("Docs page", () => {
     await expect(page.locator("article")).toContainText(
       "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh",
     );
+    await expect(
+      page.getByRole("link", { name: "Settings → API tokens" }),
+    ).toHaveAttribute("href", "/settings/tokens");
+    await expect(
+      page.getByRole("link", { name: "Manage API Tokens" }),
+    ).toHaveAttribute("href", "/docs/tokens");
     const mcpSwitch = page.getByRole("radiogroup", {
       name: "MCP client configuration",
     });
     const mcpPanel = mcpSwitch
-      .locator("xpath=ancestor::div[contains(@class,'gap-4')][1]")
+      .locator("xpath=ancestor::*[@data-docs-option-switcher][1]")
       .locator(":scope > div")
       .last();
     await expect(

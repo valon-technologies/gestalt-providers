@@ -263,8 +263,9 @@ const pageLayoutPaneVariants = cva(
       sticky: {
         // `overflow-y-auto` computes a non-visible x overflow too, which clips
         // NavList's standard outward focus ring. Keep one spacing step of
-        // scrollport breathing room so the ring remains fully visible.
-        true: "lg:sticky lg:top-[var(--page-layout-pane-top,0px)] lg:max-h-[calc(100svh-var(--page-layout-pane-top,0px)-var(--page-layout-pane-bottom,0px))] lg:overflow-y-auto lg:overscroll-contain lg:p-1",
+        // horizontal / bottom scrollport padding so the ring remains visible —
+        // not top, so sticky rails share a top edge with the content column.
+        true: "lg:sticky lg:top-[var(--page-layout-pane-top,0px)] lg:max-h-[calc(100svh-var(--page-layout-pane-top,0px)-var(--page-layout-pane-bottom,0px))] lg:overflow-y-auto lg:overscroll-contain lg:px-1 lg:pb-1 lg:pt-0",
         false: "",
       },
     },
@@ -304,8 +305,8 @@ const pageLayoutAsideVariants = cva("hidden min-w-0 xl:block", {
   variants: {
     sticky: {
       // The Aside is the same clipping scrollport as the Pane; keep focus rings
-      // visible for TableOfContents buttons and any other interactive content.
-      true: "xl:sticky xl:top-[var(--page-layout-pane-top,0px)] xl:max-h-[calc(100svh-var(--page-layout-pane-top,0px)-var(--page-layout-pane-bottom,0px))] xl:overflow-y-auto xl:overscroll-contain xl:p-1",
+      // visible for TableOfContents buttons. No top padding — align with content.
+      true: "xl:sticky xl:top-[var(--page-layout-pane-top,0px)] xl:max-h-[calc(100svh-var(--page-layout-pane-top,0px)-var(--page-layout-pane-bottom,0px))] xl:overflow-y-auto xl:overscroll-contain xl:px-1 xl:pb-1 xl:pt-0",
       false: "",
     },
   },
