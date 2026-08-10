@@ -329,10 +329,11 @@ func (b *temporalBackend) ListRuns(ctx context.Context, req *gestalt.ListWorkflo
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "page_token is invalid")
 	}
+	query := b.runVisibilityQuery(req)
 	resp, err := b.client.ListWorkflow(ctx, &workflowservicepb.ListWorkflowExecutionsRequest{
 		PageSize:      int32(pageSize),
 		NextPageToken: nextPageToken,
-		Query:         b.runVisibilityQuery(req),
+		Query:         query,
 	})
 	if err != nil {
 		return nil, mapTemporalWorkflowCallError("list temporal workflows", err)
@@ -344,7 +345,66 @@ func (b *temporalBackend) ListRuns(ctx context.Context, req *gestalt.ListWorkflo
 			inputs = append(inputs, *run)
 		}
 	}
-	return &gestalt.ListWorkflowProviderRunsResponse{Runs: inputs, NextPageToken: encodeTemporalListPageToken(resp.GetNextPageToken())}, nil
+	out := &gestalt.ListWorkflowProviderRunsResponse{
+		Runs:          inputs,
+		NextPageToken: encodeTemporalListPageToken(resp.GetNextPageToken()),
+	}
+	// Aggregates are visibility counts for the same filter as this page — not
+	// len(runs). Only compute on the first page so continuation calls stay cheap.
+	if len(nextPageToken) == 0 {
+		if total, countErr := b.countWorkflows(ctx, query); countErr == nil {
+			out.TotalCount = &total
+		}
+		if counts, countErr := b.countWorkflowsByStatus(ctx, req); countErr == nil {
+			out.StatusCounts = counts
+		}
+	}
+	return out, nil
+}
+
+func (b *temporalBackend) countWorkflows(ctx context.Context, query string) (int64, error) {
+	resp, err := b.client.CountWorkflow(ctx, &workflowservicepb.CountWorkflowExecutionsRequest{
+		Query: query,
+	})
+	if err != nil {
+		return 0, mapTemporalWorkflowCallError("count temporal workflows", err)
+	}
+	return resp.GetCount(), nil
+}
+
+func (b *temporalBackend) countWorkflowsByStatus(ctx context.Context, req *gestalt.ListWorkflowProviderRunsRequest) (*gestalt.WorkflowRunStatusCounts, error) {
+	base := &gestalt.ListWorkflowProviderRunsRequest{}
+	if req != nil {
+		base.TargetApp = req.TargetApp
+	}
+	counts := &gestalt.WorkflowRunStatusCounts{}
+	for _, statusValue := range []gestalt.WorkflowRunStatus{
+		gestalt.WorkflowRunStatusValuePending,
+		gestalt.WorkflowRunStatusValueRunning,
+		gestalt.WorkflowRunStatusValueSucceeded,
+		gestalt.WorkflowRunStatusValueFailed,
+		gestalt.WorkflowRunStatusValueCanceled,
+	} {
+		statusReq := *base
+		statusReq.Status = statusValue
+		total, err := b.countWorkflows(ctx, b.runVisibilityQuery(&statusReq))
+		if err != nil {
+			return nil, err
+		}
+		switch statusValue {
+		case gestalt.WorkflowRunStatusValuePending:
+			counts.Pending = total
+		case gestalt.WorkflowRunStatusValueRunning:
+			counts.Running = total
+		case gestalt.WorkflowRunStatusValueSucceeded:
+			counts.Succeeded = total
+		case gestalt.WorkflowRunStatusValueFailed:
+			counts.Failed = total
+		case gestalt.WorkflowRunStatusValueCanceled:
+			counts.Canceled = total
+		}
+	}
+	return counts, nil
 }
 
 // listedRunFromExecutionInfo builds a run summary from visibility data alone,

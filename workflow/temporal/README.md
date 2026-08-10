@@ -78,7 +78,9 @@ Metadata-only reads do not start the Temporal worker.
   workflow and Temporal run ID
 - `GetRun`, `GetRunEvents`, and `GetRunOutput` read authoritative run state
   from the Temporal workflow query or completed workflow result; `ListRuns`
-  queries Temporal Visibility and hydrates from Temporal workflow state
+  queries Temporal Visibility for the page and, on the first page, attaches
+  `total_count` / `status_counts` from `CountWorkflow` with the same filter
+  (not `len(runs)`)
 - IndexedDB stores workflow definitions and request idempotency records only;
   Temporal owns run listing, current run state, schedule cursors, and
   workflow-key ownership

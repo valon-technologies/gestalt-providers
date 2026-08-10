@@ -533,6 +533,14 @@ func TestBackendListRunsUsesTemporalVisibility(t *testing.T) {
 			},
 			NextPageToken: nextToken,
 		},
+		countDefault: 0,
+		countRespByQuery: map[string]int64{
+			"WorkflowType = 'TemporalRun' AND GestaltScopeId = 'scope' AND GestaltProviderName = 'temporal' AND GestaltRunStatus = 'pending' AND GestaltTargetApps = 'slack'":   1,
+			"WorkflowType = 'TemporalRun' AND GestaltScopeId = 'scope' AND GestaltProviderName = 'temporal' AND GestaltRunStatus = 'running' AND GestaltTargetApps = 'slack'":   3,
+			"WorkflowType = 'TemporalRun' AND GestaltScopeId = 'scope' AND GestaltProviderName = 'temporal' AND GestaltRunStatus = 'succeeded' AND GestaltTargetApps = 'slack'": 30,
+			"WorkflowType = 'TemporalRun' AND GestaltScopeId = 'scope' AND GestaltProviderName = 'temporal' AND GestaltRunStatus = 'failed' AND GestaltTargetApps = 'slack'":    7,
+			"WorkflowType = 'TemporalRun' AND GestaltScopeId = 'scope' AND GestaltProviderName = 'temporal' AND GestaltRunStatus = 'canceled' AND GestaltTargetApps = 'slack'":  1,
+		},
 	}
 	backend := newRecordingTemporalBackend(tc, state)
 
@@ -554,8 +562,18 @@ func TestBackendListRunsUsesTemporalVisibility(t *testing.T) {
 	if resp.NextPageToken != encodeTemporalListPageToken(nextToken) {
 		t.Fatalf("next page token = %q", resp.NextPageToken)
 	}
+	total, ok := resp.GetTotalCount()
+	if !ok || total != 3 {
+		t.Fatalf("total count = %d ok=%v, want 3 (same visibility query as status=running)", total, ok)
+	}
+	if resp.StatusCounts == nil || resp.StatusCounts.Running != 3 || resp.StatusCounts.Succeeded != 30 || resp.StatusCounts.Failed != 7 {
+		t.Fatalf("status counts = %#v", resp.StatusCounts)
+	}
 	if len(tc.listWorkflowRequests) != 1 {
 		t.Fatalf("list workflow requests = %#v", tc.listWorkflowRequests)
+	}
+	if len(tc.countWorkflowRequests) < 2 {
+		t.Fatalf("count workflow requests = %#v, want list total + status histogram", tc.countWorkflowRequests)
 	}
 	listReq := tc.listWorkflowRequests[0]
 	if listReq.GetPageSize() != 25 {
@@ -718,6 +736,10 @@ type recordingTemporalClient struct {
 	listWorkflowRequests []*workflowservicepb.ListWorkflowExecutionsRequest
 	listResp             *workflowservicepb.ListWorkflowExecutionsResponse
 	listErr              error
+	countWorkflowRequests []*workflowservicepb.CountWorkflowExecutionsRequest
+	countRespByQuery     map[string]int64
+	countDefault         int64
+	countErr             error
 	describeResp         *workflowservicepb.DescribeWorkflowExecutionResponse
 	describeErr          error
 	queryRun             *gestalt.WorkflowRun
@@ -789,6 +811,21 @@ func (c *recordingTemporalClient) ListWorkflow(_ context.Context, req *workflows
 		return c.listResp, nil
 	}
 	return &workflowservicepb.ListWorkflowExecutionsResponse{}, nil
+}
+
+func (c *recordingTemporalClient) CountWorkflow(_ context.Context, req *workflowservicepb.CountWorkflowExecutionsRequest) (*workflowservicepb.CountWorkflowExecutionsResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.countWorkflowRequests = append(c.countWorkflowRequests, req)
+	if c.countErr != nil {
+		return nil, c.countErr
+	}
+	if c.countRespByQuery != nil {
+		if total, ok := c.countRespByQuery[req.GetQuery()]; ok {
+			return &workflowservicepb.CountWorkflowExecutionsResponse{Count: total}, nil
+		}
+	}
+	return &workflowservicepb.CountWorkflowExecutionsResponse{Count: c.countDefault}, nil
 }
 
 func (c *recordingTemporalClient) DescribeWorkflowExecution(_ context.Context, workflowID, runID string) (*workflowservicepb.DescribeWorkflowExecutionResponse, error) {
