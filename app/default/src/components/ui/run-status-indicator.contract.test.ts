@@ -3,73 +3,56 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  runStatusIndicatorBadgeVariant,
+  runStatusToOutcome,
+} from "./run-status-indicator";
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SOURCE = readFileSync(join(HERE, "run-status-indicator.tsx"), "utf8");
 
-describe("RunStatusIndicator", () => {
-  test("maps Registry mid-dark ramps onto status-indicator tokens (not palette literals)", () => {
+describe("RunStatusIndicator adapter", () => {
+  test("is a thin vocabulary adapter over OutcomeStatusIndicator", () => {
     expect(SOURCE).toContain(
-      'succeeded: "bg-status-indicator-success text-white"',
+      'from "@/components/ui/outcome-status-indicator"',
     );
-    expect(SOURCE).toContain(
-      'failed: "bg-status-indicator-danger text-white"',
-    );
-    expect(SOURCE).toContain(
-      'running: "bg-status-indicator-warning text-white"',
-    );
-    expect(SOURCE).not.toContain("bg-green-500");
-    expect(SOURCE).not.toContain("bg-red-500");
-    expect(SOURCE).not.toContain("bg-yellow-500");
-    expect(SOURCE).not.toContain("bg-success-solid");
-    expect(SOURCE).not.toContain("bg-warning-solid");
+    expect(SOURCE).toContain("OutcomeStatusIndicator");
+    expect(SOURCE).toContain("runStatusToOutcome");
+    expect(SOURCE).not.toContain("bg-status-indicator-success");
   });
 
-  test("respects reduced motion on the running spinner", () => {
-    expect(SOURCE).toContain("animate-spin motion-reduce:animate-none");
+  test("maps run vocabulary onto domain-neutral outcomes", () => {
+    expect(runStatusToOutcome("succeeded")).toBe("success");
+    expect(runStatusToOutcome("failed")).toBe("failure");
+    expect(runStatusToOutcome("running")).toBe("in_progress");
+    expect(runStatusToOutcome("pending")).toBe("pending");
+    expect(runStatusToOutcome("canceled")).toBe("canceled");
+    expect(runStatusToOutcome("skipped")).toBe("skipped");
+    expect(runStatusToOutcome("unknown")).toBe("unknown");
   });
 
-  test("pins the glyph to the label first-line rail", () => {
-    expect(SOURCE).toContain("inline-flex h-5 shrink-0 items-center");
-    expect(SOURCE).toContain("text-sm leading-5 text-foreground");
-    expect(SOURCE).toContain('visibleLabel ? "items-start" : "items-center"');
+  test("keeps run vocabulary on data-status (overrides outcome data-status)", () => {
+    expect(SOURCE).toContain('data-slot="run-status-indicator"');
+    expect(SOURCE).toContain("data-status={resolved}");
+    expect(SOURCE).not.toContain("data-run-status");
   });
 
-  test("maps statuses to Badge variants without unused info", () => {
-    expect(SOURCE).toContain("runStatusIndicatorBadgeVariant");
-    expect(SOURCE).toContain('return "success"');
-    // Registry uses `"error"`; this Badge API uses `"destructive"`.
-    expect(SOURCE).toContain('return "destructive"');
-    expect(SOURCE).toContain('return "warning"');
-    expect(SOURCE).toContain('return "muted"');
-    expect(SOURCE).not.toContain('| "info"');
-    expect(SOURCE).not.toContain('return "error"');
+  test("re-exports runStatusIndicatorVariants as a compatibility alias", () => {
+    expect(SOURCE).toContain("runStatusIndicatorVariants");
+    expect(SOURCE).toContain("outcomeStatusIndicatorVariants");
   });
 
-  test("pending is a single hollow Circle (no shell border)", () => {
-    expect(SOURCE).toContain('pending: "bg-transparent text-muted-foreground"');
-    expect(SOURCE).not.toContain("border border-muted-foreground/40");
-    expect(SOURCE).toContain("pending: { icon: Circle");
+  test("maps run statuses to Badge variants via outcomes", () => {
+    expect(runStatusIndicatorBadgeVariant("succeeded")).toBe("success");
+    expect(runStatusIndicatorBadgeVariant("failed")).toBe("destructive");
+    expect(runStatusIndicatorBadgeVariant("running")).toBe("warning");
+    expect(runStatusIndicatorBadgeVariant("unknown")).toBe("muted");
   });
 
-  test("labeled mode clamps glyph size to the first-line rail", () => {
-    expect(SOURCE).toContain(
-      'const glyphSize = visibleLabel ? "md" : (size ?? "md")',
-    );
-  });
-
-  test("iconOnly falls back when label is an empty string", () => {
+  test("preserves run-domain default labels and empty-string label guard", () => {
+    expect(SOURCE).toContain('succeeded: "Succeeded"');
+    expect(SOURCE).toContain('running: "Running"');
     expect(SOURCE).toContain("label != null && label.length > 0");
-    expect(SOURCE).toContain("customLabel ?? defaultLabel");
-  });
-
-  test("empty label falls back to the default caption (not nameless)", () => {
-    expect(SOURCE).toContain(
-      "const visibleLabel = iconOnly ? undefined : (customLabel ?? defaultLabel)",
-    );
-  });
-
-  test("imports cn from the local utils alias", () => {
-    expect(SOURCE).toContain('from "@/lib/cn"');
-    expect(SOURCE).not.toContain('from "@/lib/utils"');
+    expect(SOURCE).toContain("customLabel ?? RUN_DEFAULT_LABEL[resolved]");
   });
 });

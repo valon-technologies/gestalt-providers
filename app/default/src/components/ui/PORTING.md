@@ -161,12 +161,35 @@ Do not invent freestyle `tracking-*` / `text-*` sizes at call sites.
 
 ## RunStatusIndicator
 
-Registry `run-status-indicator` is vendored here. Prefer it for workflow / job
-outcome glyphs (succeeded / failed / running / pending / …). Map Registry
-`bg-green-500` / `bg-red-500` / `bg-yellow-500` onto `--status-indicator-*`
-(+ `text-white`) — same mid-chroma light-on-fill recipe as fleet replica dots.
-Keep `runStatusIndicatorBadgeVariant` on this Badge API (`"destructive"`, not
-Registry `"error"`). Import `@/lib/cn` (not Registry `@/lib/utils`).
+Thin **workflow vocabulary adapter** over `OutcomeStatusIndicator`
+(`succeeded` → `success`, `running` → `in_progress`, …) — toolshed#4181.
+Root keeps run vocabulary on `data-status` (overrides outcome `data-status`).
+Prefer `OutcomeStatusIndicator` for connection / deploy / non-run domains.
+
+## OutcomeStatusIndicator
+
+Registry `outcome-status-indicator` is vendored here (toolshed#4181) —
+domain-neutral filled circle + symbol. Map Registry mid-dark ramps onto
+`bg-status-indicator-*`. Failure Badge pairing stays `destructive` (Registry
+`error` not vendored on Badge yet). Distinct from uptime `StatusIndicator`
+dots and `TableStatusIndicator` (soft Badge washes).
+
+## StatusIndicator
+
+Registry `status-indicator` (Feedback/StatusIndicator) is vendored here
+(toolshed#4181) — dot + optional label for live/uptime style status. Map
+Registry `--valon-*` fills onto `bg-status-indicator-*` (including idle →
+`bg-status-indicator-muted`). Honor `pulse` (default `true`). Keep local
+`data-slot` / `data-state` / `data-pulse` for tests and CSS hooks. No call
+site yet — kept for Registry parity after #4181.
+
+## Tree
+
+Registry `tree` indent guides: keep `isolate` so `before:-z-10` does not paint
+behind ancestor `bg-card`. Guide color is soft `--border` (not `--input`).
+Guide inset is half the toggle gutter (`--tree-guide-inset`) so the line
+centers on +/- — not `indent/2`. Keep the local `--tree-padding` formula
+(`level * indent`) — Registry still uses `level - 1`.
 
 ## Card / Collapsible / Item
 

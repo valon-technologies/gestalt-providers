@@ -8,6 +8,7 @@ import {
   disconnectIntegration,
 } from "@/lib/api";
 import {
+  APP_SURFACE_LABELS,
   appOpenPath,
   alertVariantFromTone,
   canManageApp,
@@ -34,6 +35,7 @@ import {
 } from "@/lib/row-link";
 import { useIntegrationConnection } from "@/hooks/useIntegrationConnection";
 import { cn } from "@/lib/cn";
+import { CONNECTION_CONNECTED_LABEL } from "@/features/app-workspace/connection-surface-copy";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { SearchHighlight } from "@/components/ui/search-highlight";
@@ -158,12 +160,14 @@ export default function IntegrationCard({
     installState === "needs_attention" ? normalizedStatus.summaryLabel : null;
   const attentionAlertVariant = alertVariantFromTone(normalizedStatus.tone);
   const cardNavigationEnabled = !disableNavigation && !settingsOpen;
-  /** Installed → More (Remove app). Discovery → Add when connectable. */
+  /** Connected → More (Remove app). Discovery → Add when connectable. */
   const showInstalledMenu =
     useAppDetailConnection &&
     !readOnly &&
     (installState === "connected" || installState === "needs_attention");
-  const showInstalledCheck = showInstalledMenu;
+  /** Success checkmark only when healthy — attention rows keep Alert, not Connected. */
+  const showInstalledCheck =
+    useAppDetailConnection && !readOnly && installState === "connected";
   const showAddButton =
     !readOnly &&
     (installState === "mount_only" ||
@@ -339,12 +343,12 @@ export default function IntegrationCard({
             {(surfaces.hasUi || isAppAdmin) && (
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 {surfaces.hasUi ? (
-                  <Badge size="sm" variant="secondary">
-                    Web App
+                  <Badge variant="secondary">
+                    {APP_SURFACE_LABELS.webApp}
                   </Badge>
                 ) : null}
                 {isAppAdmin ? (
-                  <Badge size="sm" variant="info">
+                  <Badge variant="info">
                     Admin
                   </Badge>
                 ) : null}
@@ -364,8 +368,8 @@ export default function IntegrationCard({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span
-                      className="flex size-control-sm items-center justify-center text-success"
-                      aria-label="Installed"
+                      className="flex size-control-sm items-center justify-center text-status-indicator-success"
+                      aria-label={CONNECTION_CONNECTED_LABEL}
                     >
                       <SelectionCheck
                         checked
@@ -374,7 +378,9 @@ export default function IntegrationCard({
                       />
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent side="top">Installed</TooltipContent>
+                  <TooltipContent side="top">
+                    {CONNECTION_CONNECTED_LABEL}
+                  </TooltipContent>
                 </Tooltip>
               ) : null}
 

@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import type { MouseEvent, SyntheticEvent } from "react";
 import type { Integration } from "@/lib/api";
 import {
+  APP_SURFACE_LABELS,
   appOpenPath,
   badgeVariantFromTone,
   canManageApp,
@@ -87,7 +88,7 @@ export default function AppListingDetail({
               </Badge>
               {surfaces.hasUi ? (
                 <Badge size="sm" variant="secondary">
-                  Web App
+                  {APP_SURFACE_LABELS.webApp}
                 </Badge>
               ) : null}
               {isAppAdmin ? (

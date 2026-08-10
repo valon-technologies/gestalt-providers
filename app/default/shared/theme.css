@@ -268,8 +268,9 @@
   --muted-foreground-soft: color-mix(in oklab, var(--foreground) 40%, transparent);
   /* Structural chrome stays neutral — never derive borders from --brand*. */
   --border: color-mix(in oklab, var(--foreground) 16%, var(--background));
-  /* Control border — stronger than structural `--border` (see light). */
-  --input: color-mix(in oklab, var(--foreground) 36%, var(--background));
+  /* Control border — stronger than structural `--border` (see light).
+   * Same 28% ink/paper mix as light / Registry shell anchors (toolshed#4176). */
+  --input: color-mix(in oklab, var(--foreground) 28%, var(--background));
   --ring: var(--brand);
 
   --accent: var(--brand-soft);

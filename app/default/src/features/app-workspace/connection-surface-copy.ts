@@ -21,12 +21,18 @@ import type { AccountIdentity, IdentityFact, Integration } from "@/lib/api";
  * - **Not in use** — linked but not the preferred account.
  * - **Available** — linked while the workspace still needs an active choice.
  *
- * "Credentials" stays technical/status-only (e.g. "No credentials required") —
- * never page chrome or catalog lead copy.
+ * Credential *absence* (`not_required`) is never Overview/catalog chrome —
+ * silence or "Ready". Actionable auth states own Connect / Connection copy.
  */
 export const CONNECTION_SURFACE_TITLE = "Connection" as const;
 
 export const CONNECTION_SURFACE_NAV_LABEL = "Connection" as const;
+
+/**
+ * Happy-path credential state — Overview Status, catalog checkmark, and the
+ * catalog “already linked” browse section. Pair with “Not connected”.
+ */
+export const CONNECTION_CONNECTED_LABEL = "Connected" as const;
 
 /** Primary CTA to link another provider identity. */
 export const ADD_ACCOUNT_LABEL = "Add account" as const;

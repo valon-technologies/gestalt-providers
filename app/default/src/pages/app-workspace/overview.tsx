@@ -4,9 +4,10 @@ import { CircleAlert, ExternalLink } from "lucide-react";
 import { getAuthSession, type AuthSession } from "@/lib/api";
 import {
   alertVariantFromTone,
+  APP_SURFACE_LABELS,
   appShowsCredentialSurface,
-  badgeVariantFromTone,
   getAppSurfaces,
+  overviewConnectionOutcomeStatus,
   primaryConnectLabel,
 } from "@/lib/catalogFilters";
 import { getAppPromptExamples } from "@/lib/appPromptExamples";
@@ -24,8 +25,8 @@ import {
 } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Code } from "@/components/ui/code";
 import { Link as UiLink } from "@/components/ui/link";
-import { SelectionCheck } from "@/components/ui/selection-check";
 import {
   PageHeader,
   PageHeaderActions,
@@ -33,6 +34,7 @@ import {
   PageHeaderDescription,
   PageHeaderTitle,
 } from "@/components/ui/page-header";
+import { OutcomeStatusIndicator } from "@/components/ui/outcome-status-indicator";
 import { useAppWorkspace } from "@/features/app-workspace/app-workspace-context";
 import {
   CONNECTION_ACCESS_BLURB,
@@ -78,43 +80,16 @@ export default function AppWorkspaceOverviewPage() {
     [integration],
   );
 
-  const checklist = useMemo(() => {
-    if (!status || !surfaces) return [];
-    const items: Array<{ id: string; label: string; done: boolean; skip?: boolean }> = [
-      {
-        id: "connected",
-        // Same vocabulary as the status badge — avoid "Ready" vs "No credentials required".
-        label: status.summaryLabel,
-        done: status.connected && status.tone === "success",
-      },
-      {
-        id: "ui",
-        label: "Has an app",
-        done: Boolean(surfaces.hasUi),
-        skip: !surfaces.hasUi,
-      },
-      {
-        id: "mcp",
-        label: "Works with AI",
-        done: Boolean(surfaces.hasMcp),
-        skip: !surfaces.hasMcp,
-      },
-    ];
-    return items
-      .filter((item) => !item.skip)
-      .map(({ id, label: itemLabel, done }) => ({
-        id,
-        label: itemLabel,
-        done,
-      }));
-  }, [status, surfaces]);
+  const hasCredentialSurface = useMemo(
+    () => (integration ? appShowsCredentialSurface(integration) : false),
+    [integration],
+  );
 
   if (!integration || !status || !surfaces) return null;
 
   const label = getIntegrationLabel(integration);
   const promptExamples = getAppPromptExamples(integration, surfaces.hasMcp);
   const connectLabel = primaryConnectLabel(integration, "current_user");
-  const hasCredentialSurface = appShowsCredentialSurface(integration);
   const attention = overviewConnectionAttention(status);
   const showManageConnection =
     hasCredentialSurface && connectLabel === null && status.connected;
@@ -211,25 +186,18 @@ export default function AppWorkspaceOverviewPage() {
               </AlertDescription>
             </Alert>
           ) : null}
-          {!attention || surfaces.hasUi || surfaces.hasMcp ? (
+          {surfaces.hasUi || surfaces.hasMcp ? (
             <div className="flex flex-wrap items-center gap-2">
-              {/* Attention uses Alert above — never a status Badge for recovery copy. */}
-              {!attention ? (
-                <Badge
-                  variant={badgeVariantFromTone(status.tone)}
-                  aria-label={status.summaryLabel}
-                >
-                  {status.summaryLabel}
-                </Badge>
-              ) : null}
+              {/* Connection status lives under Your access (OutcomeStatusIndicator).
+                  Header keeps surface chips only — never duplicate Connected here. */}
               {surfaces.hasUi ? (
-                <Badge variant="secondary" size="sm">
-                  App
+                <Badge variant="secondary">
+                  {APP_SURFACE_LABELS.webApp}
                 </Badge>
               ) : null}
               {surfaces.hasMcp ? (
-                <Badge variant="secondary" size="sm">
-                  Works with AI
+                <Badge variant="secondary">
+                  {APP_SURFACE_LABELS.mcp}
                 </Badge>
               ) : null}
             </div>
@@ -297,45 +265,25 @@ export default function AppWorkspaceOverviewPage() {
               <dt className="text-xs font-medium text-muted-foreground">
                 Status
               </dt>
-              <dd className="mt-1 text-sm text-foreground">
-                {status.summaryLabel}
+              <dd className="mt-1">
+                <OutcomeStatusIndicator
+                  status={overviewConnectionOutcomeStatus(status)}
+                  label={status.summaryLabel}
+                  data-testid="overview-connection-status"
+                />
               </dd>
             </div>
           ) : null}
         </dl>
       </div>
 
-      {checklist.length > 0 ? (
-        <div
-          className={overviewSectionClass}
-          data-testid="app-admin-checklist"
-        >
-          <h2 className="text-lg font-heading text-foreground">Setup</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {checklist.filter((item) => item.done).length}/{checklist.length}{" "}
-            ready
-          </p>
-          <ul className="mt-4 space-y-2">
-            {checklist.map((item) => (
-              <li
-                key={item.id}
-                className="flex items-center gap-2 text-sm text-foreground"
-              >
-                <SelectionCheck checked={item.done} tone="solid" density="default" />
-                {item.label}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
       <div className={overviewSectionClass}>
         <h2 className="text-lg font-heading text-foreground">Details</h2>
         <dl className="mt-4 grid gap-3 sm:grid-cols-2">
           <div>
             <dt className="text-xs font-medium text-muted-foreground">App name</dt>
-            <dd className="mt-1 font-mono text-sm text-foreground">
-              {integration.name}
+            <dd className="mt-1">
+              <Code>{integration.name}</Code>
             </dd>
           </div>
           <div>
@@ -343,17 +291,17 @@ export default function AppWorkspaceOverviewPage() {
               Available as
             </dt>
             <dd className="mt-1 flex flex-wrap gap-1.5">
-              <Badge size="sm" variant="secondary">
-                API
+              <Badge variant="secondary">
+                {APP_SURFACE_LABELS.api}
               </Badge>
               {surfaces.hasMcp ? (
-                <Badge size="sm" variant="secondary">
-                  Works with AI
+                <Badge variant="secondary">
+                  {APP_SURFACE_LABELS.mcp}
                 </Badge>
               ) : null}
               {surfaces.hasUi ? (
-                <Badge size="sm" variant="secondary">
-                  App
+                <Badge variant="secondary">
+                  {APP_SURFACE_LABELS.webApp}
                 </Badge>
               ) : null}
             </dd>
