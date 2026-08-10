@@ -119,6 +119,8 @@ function PublishedRetentionLabel({
         <button
           type="button"
           data-no-row-click
+          data-testid="version-retention-label"
+          aria-label={label}
           className={
             className
               ? `${className} cursor-default underline decoration-dotted underline-offset-2`
