@@ -125,6 +125,10 @@ interface PageLayoutProps
    * Pane offers (a Settings page whose rail switches sections *within* Settings).
    * When each Pane destination has its own title (a docs page), leave this unset
    * and let the content column own the `PageHeader` instead.
+   *
+   * DOM order is always `paneMobile` → `header` → columns: on small viewports the
+   * Menu (or SegmentedControl) sits above the page title; never the reverse.
+   * At `lg+`, `paneMobile` is hidden so this still reads as header-above-Pane.
    */
   header?: React.ReactNode;
   /** Start-side rail content — normally a `NavList`. Hidden below `lg`. */
@@ -182,22 +186,32 @@ function PageLayout({
         )}
         {...props}
       >
-        {header ? <PageLayoutHeader>{header}</PageLayoutHeader> : null}
-
         {/*
-          paneMobile + columns share one tall parent so a sticky Menu bar can
-          outlive the short bar height (sticky is clipped to its parent). App
-          chrome in `__root` is also sticky — same model, same overscroll bounce.
+          paneMobile + header + columns share one tall parent so a sticky Menu
+          bar can outlive the short bar height (sticky is clipped to its parent).
+          Order is intentional: Menu/SegmentedControl first, then the optional
+          page header, then the tracks — so on small viewports chrome never sits
+          under the PageHeader. At lg+, paneMobile is `lg:hidden` and header
+          still spans above the Pane. Same `gap` as the outer layout. Opaque
+          `bg-background` on the sticky wrapper (Menu paints its own;
+          SegmentedControl does not). Do not put `overflow-x-*` on that slot
+          (clips Menu edge bleed); wrap a scrolling SegmentedControl at the
+          call site instead.
         */}
-        <div data-slot="page-layout-main">
+        <div
+          data-slot="page-layout-main"
+          className={cn("grid grid-cols-1", pageLayoutGapVariants[gap ?? "default"])}
+        >
           {paneMobile ? (
             <div
               data-slot="page-layout-pane-mobile"
-              className="sticky top-[var(--page-layout-pane-top,0px)] z-40 w-full min-w-0 lg:hidden"
+              className="sticky top-[var(--page-layout-mobile-nav-top,var(--page-layout-pane-top,0px))] z-40 w-full min-w-0 bg-background lg:hidden"
             >
               {paneMobile}
             </div>
           ) : null}
+
+          {header ? <PageLayoutHeader>{header}</PageLayoutHeader> : null}
 
           {/*
             One nested grid holds the tracks so the header and footer above/below can
@@ -225,8 +239,9 @@ function PageLayout({
 }
 
 /**
- * Full-width band above the columns. `PageLayout` renders this around `header`;
- * export it for layouts composed by hand.
+ * Full-width band above the columns (and below `paneMobile` when present).
+ * `PageLayout` renders this around `header`; export it for layouts composed by
+ * hand.
  */
 function PageLayoutHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
@@ -235,9 +250,12 @@ function PageLayoutHeader({ className, ...props }: React.ComponentProps<"div">) 
 }
 
 // The sticky offset must clear whatever fixed chrome the app puts above the page.
-// `--page-layout-pane-top` is the seam: apps set it once (next to their nav-height
-// token) instead of scattering a magic `top-*` across every page. 0px is correct
-// for an app with no fixed chrome, so the default is safe rather than merely inert.
+// `--page-layout-pane-top` is the seam for Pane / Aside rails: apps set it once
+// (next to their nav-height token) instead of scattering a magic `top-*` across
+// every page. `--page-layout-mobile-nav-top` is the seam for the Menu bar
+// (secondary chrome — usually flush under AppTopBar, without the rail breathing
+// gap). Menu sticky falls back to pane-top when unset. 0px is correct for an app
+// with no fixed chrome, so the default is safe rather than merely inert.
 const pageLayoutPaneVariants = cva(
   "hidden min-w-0 lg:block",
   {

@@ -91,7 +91,7 @@ describe("PageLayout theme contract", () => {
     expect(extractCssTokenValue(GLOBALS_CSS, "--page-layout-aside-width")).toBe("13.75rem");
   });
 
-  test("derives sticky top from measured chrome height plus a gap", () => {
+  test("derives Pane sticky top from measured chrome height plus a gap", () => {
     expect(GLOBALS_CSS).toContain("--app-sticky-chrome-height:");
     expect(GLOBALS_CSS).toContain("--page-layout-pane-gap:");
     expect(extractCssTokenValue(GLOBALS_CSS, "--page-layout-pane-gap")).toBe(
@@ -105,6 +105,16 @@ describe("PageLayout theme contract", () => {
     );
   });
 
+  test("docks the mobile Menu flush under chrome (no pane-gap)", () => {
+    expect(GLOBALS_CSS).toContain("--page-layout-mobile-nav-top:");
+    expect(extractCssTokenValue(GLOBALS_CSS, "--page-layout-mobile-nav-top")).toBe(
+      "var(--app-sticky-chrome-height)",
+    );
+    expect(extractCssTokenValue(GLOBALS_CSS, "--page-layout-mobile-nav-top")).not.toContain(
+      "page-layout-pane-gap",
+    );
+  });
+
   test("defines mobile Menu height and a shared anchor clearance token", () => {
     expect(extractCssTokenValue(GLOBALS_CSS, "--page-layout-mobile-nav-height")).toBe(
       "3rem",
@@ -113,6 +123,8 @@ describe("PageLayout theme contract", () => {
       "0.75rem",
     );
     expect(GLOBALS_CSS).toContain("--page-layout-anchor-offset:");
+    // Mobile clearance uses the flush Menu stack, not pane-top (which includes rail gap).
+    expect(GLOBALS_CSS).toContain("var(--page-layout-mobile-nav-top)");
     expect(GLOBALS_CSS).toContain("var(--page-layout-mobile-nav-height)");
     // Desktop drops Menu height from the clearance stack.
     expect(GLOBALS_CSS).toMatch(
@@ -150,15 +162,31 @@ describe("PageLayout sticky contract", () => {
     expect(SOURCE).not.toMatch(/\btop-\d/);
   });
 
-  test("sticks paneMobile inside a tall main that includes the columns", () => {
+  test("sticks paneMobile inside a tall main that includes header + columns", () => {
     // Sticky fails if the parent is only as tall as the Menu bar. paneMobile +
-    // columns share page-layout-main so sticky outlives the short bar and
-    // rubber-bands with sticky AppTopBar.
+    // header + columns share page-layout-main so sticky outlives the short bar,
+    // Menu sits above PageHeader on small viewports, and rubber-bands with
+    // sticky AppTopBar. Opaque bg + shared gap so SegmentedControl hosts stay
+    // readable/spaced. Menu docks on mobile-nav-top (flush chrome), not pane-top.
     expect(SOURCE).toContain('data-slot="page-layout-main"');
     expect(SOURCE).toContain('data-slot="page-layout-pane-mobile"');
     expect(SOURCE).toContain(
-      "sticky top-[var(--page-layout-pane-top,0px)] z-40",
+      'className={cn("grid grid-cols-1", pageLayoutGapVariants[gap ?? "default"])}',
     );
+    expect(SOURCE).toContain(
+      "sticky top-[var(--page-layout-mobile-nav-top,var(--page-layout-pane-top,0px))] z-40 w-full min-w-0 bg-background lg:hidden",
+    );
+    // DOM order: paneMobile → header → columns (not header above paneMobile).
+    const paneMobileIdx = SOURCE.indexOf('data-slot="page-layout-pane-mobile"');
+    const headerIdx = SOURCE.indexOf(
+      "{header ? <PageLayoutHeader>{header}</PageLayoutHeader> : null}",
+      paneMobileIdx,
+    );
+    const columnsIdx = SOURCE.indexOf('data-slot="page-layout-columns"', headerIdx);
+    expect(paneMobileIdx).toBeGreaterThan(-1);
+    expect(headerIdx).toBeGreaterThan(paneMobileIdx);
+    expect(columnsIdx).toBeGreaterThan(headerIdx);
+    expect(SOURCE).not.toContain("overflow-x-auto p-1 lg:hidden");
   });
 
   test("leaves a spacing band for outward focus rings in scrollable rails", () => {
@@ -168,10 +196,11 @@ describe("PageLayout sticky contract", () => {
     expect(SOURCE).toContain("xl:p-1");
   });
 
-  test("shares the gap variant between the outer layout and track grid", () => {
+  test("shares the gap variant between the outer layout, main, and track grid", () => {
     expect(SOURCE).toContain("const pageLayoutGapVariants");
     expect(SOURCE).toContain("pageLayoutColumnsVariants({ gap })");
     expect(SOURCE).toContain("pageLayoutVariants({ gap })");
+    expect(SOURCE).toContain('pageLayoutGapVariants[gap ?? "default"]');
   });
 });
 
