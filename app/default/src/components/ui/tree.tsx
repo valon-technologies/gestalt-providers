@@ -33,9 +33,11 @@ const TREE_TOGGLE_BUTTON_SIZE: Record<TreeSize, "icon-xs" | "icon-sm"> = {
   lg: "icon-sm",
 };
 
-/** ReUI c-tree-2 vertical indent guides — 1px line centered in each indent column. */
+/** ReUI c-tree-2 vertical indent guides — 1px line centered in each indent column.
+ * Uses `--input` (control border), not structural `--border`, so guides stay
+ * visible on light paper themes where hairline `--border` is intentionally soft. */
 export const treeIndentGuidesClassName =
-  "relative before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:content-[''] before:bg-[repeating-linear-gradient(to_right,transparent_0,transparent_calc(var(--tree-indent)/2-0.5px),var(--border)_calc(var(--tree-indent)/2-0.5px),var(--border)_calc(var(--tree-indent)/2+0.5px),transparent_calc(var(--tree-indent)/2+0.5px),transparent_var(--tree-indent))]";
+  "relative before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:content-[''] before:bg-[repeating-linear-gradient(to_right,transparent_0,transparent_calc(var(--tree-indent)/2-0.5px),var(--input)_calc(var(--tree-indent)/2-0.5px),var(--input)_calc(var(--tree-indent)/2+0.5px),transparent_calc(var(--tree-indent)/2+0.5px),transparent_var(--tree-indent))]";
 
 /** Toggle / leaf spacer column — sized to the ghost icon Button, not indent px. */
 const treeGutterVariants = cva("flex shrink-0 items-center justify-center", {

@@ -81,7 +81,7 @@ test.describe("Navigation", () => {
       page.getByRole("heading", { name: "Settings" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Your API tokens" }),
+      page.getByRole("heading", { name: "API tokens" }),
     ).toBeVisible();
   });
 
@@ -129,7 +129,7 @@ test.describe("Navigation", () => {
     await page.goto("/tokens");
     await expect(page).toHaveURL(/\/settings\/tokens$/);
     await expect(
-      page.getByRole("heading", { name: "Your API tokens" }),
+      page.getByRole("heading", { name: "API tokens" }),
     ).toBeVisible();
   });
 
@@ -167,7 +167,7 @@ test.describe("Navigation", () => {
     await page.getByRole("menuitem", { name: "Settings" }).click();
     await expect(page).toHaveURL(/\/settings/);
     await expect(
-      page.getByRole("heading", { name: "Your API tokens" }),
+      page.getByRole("heading", { name: "API tokens" }),
     ).toBeVisible();
     await page.getByRole("link", { name: "Apps", exact: true }).click();
     await expect(page).toHaveURL(/\/apps/);

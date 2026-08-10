@@ -1,9 +1,10 @@
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import Container from "@/components/Container";
-import { Eyebrow } from "@/components/ui/eyebrow";
+import { Button } from "@/components/ui/button";
 import { PageLayout } from "@/components/ui/page-layout";
 import {
   PageHeader,
+  PageHeaderActions,
   PageHeaderContent,
   PageHeaderDescription,
   PageHeaderTitle,
@@ -16,6 +17,12 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import {
+  SETTINGS_TOKENS_CREATE_CTA,
+  SETTINGS_TOKENS_DOCUMENT_TITLE,
+  SETTINGS_TOKENS_LIST_DESCRIPTION,
+  SETTINGS_TOKENS_LIST_TITLE,
+} from "@/features/settings/tokens-copy";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import {
   SETTINGS_TOKENS_NEW_PATH,
@@ -57,16 +64,18 @@ function SettingsBreadcrumb({ pathname }: { pathname: string }) {
 }
 
 export default function SettingsLayout() {
-  useDocumentTitle("Settings");
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
   const nested = pathname === SETTINGS_TOKENS_NEW_PATH;
 
+  // Nested create overrides with its own document title while mounted.
+  useDocumentTitle(SETTINGS_TOKENS_DOCUMENT_TITLE);
+
   return (
     // PageLayout renders the <main>, so the Container stays a plain wrapper.
-    // Section roots use the Settings page header; nested create uses
-    // breadcrumbs so the content column can own the task h1.
+    // List owns one API-tokens page header; nested create uses breadcrumbs so
+    // the content column can own the task h1.
     <Container className="py-12">
       <PageLayout
         tracks="compact"
@@ -76,12 +85,18 @@ export default function SettingsLayout() {
           ) : (
             <PageHeader>
               <PageHeaderContent size="lg">
-                <Eyebrow tone="accent">Account</Eyebrow>
-                <PageHeaderTitle>Settings</PageHeaderTitle>
+                <PageHeaderTitle>{SETTINGS_TOKENS_LIST_TITLE}</PageHeaderTitle>
                 <PageHeaderDescription>
-                  Manage personal credentials for this account.
+                  {SETTINGS_TOKENS_LIST_DESCRIPTION}
                 </PageHeaderDescription>
               </PageHeaderContent>
+              <PageHeaderActions>
+                <Button asChild>
+                  <Link to={SETTINGS_TOKENS_NEW_PATH}>
+                    {SETTINGS_TOKENS_CREATE_CTA}
+                  </Link>
+                </Button>
+              </PageHeaderActions>
             </PageHeader>
           )
         }

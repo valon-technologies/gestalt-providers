@@ -4,7 +4,7 @@
  * into TokenCreateForm from the Build page when needed.
  */
 
-export const SETTINGS_TOKENS_LIST_TITLE = "Your API tokens";
+export const SETTINGS_TOKENS_LIST_TITLE = "API tokens";
 
 export const SETTINGS_TOKENS_LIST_DESCRIPTION =
   "Personal tokens for scripts, local tooling, and integrations. They authenticate as you.";
@@ -14,9 +14,7 @@ export const SETTINGS_TOKENS_CREATE_CTA = "Create token";
 export const SETTINGS_TOKENS_EMPTY_TITLE = "No API tokens yet.";
 
 export const SETTINGS_TOKENS_EMPTY_DESCRIPTION =
-  "Create a token for scripts, MCP clients, and other non-interactive tools.";
-
-export const SETTINGS_TOKENS_ACTIVE_SECTION = "Active tokens";
+  "Use Create token for scripts, MCP clients, and other tools.";
 
 export const SETTINGS_TOKEN_CREATE_TITLE = "Create token";
 

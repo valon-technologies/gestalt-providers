@@ -30,7 +30,7 @@ test.describe("Token Management", () => {
     await page.goto("/settings/tokens");
     await expect(page).toHaveURL(/\/settings/);
     await expect(
-      page.getByRole("heading", { name: "Your API tokens" }),
+      page.getByRole("heading", { name: "API tokens" }),
     ).toBeVisible();
     await expect(
       page.getByRole("link", { name: "Create token" }),
@@ -51,7 +51,7 @@ test.describe("Token Management", () => {
     await expect(page.getByText("No API tokens yet.")).toBeVisible();
     await expect(
       page.getByText(
-        "Create a token for scripts, MCP clients, and other non-interactive tools.",
+        "Use Create token for scripts, MCP clients, and other tools.",
       ),
     ).toBeVisible();
     // Single CTA path: page header only (empty state is orientation, not a second button).
