@@ -346,22 +346,24 @@
     /* Measured sticky stack (DevWorktreeBanner + AppTopBar). Root layout
        publishes the live height; this is the Nav-only fallback before measure. */
     --app-sticky-chrome-height: 4.0625rem;
-    /* Breathing room between sticky chrome and PageLayout Pane / Aside. */
+    /* Breathing room between sticky chrome and PageLayout Pane / Aside rails —
+       not for the mobile Menu (secondary chrome docks flush under AppTopBar). */
     --page-layout-pane-gap: 1.5rem;
-    /* Sticky offset = live chrome height + gap — stays correct with or without
-       the worktree banner. Read by `page-layout.tsx`. */
+    /* Menu sticky top: flush under measured chrome. Do not add pane-gap here. */
+    --page-layout-mobile-nav-top: var(--app-sticky-chrome-height);
+    /* Pane / Aside sticky top = chrome + rail breathing room. */
     --page-layout-pane-top: calc(
       var(--app-sticky-chrome-height) + var(--page-layout-pane-gap)
     );
     --page-layout-pane-bottom: 2rem;
-    /* Mobile Menu bar (PageLayoutPaneMobileNav) — h-12. Sticky under pane-top. */
+    /* Mobile Menu bar (PageLayoutPaneMobileNav) — h-12. Sticky under mobile-nav-top. */
     --page-layout-mobile-nav-height: 3rem;
     /* Gap between sticky Menu / chrome and an in-page scroll target. */
     --page-layout-anchor-gap: 0.75rem;
-    /* scrollIntoView / scroll-mt clearance under sticky chrome. Mobile includes
-       the Menu bar; lg+ hides paneMobile so only pane-top + gap remain. */
+    /* scrollIntoView / scroll-mt clearance under sticky chrome. Mobile: flush
+       Menu stack (chrome + Menu + anchor-gap). lg+: Pane rail offset + gap. */
     --page-layout-anchor-offset: calc(
-      var(--page-layout-pane-top) + var(--page-layout-mobile-nav-height) +
+      var(--page-layout-mobile-nav-top) + var(--page-layout-mobile-nav-height) +
         var(--page-layout-anchor-gap)
     );
     /* PageLayout column track widths (page-layout.md). Default and compact tiers

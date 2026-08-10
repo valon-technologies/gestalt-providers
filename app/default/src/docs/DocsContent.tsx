@@ -434,7 +434,6 @@ export function WorkflowsDocsPage() {
   return (
     <>
       <DocsPageHeader
-        eyebrow="Workflows"
         title="Inspect Workflows"
         description="Use the workflow CLI to inspect durable workflow run history without leaving the terminal."
       />

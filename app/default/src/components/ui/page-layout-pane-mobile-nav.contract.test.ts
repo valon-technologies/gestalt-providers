@@ -3,26 +3,30 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const RAW = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "page-layout-pane-mobile-nav.tsx"),
-  "utf8",
-);
+const dir = dirname(fileURLToPath(import.meta.url));
+const RAW = readFileSync(join(dir, "page-layout-pane-mobile-nav.tsx"), "utf8");
+const APP_TOP_BAR = readFileSync(join(dir, "app-top-bar.tsx"), "utf8");
 
 const SOURCE = RAW.replace(/^\s*\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
 
 describe("PageLayoutPaneMobileNav disclosure contract", () => {
-  test("uses a Collapsible trigger bar, not a side Sheet", () => {
-    expect(SOURCE).toContain("Collapsible");
-    expect(SOURCE).toContain("CollapsibleTrigger");
+  test("uses a plain Menu button + dialog overlay, not Sheet or Collapsible", () => {
+    expect(SOURCE).toContain('type="button"');
+    expect(SOURCE).toContain("aria-expanded={open}");
+    expect(SOURCE).toContain('aria-haspopup="dialog"');
+    expect(SOURCE).toContain('role="dialog"');
+    expect(SOURCE).toContain('aria-modal="true"');
+    expect(SOURCE).not.toContain("Collapsible");
+    expect(SOURCE).not.toContain("CollapsibleTrigger");
     expect(SOURCE).not.toContain("CollapsibleContent");
     expect(SOURCE).not.toContain("SheetContent");
     expect(SOURCE).not.toContain('side="left"');
+    expect(SOURCE).not.toContain('role="region"');
   });
 
   test("defaults the bar label to Menu and places the caret before it", () => {
     expect(SOURCE).toContain('label = "Menu"');
-    const triggerIdx = SOURCE.indexOf("CollapsibleTrigger");
-    const caretIdx = SOURCE.indexOf("ChevronDown", triggerIdx);
+    const caretIdx = SOURCE.indexOf("ChevronDown");
     const labelIdx = SOURCE.indexOf("{label}", caretIdx);
     expect(caretIdx).toBeGreaterThan(-1);
     expect(labelIdx).toBeGreaterThan(caretIdx);
@@ -30,43 +34,65 @@ describe("PageLayoutPaneMobileNav disclosure contract", () => {
   });
 
   test("keeps the Menu bar in flow (sticky owned by PageLayout)", () => {
-    // Bar itself must not be position:fixed — that skips iOS overscroll bounce
-    // while sticky AppTopBar still bounces. Sticky lives on PageLayout's tall
-    // pane-mobile wrapper.
     expect(SOURCE).toContain("ml-[calc(50%-50vw)]");
     expect(SOURCE).toContain(
-      '"group flex h-[length:var(--page-layout-mobile-nav-height,3rem)] w-full items-center border-b border-border bg-background text-sm font-medium"',
+      '"group focus-ring flex h-[length:var(--page-layout-mobile-nav-height,3rem)] w-full items-center border-b border-border bg-background text-left text-sm font-medium text-foreground"',
     );
     expect(SOURCE).not.toContain('"group fixed');
-    expect(SOURCE).not.toContain('className="h-12" aria-hidden');
   });
 
-  test("aligns the caret with the AppTopBar content column", () => {
-    expect(SOURCE).toContain("mx-auto w-full max-w-7xl px-6");
-    expect(SOURCE).toContain("pageColumnClassName");
+  test("aligns the caret with AppTopBar via shared column variants", () => {
+    expect(SOURCE).toContain("appTopBarColumnVariants");
+    expect(SOURCE).toContain('from "@/components/ui/app-top-bar"');
+    expect(APP_TOP_BAR).toContain("appTopBarColumnVariants");
+    // Console column SoT — keep in sync with AppTopBarInner.
+    expect(APP_TOP_BAR).toContain('cva("mx-auto w-full max-w-7xl px-6")');
   });
 
-  test("open panel fills the remaining viewport and owns scroll", () => {
-    expect(SOURCE).toContain(
-      "fixed inset-x-0 bottom-0 top-[calc(var(--page-layout-pane-top,0px)+var(--page-layout-mobile-nav-height,3rem))]",
+  test("open panel fills from the live Menu bar bottom and owns scroll", () => {
+    expect(SOURCE).toContain("useOverlayTopPx");
+    expect(SOURCE).toContain("getBoundingClientRect().bottom");
+    expect(SOURCE).toContain("top: overlayTopPx");
+    expect(SOURCE).not.toContain(
+      "top-[calc(var(--page-layout-pane-top,0px)+var(--page-layout-mobile-nav-height,3rem))]",
     );
-    expect(SOURCE).toContain("useDocumentScrollLock");
-    expect(SOURCE).toContain('body.style.overflow = "hidden"');
+    // Same scroll-lock library Radix Dialog uses (html + iOS overscroll).
+    expect(SOURCE).toContain('from "react-remove-scroll"');
+    expect(SOURCE).toContain("RemoveScroll");
+    expect(SOURCE).not.toContain("useDocumentScrollLock");
+    expect(SOURCE).not.toContain('body.style.overflow = "hidden"');
     expect(SOURCE).toContain("h-full overflow-y-auto");
   });
 
-  test("closes on Escape, inerts page columns, and restores trigger focus", () => {
+  test("traps focus in the dialog and inerts PageLayout bands under the overlay", () => {
+    expect(SOURCE).toContain("FocusScope");
+    expect(SOURCE).toContain("trapped");
+    expect(SOURCE).toContain("loop");
     expect(SOURCE).toContain("useOpenOverlayChrome");
+    expect(SOURCE).toContain("onCloseRef");
     expect(SOURCE).toContain('event.key !== "Escape"');
-    expect(SOURCE).toContain('[data-slot="page-layout-columns"]');
+    expect(SOURCE).toContain("PAGE_LAYOUT_INERT_SLOTS");
+    expect(SOURCE).toContain('"page-layout-header"');
+    expect(SOURCE).toContain('"page-layout-columns"');
+    expect(SOURCE).toContain('"page-layout-footer"');
     expect(SOURCE).toContain('setAttribute("inert", "")');
-    expect(SOURCE).toContain("triggerRef.current?.focus()");
-  });
-
-  test("keeps the panel accessible name distinct from the Menu trigger", () => {
+    // Prefer Menu trigger; when host is display:none land on AppTopBar / content.
+    expect(SOURCE).toContain(
+      "if (trigger && trigger.getClientRects().length > 0)",
+    );
+    expect(SOURCE).toContain("trigger.focus()");
+    expect(SOURCE).toContain('[data-slot="app-top-bar"]');
+    expect(SOURCE).not.toContain("triggerRef.current?.focus()");
+    expect(SOURCE).toContain("app-sticky-chrome");
     expect(SOURCE).toContain('panelLabel = "Sections"');
     expect(SOURCE).toContain("aria-controls={open ? panelId : undefined}");
-    expect(SOURCE).toContain('aria-modal="true"');
+    expect(SOURCE).toContain("aria-labelledby={titleId}");
+    // Effect deps must not include onClose — identity churn would steal focus.
+    expect(SOURCE).toContain("}, [open, rootRef, triggerRef]);");
+    // CSS lg:hidden cannot clear open side effects — close when chrome has no box.
+    expect(SOURCE).toContain("useCloseOpenWhenHostHidden");
+    expect(SOURCE).toContain("getClientRects().length === 0");
+    expect(SOURCE).not.toContain("useCloseOpenAtLgBreakpoint");
   });
 
   test("supports controlled and uncontrolled open state", () => {

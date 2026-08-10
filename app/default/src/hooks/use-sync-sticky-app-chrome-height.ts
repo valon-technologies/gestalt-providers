@@ -4,8 +4,9 @@ const STICKY_CHROME_HEIGHT_VAR = "--app-sticky-chrome-height";
 
 /**
  * Publishes the sticky app chrome stack height (banner + top bar) as
- * `--app-sticky-chrome-height` so `--page-layout-pane-top` can stay
- * `chrome + gap` whether or not DevWorktreeBanner is mounted.
+ * `--app-sticky-chrome-height` so `--page-layout-mobile-nav-top` (flush Menu)
+ * and `--page-layout-pane-top` (rails = chrome + gap) stay correct whether or
+ * not DevWorktreeBanner is mounted.
  */
 export function useSyncStickyAppChromeHeight(
   chromeRef: RefObject<HTMLElement | null>,
