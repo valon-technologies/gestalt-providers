@@ -575,7 +575,7 @@ export default function AppsCatalogPageClient() {
                 <CatalogBucketSectionHeader
                   id="catalog-bucket-installed"
                   title={CONNECTION_CONNECTED_LABEL}
-                  description="Apps you’re already connected to. Open a web app from the card, or use the menu to manage the app."
+                  description="Apps you’re already connected to. Use Open app when available, or the card menu to manage the app."
                 />
                 <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                   {installed.map((integration) => (

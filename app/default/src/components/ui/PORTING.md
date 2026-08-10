@@ -178,8 +178,10 @@ dots and `TableStatusIndicator` (soft Badge washes).
 
 Registry `status-indicator` (Feedback/StatusIndicator) is vendored here
 (toolshed#4181) — dot + optional label for live/uptime style status. Map
-Registry `--valon-*` fills onto `bg-status-indicator-*`. Honor `pulse`
-(default `true`).
+Registry `--valon-*` fills onto `bg-status-indicator-*` (including idle →
+`bg-status-indicator-muted`). Honor `pulse` (default `true`). Keep local
+`data-slot` / `data-state` / `data-pulse` for tests and CSS hooks. No call
+site yet — kept for Registry parity after #4181.
 
 ## Tree
 

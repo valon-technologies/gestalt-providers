@@ -121,7 +121,7 @@ export function alertVariantFromTone(
 }
 
 /** Map status tone onto Registry `OutcomeStatusIndicator` statuses. */
-export function outcomeStatusFromTone(
+function outcomeStatusFromTone(
   tone: StatusTone,
 ): "success" | "failure" | "warning" | "unknown" {
   switch (tone) {
@@ -151,22 +151,6 @@ export function overviewConnectionOutcomeStatus(
     return "pending";
   }
   return outcomeStatusFromTone(status.tone);
-}
-
-/** Map status tone onto Registry `StatusIndicator` dot states. */
-export function statusIndicatorStateFromTone(
-  tone: StatusTone,
-): "active" | "down" | "fixing" | "idle" {
-  switch (tone) {
-    case "success":
-      return "active";
-    case "warning":
-      return "fixing";
-    case "danger":
-      return "down";
-    case "neutral":
-      return "idle";
-  }
 }
 
 function needsFirstUserConnection(
@@ -429,17 +413,10 @@ export function catalogShowOpenAppButton(
   return status.connected || primaryConnectLabel(integration, context) === null;
 }
 
-/** Catalog tile / listing badge — shorten connected success to Ready. */
+/** Catalog tile / listing badge — same owner as Overview (`summaryLabel`). */
 export function catalogStatusBadgeLabel(
   integration: Integration,
   context: ConnectionContext = "current_user",
 ): string {
-  const status = normalizeIntegrationStatus(integration, context);
-  const state = catalogInstallState(integration, context);
-  // Connected credential apps: catalog prefers short "Ready" over "Connected".
-  // not_required apps already get "Ready" from integrationSummaryLabel.
-  if (state === "connected" && status.status === "ready") {
-    return "Ready";
-  }
-  return status.summaryLabel;
+  return normalizeIntegrationStatus(integration, context).summaryLabel;
 }

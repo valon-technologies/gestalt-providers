@@ -160,12 +160,14 @@ export default function IntegrationCard({
     installState === "needs_attention" ? normalizedStatus.summaryLabel : null;
   const attentionAlertVariant = alertVariantFromTone(normalizedStatus.tone);
   const cardNavigationEnabled = !disableNavigation && !settingsOpen;
-  /** Installed → More (Remove app). Discovery → Add when connectable. */
+  /** Connected → More (Remove app). Discovery → Add when connectable. */
   const showInstalledMenu =
     useAppDetailConnection &&
     !readOnly &&
     (installState === "connected" || installState === "needs_attention");
-  const showInstalledCheck = showInstalledMenu;
+  /** Success checkmark only when healthy — attention rows keep Alert, not Connected. */
+  const showInstalledCheck =
+    useAppDetailConnection && !readOnly && installState === "connected";
   const showAddButton =
     !readOnly &&
     (installState === "mount_only" ||
