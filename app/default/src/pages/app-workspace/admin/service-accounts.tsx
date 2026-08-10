@@ -11,7 +11,6 @@ import { SpinnerIcon } from "@/components/icons";
 import { useAppWorkspace } from "@/features/app-workspace/app-workspace-context";
 import {
   SERVICE_ACCOUNTS_COPY,
-  serviceAccountsLoadErrorMessage,
   toAgentIdentityRowView,
 } from "@/features/app-workspace/app-agent-identity-presentation";
 import {
@@ -22,7 +21,7 @@ import { useAppAdminIdentitiesQuery } from "@/lib/queries";
 import { Link as RouterLink } from "@tanstack/react-router";
 import { useMemo } from "react";
 
-export default function AppAdminAgentIdentitiesPage() {
+export default function AppAdminServiceAccountsPage() {
   const { app } = useAppWorkspace();
   const identitiesQuery = useAppAdminIdentitiesQuery(app);
   const identities = identitiesQuery.data ?? [];
@@ -31,7 +30,7 @@ export default function AppAdminAgentIdentitiesPage() {
     identitiesQuery.isError && isAPIErrorStatus(identitiesQuery.error, 403);
   const loadError =
     identitiesQuery.isError && !forbidden
-      ? serviceAccountsLoadErrorMessage(identitiesQuery.error)
+      ? SERVICE_ACCOUNTS_COPY.loadError
       : null;
 
   const rows = useMemo(

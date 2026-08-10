@@ -1,6 +1,4 @@
-import { Link as RouterLink } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import { APIError, isAPIErrorStatus } from "@/lib/api";
+import { isAPIErrorStatus } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "@/components/ui/link";
 import { MemberAccess } from "@/components/ui/member-access";
@@ -25,19 +23,16 @@ import {
   rolesForMembers,
   toMemberAccessPerson,
 } from "@/features/app-workspace/app-member-access";
-import { SERVICE_ACCOUNTS_COPY } from "@/features/app-workspace/app-agent-identity-presentation";
+import {
+  SERVICE_ACCOUNTS_COPY,
+  SERVICE_ACCOUNTS_ROUTE,
+} from "@/features/app-workspace/app-agent-identity-presentation";
+import { partitionAppMembers } from "@/features/app-workspace/app-workspace-shared";
 import { useAppAuthorizationMembersQuery } from "@/lib/queries";
+import { Link as RouterLink } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
 
-function membersLoadErrorMessage(error: unknown): string {
-  const detail =
-    error instanceof APIError
-      ? error.message
-      : error instanceof Error
-        ? error.message
-        : null;
-  if (detail?.trim()) {
-    return `${detail.trim()} Try refreshing the page.`;
-  }
+function membersLoadErrorMessage(_error: unknown): string {
   return "Couldn’t load members. Check your connection and refresh the page.";
 }
 
@@ -56,11 +51,15 @@ export default function AppAdminMembersPage() {
   const [inviteValue, setInviteValue] = useState("");
   const [inviteRole, setInviteRole] = useState("viewer");
 
-  const people = useMemo(
-    () => members.map(toMemberAccessPerson),
+  const peopleMembers = useMemo(
+    () => partitionAppMembers(members).people,
     [members],
   );
-  const roles = useMemo(() => rolesForMembers(members), [members]);
+  const people = useMemo(
+    () => peopleMembers.map(toMemberAccessPerson),
+    [peopleMembers],
+  );
+  const roles = useMemo(() => rolesForMembers(peopleMembers), [peopleMembers]);
 
   const showRoster =
     !membersLoading && !membersForbidden && !membersError;
@@ -83,10 +82,7 @@ export default function AppAdminMembersPage() {
             </Link>{" "}
             to add or change access. Service accounts appear under{" "}
             <Link asChild>
-              <RouterLink
-                to="/apps/$app/admin/agent-identities"
-                params={{ app }}
-              >
+              <RouterLink to={SERVICE_ACCOUNTS_ROUTE} params={{ app }}>
                 {SERVICE_ACCOUNTS_COPY.navLabel}
               </RouterLink>
             </Link>
@@ -121,7 +117,7 @@ export default function AppAdminMembersPage() {
       ) : null}
 
       {membersError ? (
-        <p className="mt-5 text-sm text-ember-500">{membersError}</p>
+        <p className="mt-5 text-sm text-destructive">{membersError}</p>
       ) : null}
 
       {showRoster ? (
@@ -135,12 +131,12 @@ export default function AppAdminMembersPage() {
                 >
                   People
                   <Badge variant="secondary" size="sm">
-                    {members.length}
+                    {peopleMembers.length}
                   </Badge>
                 </SectionHeaderTitle>
               </SectionHeaderContent>
             </SectionHeader>
-            {members.length === 0 ? (
+            {peopleMembers.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No people have been granted access yet.
               </p>

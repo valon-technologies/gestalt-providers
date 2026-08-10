@@ -1,5 +1,9 @@
 import { CONNECTION_SURFACE_NAV_LABEL } from "./connection-surface-copy";
-import { SERVICE_ACCOUNTS_COPY } from "./app-agent-identity-presentation";
+import {
+  SERVICE_ACCOUNTS_COPY,
+  SERVICE_ACCOUNTS_LEGACY_PATH_SEGMENT,
+  SERVICE_ACCOUNTS_ROUTE,
+} from "./app-agent-identity-presentation";
 
 export type AppUserNavId = "overview" | "connection" | "operations";
 
@@ -7,7 +11,7 @@ export type AppAdminNavId =
   | "versions"
   | "workflows"
   | "members"
-  | "agent-identities";
+  | "service-accounts";
 
 export type AppAdminSurface = "registry" | "workflows" | "authorization";
 
@@ -57,7 +61,12 @@ export function adminSurfaceForPathname(
   if (pathname.includes(`${base}/history`)) return "registry";
   if (pathname.includes(`${base}/workflows`)) return "workflows";
   if (pathname.includes(`${base}/members`)) return "authorization";
-  if (pathname.includes(`${base}/agent-identities`)) return "authorization";
+  if (pathname.includes(`${base}/service-accounts`)) return "authorization";
+  if (
+    pathname.includes(`${base}/${SERVICE_ACCOUNTS_LEGACY_PATH_SEGMENT}`)
+  ) {
+    return "authorization";
+  }
   return "registry";
 }
 
@@ -97,9 +106,9 @@ export const APP_ADMIN_NAV = [
     requires: "authorization" as const satisfies AppAdminSurface,
   },
   {
-    id: "agent-identities" as const,
+    id: "service-accounts" as const,
     label: SERVICE_ACCOUNTS_COPY.navLabel,
-    to: "/apps/$app/admin/agent-identities" as const,
+    to: SERVICE_ACCOUNTS_ROUTE,
     requires: "authorization" as const satisfies AppAdminSurface,
   },
 ] as const;

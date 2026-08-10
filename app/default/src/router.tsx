@@ -26,7 +26,7 @@ import AppWorkspaceLayout from "@/pages/app-workspace-layout";
 import AppWorkspaceConnectionPage from "@/pages/app-workspace/connection";
 import AppWorkspaceOperationsPage from "@/pages/app-workspace/operations";
 import AppWorkspaceOverviewPage from "@/pages/app-workspace/overview";
-import AppAdminAgentIdentitiesPage from "@/pages/app-workspace/admin/agent-identities";
+import AppAdminServiceAccountsPage from "@/pages/app-workspace/admin/service-accounts";
 import AppAdminMembersPage from "@/pages/app-workspace/admin/members";
 import AppsPage from "@/pages/apps";
 import BuildPage, { BuildIndexRedirect } from "@/pages/build";
@@ -258,10 +258,22 @@ const appAdminMembersRoute = createRoute({
   component: AppAdminMembersPage,
 });
 
-const appAdminAgentIdentitiesRoute = createRoute({
+const appAdminServiceAccountsRoute = createRoute({
+  getParentRoute: () => appWorkspaceLayoutRoute,
+  path: "/admin/service-accounts",
+  component: AppAdminServiceAccountsPage,
+});
+
+/** Legacy `/admin/agent-identities` → Service accounts. */
+const appAdminAgentIdentitiesRedirectRoute = createRoute({
   getParentRoute: () => appWorkspaceLayoutRoute,
   path: "/admin/agent-identities",
-  component: AppAdminAgentIdentitiesPage,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: "/apps/$app/admin/service-accounts",
+      params: { app: params.app },
+    });
+  },
 });
 
 const settingsRoute = createRoute({
@@ -445,7 +457,8 @@ const routeTree = rootRoute.addChildren([
     appAdminWorkflowDefinitionsRoute,
     appAdminWorkflowDefinitionRoute,
     appAdminMembersRoute,
-    appAdminAgentIdentitiesRoute,
+    appAdminServiceAccountsRoute,
+    appAdminAgentIdentitiesRedirectRoute,
   ]),
   buildIndexRoute,
   buildStepRoute,

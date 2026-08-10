@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   SERVICE_ACCOUNTS_COPY,
+  SERVICE_ACCOUNTS_ROUTE,
   toAgentIdentityRowView,
 } from "./app-agent-identity-presentation";
 import type { AppAdminIdentity } from "@/lib/api";
@@ -93,11 +94,13 @@ describe("toAgentIdentityRowView", () => {
     });
   });
 
-  it("keeps product copy on the Service accounts term", () => {
+  it("keeps product copy and route on the Service accounts term", () => {
     expect(SERVICE_ACCOUNTS_COPY.title).toBe("Service accounts");
     expect(SERVICE_ACCOUNTS_COPY.navLabel).toBe("Service accounts");
     expect(SERVICE_ACCOUNTS_COPY.docsLinkLabel).toBe(
       "How to create a service account",
     );
+    expect(SERVICE_ACCOUNTS_ROUTE).toBe("/apps/$app/admin/service-accounts");
+    expect(SERVICE_ACCOUNTS_COPY.listTestId).toBe("app-service-accounts-list");
   });
 });

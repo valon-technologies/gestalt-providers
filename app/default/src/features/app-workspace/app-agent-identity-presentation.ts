@@ -2,9 +2,15 @@ import type { AppAdminIdentity } from "@/lib/api";
 import { serviceAccountLocalId } from "./app-workspace-shared";
 
 /**
- * User-facing copy for the App Admin service-accounts roster.
- * Wire route remains `/admin/agent-identities`; product language is "Service accounts".
+ * User-facing copy + route for the App Admin service-accounts roster.
+ * Product language and URL both use "service accounts" (not agent identities).
  */
+export const SERVICE_ACCOUNTS_ROUTE =
+  "/apps/$app/admin/service-accounts" as const;
+
+/** Legacy Admin path — redirect to {@link SERVICE_ACCOUNTS_ROUTE}. */
+export const SERVICE_ACCOUNTS_LEGACY_PATH_SEGMENT = "agent-identities" as const;
+
 export const SERVICE_ACCOUNTS_COPY = {
   navLabel: "Service accounts",
   title: "Service accounts",
@@ -18,23 +24,11 @@ export const SERVICE_ACCOUNTS_COPY = {
   empty: "No service accounts have access to this app yet.",
   forbidden: "You need admin access on this app to view this list.",
   loading: "Loading service accounts…",
-  loadErrorFallback:
+  loadError:
     "Couldn’t load service accounts. Check your connection and refresh the page.",
   sectionAriaLabel: "Service accounts",
-  listTestId: "app-agent-identities-list",
+  listTestId: "app-service-accounts-list",
 } as const;
-
-/** User-facing load error — never surface bare transport text alone. */
-export function serviceAccountsLoadErrorMessage(error: unknown): string {
-  const detail =
-    error instanceof Error && error.message.trim()
-      ? error.message.trim()
-      : null;
-  if (detail) {
-    return `${detail} Try refreshing the page.`;
-  }
-  return SERVICE_ACCOUNTS_COPY.loadErrorFallback;
-}
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "Admin",

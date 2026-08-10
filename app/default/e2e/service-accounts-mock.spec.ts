@@ -74,14 +74,14 @@ test.describe("App admin service accounts", () => {
   }) => {
     await mockAppAdminIdentities(page, "httpbin", identitiesFixture);
 
-    await page.goto("/apps/httpbin/admin/agent-identities");
+    await page.goto("/apps/httpbin/admin/service-accounts");
     await expect(
       page.getByRole("heading", { name: "Service accounts" }),
     ).toBeVisible();
     await expect(
       page.getByRole("link", { name: "How to create a service account" }),
     ).toHaveAttribute("href", "/docs/authorization#authz-service-accounts");
-    await expect(page.getByTestId("app-agent-identities-list")).toBeVisible();
+    await expect(page.getByTestId("app-service-accounts-list")).toBeVisible();
 
     await expect(page.getByText("slack-bot", { exact: true })).toBeVisible();
     await expect(page.getByText("service_account:slack-bot")).toHaveCount(0);
@@ -104,10 +104,18 @@ test.describe("App admin service accounts", () => {
   }) => {
     await mockAppAdminIdentities(page, "httpbin", []);
 
-    await page.goto("/apps/httpbin/admin/agent-identities");
+    await page.goto("/apps/httpbin/admin/service-accounts");
     await expect(
       page.getByText("No service accounts have access to this app yet."),
     ).toBeVisible();
+  });
+
+  test("legacy agent-identities path redirects to service-accounts", async ({
+    authenticatedPage: page,
+  }) => {
+    await mockAppAdminIdentities(page, "httpbin", []);
+    await page.goto("/apps/httpbin/admin/agent-identities");
+    await expect(page).toHaveURL(/\/apps\/httpbin\/admin\/service-accounts$/);
   });
 
   test("legacy settings identities paths redirect to apps", async ({
