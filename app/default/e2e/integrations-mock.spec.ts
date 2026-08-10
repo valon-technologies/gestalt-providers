@@ -528,7 +528,7 @@ test.describe("Integrations", () => {
     await page.goto("/apps");
     await expect(page.getByText(OAUTH_INTEGRATION.displayName!)).toBeVisible();
     await expect(page.getByText(MANUAL_INTEGRATION.displayName!)).toBeVisible();
-    await expect(page.getByTestId("integration-card-oauth-svc").getByLabel("Installed")).toBeVisible();
+    await expect(page.getByTestId("integration-card-oauth-svc").getByLabel("Connected")).toBeVisible();
     await expect(page.getByRole("button", { name: "OAuth Service options" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Add Manual Service" })).toBeVisible();
 
@@ -743,7 +743,7 @@ test.describe("Integrations", () => {
     await mockIntegrations(page, [USER_CONNECTION_ACTIONS_INTEGRATION]);
 
     await page.goto("/apps");
-    await expect(page.getByTestId("integration-card-user-actions-svc").getByLabel("Installed")).toBeVisible();
+    await expect(page.getByTestId("integration-card-user-actions-svc").getByLabel("Connected")).toBeVisible();
     const panel = await openAppConnection(page, "user-actions-svc");
 
     await expect(panel.getByText("Workspace", { exact: true })).toBeVisible();

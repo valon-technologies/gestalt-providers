@@ -33,9 +33,23 @@ const TREE_TOGGLE_BUTTON_SIZE: Record<TreeSize, "icon-xs" | "icon-sm"> = {
   lg: "icon-sm",
 };
 
-/** ReUI c-tree-2 vertical indent guides — 1px line centered in each indent column. */
+/**
+ * Horizontal inset of the indent guide from the start of each indent column —
+ * half the toggle gutter so the line runs through the +/- center (not
+ * `indent/2`, which drifts when indent ≠ control size).
+ */
+const TREE_GUIDE_INSET_BY_SIZE: Record<TreeSize, string> = {
+  sm: "calc(var(--size-control-xs) / 2)",
+  default: "calc(var(--size-control-xs) / 2)",
+  lg: "calc(var(--size-control-sm) / 2)",
+};
+
+/** ReUI c-tree-2 vertical indent guides — 1px line through each toggle column.
+ * Soft structural `--border` (not darker `--input`). `isolate` keeps
+ * `before:-z-10` inside this stacking context so guides are not painted behind
+ * an ancestor `bg-card` / overflow clip. */
 export const treeIndentGuidesClassName =
-  "relative before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:content-[''] before:bg-[repeating-linear-gradient(to_right,transparent_0,transparent_calc(var(--tree-indent)/2-0.5px),var(--border)_calc(var(--tree-indent)/2-0.5px),var(--border)_calc(var(--tree-indent)/2+0.5px),transparent_calc(var(--tree-indent)/2+0.5px),transparent_var(--tree-indent))]";
+  "relative isolate before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:content-[''] before:bg-[repeating-linear-gradient(to_right,transparent_0,transparent_calc(var(--tree-guide-inset)-0.5px),var(--border)_calc(var(--tree-guide-inset)-0.5px),var(--border)_calc(var(--tree-guide-inset)+0.5px),transparent_calc(var(--tree-guide-inset)+0.5px),transparent_var(--tree-indent))]";
 
 /** Toggle / leaf spacer column — sized to the ghost icon Button, not indent px. */
 const treeGutterVariants = cva("flex shrink-0 items-center justify-center", {
@@ -197,6 +211,7 @@ function Tree({
             ...style,
             ...containerStyle,
             "--tree-indent": `${resolvedIndent}px`,
+            "--tree-guide-inset": TREE_GUIDE_INSET_BY_SIZE[size],
           } as React.CSSProperties
         }
         className={cn(

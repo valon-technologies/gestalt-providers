@@ -657,13 +657,20 @@ function inferIntegrationStatus(
   return connections.some((connection) => connection.isNoAuth) ? "ready" : "unknown";
 }
 
+/**
+ * Chrome / summary status — answers “what next?” for operators.
+ *
+ * Invariant: never promote credential *absence* (`not_required`) as a status
+ * message. Catalog and Overview both consume this; readiness without a
+ * credential step is simply “Ready”. Actionable auth states keep their labels.
+ */
 function integrationSummaryLabel(
   status: IntegrationStatus,
   credentialState: CredentialState,
   context: ConnectionContext,
 ): string {
   if (credentialState === "not_required" && status === "ready") {
-    return "No credentials required";
+    return "Ready";
   }
   if (credentialState === "configured" && status === "ready") {
     return "Deployment configured";
@@ -680,8 +687,10 @@ function connectionSummaryLabel(
   isNoAuth: boolean,
   context: ConnectionContext,
 ): string {
+  // No-auth rows are ready without a credential step — same “Ready” as
+  // integration chrome. Do not surface “no credentials required”.
   if (isNoAuth && credentialState === "not_required") {
-    return "No credentials required";
+    return statusDisplayLabel(status, context);
   }
   if (credentialState === "connected" && status === "ready") {
     return context === "managed_subject" ? "Identity connected" : "Connected";
@@ -713,12 +722,17 @@ function statusDisplayLabel(
   }
 }
 
+/**
+ * Technical credential-detail line for Connection panels.
+ * Only shown when `shouldShowCredentialDetail` (missing/invalid/unknown).
+ * `not_required` / no-auth never become chrome — empty string keeps absence silent.
+ */
 function credentialDisplayLabel(
   state: CredentialState,
   isNoAuth: boolean,
   isManagedSubjectOwned: boolean,
 ): string {
-  if (isNoAuth) return "No credentials required";
+  if (isNoAuth || state === "not_required") return "";
   switch (state) {
     case "connected":
       return isManagedSubjectOwned
@@ -736,8 +750,6 @@ function credentialDisplayLabel(
       return isManagedSubjectOwned
         ? "Identity credentials invalid"
         : "User credentials invalid";
-    case "not_required":
-      return "No credentials required";
     case "unknown":
       return isManagedSubjectOwned
         ? "Identity credential status unknown"

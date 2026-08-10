@@ -1,5 +1,6 @@
 import type { Integration } from "@/lib/api";
 import {
+  APP_SURFACE_LABELS,
   canManageApp,
   getAppSurfaces,
   matchesConnectionFilter,
@@ -19,7 +20,7 @@ export const CATALOG_FACETS: ReadonlyArray<{
   id: CatalogFacetId;
   label: string;
 }> = [
-  { id: "web_app", label: "Web App" },
+  { id: "web_app", label: APP_SURFACE_LABELS.webApp },
   { id: "admin", label: "Admin" },
   { id: "needs_attention", label: "Needs attention" },
 ];

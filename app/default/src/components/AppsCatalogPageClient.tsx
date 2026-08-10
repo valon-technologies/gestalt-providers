@@ -29,6 +29,7 @@ import { normalizeIntegrationStatus } from "@/lib/integrationStatus";
 import { CONNECTION_RETURN_PATH_STORAGE_KEY } from "@/lib/constants";
 import { sanitizeAuthReturnPath } from "@/lib/authReturn";
 import { appPath } from "@/lib/mount";
+import { CONNECTION_CONNECTED_LABEL } from "@/features/app-workspace/connection-surface-copy";
 import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
 import PluginSearchBar from "@/components/PluginSearchBar";
@@ -230,7 +231,7 @@ export default function AppsCatalogPageClient() {
     if (installed.length > 0) {
       sections.push({
         id: "catalog-bucket-installed",
-        label: "Installed",
+        label: CONNECTION_CONNECTED_LABEL,
       });
     }
     for (const { bucket } of catalogSections) {
@@ -336,7 +337,7 @@ export default function AppsCatalogPageClient() {
               onNavSectionSelect("catalog-bucket-installed");
             }}
           >
-            <NavListItemLabel>Installed</NavListItemLabel>
+            <NavListItemLabel>{CONNECTION_CONNECTED_LABEL}</NavListItemLabel>
           </NavListItem>
         ) : null}
         {catalogSections.length > 0 ? (
@@ -573,7 +574,7 @@ export default function AppsCatalogPageClient() {
               >
                 <CatalogBucketSectionHeader
                   id="catalog-bucket-installed"
-                  title="Installed"
+                  title={CONNECTION_CONNECTED_LABEL}
                   description="Apps you’re already connected to. Open a web app from the card, or use the menu to manage the app."
                 />
                 <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
