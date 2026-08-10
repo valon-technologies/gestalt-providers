@@ -106,12 +106,31 @@ function useOpenOverlayChrome(
       for (const el of inertTargets) {
         el.removeAttribute("inert");
       }
-      // Skip restore when the host is display:none (lg+ / useCloseOpenWhenHostHidden)
-      // — focusing a hidden trigger dumps focus onto <body>.
+      // Prefer the Menu trigger when it still has a layout box. When the host
+      // is display:none (lg+ / useCloseOpenWhenHostHidden), focusing it would
+      // dump onto <body> — land on AppTopBar (or page content) instead.
       const trigger = triggerRef.current;
       if (trigger && trigger.getClientRects().length > 0) {
         trigger.focus();
+        return;
       }
+      const fallback =
+        document.querySelector<HTMLElement>(
+          '[data-slot="app-top-bar"] a[href], [data-slot="app-top-bar"] button:not([disabled])',
+        ) ??
+        document.querySelector<HTMLElement>(
+          '[data-slot="page-layout-content"], main',
+        );
+      if (!fallback) return;
+      if (
+        fallback.tabIndex < 0 &&
+        !fallback.matches(
+          "a[href], button, input, select, textarea, [tabindex]",
+        )
+      ) {
+        fallback.tabIndex = -1;
+      }
+      fallback.focus();
     };
   }, [open, rootRef, triggerRef]);
 }
@@ -157,9 +176,10 @@ function useCloseOpenWhenHostHidden(
 }
 
 /**
- * Panel `top` tracks the live Menu bar bottom — not `--page-layout-pane-top` +
- * nav height. That token math only matches after sticky docks; host padding or
- * sticky AppTopBar geometry would otherwise cover the trigger.
+ * Panel `top` tracks the live Menu bar bottom — not token math. That only
+ * matches after sticky docks; host padding or sticky AppTopBar geometry would
+ * otherwise cover the trigger. Re-sync on resize/scroll and when measured
+ * app sticky chrome changes height (same observer target as anchor offset).
  */
 function useOverlayTopPx(
   open: boolean,
@@ -188,6 +208,8 @@ function useOverlayTopPx(
         ? new ResizeObserver(sync)
         : null;
     if (triggerRef.current && ro) ro.observe(triggerRef.current);
+    const chrome = document.querySelector("[data-slot='app-sticky-chrome']");
+    if (chrome && ro) ro.observe(chrome);
 
     return () => {
       window.removeEventListener("resize", sync);

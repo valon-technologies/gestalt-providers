@@ -300,6 +300,7 @@ field·operator·value bars stay Registry `Filters` (not yet required here).
 | --- | --- |
 | **TableOfContents `kind: "separator"`** | Apps catalog TOC divider between groups |
 | **`AGENT_CONSOLE_THEME_CODEX` / `_CURSOR` exports** (optional) | Story palettes only today; Build re-copies them — promote from `agent-console.stories` |
+| **`--page-layout-mobile-nav-top` + Menu sticky** | Flush Menu under AppTopBar vs Pane rail breathing gap (`pane-top`). Registry still docks Menu on `pane-top`; raise token + `page-layout` sticky class + mobile `anchor-offset` composition. |
 
 ### Avatar (synced)
 

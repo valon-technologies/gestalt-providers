@@ -76,13 +76,14 @@ describe("PageLayoutPaneMobileNav disclosure contract", () => {
     expect(SOURCE).toContain('"page-layout-columns"');
     expect(SOURCE).toContain('"page-layout-footer"');
     expect(SOURCE).toContain('setAttribute("inert", "")');
-    // Restore focus only when the Menu trigger still has a layout box — lg:hidden
-    // auto-close must not focus a display:none button.
+    // Prefer Menu trigger; when host is display:none land on AppTopBar / content.
     expect(SOURCE).toContain(
       "if (trigger && trigger.getClientRects().length > 0)",
     );
     expect(SOURCE).toContain("trigger.focus()");
+    expect(SOURCE).toContain('[data-slot="app-top-bar"]');
     expect(SOURCE).not.toContain("triggerRef.current?.focus()");
+    expect(SOURCE).toContain("app-sticky-chrome");
     expect(SOURCE).toContain('panelLabel = "Sections"');
     expect(SOURCE).toContain("aria-controls={open ? panelId : undefined}");
     expect(SOURCE).toContain("aria-labelledby={titleId}");
