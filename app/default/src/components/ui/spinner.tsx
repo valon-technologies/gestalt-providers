@@ -18,7 +18,7 @@ function Spinner({ className, ...props }: ComponentProps<"span">) {
       role="status"
       aria-label="Loading"
       data-slot="spinner"
-      className={cn("valon-spinner-trail size-4", className)}
+      className={cn("spinner-trail size-4", className)}
       {...props}
     />
   );

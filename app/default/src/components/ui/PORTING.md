@@ -44,9 +44,10 @@ uses ink-alpha (`secondarySurfaceFillClassName`), not solid `bg-secondary`.
 Registry `button`, `input`, `field`, `label`, `select`, `spinner`, and `brand-spinner` are
 vendored here. Theme bridges (`--primary`, `--muted`, `--input`, `--disabled*`,
 `--state-overlay-*`, `--control-*`) live in `shared/theme.css` + `globals.css`
-`@theme inline`. Spinner motion CSS (`.valon-spinner-trail`, BrandSpinner mark
-keyframes) lives in `globals.css` and maps BrandSpinner strokes to semantic
-tokens (`--border`, `--accent-strong`) — not Registry palette constants.
+`@theme inline`. Spinner motion CSS (`.spinner-trail`, `.brand-spinner*`)
+lives in `globals.css` and maps BrandSpinner strokes to semantic tokens
+(`--border`, `--accent-strong`) — not Registry palette constants. On re-vendor,
+rename Registry `valon-spinner*` class/keyframe IDs to these neutral names.
 Prefer `@/components/ui/button`, `@/components/ui/input`, and
 `@/components/ui/select` at call sites;
 `@/components/Button` is a legacy adapter (`primary` → `default`,

@@ -75,19 +75,19 @@ const BrandSpinner = React.forwardRef<SVGSVGElement, BrandSpinnerProps>(
       strokeWidth={strokeWidth}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={cn("valon-spinner text-accent-strong", className)}
+      className={cn("brand-spinner text-accent-strong", className)}
       {...props}
       width={size}
       height={size}
     >
       {BRAND_SPINNER_PIECES.map((piece) => (
-        <path key={`track-${piece.pieceIndex}`} d={piece.d} className="valon-spinner__track" />
+        <path key={`track-${piece.pieceIndex}`} d={piece.d} className="brand-spinner__track" />
       ))}
       {BRAND_SPINNER_PIECES.map((piece) => (
         <path
           key={`trail-${piece.pieceIndex}`}
           d={piece.d}
-          className="valon-spinner__trail"
+          className="brand-spinner__trail"
           style={{ "--piece-index": piece.pieceIndex } as React.CSSProperties}
         />
       ))}

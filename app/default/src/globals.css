@@ -675,15 +675,18 @@
 /*
  * Spinner (routine busy) — fade-trail ring. Conic-gradient paints opaque tip →
  * transparent tail in currentColor; radial mask carves the donut. Brand /
- * identity waits use BrandSpinner (.valon-spinner_*), not this class.
+ * identity waits use BrandSpinner (`.brand-spinner*`), not this class.
+ *
+ * Class names are tenant-neutral; Registry theme may still use `valon-spinner*`
+ * — map on re-vendor (PORTING.md).
  */
-@keyframes valon-spinner-trail-spin {
+@keyframes spinner-trail-spin {
   to {
     transform: rotate(1turn);
   }
 }
 
-.valon-spinner-trail {
+.spinner-trail {
   display: inline-block;
   flex-shrink: 0;
   aspect-ratio: 1;
@@ -691,14 +694,14 @@
   background: conic-gradient(from 0deg, transparent 0%, transparent 8%, currentColor 100%);
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
   mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
-  animation: valon-spinner-trail-spin 0.8s cubic-bezier(0.42, 0.28, 0.58, 0.72) infinite;
+  animation: spinner-trail-spin 0.8s cubic-bezier(0.42, 0.28, 0.58, 0.72) infinite;
 }
 
 /*
- * BrandSpinner — Gestalt mark trail. Track/trail map to semantic tokens (not
+ * BrandSpinner — mark trail. Track/trail map to semantic tokens (not
  * Registry palette constants) so tenants can restyle via theme.css.
  */
-@keyframes valon-spinner-trail {
+@keyframes brand-spinner-trail {
   0% {
     opacity: 0;
   }
@@ -720,14 +723,14 @@
   }
 }
 
-.valon-spinner__track {
+.brand-spinner__track {
   stroke: var(--border);
 }
 
-.valon-spinner__trail {
+.brand-spinner__trail {
   stroke: var(--accent-strong);
   opacity: 0;
-  animation: valon-spinner-trail 0.8s var(--ease-out-quart) infinite;
+  animation: brand-spinner-trail 0.8s var(--ease-out-quart) infinite;
   animation-delay: calc(var(--piece-index, 0) * 0.1s - 0.8s);
 }
 
@@ -737,8 +740,8 @@
     --motion-drawer-close: 0ms;
   }
 
-  .valon-spinner__trail,
-  .valon-spinner-trail {
+  .brand-spinner__trail,
+  .spinner-trail {
     animation-play-state: paused;
   }
 }
