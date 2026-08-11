@@ -18,7 +18,7 @@ import { usePageLayoutAnchorOffsetPx } from "@/lib/page-layout-anchor-offset";
 import { getActiveDocsNavItem } from "./docs-data";
 import { DocsAudienceCallout } from "./DocsAudienceCallout";
 import { DocsMobileNav, DocsNavList } from "./DocsMobileNav";
-import { DocsJourneyFooter } from "./DocsOnThisPage";
+import { DocsJourneyFooter } from "./DocsJourneyFooter";
 import { DOCS_PAGE_TOP_GAP } from "./docs-chrome";
 
 /** Same seam for sticky rails, hash / TOC scroll-mt, and (via DocsPageBody) h2 gaps. */

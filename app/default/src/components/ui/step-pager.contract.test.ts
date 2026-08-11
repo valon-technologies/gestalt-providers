@@ -26,4 +26,9 @@ describe("StepPager (toolshed#4190)", () => {
     expect(SOURCE).toContain('cardVariants({ variant: "outline" })');
     expect(SOURCE).toContain("ghost:");
   });
+
+  test("pager hairline uses semantic border-border (not legacy border-alpha)", () => {
+    expect(SOURCE).toContain("border-t border-border pt-6");
+    expect(SOURCE).not.toContain("border-alpha");
+  });
 });

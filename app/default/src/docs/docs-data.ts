@@ -49,11 +49,6 @@ export interface DocsNavItem {
   subsections: DocsSubsection[];
   /** Primary next step in the same journey (rendered as page footer). */
   next?: DocsNavLink;
-  /**
-   * Soft prerequisites for prose ("start from X") — not the StepPager Previous
-   * edge. Journey Previous is the inverse of `next` via `getDocsJourneyEdges`.
-   */
-  prerequisites?: DocsNavLink[];
 }
 
 export const DOCS_NAV_GROUPS: ReadonlyArray<{
@@ -89,9 +84,6 @@ export const docsNavItems: DocsNavItem[] = [
     group: "setup",
     audience: "user",
     subsections: [],
-    prerequisites: [
-      { href: DOCS_GETTING_STARTED_PATH, label: "Getting Started" },
-    ],
     next: { href: DOCS_INVOKE_PATH, label: "Invoke Operations" },
   },
   {
@@ -102,7 +94,6 @@ export const docsNavItems: DocsNavItem[] = [
     audience: "user",
     // Option switchers use hash values without matching DOM ids (sticky chrome).
     subsections: [],
-    prerequisites: [{ href: DOCS_CONNECT_PATH, label: "Connect Apps" }],
     next: { href: DOCS_TOKENS_PATH, label: "Manage API Tokens" },
   },
   {
@@ -112,9 +103,6 @@ export const docsNavItems: DocsNavItem[] = [
     group: "automate",
     audience: "user",
     subsections: [],
-    prerequisites: [
-      { href: DOCS_GETTING_STARTED_PATH, label: "Getting Started" },
-    ],
     next: { href: DOCS_MCP_PATH, label: "Use With MCP" },
   },
   {
@@ -125,7 +113,6 @@ export const docsNavItems: DocsNavItem[] = [
     audience: "user",
     // MCP client options are hash-backed SegmentedControl values, not headings.
     subsections: [],
-    prerequisites: [{ href: DOCS_TOKENS_PATH, label: "Manage API Tokens" }],
     next: { href: DOCS_WORKFLOWS_PATH, label: "Inspect Workflows" },
   },
   {
@@ -137,9 +124,6 @@ export const docsNavItems: DocsNavItem[] = [
     subsections: [
       { id: "wf-help", label: "Start with help" },
       { id: "wf-runs", label: "Inspect runs" },
-    ],
-    prerequisites: [
-      { href: DOCS_GETTING_STARTED_PATH, label: "Getting Started" },
     ],
     next: { href: DOCS_AUTHORIZATION_PATH, label: "Grant App Access" },
   },
@@ -155,9 +139,6 @@ export const docsNavItems: DocsNavItem[] = [
       { id: "authz-admins", label: "Built-in admins" },
       { id: "authz-inspect", label: "Inspect grants" },
     ],
-    prerequisites: [
-      { href: DOCS_WORKFLOWS_PATH, label: "Inspect Workflows" },
-    ],
     next: { href: DOCS_TROUBLESHOOTING_PATH, label: "Troubleshooting" },
   },
   {
@@ -171,9 +152,6 @@ export const docsNavItems: DocsNavItem[] = [
       { id: "ts-multiple-connections", label: "Multiple connections" },
       { id: "ts-empty-tools", label: "Empty MCP tool list" },
       { id: "ts-forbidden", label: "Access denied after grant" },
-    ],
-    prerequisites: [
-      { href: DOCS_AUTHORIZATION_PATH, label: "Grant App Access" },
     ],
   },
 ];
@@ -198,8 +176,8 @@ export function docsNavItemsByGroup(
 
 /**
  * Linear journey edges for StepPager. Previous is the page whose `next` points
- * here (inverse of the forward chain) — not `prerequisites[last]`, which can
- * skip sidebar predecessors (e.g. Tokens → Getting Started).
+ * here (inverse of the forward chain). Soft prose prerequisites are not modeled
+ * on nav items — journey edges and hand-authored copy stay separate.
  */
 export function getDocsJourneyEdges(item: DocsNavItem): {
   previous: DocsNavLink | null;

@@ -576,7 +576,7 @@
  * measurement), enabled by `interpolate-size: allow-keywords` on the panel.
  * toolshed#4191 also adds opt-in width animation for Alert `animateSize`.
  */
-@keyframes valon-accordion-open {
+@keyframes accordion-drawer-open {
   from {
     height: 0;
   }
@@ -585,7 +585,7 @@
   }
 }
 
-@keyframes valon-accordion-close {
+@keyframes accordion-drawer-close {
   from {
     height: auto;
   }
@@ -596,19 +596,19 @@
 
 [data-slot="accordion-content"][data-state="open"],
 [data-slot="collapsible-content"][data-state="open"] {
-  animation-name: valon-accordion-open;
+  animation-name: accordion-drawer-open;
   animation-duration: var(--motion-drawer-open);
   animation-timing-function: var(--ease-out-back-softer);
 }
 
 [data-slot="accordion-content"][data-state="closed"],
 [data-slot="collapsible-content"][data-state="closed"] {
-  animation-name: valon-accordion-close;
+  animation-name: accordion-drawer-close;
   animation-duration: var(--motion-drawer-close);
   animation-timing-function: var(--ease-out-back-softer);
 }
 
-@keyframes valon-collapsible-maxwidth-open {
+@keyframes collapsible-maxwidth-open {
   from {
     max-width: 0;
   }
@@ -617,7 +617,7 @@
   }
 }
 
-@keyframes valon-collapsible-maxwidth-close {
+@keyframes collapsible-maxwidth-close {
   from {
     max-width: 42rem;
   }
@@ -643,7 +643,7 @@
 [data-slot="alert"][data-animate-size]
   > [data-slot="collapsible-content"][data-state="open"] {
   max-width: 42rem;
-  animation-name: valon-accordion-open, valon-collapsible-maxwidth-open;
+  animation-name: accordion-drawer-open, collapsible-maxwidth-open;
   animation-duration: var(--motion-drawer-open), var(--motion-drawer-open);
   animation-timing-function: var(--ease-out-back-softer), var(--ease-out-back-softer);
 }
@@ -653,7 +653,7 @@
 [data-slot="alert"][data-animate-size]
   > [data-slot="collapsible-content"][data-state="closed"] {
   max-width: 0;
-  animation-name: valon-accordion-close, valon-collapsible-maxwidth-close;
+  animation-name: accordion-drawer-close, collapsible-maxwidth-close;
   animation-duration: var(--motion-drawer-close), var(--motion-drawer-close);
   animation-timing-function: var(--ease-out-back-softer), var(--ease-out-back-softer);
 }

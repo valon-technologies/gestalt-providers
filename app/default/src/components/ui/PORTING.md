@@ -233,7 +233,8 @@ destination cards for docs journey edges and Build wizard steps. Compose
 when there is no previous). Use `asChild` for `<button>` or router `Link`.
 Surfaces: `solid` (default) / `outline` / `ghost`. Not `Pagination` (dataset
 paging) and not `Stepper` (in-flow process rail). Strip `"use client"`; prefer
-`@/lib/cn`.
+`@/lib/cn`. Map Registry `border-alpha` on the pager rule to semantic
+`border-border` for this public bundle.
 
 ## Tabs
 

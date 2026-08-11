@@ -86,7 +86,7 @@ function StepPager({
         data-slot="step-pager"
         data-variant={variant ?? "solid"}
         className={cn(
-          "flex flex-wrap items-stretch justify-between gap-3 border-t border-alpha pt-6",
+          "flex flex-wrap items-stretch justify-between gap-3 border-t border-border pt-6",
           className,
         )}
         {...props}

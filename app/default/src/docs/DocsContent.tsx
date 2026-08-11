@@ -721,9 +721,8 @@ function MethodCodeSwitcher({
 }
 
 function InvokeMethodTabs({ origin }: { origin: string }) {
-  const [activeId, setActiveId] = useState<"invoke-cli" | "invoke-http">(
-    "invoke-cli",
-  );
+  const invokeTabIds = ["invoke-cli", "invoke-http"] as const;
+  const [activeId, setActiveId] = useHashTab(invokeTabIds, "invoke-cli");
 
   return (
     <DocsOptionSwitcher
@@ -732,7 +731,7 @@ function InvokeMethodTabs({ origin }: { origin: string }) {
         { value: "invoke-cli", label: "CLI" },
         { value: "invoke-http", label: "HTTP" },
       ]}
-      value={activeId}
+      value={activeId as "invoke-cli" | "invoke-http"}
       onValueChange={setActiveId}
     >
       {activeId === "invoke-cli" ? (

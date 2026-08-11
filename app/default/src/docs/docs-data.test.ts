@@ -43,9 +43,6 @@ describe("docs IA invariants", () => {
       if (item.next) {
         expect(hrefs.has(item.next.href)).toBe(true);
       }
-      for (const prereq of item.prerequisites ?? []) {
-        expect(hrefs.has(prereq.href)).toBe(true);
-      }
     }
   });
 
@@ -63,7 +60,7 @@ describe("docs IA invariants", () => {
     expect(docsNavItems.at(-1)?.next).toBeUndefined();
   });
 
-  it("derives journey Previous as the inverse of next (not prerequisites)", () => {
+  it("derives journey Previous as the inverse of next", () => {
     for (let i = 1; i < docsNavItems.length; i++) {
       const item = docsNavItems[i]!;
       const predecessor = docsNavItems[i - 1]!;
@@ -73,12 +70,7 @@ describe("docs IA invariants", () => {
       });
     }
     expect(getDocsJourneyEdges(docsNavItems[0]!).previous).toBeNull();
-    // Soft prerequisites may still point at Getting Started while Previous
-    // follows the linear chain (Tokens ← Invoke, not ← Getting Started).
     const tokens = docsNavItems.find((item) => item.id === "tokens")!;
-    expect(tokens.prerequisites?.[0]?.href).toBe(
-      docsNavItems.find((item) => item.id === "getting-started")!.href,
-    );
     expect(getDocsJourneyEdges(tokens).previous?.href).toBe(
       docsNavItems.find((item) => item.id === "invoke")!.href,
     );

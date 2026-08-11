@@ -204,6 +204,13 @@ test.describe("Docs page", () => {
     await expect(page.getByRole("radio", { name: "CLI" })).toBeVisible();
     await expect(page.getByRole("radio", { name: "HTTP" })).toBeVisible();
     await page.getByRole("radio", { name: "HTTP" }).click();
+    await expect(page).toHaveURL(/\/docs\/invoke#invoke-http$/);
+    await expect(
+      page.getByText("/api/v1/apps").first(),
+    ).toBeVisible();
+
+    await page.goto("/docs/invoke#invoke-http");
+    await expect(page.getByRole("radio", { name: "HTTP" })).toBeChecked();
     await expect(
       page.getByText("/api/v1/apps").first(),
     ).toBeVisible();
@@ -278,13 +285,15 @@ test.describe("Docs page", () => {
     await expect(mcpSwitch.getByRole("radio", { name: "Codex" })).toBeVisible();
     await expect(mcpSwitch.getByRole("radio", { name: "Cursor" })).toBeVisible();
     await mcpSwitch.getByRole("radio", { name: "Codex" }).click();
+    await expect(page).toHaveURL(/\/docs\/mcp#mcp-codex$/);
     await expect(mcpPanel).toContainText(
       'codex mcp add gestalt --url "$GESTALT_URL/mcp" --bearer-token-env-var GESTALT_API_KEY',
     );
-    await mcpSwitch.getByRole("radio", { name: "Cursor" }).click();
+    await page.goto("/docs/mcp#mcp-cursor");
+    await expect(mcpSwitch.getByRole("radio", { name: "Cursor" })).toBeChecked();
     await expect(mcpPanel).toContainText(".cursor/mcp.json");
     await mcpSwitch.getByRole("radio", { name: "Other clients" }).click();
-    await expect(
+    await expect(page).toHaveURL(/\/docs\/mcp#mcp-other$/);    await expect(
       page.getByRole("cell", { name: `${expectedOrigin}/mcp` }).first(),
     ).toBeVisible();
     await expect(page.getByText("gestalt integrations list")).toHaveCount(0);
