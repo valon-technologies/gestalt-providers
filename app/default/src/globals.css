@@ -676,9 +676,6 @@
  * Spinner (routine busy) — fade-trail ring. Conic-gradient paints opaque tip →
  * transparent tail in currentColor; radial mask carves the donut. Brand /
  * identity waits use BrandSpinner (`.brand-spinner*`), not this class.
- *
- * Class names are tenant-neutral; Registry theme may still use `valon-spinner*`
- * — map on re-vendor (PORTING.md).
  */
 @keyframes spinner-trail-spin {
   to {
