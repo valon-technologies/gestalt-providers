@@ -28,4 +28,20 @@ describe("Alert (toolshed#4191)", () => {
     expect(SOURCE).toContain('from "@/lib/cn"');
     expect(SOURCE).not.toContain('from "@/lib/utils"');
   });
+
+  test("live region only for default layout non-outline notices", () => {
+    expect(SOURCE).toContain(
+      'const live = resolvedLayout === "default" && variant !== "outline"',
+    );
+    expect(SOURCE).toContain('role={live ? "alert" : undefined}');
+  });
+
+  test("AlertTrigger composes CollapsibleTrigger (focus-ring + open chevron stay there)", () => {
+    expect(SOURCE).toContain(
+      "CollapsibleTrigger owns focus-ring + Neutral idle hover/press",
+    );
+    expect(SOURCE).toMatch(
+      /function AlertTrigger[\s\S]*?<CollapsibleTrigger[\s\S]*?<\/CollapsibleTrigger>/,
+    );
+  });
 });

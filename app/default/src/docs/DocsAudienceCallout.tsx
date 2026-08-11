@@ -11,6 +11,10 @@ import { DocsLink } from "./DocsLink";
 /**
  * Admin-audience callout owned by docs chrome — rendered when
  * `DocsNavItem.audience === "admin"` so the IA model enforces the banner.
+ *
+ * Persistent orientation chrome (not a transient status flash): use
+ * `layout="banner"` so Alert does not assert `role="alert"` on every
+ * admin-doc navigation. Keep `variant="info"` for the wash.
  */
 export function DocsAudienceCallout({
   children,
@@ -19,7 +23,7 @@ export function DocsAudienceCallout({
 }) {
   return (
     <div className="not-typeset mb-[length:var(--typeset-flow,1.5em)]">
-      <Alert variant="info">
+      <Alert variant="info" layout="banner">
         <Info aria-hidden="true" />
         <AlertTitle>Admin audience</AlertTitle>
         <AlertDescription>
