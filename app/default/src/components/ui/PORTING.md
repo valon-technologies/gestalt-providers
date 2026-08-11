@@ -214,12 +214,16 @@ the call site (cards.md Card Collapsible). Do not restyle trigger hover/press
 
 ## DescriptionList
 
-Registry `description-list` is vendored here (toolshed#4188). Prefer over
-hand-rolled KV tables for read-only metadata. Use `surface="outline"` for
-standalone inspector / docs panels (Card outline fill/border, `rounded-lg` —
-not Card's `rounded-xl`). Default `surface="plain"` stays flush in a parent
-pane. Status value tones use `--*-ink` canvas status tokens (bridged in
-`shared/theme.css` + `globals.css`).
+Registry `description-list` is vendored here (toolshed#4188 outline;
+toolshed#4218 density + term type). Prefer over hand-rolled KV tables for
+read-only metadata. Use `surface="outline"` for standalone inspector / docs
+panels (Card outline fill/border, `rounded-lg` — not Card's `rounded-xl`).
+Default `surface="plain"` stays flush in a parent pane. Row vertical rhythm is
+`density="default"` (roomy) or `density="condensed"` (prior tight inspector) —
+owned on the list, not per-item `py-*`. Terms use
+`font-display text-sm italic tracking-wide text-muted-foreground`. Status value
+tones use `--*-ink` canvas status tokens (bridged in `shared/theme.css` +
+`globals.css`).
 
 ## StepPager
 

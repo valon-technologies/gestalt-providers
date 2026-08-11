@@ -1,6 +1,6 @@
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
- * Registry `description-list` (toolshed#4188 outline surface).
+ * Registry `description-list` (toolshed#4188 outline surface; #4218 density + term type).
  */
 
 import * as React from "react";
@@ -18,6 +18,8 @@ import { cn } from "@/lib/cn";
 // consumer can widen it once on the list. Hairline row separators are opt-out
 // via `divided`. `surface="outline"` composes Card outline fill/border (Stat
 // pattern) for inspector / docs panels without a hand-rolled bordered table.
+// `density` owns row vertical rhythm on the list (Tree / SelectionCheck pattern)
+// — default is roomy; condensed matches the prior tight inspector rows.
 const TERM_WIDTH_DEFAULT = "7rem";
 
 const descriptionListVariants = cva("min-w-0 text-sm", {
@@ -31,21 +33,28 @@ const descriptionListVariants = cva("min-w-0 text-sm", {
       true: "divide-y divide-border/60",
       false: "",
     },
+    density: {
+      // Roomy default — readable KV panels and outline cards.
+      default: "[&_[data-slot=description-item]]:py-3",
+      // Tight inspector / span metadata (prior plain default).
+      condensed: "[&_[data-slot=description-item]]:py-1.5",
+    },
     surface: {
       // Flush in a parent pane — no own border/fill.
       plain: "",
       // Compose Card outline tokens; override radius to section/Alert `rounded-lg`
-      // (not Card's `rounded-xl`). Pad rows (not the shell) so `divide-y`
-      // hairlines run edge-to-edge — same ownership as Item / StatusList.
+      // (not Card's `rounded-xl`). Horizontal pad on rows (not the shell) so
+      // `divide-y` hairlines run edge-to-edge — vertical rhythm stays on `density`.
       outline: cn(
         cardVariants({ variant: "outline" }),
-        "overflow-hidden rounded-lg [&_[data-slot=description-item]]:px-4 [&_[data-slot=description-item]]:py-3",
+        "overflow-hidden rounded-lg [&_[data-slot=description-item]]:px-4",
       ),
     },
   },
   defaultVariants: {
     variant: "row",
     divided: true,
+    density: "default",
     surface: "plain",
   },
 });
@@ -60,6 +69,7 @@ function DescriptionList({
   className,
   variant,
   divided,
+  density,
   surface,
   termWidth = TERM_WIDTH_DEFAULT,
   style,
@@ -69,9 +79,10 @@ function DescriptionList({
     <dl
       data-slot="description-list"
       data-variant={variant ?? "row"}
+      data-density={density ?? "default"}
       data-surface={surface ?? "plain"}
       className={cn(
-        descriptionListVariants({ variant, divided, surface }),
+        descriptionListVariants({ variant, divided, density, surface }),
         className,
       )}
       style={{ "--dl-term-width": termWidth, ...style } as React.CSSProperties}
@@ -84,7 +95,7 @@ function DescriptionItem({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="description-item"
-      className={cn("py-1.5", className)}
+      className={className}
       {...props}
     />
   );
@@ -94,7 +105,10 @@ function DescriptionTerm({ className, ...props }: React.ComponentProps<"dt">) {
   return (
     <dt
       data-slot="description-term"
-      className={cn("font-display text-xs italic text-muted-foreground", className)}
+      className={cn(
+        "font-display text-sm italic tracking-wide text-muted-foreground",
+        className,
+      )}
       {...props}
     />
   );

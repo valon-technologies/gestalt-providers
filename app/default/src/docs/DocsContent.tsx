@@ -1035,6 +1035,7 @@ function Subheading({ id, title }: { id?: string; title: string }) {
 function InfoTable({ rows }: { rows: [string, string][] }) {
   return (
     <DescriptionList
+      density="condensed"
       termWidth="14rem"
       className="not-typeset mt-[length:var(--typeset-flow,1.5em)]"
       data-testid="docs-info-table"
