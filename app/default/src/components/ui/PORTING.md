@@ -46,8 +46,8 @@ vendored here. Theme bridges (`--primary`, `--muted`, `--input`, `--disabled*`,
 `--state-overlay-*`, `--control-*`) live in `shared/theme.css` + `globals.css`
 `@theme inline`. Spinner motion CSS (`.spinner-trail`, `.brand-spinner*`)
 lives in `globals.css` and maps BrandSpinner strokes to semantic tokens
-(`--border`, `--accent-strong`) — not Registry palette constants. On re-vendor,
-rename Registry `valon-spinner*` class/keyframe IDs to these neutral names.
+(`--border`, `--accent-strong`) — not Registry palette constants. Class /
+keyframe IDs match Registry after toolshed#4224 (no `valon-spinner*` remap).
 Prefer `@/components/ui/button`, `@/components/ui/input`, and
 `@/components/ui/select` at call sites;
 `@/components/Button` is a legacy adapter (`primary` → `default`,
