@@ -232,8 +232,6 @@ func (b *temporalBackend) startWorkflowOptions(workflowID string, conflict enums
 func (b *temporalBackend) startWorkflowOptionsWithVisibility(workflowID string, conflict enumspb.WorkflowIdConflictPolicy, reuse enumspb.WorkflowIdReusePolicy, input runWorkflowInput) client.StartWorkflowOptions {
 	opts := b.startWorkflowOptions(workflowID, conflict, reuse)
 	opts.TypedSearchAttributes = workflowRunSearchAttributesFromInput(input, gestalt.WorkflowRunStatusValuePending)
-	if ownerKey := strings.TrimSpace(input.OwnerKey); ownerKey != "" {
-		opts.Memo = map[string]any{memoKeyOwnerKey: ownerKey}
-	}
+	opts.Memo = runStartMemo(input.OwnerKey, runListSummaryFromInput(input, time.Now().UTC()))
 	return opts
 }

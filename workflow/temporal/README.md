@@ -78,8 +78,11 @@ Metadata-only reads do not start the Temporal worker.
   workflow and Temporal run ID
 - `GetRun`, `GetRunEvents`, and `GetRunOutput` read authoritative run state
   from the Temporal workflow query or completed workflow result; `ListRuns`
-  queries Temporal Visibility for the page and, on the first page only,
-  attaches visibility aggregates from `CountWorkflow` (not `len(runs)`):
+  queries Temporal Visibility and builds summaries from search attributes plus
+  memo (`gestaltOwnerKey`, `gestaltListSummary` for list-safe trigger metadata
+  and startedAt — not full event payloads) without per-run worker round-trips;
+  on the first page only, attaches visibility aggregates from `CountWorkflow`
+  (not `len(runs)`):
   - `total_count` uses the same visibility filter as the page (including
     status); it is Visibility cardinality and may exceed hydrated list rows
     when executions lack listable memo

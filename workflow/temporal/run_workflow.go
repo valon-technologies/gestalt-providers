@@ -69,7 +69,11 @@ func TemporalRun(ctx workflow.Context, input runWorkflowInput) (*gestalt.Workflo
 	runMutex := workflow.NewMutex(ctx)
 
 	upsertVisibility := func(ctx workflow.Context) {
-		_ = workflow.UpsertTypedSearchAttributes(ctx, workflowRunSearchAttributeUpdates(input.ScopeID, publicRun())...)
+		run := publicRun()
+		_ = workflow.UpsertTypedSearchAttributes(ctx, workflowRunSearchAttributeUpdates(input.ScopeID, run)...)
+		if encoded := encodeRunListSummaryMemo(runListSummaryFromRun(run)); encoded != "" {
+			_ = workflow.UpsertMemo(ctx, map[string]any{memoKeyListSummary: encoded})
+		}
 	}
 	rebuildRun := func(mutate func(*gestalt.WorkflowRun)) error {
 		next := *state

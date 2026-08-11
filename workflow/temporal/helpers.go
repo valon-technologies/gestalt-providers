@@ -402,7 +402,31 @@ func cloneRunInput(run *gestalt.WorkflowRun) *gestalt.WorkflowRun {
 	out.WorkflowKey = strings.TrimSpace(out.WorkflowKey)
 	out.DefinitionID = strings.TrimSpace(out.DefinitionID)
 	out.CreatedBy = cloneCreatedBy(out.CreatedBy)
+	out.Trigger = cloneTriggerInput(out.Trigger)
 	return &out
+}
+
+func cloneTriggerInput(trigger *gestalt.WorkflowRunTrigger) *gestalt.WorkflowRunTrigger {
+	if trigger == nil {
+		return nil
+	}
+	out := &gestalt.WorkflowRunTrigger{Manual: trigger.Manual}
+	if trigger.Schedule != nil {
+		schedule := *trigger.Schedule
+		schedule.ActivationID = strings.TrimSpace(schedule.ActivationID)
+		if trigger.Schedule.ScheduledFor != nil {
+			scheduledFor := trigger.Schedule.ScheduledFor.UTC()
+			schedule.ScheduledFor = &scheduledFor
+		}
+		out.Schedule = &schedule
+	}
+	if trigger.Event != nil {
+		event := *trigger.Event
+		event.ActivationID = strings.TrimSpace(event.ActivationID)
+		event.Event = cloneWorkflowEventInput(trigger.Event.Event)
+		out.Event = &event
+	}
+	return out
 }
 
 func cloneSignalInput(signal *gestalt.WorkflowSignal) *gestalt.WorkflowSignal {
