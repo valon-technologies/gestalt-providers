@@ -533,6 +533,14 @@ func TestBackendListRunsUsesTemporalVisibility(t *testing.T) {
 			},
 			NextPageToken: nextToken,
 		},
+		countDefault: 0,
+		countRespByQuery: map[string]int64{
+			"WorkflowType = 'TemporalRun' AND GestaltScopeId = 'scope' AND GestaltProviderName = 'temporal' AND GestaltRunStatus = 'pending' AND GestaltTargetApps = 'slack'":   1,
+			"WorkflowType = 'TemporalRun' AND GestaltScopeId = 'scope' AND GestaltProviderName = 'temporal' AND GestaltRunStatus = 'running' AND GestaltTargetApps = 'slack'":   3,
+			"WorkflowType = 'TemporalRun' AND GestaltScopeId = 'scope' AND GestaltProviderName = 'temporal' AND GestaltRunStatus = 'succeeded' AND GestaltTargetApps = 'slack'": 30,
+			"WorkflowType = 'TemporalRun' AND GestaltScopeId = 'scope' AND GestaltProviderName = 'temporal' AND GestaltRunStatus = 'failed' AND GestaltTargetApps = 'slack'":    7,
+			"WorkflowType = 'TemporalRun' AND GestaltScopeId = 'scope' AND GestaltProviderName = 'temporal' AND GestaltRunStatus = 'canceled' AND GestaltTargetApps = 'slack'":  1,
+		},
 	}
 	backend := newRecordingTemporalBackend(tc, state)
 
@@ -554,6 +562,18 @@ func TestBackendListRunsUsesTemporalVisibility(t *testing.T) {
 	if resp.NextPageToken != encodeTemporalListPageToken(nextToken) {
 		t.Fatalf("next page token = %q", resp.NextPageToken)
 	}
+	total, ok := resp.GetTotalCount()
+	if !ok || total != 3 {
+		t.Fatalf("total count = %d ok=%v, want 3 (same visibility query as status=running)", total, ok)
+	}
+	if resp.StatusCounts == nil ||
+		resp.StatusCounts.Pending != 1 ||
+		resp.StatusCounts.Running != 3 ||
+		resp.StatusCounts.Succeeded != 30 ||
+		resp.StatusCounts.Failed != 7 ||
+		resp.StatusCounts.Canceled != 1 {
+		t.Fatalf("status counts = %#v", resp.StatusCounts)
+	}
 	if len(tc.listWorkflowRequests) != 1 {
 		t.Fatalf("list workflow requests = %#v", tc.listWorkflowRequests)
 	}
@@ -571,6 +591,122 @@ func TestBackendListRunsUsesTemporalVisibility(t *testing.T) {
 		if !strings.Contains(listReq.GetQuery(), want) {
 			t.Fatalf("query = %q, missing %q", listReq.GetQuery(), want)
 		}
+	}
+	if len(tc.countWorkflowRequests) != 6 {
+		t.Fatalf("count workflow requests = %d (%#v), want 6 (1 total + 5 status)", len(tc.countWorkflowRequests), tc.countWorkflowRequests)
+	}
+	countQueries := make(map[string]int, len(tc.countWorkflowRequests))
+	for _, countReq := range tc.countWorkflowRequests {
+		countQueries[countReq.GetQuery()]++
+	}
+	if countQueries[listReq.GetQuery()] < 1 {
+		t.Fatalf("missing list-filter CountWorkflow for %q; got %#v", listReq.GetQuery(), countQueries)
+	}
+	for _, statusValue := range listRunStatusHistogram {
+		statusQuery := backend.runVisibilityQuery(&gestalt.ListWorkflowProviderRunsRequest{
+			Status:    statusValue,
+			TargetApp: "slack",
+		})
+		if countQueries[statusQuery] < 1 {
+			t.Fatalf("missing status histogram CountWorkflow for %q; got %#v", statusQuery, countQueries)
+		}
+	}
+}
+
+func TestBackendListRunsSkipsAggregatesOnContinuationPage(t *testing.T) {
+	ctx, state := newTestWorkflowStateStore(t)
+	dc := converter.GetDefaultDataConverter()
+	ownerPayload, err := dc.ToPayload("slack")
+	if err != nil {
+		t.Fatalf("owner payload: %v", err)
+	}
+	statusPayload, err := dc.ToPayload("running")
+	if err != nil {
+		t.Fatalf("status payload: %v", err)
+	}
+	tc := &recordingTemporalClient{
+		listResp: &workflowservicepb.ListWorkflowExecutionsResponse{
+			Executions: []*workflowpb.WorkflowExecutionInfo{
+				{
+					Execution: &commonpb.WorkflowExecution{WorkflowId: "workflow-1", RunId: "run-1"},
+					Status:    enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
+					Memo:      &commonpb.Memo{Fields: map[string]*commonpb.Payload{memoKeyOwnerKey: ownerPayload}},
+					SearchAttributes: &commonpb.SearchAttributes{IndexedFields: map[string]*commonpb.Payload{
+						searchAttrRunStatus.GetName(): statusPayload,
+					}},
+				},
+			},
+		},
+		countDefault: 99,
+	}
+	backend := newRecordingTemporalBackend(tc, state)
+
+	resp, err := backend.ListRuns(ctx, &gestalt.ListWorkflowProviderRunsRequest{
+		PageToken: encodeTemporalListPageToken([]byte("next-page")),
+		TargetApp: "slack",
+	})
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if _, ok := resp.GetTotalCount(); ok {
+		t.Fatalf("continuation page should omit total_count, got %#v", resp.TotalCount)
+	}
+	if resp.GetStatusCounts() != nil {
+		t.Fatalf("continuation page should omit status_counts, got %#v", resp.StatusCounts)
+	}
+	if len(tc.countWorkflowRequests) != 0 {
+		t.Fatalf("count workflow requests = %#v, want none on continuation page", tc.countWorkflowRequests)
+	}
+	if len(resp.GetRuns()) != 1 {
+		t.Fatalf("runs = %#v, want one", resp.GetRuns())
+	}
+}
+
+func TestBackendListRunsOmitsAggregatesWhenCountFails(t *testing.T) {
+	ctx, state := newTestWorkflowStateStore(t)
+	dc := converter.GetDefaultDataConverter()
+	ownerPayload, err := dc.ToPayload("slack")
+	if err != nil {
+		t.Fatalf("owner payload: %v", err)
+	}
+	statusPayload, err := dc.ToPayload("running")
+	if err != nil {
+		t.Fatalf("status payload: %v", err)
+	}
+	tc := &recordingTemporalClient{
+		listResp: &workflowservicepb.ListWorkflowExecutionsResponse{
+			Executions: []*workflowpb.WorkflowExecutionInfo{
+				{
+					Execution: &commonpb.WorkflowExecution{WorkflowId: "workflow-1", RunId: "run-1"},
+					Status:    enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
+					Memo:      &commonpb.Memo{Fields: map[string]*commonpb.Payload{memoKeyOwnerKey: ownerPayload}},
+					SearchAttributes: &commonpb.SearchAttributes{IndexedFields: map[string]*commonpb.Payload{
+						searchAttrRunStatus.GetName(): statusPayload,
+					}},
+				},
+			},
+		},
+		countErr: status.Error(codes.Unavailable, "visibility unavailable"),
+	}
+	backend := newRecordingTemporalBackend(tc, state)
+
+	resp, err := backend.ListRuns(ctx, &gestalt.ListWorkflowProviderRunsRequest{
+		TargetApp: "slack",
+	})
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(resp.GetRuns()) != 1 {
+		t.Fatalf("runs = %#v, want list to succeed", resp.GetRuns())
+	}
+	if _, ok := resp.GetTotalCount(); ok {
+		t.Fatalf("total_count should be omitted when CountWorkflow fails, got %#v", resp.TotalCount)
+	}
+	if resp.GetStatusCounts() != nil {
+		t.Fatalf("status_counts should be omitted when CountWorkflow fails, got %#v", resp.StatusCounts)
+	}
+	if len(tc.countWorkflowRequests) == 0 {
+		t.Fatalf("expected CountWorkflow attempts before omission")
 	}
 }
 
@@ -718,6 +854,10 @@ type recordingTemporalClient struct {
 	listWorkflowRequests []*workflowservicepb.ListWorkflowExecutionsRequest
 	listResp             *workflowservicepb.ListWorkflowExecutionsResponse
 	listErr              error
+	countWorkflowRequests []*workflowservicepb.CountWorkflowExecutionsRequest
+	countRespByQuery     map[string]int64
+	countDefault         int64
+	countErr             error
 	describeResp         *workflowservicepb.DescribeWorkflowExecutionResponse
 	describeErr          error
 	queryRun             *gestalt.WorkflowRun
@@ -789,6 +929,21 @@ func (c *recordingTemporalClient) ListWorkflow(_ context.Context, req *workflows
 		return c.listResp, nil
 	}
 	return &workflowservicepb.ListWorkflowExecutionsResponse{}, nil
+}
+
+func (c *recordingTemporalClient) CountWorkflow(_ context.Context, req *workflowservicepb.CountWorkflowExecutionsRequest) (*workflowservicepb.CountWorkflowExecutionsResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.countWorkflowRequests = append(c.countWorkflowRequests, req)
+	if c.countErr != nil {
+		return nil, c.countErr
+	}
+	if c.countRespByQuery != nil {
+		if total, ok := c.countRespByQuery[req.GetQuery()]; ok {
+			return &workflowservicepb.CountWorkflowExecutionsResponse{Count: total}, nil
+		}
+	}
+	return &workflowservicepb.CountWorkflowExecutionsResponse{Count: c.countDefault}, nil
 }
 
 func (c *recordingTemporalClient) DescribeWorkflowExecution(_ context.Context, workflowID, runID string) (*workflowservicepb.DescribeWorkflowExecutionResponse, error) {

@@ -329,10 +329,11 @@ func (b *temporalBackend) ListRuns(ctx context.Context, req *gestalt.ListWorkflo
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "page_token is invalid")
 	}
+	query := b.runVisibilityQuery(req)
 	resp, err := b.client.ListWorkflow(ctx, &workflowservicepb.ListWorkflowExecutionsRequest{
 		PageSize:      int32(pageSize),
 		NextPageToken: nextPageToken,
-		Query:         b.runVisibilityQuery(req),
+		Query:         query,
 	})
 	if err != nil {
 		return nil, mapTemporalWorkflowCallError("list temporal workflows", err)
@@ -344,7 +345,111 @@ func (b *temporalBackend) ListRuns(ctx context.Context, req *gestalt.ListWorkflo
 			inputs = append(inputs, *run)
 		}
 	}
-	return &gestalt.ListWorkflowProviderRunsResponse{Runs: inputs, NextPageToken: encodeTemporalListPageToken(resp.GetNextPageToken())}, nil
+	out := &gestalt.ListWorkflowProviderRunsResponse{
+		Runs:          inputs,
+		NextPageToken: encodeTemporalListPageToken(resp.GetNextPageToken()),
+	}
+	// First page only: continuation pages stay a single ListWorkflow RPC.
+	// Omitted aggregates mean "unknown" (SDK contract), not zero.
+	if len(nextPageToken) == 0 {
+		b.attachListRunAggregates(ctx, req, query, out)
+	}
+	return out, nil
+}
+
+// attachListRunAggregates fills visibility totals for the first list page.
+// total_count uses the same filter as the page; status_counts is the
+// provider+target_app histogram with status cleared. Failures leave fields
+// unset rather than failing the list.
+func (b *temporalBackend) attachListRunAggregates(ctx context.Context, req *gestalt.ListWorkflowProviderRunsRequest, query string, out *gestalt.ListWorkflowProviderRunsResponse) {
+	var (
+		total     int64
+		totalErr  error
+		counts    *gestalt.WorkflowRunStatusCounts
+		countsErr error
+		wg        sync.WaitGroup
+	)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		total, totalErr = b.countWorkflows(ctx, query)
+	}()
+	go func() {
+		defer wg.Done()
+		counts, countsErr = b.countWorkflowsByStatus(ctx, req)
+	}()
+	wg.Wait()
+	if totalErr == nil {
+		out.TotalCount = &total
+	}
+	if countsErr == nil {
+		out.StatusCounts = counts
+	}
+}
+
+func (b *temporalBackend) countWorkflows(ctx context.Context, query string) (int64, error) {
+	resp, err := b.client.CountWorkflow(ctx, &workflowservicepb.CountWorkflowExecutionsRequest{
+		Query: query,
+	})
+	if err != nil {
+		return 0, mapTemporalWorkflowCallError("count temporal workflows", err)
+	}
+	return resp.GetCount(), nil
+}
+
+var listRunStatusHistogram = []gestalt.WorkflowRunStatus{
+	gestalt.WorkflowRunStatusValuePending,
+	gestalt.WorkflowRunStatusValueRunning,
+	gestalt.WorkflowRunStatusValueSucceeded,
+	gestalt.WorkflowRunStatusValueFailed,
+	gestalt.WorkflowRunStatusValueCanceled,
+}
+
+func (b *temporalBackend) countWorkflowsByStatus(ctx context.Context, req *gestalt.ListWorkflowProviderRunsRequest) (*gestalt.WorkflowRunStatusCounts, error) {
+	base := &gestalt.ListWorkflowProviderRunsRequest{}
+	if req != nil {
+		base.TargetApp = req.TargetApp
+		// Preserve KnownApps so histogram ownership matches list/total filters
+		// once visibility can express definition-owner disambiguation.
+		base.KnownApps = append([]string(nil), req.KnownApps...)
+	}
+	type statusCount struct {
+		status gestalt.WorkflowRunStatus
+		total  int64
+		err    error
+	}
+	results := make([]statusCount, len(listRunStatusHistogram))
+	var wg sync.WaitGroup
+	wg.Add(len(listRunStatusHistogram))
+	for i, statusValue := range listRunStatusHistogram {
+		go func(i int, statusValue gestalt.WorkflowRunStatus) {
+			defer wg.Done()
+			statusReq := *base
+			statusReq.Status = statusValue
+			total, err := b.countWorkflows(ctx, b.runVisibilityQuery(&statusReq))
+			results[i] = statusCount{status: statusValue, total: total, err: err}
+		}(i, statusValue)
+	}
+	wg.Wait()
+	counts := &gestalt.WorkflowRunStatusCounts{}
+	for _, result := range results {
+		if result.err != nil {
+			return nil, result.err
+		}
+		switch result.status {
+		case gestalt.WorkflowRunStatusValuePending:
+			counts.Pending = result.total
+		case gestalt.WorkflowRunStatusValueRunning:
+			counts.Running = result.total
+		case gestalt.WorkflowRunStatusValueSucceeded:
+			counts.Succeeded = result.total
+		case gestalt.WorkflowRunStatusValueFailed:
+			counts.Failed = result.total
+		case gestalt.WorkflowRunStatusValueCanceled:
+			counts.Canceled = result.total
+		}
+	}
+	return counts, nil
 }
 
 // listedRunFromExecutionInfo builds a run summary from visibility data alone,

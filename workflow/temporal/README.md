@@ -78,7 +78,15 @@ Metadata-only reads do not start the Temporal worker.
   workflow and Temporal run ID
 - `GetRun`, `GetRunEvents`, and `GetRunOutput` read authoritative run state
   from the Temporal workflow query or completed workflow result; `ListRuns`
-  queries Temporal Visibility and hydrates from Temporal workflow state
+  queries Temporal Visibility for the page and, on the first page only,
+  attaches visibility aggregates from `CountWorkflow` (not `len(runs)`):
+  - `total_count` uses the same visibility filter as the page (including
+    status); it is Visibility cardinality and may exceed hydrated list rows
+    when executions lack listable memo
+  - `status_counts` is the provider + `target_app` status histogram with the
+    list status filter cleared (tab/facet totals)
+  - either aggregate is omitted when its count RPC fails ("unknown", not zero);
+    continuation pages omit both so paging stays a single ListWorkflow call
 - IndexedDB stores workflow definitions and request idempotency records only;
   Temporal owns run listing, current run state, schedule cursors, and
   workflow-key ownership
