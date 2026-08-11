@@ -9,7 +9,7 @@ import "./globals.css";
 // a CSS `@import` inside globals can vanish from the Vite graph when the
 // file is briefly missing (stash/rebase) and leave docs with zero block
 // margins while the app otherwise looks fine.
-import "./styles/valon-typeset.css";
+import "./styles/typeset-reading.css";
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {

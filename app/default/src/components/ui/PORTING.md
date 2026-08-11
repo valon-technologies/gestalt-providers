@@ -248,7 +248,7 @@ only when the parent is muted (sidebar / rail).
 
 Registry `code-block` + `code-fence` are vendored here for display snippets
 (Build MCP install, etc.). Keep highlighting on lowlight → `.typeset-code-hljs`
-(`src/styles/valon-typeset.css`). Do not reintroduce
+(`src/styles/typeset-reading.css`). Do not reintroduce
 Shiki for these surfaces. Shell paint maps Registry `bg-muted/50` /
 `border-border/50` to console `bg-alpha-5` / `border-alpha`. Pass
 `chrome="inset"` for docs/blog fences (no header; copy overlays the body).

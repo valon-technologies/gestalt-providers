@@ -1,20 +1,19 @@
 /*
- * Valon Typeset — owned fork of shadcn/typeset for rendered HTML / markdown.
- * Upstream: https://ui.shadcn.com/docs/typeset
+ * Typeset reading contract — owned fork of shadcn/typeset for rendered HTML /
+ * markdown. Upstream: https://ui.shadcn.com/docs/typeset
  *
- * Install via `shadcn add …/valon-typeset.json`, then from the app entry
- * (after `globals.css` so Tailwind layers exist):
- *   import "./styles/valon-typeset.css";
+ * Tenant-neutral: rhythm/selectors live here; brand fonts and palette map
+ * through semantic tokens (`--font-sans`, `--font-mono`, `--link`, …) from
+ * `shared/theme.css` and optional deploy `theme.css`.
+ *
+ * Load from the app entry after `globals.css` so Tailwind layers exist:
+ *   import "./styles/typeset-reading.css";
  *
  * Wrap rendered markdown in `.typeset` plus a preset (`.typeset-docs` or
  * `.typeset-chat`). Opt out of a subtree with `.not-typeset`.
  * Direct-child chrome (`.not-typeset` / `[data-not-typeset]`) and mixed
  * blocks (`[data-typeset-chrome]`) get `--typeset-flow` as margin-block-start
  * so they keep the same gap as prose siblings.
- *
- * Fonts: body + headings use Melange (`--font-sans`) per guidelines/fonts.md —
- * Season Serif stays reserved for large PageHeader titles, not long-form
- * headings. Mono uses Geist Mono via `--font-mono` (see fonts.md).
  */
 
 @layer components {
@@ -646,7 +645,7 @@
 
 
 /* ---------------------------------------------------------------------------
- * Valon presets — layer on `.typeset` for context-specific rhythm.
+ * Presets — layer on `.typeset` for context-specific rhythm.
  * Size steps follow guidelines/typography-base-size.md:
  *   docs / long-form reading → 1rem (16px)
  *   chat / dense UI prose     → 0.875rem (14px)

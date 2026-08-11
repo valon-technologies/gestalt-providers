@@ -600,7 +600,7 @@ function DocsPageHeader({
 }
 
 function DocsPageBody({ children }: { children: ReactNode }) {
-  // Registry reading contract: prose uses valon-typeset (lists, markers, code).
+  // Reading contract: prose uses typeset-reading (lists, markers, code).
   // Chrome islands use `.not-typeset` or `[data-typeset-chrome]` (flow gap only).
   // Set h2 start on this node — `.typeset` owns the token and would ignore an
   // inherited value from PageLayout.

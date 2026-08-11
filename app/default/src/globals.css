@@ -6,11 +6,11 @@
 
 /*
  * Typeset is NOT imported here. `main.tsx` side-effect-imports
- * `./styles/valon-typeset.css` after this file so Vite always tracks it as a
+ * `./styles/typeset-reading.css` after this file so Vite always tracks it as a
  * module edge (and Tailwind layers are already defined). A CSS `@import` of
  * typeset from this file can drop out of the served bundle after stash/rebase
  * while the rest of the app keeps painting — docs then show zero block gaps.
- * hljs theme ships inside valon-typeset.
+ * hljs theme ships inside typeset-reading.
  */
 
 /* Dark mode follows the class set by useTheme. */
@@ -514,7 +514,7 @@
   /*
    * This app's `@theme inline reference` does not emit `--color-*` on the
    * document — only semantic tokens (`--muted`, `--foreground`, …). Bridge
-   * them for valon-typeset, which reads the Tailwind `--color-*` names.
+   * them for typeset-reading, which reads the Tailwind `--color-*` names.
    */
   .typeset,
   .slate-editor,
