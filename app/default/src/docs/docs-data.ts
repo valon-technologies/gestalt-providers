@@ -137,7 +137,7 @@ export const docsNavItems: DocsNavItem[] = [
     prerequisites: [
       { href: DOCS_GETTING_STARTED_PATH, label: "Getting Started" },
     ],
-    next: { href: DOCS_TROUBLESHOOTING_PATH, label: "Troubleshooting" },
+    next: { href: DOCS_AUTHORIZATION_PATH, label: "Grant App Access" },
   },
   {
     id: "authorization",
@@ -152,7 +152,7 @@ export const docsNavItems: DocsNavItem[] = [
       { id: "authz-inspect", label: "Inspect grants" },
     ],
     prerequisites: [
-      { href: DOCS_GETTING_STARTED_PATH, label: "Getting Started" },
+      { href: DOCS_WORKFLOWS_PATH, label: "Inspect Workflows" },
     ],
     next: { href: DOCS_TROUBLESHOOTING_PATH, label: "Troubleshooting" },
   },
@@ -167,6 +167,9 @@ export const docsNavItems: DocsNavItem[] = [
       { id: "ts-multiple-connections", label: "Multiple connections" },
       { id: "ts-empty-tools", label: "Empty MCP tool list" },
       { id: "ts-forbidden", label: "Access denied after grant" },
+    ],
+    prerequisites: [
+      { href: DOCS_AUTHORIZATION_PATH, label: "Grant App Access" },
     ],
   },
 ];

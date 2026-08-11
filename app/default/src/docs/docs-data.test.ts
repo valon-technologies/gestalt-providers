@@ -48,6 +48,20 @@ describe("docs IA invariants", () => {
     }
   });
 
+  it("keeps pager next edges aligned with sidebar order", () => {
+    // Footer Next should follow the left-rail sequence so readers are not
+    // skipped past a page that already appears between two destinations.
+    for (let i = 0; i < docsNavItems.length - 1; i++) {
+      const item = docsNavItems[i]!;
+      const following = docsNavItems[i + 1]!;
+      expect(item.next).toEqual({
+        href: following.href,
+        label: following.label,
+      });
+    }
+    expect(docsNavItems.at(-1)?.next).toBeUndefined();
+  });
+
   it("resolves /docs and /docs/getting-started to Getting Started", () => {
     expect(getActiveDocsNavItem("/docs").id).toBe("getting-started");
     expect(getActiveDocsNavItem("/docs/getting-started").id).toBe(

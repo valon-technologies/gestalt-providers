@@ -534,7 +534,6 @@ function CodeBlockInsetCopy({
       <CopyIconButton
         value={() => normalizeCodeNewlines(code)}
         tooltip={copyLabel}
-        className="bg-background/80 text-muted-foreground hover:bg-background hover:text-foreground"
       />
     </div>
   );

@@ -6,7 +6,10 @@ import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 
-import { ghostQuietChromeClassName } from "@/lib/press-feedback";
+import {
+  ghostQuietChromeClassName,
+  secondarySurfaceFillClassName,
+} from "@/lib/press-feedback";
 import { cn } from "@/lib/cn";
 
 // User-chosen Badge `color` (entity labels) is a *hue identity*. Presentation
@@ -71,7 +74,7 @@ const badgeVariants = cva(
     variants: {
       variant: {
         default: "bg-primary text-primary-foreground",
-        secondary: "bg-foreground/[0.06] text-foreground/80",
+        secondary: [secondarySurfaceFillClassName, "text-foreground/80"],
         // Rest is --muted (≡ --neutral-hover). Hover deepens with the muted-chrome
         // band (`hover-pressed-color.md`) — never muted/80, which lightens the fill.
         // Same perceived step as Button ghost's on-color scrim (`press-feedback.md`).

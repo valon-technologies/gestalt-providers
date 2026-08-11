@@ -143,23 +143,9 @@ export default function DocsShell({
               Reading measure: center track is ~800px (~82–110ch) without a cap.
               65ch keeps body lines in the comfortable 60–70 character band;
               `mx-auto` centers that measure in the PageLayout content track.
+              On-this-page lives only in PageLayout Aside (xl+); no stacked
+              duplicate below that breakpoint — nav already covers the page.
             */}
-            {hasOnThisPage ? (
-              <div
-                className="mb-6 rounded-xl border border-border bg-card p-4 xl:hidden"
-                data-testid="docs-on-this-page-mobile"
-              >
-                <p className="mb-2 text-sm font-medium text-foreground">
-                  On this page
-                </p>
-                <TableOfContents
-                  items={tocItems}
-                  activeId={activeId}
-                  onItemSelect={onTocSelect}
-                  label="On this page"
-                />
-              </div>
-            ) : null}
             {activeItem.audience === "admin" ? <DocsAudienceCallout /> : null}
             {children}
             <DocsJourneyFooter item={activeItem} />

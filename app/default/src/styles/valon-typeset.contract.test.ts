@@ -35,3 +35,7 @@ test("valon-typeset defines docs flow tokens and chrome-in-flow gaps", () => {
   );
   expect(TYPESET).toContain("margin-block-start: var(--typeset-flow)");
 });
+
+test("valon-typeset paragraphs use text-wrap pretty to avoid orphans", () => {
+  expect(TYPESET).toMatch(/&:where\(p\)\s*\{[^}]*text-wrap:\s*pretty/s);
+});

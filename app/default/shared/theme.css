@@ -49,12 +49,10 @@
 
   /* ── Supporting UI ───────────────────────────────────────────────────── */
   --muted: var(--surface-raised);
-  /* Quiet filled identity chip (Avatar solid). Achromatic next quiet L-step
-   * below muted so the disc stays visible when tenants alias --muted ≡
-   * --neutral-hover (warm cream). Not an interaction *-hover role — tenants
-   * with a neutral ramp should map this to the next achromatic step
-   * (Registry: oklch(from var(--tenant-neutral-200) l 0 h)). */
-  --muted-strong: oklch(from var(--muted) calc(l - 0.02) 0 h);
+  /* Quiet filled identity chip (Avatar solid, CodeBlock solid-dark). Same warm
+   * family as --muted — only L drops (Registry: neutral-150). Keep chroma so
+   * muted-strong does not cool to grey against atmospheric muted. */
+  --muted-strong: oklch(from var(--muted) calc(l - 0.02) c h);
   /* Ink-alpha text hierarchy (registry/theme/theme.css, color.md): secondary
    * text is foreground at opacity so the warm undertone holds at every level.
    * 60% = descriptions / placeholders; 40% = eyebrows / captions. */
@@ -149,6 +147,35 @@
   --error-foreground: oklch(40.8% 0.105 25);
   --info: oklch(92.8% 0.035 248);
   --info-foreground: oklch(40.8% 0.105 248);
+
+  /* Status SURFACE hover/press — pale band (Alert collapsible trigger, etc.). */
+  --success-hover: oklch(from var(--success) calc(l - var(--interaction-step-pale-hover)) c h);
+  --success-pressed: oklch(from var(--success) calc(l - var(--interaction-step-pale-press)) c h);
+  --warning-hover: oklch(from var(--warning) calc(l - var(--interaction-step-pale-hover)) c h);
+  --warning-pressed: oklch(from var(--warning) calc(l - var(--interaction-step-pale-press)) c h);
+  --error-hover: oklch(from var(--error) calc(l - var(--interaction-step-pale-hover)) c h);
+  --error-pressed: oklch(from var(--error) calc(l - var(--interaction-step-pale-press)) c h);
+  --info-hover: oklch(from var(--info) calc(l - var(--interaction-step-pale-hover)) c h);
+  --info-pressed: oklch(from var(--info) calc(l - var(--interaction-step-pale-press)) c h);
+
+  /* Status wash edge steps — Alert collapsible drawer hairlines (adjacent ramp
+   * ±1 at /50). Tenant-neutral; not org palette constants. */
+  --blue-200: oklch(85.8% 0.07 248);
+  --blue-800: oklch(34% 0.082 248);
+  --green-200: oklch(85.8% 0.075 144);
+  --green-800: oklch(34% 0.082 144);
+  --yellow-200: oklch(85.8% 0.075 82);
+  --yellow-800: oklch(34% 0.069 82);
+  --red-200: oklch(85.8% 0.073 25);
+  --red-800: oklch(34% 0.082 25);
+
+  /* Status canvas ink — chromatic text/icons on neutral surfaces (page, card).
+   * Parallel to --accent-strong; not *-foreground (on-tint) and not *-solid fill.
+   * Shared ~48% L for AA body on --background (Registry color.md). */
+  --success-ink: oklch(48.204% 0.0881 144.06);
+  --warning-ink: oklch(48.204% 0.096 82);
+  --error-ink: oklch(48.204% 0.128 25);
+  --info-ink: oklch(48.204% 0.125 248);
 
   /* Badge status surfaces — Registry parity. Distinct from legacy gestalt-shell
    * --success canvas-ink overrides. Tenants may remap these to --success / --info
@@ -262,7 +289,7 @@
   --destructive-foreground: oklch(19.494% 0.0088 52);
 
   --muted: var(--surface-raised);
-  --muted-strong: oklch(from var(--muted) calc(l - 0.02) 0 h);
+  --muted-strong: oklch(from var(--muted) calc(l - 0.02) c h);
   /* Same ink-alpha model as light — derives from cream --foreground (registry). */
   --muted-foreground: color-mix(in oklab, var(--foreground) 60%, transparent);
   --muted-foreground-soft: color-mix(in oklab, var(--foreground) 40%, transparent);
@@ -336,6 +363,32 @@
   --error-foreground: oklch(85.8% 0.073 25);
   --info: oklch(28.2% 0.058 248);
   --info-foreground: oklch(85.8% 0.07 248);
+
+  /* Status SURFACE hover/press — pale band (Alert collapsible trigger, etc.). */
+  --success-hover: oklch(from var(--success) calc(l - var(--interaction-step-pale-hover)) c h);
+  --success-pressed: oklch(from var(--success) calc(l - var(--interaction-step-pale-press)) c h);
+  --warning-hover: oklch(from var(--warning) calc(l - var(--interaction-step-pale-hover)) c h);
+  --warning-pressed: oklch(from var(--warning) calc(l - var(--interaction-step-pale-press)) c h);
+  --error-hover: oklch(from var(--error) calc(l - var(--interaction-step-pale-hover)) c h);
+  --error-pressed: oklch(from var(--error) calc(l - var(--interaction-step-pale-press)) c h);
+  --info-hover: oklch(from var(--info) calc(l - var(--interaction-step-pale-hover)) c h);
+  --info-pressed: oklch(from var(--info) calc(l - var(--interaction-step-pale-press)) c h);
+
+  /* Status wash edge steps — Alert drawer hairlines (same absolute ramp as light). */
+  --blue-200: oklch(85.8% 0.07 248);
+  --blue-800: oklch(34% 0.082 248);
+  --green-200: oklch(85.8% 0.075 144);
+  --green-800: oklch(34% 0.082 144);
+  --yellow-200: oklch(85.8% 0.075 82);
+  --yellow-800: oklch(34% 0.069 82);
+  --red-200: oklch(85.8% 0.073 25);
+  --red-800: oklch(34% 0.082 25);
+
+  /* Status canvas ink (dark) — lighter mid steps on dark page/card (~69% L). */
+  --success-ink: oklch(69% 0.132 144);
+  --warning-ink: oklch(69% 0.132 82);
+  --error-ink: oklch(69% 0.132 25);
+  --info-ink: oklch(69% 0.132 248);
 
   --badge-success: oklch(28.2% 0.058 144);
   --badge-success-foreground: oklch(85.8% 0.075 144);

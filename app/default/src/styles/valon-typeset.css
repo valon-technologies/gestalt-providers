@@ -142,6 +142,8 @@
     &:where(p) {
       margin-block-start: var(--typeset-flow);
       margin-block-end: 0;
+      /* Avoid orphaned last lines (e.g. a lone final word). */
+      text-wrap: pretty;
     }
 
     /* Headings — sizes/weights match Plate heading-node (via --typeset-h*). */

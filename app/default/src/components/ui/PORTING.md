@@ -29,6 +29,16 @@ When lifting a shared UI kit control into `src/components/ui/`:
 `oxlint` enforces (4) via `home/no-brand-text-on-selected`
 (`oxlint-plugin-home.mjs`, scoped to `src/components/ui/**`).
 
+## Alert
+
+Registry `alert` is vendored here (toolshed#4191). Status washes stay borderless;
+`variant="outline"` is quiet Card chrome for CLI tips (no Tip primitive). Sole
+primary copy uses `AlertTitle` or Description alone — Description is
+`text-foreground` until a Title is present. Collapsible secondary help:
+`collapsible` + `AlertTrigger` + `AlertCollapsibleContent` (+ optional
+`animateSize`). Drawer CSS lives in `globals.css`. Button `secondary` on washes
+uses ink-alpha (`secondarySurfaceFillClassName`), not solid `bg-secondary`.
+
 ## Button / Input / Field / Label / Select
 
 Registry `button`, `input`, `field`, `label`, `select`, `spinner`, and `brand-spinner` are
@@ -201,6 +211,25 @@ Do not hand-roll `ul.divide-y` when Item fits. Expand/collapse is owned by
 the call site (cards.md Card Collapsible). Do not restyle trigger hover/press
 (List Item Neutral via `listItemInteraction`). Drawer height animation lives on
 `[data-slot=collapsible-content]` in `globals.css` (Registry theme keyframes).
+
+## DescriptionList
+
+Registry `description-list` is vendored here (toolshed#4188). Prefer over
+hand-rolled KV tables for read-only metadata. Use `surface="outline"` for
+standalone inspector / docs panels (Card outline fill/border, `rounded-lg` —
+not Card's `rounded-xl`). Default `surface="plain"` stays flush in a parent
+pane. Status value tones use `--*-ink` canvas status tokens (bridged in
+`shared/theme.css` + `globals.css`).
+
+## StepPager
+
+Registry `step-pager` is vendored here (toolshed#4190). Previous/next
+destination cards for docs journey edges and Build wizard steps. Compose
+`StepPager` + `StepPagerPrevious` / `StepPagerNext` (+ `StepPagerStartSpacer`
+when there is no previous). Use `asChild` for `<button>` or router `Link`.
+Surfaces: `solid` (default) / `outline` / `ghost`. Not `Pagination` (dataset
+paging) and not `Stepper` (in-flow process rail). Strip `"use client"`; prefer
+`@/lib/cn`.
 
 ## Tabs
 

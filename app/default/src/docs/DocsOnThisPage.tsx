@@ -1,33 +1,47 @@
+import { Link as RouterLink } from "@tanstack/react-router";
+import {
+  StepPager,
+  StepPagerNext,
+  StepPagerPrevious,
+  StepPagerStartSpacer,
+} from "@/components/ui/step-pager";
 import type { DocsNavItem } from "./docs-data";
-import { DocsLink } from "./DocsLink";
 
 export function DocsJourneyFooter({ item }: { item: DocsNavItem }) {
-  const hasPrereqs = (item.prerequisites?.length ?? 0) > 0;
-  const hasNext = item.next != null;
-  if (!hasPrereqs && !hasNext) return null;
+  // One previous card: nearest prerequisite (last listed) matches Build's single prev.
+  const previous =
+    item.prerequisites != null && item.prerequisites.length > 0
+      ? item.prerequisites[item.prerequisites.length - 1]!
+      : null;
+  const next = item.next ?? null;
+  if (!previous && !next) return null;
 
   return (
-    <footer
-      className="mt-10 space-y-3 border-t border-border pt-6"
+    <StepPager
+      aria-label="Docs journey navigation"
+      className="mt-10"
       data-testid="docs-journey-footer"
     >
-      {hasPrereqs ? (
-        <p className="text-sm text-muted-foreground">
-          Prerequisites:{" "}
-          {item.prerequisites!.map((link, index) => (
-            <span key={link.href}>
-              {index > 0 ? ", " : null}
-              <DocsLink to={link.href}>{link.label}</DocsLink>
-            </span>
-          ))}
-        </p>
+      {previous ? (
+        <StepPagerPrevious
+          asChild
+          title={previous.label}
+          data-testid="docs-journey-previous"
+        >
+          <RouterLink to={previous.href} />
+        </StepPagerPrevious>
+      ) : (
+        <StepPagerStartSpacer />
+      )}
+      {next ? (
+        <StepPagerNext
+          asChild
+          title={next.label}
+          data-testid="docs-journey-next"
+        >
+          <RouterLink to={next.href} />
+        </StepPagerNext>
       ) : null}
-      {hasNext ? (
-        <p className="text-sm text-foreground">
-          Next:{" "}
-          <DocsLink to={item.next!.href}>{item.next!.label}</DocsLink>
-        </p>
-      ) : null}
-    </footer>
+    </StepPager>
   );
 }

@@ -72,7 +72,7 @@ function CopyIconButton({
           size={size}
           {...props}
           className={cn(
-            "shrink-0 text-muted-foreground",
+            "shrink-0",
             density === "chip" &&
               "text-inherit h-[1.15em] w-[1.15em] min-w-[1.15em] min-h-0 p-0 [&_svg:not([class*='size-'])]:size-[0.7em]",
             className,

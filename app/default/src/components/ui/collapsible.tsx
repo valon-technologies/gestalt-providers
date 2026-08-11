@@ -1,6 +1,6 @@
-
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ * Registry `collapsible` (toolshed#4191 — lock `data-slot` after props for drawer CSS).
  */
 
 import * as React from "react";
@@ -43,17 +43,28 @@ function CollapsibleTrigger({
 
 function CollapsibleContent({
   className,
+  drawerClassName,
   children,
   ...props
-}: React.ComponentProps<typeof CollapsiblePrimitive.CollapsibleContent>) {
+}: React.ComponentProps<typeof CollapsiblePrimitive.CollapsibleContent> & {
+  /** Classes on the animated Radix node (e.g. drawer easing overrides). */
+  drawerClassName?: string;
+}) {
   // Height animation owns this node (0 ↔ auto). Padding / border / radius stay
   // on the inner wrapper — same split as AccordionContent — so open/close does
   // not jump or leave a padded sliver while the drawer runs.
+  //
+  // `data-slot="collapsible-content"` is locked after `{...props}`: theme CSS
+  // keys the drawer animation on that slot. Callers (e.g. Alert) must not
+  // rename it — put product identity on the root / trigger / inner chrome.
   return (
     <CollapsiblePrimitive.CollapsibleContent
-      data-slot="collapsible-content"
-      className="overflow-hidden text-sm [interpolate-size:allow-keywords]"
+      className={cn(
+        "overflow-hidden text-sm [interpolate-size:allow-keywords]",
+        drawerClassName,
+      )}
       {...props}
+      data-slot="collapsible-content"
     >
       <div className={cn(className)}>{children}</div>
     </CollapsiblePrimitive.CollapsibleContent>

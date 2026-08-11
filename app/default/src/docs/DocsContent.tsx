@@ -2,6 +2,12 @@
 import { useEffect, useId, useState, type CSSProperties, type ReactNode } from "react";
 import { CodeBlock } from "@/components/ui/code-block";
 import { Code } from "@/components/ui/code";
+import {
+  DescriptionDetails,
+  DescriptionItem,
+  DescriptionList,
+  DescriptionTerm,
+} from "@/components/ui/description-list";
 import { Eyebrow } from "@/components/ui/eyebrow";
 import {
   PageHeader,
@@ -101,14 +107,20 @@ export function GettingStartedDocsPage() {
         </div>
         <Subheading id="install" title="Install" />
         <p>
-          Install the <Code>gestalt</Code> CLI, then confirm it’s on your{" "}
-          <Code>PATH</Code>.
+          Install the <Code>gestalt</Code> CLI using one of the methods below.
         </p>
         <MethodCodeSwitcher
           label="Install methods"
           items={[...GESTALT_INSTALL_METHODS]}
         />
+        <p>
+          Confirm the CLI is on your <Code>PATH</Code> by running:
+        </p>
         <CodeBlock chrome="inset" language="cli" code="gestalt --version" />
+        <p>
+          You should see a version number. If you get “command not found,” open
+          a new terminal and try again.
+        </p>
         <p>
           Prefer a manual download? Get archives on the{" "}
           <DocsLink href="https://github.com/valon-technologies/gestalt/releases">
@@ -197,6 +209,9 @@ export function GettingStartedDocsPage() {
             },
           ]}
         />
+        <p>
+          Confirm authentication by listing apps you can reach:
+        </p>
         <CodeBlock chrome="inset" language="cli" code="gestalt apps list" />
 
         <Subheading id="authorization" title="Grant App Access" />
@@ -1019,19 +1034,17 @@ function Subheading({ id, title }: { id?: string; title: string }) {
 
 function InfoTable({ rows }: { rows: [string, string][] }) {
   return (
-    <div className="not-typeset overflow-hidden rounded-xl border border-border">
-      <table className="w-full border-collapse bg-card text-left text-sm text-card-foreground">
-        <tbody>
-          {rows.map(([label, value]) => (
-            <tr key={label} className="border-t border-border first:border-t-0">
-              <th className="w-56 bg-muted px-4 py-3 align-top font-medium text-foreground">
-                {label}
-              </th>
-              <td className="px-4 py-3 text-muted-foreground">{value}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <DescriptionList
+      termWidth="14rem"
+      className="not-typeset mt-[length:var(--typeset-flow,1.5em)]"
+      data-testid="docs-info-table"
+    >
+      {rows.map(([label, value]) => (
+        <DescriptionItem key={label}>
+          <DescriptionTerm>{label}</DescriptionTerm>
+          <DescriptionDetails>{value}</DescriptionDetails>
+        </DescriptionItem>
+      ))}
+    </DescriptionList>
   );
 }
