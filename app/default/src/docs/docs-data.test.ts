@@ -8,6 +8,7 @@ import {
   DOCS_SETTINGS_TOKENS_HREF,
   docsNavItems,
   getActiveDocsNavItem,
+  getDocsJourneyEdges,
 } from "./docs-data";
 
 describe("docs IA invariants", () => {
@@ -60,6 +61,27 @@ describe("docs IA invariants", () => {
       });
     }
     expect(docsNavItems.at(-1)?.next).toBeUndefined();
+  });
+
+  it("derives journey Previous as the inverse of next (not prerequisites)", () => {
+    for (let i = 1; i < docsNavItems.length; i++) {
+      const item = docsNavItems[i]!;
+      const predecessor = docsNavItems[i - 1]!;
+      expect(getDocsJourneyEdges(item).previous).toEqual({
+        href: predecessor.href,
+        label: predecessor.label,
+      });
+    }
+    expect(getDocsJourneyEdges(docsNavItems[0]!).previous).toBeNull();
+    // Soft prerequisites may still point at Getting Started while Previous
+    // follows the linear chain (Tokens ← Invoke, not ← Getting Started).
+    const tokens = docsNavItems.find((item) => item.id === "tokens")!;
+    expect(tokens.prerequisites?.[0]?.href).toBe(
+      docsNavItems.find((item) => item.id === "getting-started")!.href,
+    );
+    expect(getDocsJourneyEdges(tokens).previous?.href).toBe(
+      docsNavItems.find((item) => item.id === "invoke")!.href,
+    );
   });
 
   it("resolves /docs and /docs/getting-started to Getting Started", () => {

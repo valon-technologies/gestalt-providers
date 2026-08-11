@@ -5,15 +5,10 @@ import {
   StepPagerPrevious,
   StepPagerStartSpacer,
 } from "@/components/ui/step-pager";
-import type { DocsNavItem } from "./docs-data";
+import { getDocsJourneyEdges, type DocsNavItem } from "./docs-data";
 
 export function DocsJourneyFooter({ item }: { item: DocsNavItem }) {
-  // One previous card: nearest prerequisite (last listed) matches Build's single prev.
-  const previous =
-    item.prerequisites != null && item.prerequisites.length > 0
-      ? item.prerequisites[item.prerequisites.length - 1]!
-      : null;
-  const next = item.next ?? null;
+  const { previous, next } = getDocsJourneyEdges(item);
   if (!previous && !next) return null;
 
   return (

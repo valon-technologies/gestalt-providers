@@ -49,6 +49,10 @@ export interface DocsNavItem {
   subsections: DocsSubsection[];
   /** Primary next step in the same journey (rendered as page footer). */
   next?: DocsNavLink;
+  /**
+   * Soft prerequisites for prose ("start from X") — not the StepPager Previous
+   * edge. Journey Previous is the inverse of `next` via `getDocsJourneyEdges`.
+   */
   prerequisites?: DocsNavLink[];
 }
 
@@ -190,4 +194,24 @@ export function docsNavItemsByGroup(
   group: DocsNavGroupId,
 ): DocsNavItem[] {
   return docsNavItems.filter((item) => item.group === group);
+}
+
+/**
+ * Linear journey edges for StepPager. Previous is the page whose `next` points
+ * here (inverse of the forward chain) — not `prerequisites[last]`, which can
+ * skip sidebar predecessors (e.g. Tokens → Getting Started).
+ */
+export function getDocsJourneyEdges(item: DocsNavItem): {
+  previous: DocsNavLink | null;
+  next: DocsNavLink | null;
+} {
+  const previousItem = docsNavItems.find(
+    (candidate) => candidate.next?.href === item.href,
+  );
+  return {
+    previous: previousItem
+      ? { href: previousItem.href, label: previousItem.label }
+      : null,
+    next: item.next ?? null,
+  };
 }

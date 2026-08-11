@@ -86,13 +86,22 @@ export default function DocsShell({
   // Client navigations land under sticky chrome (worktree banner + top bar).
   // Root publishes `--app-sticky-chrome-height` in its layout effect first;
   // `scroll-mt` on the hash target then clears that measured stack.
+  // Hash-backed option switchers intentionally omit matching DOM ids — scroll
+  // to the switcher chrome so deep links like `#mcp-codex` still bring the
+  // control into view after `useHashTab` selects the option.
   useLayoutEffect(() => {
     const id = locationHash.replace(/^#/, "");
     if (!id) return;
-    const el = document.getElementById(id);
-    if (!el) return;
-    activate(id);
-    el.scrollIntoView({ block: "start" });
+    const heading = document.getElementById(id);
+    if (heading) {
+      activate(id);
+      heading.scrollIntoView({ block: "start" });
+      return;
+    }
+    const switcher = document.querySelector<HTMLElement>(
+      "[data-docs-option-switcher]",
+    );
+    switcher?.scrollIntoView({ block: "start" });
   }, [activate, locationHash, pathname, sectionsKey]);
 
   const onTocSelect = useCallback(

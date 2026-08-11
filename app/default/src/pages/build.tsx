@@ -22,6 +22,13 @@ import {
   radioLabelWrappedDisabledClassName,
 } from "@/lib/choice-card-chrome";
 import { Eyebrow } from "@/components/ui/eyebrow";
+import {
+  Alert,
+  AlertCollapsibleContent,
+  AlertDescription,
+  AlertTitle,
+  AlertTrigger,
+} from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
 import {
   StepPager,
@@ -44,11 +51,9 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { CodeBlock } from "@/components/ui/code-block";
 import { CopyableCode } from "@/components/ui/copyable-code";
-import { cardVariants } from "@/components/ui/card";
 import {
   Collapsible,
   CollapsibleContent,
-  CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import {
   Accordion,
@@ -1629,28 +1634,28 @@ function InvokeStepActions({
           .
         </p>
 
-        {/* Registry Card Collapsible — compose cardVariants; do not restyle chrome. */}
-        <Collapsible
+        <Alert
+          collapsible
           defaultOpen
-          className={cn(cardVariants({ variant: "outline" }), "w-full")}
+          variant="outline"
+          className="w-full"
           data-testid="build-cli-alert"
         >
-          <CollapsibleTrigger className="rounded-t-xl p-4 data-[state=closed]:rounded-b-xl">
-            How to do it with the CLI
-            <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform duration-overshoot ease-out-back" />
-          </CollapsibleTrigger>
-          <CollapsibleContent className="space-y-3 rounded-b-xl border-t border-border px-4 py-3">
-            <p className="text-body-lg font-normal text-muted-foreground text-pretty">
+          <AlertTrigger>
+            <AlertTitle>How to do it with the CLI</AlertTitle>
+          </AlertTrigger>
+          <AlertCollapsibleContent>
+            <AlertDescription>
               If you want to use the CLI instead, do it this way:
-            </p>
+            </AlertDescription>
             <CodeBlock
               variant="outline"
               code={exemplar.invokeRecipe}
               language="cli"
               filename="Terminal"
             />
-          </CollapsibleContent>
-        </Collapsible>
+          </AlertCollapsibleContent>
+        </Alert>
       </div>
 
       <div className="space-y-6" data-testid="build-shipped-app">
