@@ -256,8 +256,40 @@ func TestListGrantsUsesVerifiedCallerSubjectWithoutBearer(t *testing.T) {
 	if len(resp.GrantIDs) != 1 || resp.GrantIDs[0] != issued.grantID {
 		t.Fatalf("ListGrants() = %v, want [%q]", resp.GrantIDs, issued.grantID)
 	}
-	if _, err := p.GetGrant(callCtx, &gestalt.GetGrantRequest{GrantID: otherIssued.grantID}); err == nil {
+	_, otherErr := p.GetGrant(callCtx, &gestalt.GetGrantRequest{GrantID: otherIssued.grantID})
+	if otherErr == nil {
 		t.Fatal("GetGrant(other) error = nil, want not found")
+	}
+	if code, ok := gestalt.StatusCodeOf(otherErr); !ok || code != gestalt.CodeNotFound {
+		t.Fatalf("GetGrant(other) error = %v, want not_found status", otherErr)
+	}
+}
+
+func TestListGrantsVerifiedSubjectWinsOverBearer(t *testing.T) {
+	p := New()
+	attachGrantStore(t, p)
+	ctx := context.Background()
+	owner := "user:owner@example.com"
+	other := "user:other@example.com"
+	ownerIssued, err := p.grants.issue(ctx, owner, "openid", defaultOAuthClientID, grantCategoryAPIToken, time.Hour)
+	if err != nil {
+		t.Fatalf("issue(owner) error = %v", err)
+	}
+	otherIssued, err := p.grants.issue(ctx, other, "openid", defaultOAuthClientID, grantCategoryAPIToken, time.Hour)
+	if err != nil {
+		t.Fatalf("issue(other) error = %v", err)
+	}
+
+	callCtx := gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
+		CallerSubjectID:   owner,
+		CallerBearerToken: otherIssued.accessToken,
+	})
+	resp, err := p.ListGrants(callCtx, &gestalt.ListGrantsRequest{})
+	if err != nil {
+		t.Fatalf("ListGrants() error = %v", err)
+	}
+	if len(resp.GrantIDs) != 1 || resp.GrantIDs[0] != ownerIssued.grantID {
+		t.Fatalf("ListGrants() = %v, want verified subject grant [%q], not bearer subject", resp.GrantIDs, ownerIssued.grantID)
 	}
 }
 

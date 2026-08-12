@@ -544,15 +544,14 @@ func (p *Provider) callerSubject(ctx context.Context) (string, error) {
 	if call.Introspection != nil && call.Introspection.Active && strings.TrimSpace(call.Introspection.Subject) != "" {
 		return strings.TrimSpace(call.Introspection.Subject), nil
 	}
-	// Cookie-authenticated console requests resolve the caller at ingress and
-	// pass CallerSubjectID (or TrustedCallerSubject) without an Authorization
-	// bearer. Grant listing is subject-scoped, so the verified subject is the
-	// canonical identity. CLI/API-token callers still arrive with a bearer.
-	if subject := strings.TrimSpace(call.CallerSubjectID); subject != "" {
-		return subject, nil
+	// Host-verified console sessions pass a subject without a bearer.
+	// CLI/API-token callers still arrive with a bearer.
+	subjectID := strings.TrimSpace(call.CallerSubjectID)
+	if subjectID == "" {
+		subjectID = strings.TrimSpace(gestalt.TrustedCallerSubjectFromContext(ctx))
 	}
-	if subject := strings.TrimSpace(gestalt.TrustedCallerSubjectFromContext(ctx)); subject != "" {
-		return subject, nil
+	if subjectID != "" {
+		return subjectID, nil
 	}
 	token := strings.TrimSpace(call.CallerBearerToken)
 	if token == "" {
