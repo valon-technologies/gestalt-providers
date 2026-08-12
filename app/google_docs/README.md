@@ -66,24 +66,6 @@ Example `get` call:
 await app.invoke("google_docs", "get", { documentId: "document-id" });
 ```
 
-Create a document tab with `batchUpdate`. Google returns the new tab's assigned
-ID in the matching `replies[].addDocumentTab.tabProperties` entry:
-
-```ts
-await app.invoke("google_docs", "batchUpdate", {
-  documentId: "document-id",
-  requests: [
-    {
-      addDocumentTab: {
-        tabProperties: {
-          title: "Project notes",
-        },
-      },
-    },
-  ],
-});
-```
-
 ## Documentation
 - [Provider Development](https://gestaltd.ai/providers)
 - [Manifest Reference](https://gestaltd.ai/reference/plugin-manifests)
