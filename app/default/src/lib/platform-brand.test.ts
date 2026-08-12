@@ -22,11 +22,11 @@ describe("platform-brand", () => {
       normalizeBrand({ name: "Valon Tools", markSrc: "theme/mark.svg" }),
     ).toEqual({
       name: "Valon Tools",
-      markSrc: "theme/mark.svg",
+      markSrc: "/theme/mark.svg",
     });
-    expect(normalizeBrand({ markSrc: "theme/mark.svg" })).toEqual({
+    expect(normalizeBrand({ markSrc: "/theme/mark.svg" })).toEqual({
       name: DEFAULT_PLATFORM_BRAND_NAME,
-      markSrc: "theme/mark.svg",
+      markSrc: "/theme/mark.svg",
     });
   });
 });

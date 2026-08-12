@@ -29,16 +29,18 @@ const links = [
 
 function PlatformBrandMark({ markSrc }: { markSrc: string }) {
   // Mono marks paint via mask so light/dark both read as foreground ink.
+  // JSON.stringify quotes the URL for safe CSS url() interpolation.
+  const markUrl = JSON.stringify(markSrc);
   return (
     <AppLogoMark variant="plain" aria-hidden="true">
       <span
         className="block size-full bg-foreground"
         style={{
-          maskImage: `url(${markSrc})`,
+          maskImage: `url(${markUrl})`,
           maskSize: "contain",
           maskRepeat: "no-repeat",
           maskPosition: "center",
-          WebkitMaskImage: `url(${markSrc})`,
+          WebkitMaskImage: `url(${markUrl})`,
           WebkitMaskSize: "contain",
           WebkitMaskRepeat: "no-repeat",
           WebkitMaskPosition: "center",

@@ -6,16 +6,30 @@
  * Do not hardcode tenant names here — see THEMING.md / theme-boundary.md.
  */
 
+import { appPath } from "@/lib/mount";
+
 export const PLATFORM_BRAND_SCRIPT_ID = "gestalt-platform-brand";
-export const PLATFORM_BRAND_JSON_PATH = "brand.json";
+/** Absolute (app-base) path so nested SPA routes do not fetch `/apps/brand.json`. */
+export const PLATFORM_BRAND_JSON_PATH = appPath("/brand.json");
 export const DEFAULT_PLATFORM_BRAND_NAME = "Gestalt";
 
 export type PlatformBrand = {
   /** Product display name in chrome + document.title suffix. */
   name: string;
-  /** Mount-relative mark URL (e.g. `theme/mark.svg`), when configured. */
+  /**
+   * Site-root absolute mark URL (e.g. `/theme/mark.svg`), when configured.
+   * Relative values from older servers are normalized against the app base.
+   */
   markSrc?: string;
 };
+
+function normalizeMarkSrc(markSrc: string): string | undefined {
+  const trimmed = markSrc.trim();
+  if (!trimmed) return undefined;
+  if (/^(https?:|data:|blob:)/i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith("/")) return trimmed;
+  return appPath(`/${trimmed}`);
+}
 
 type PlatformBrandWindow = Window & {
   __GESTALT_PLATFORM_BRAND__?: PlatformBrand | null;
@@ -47,7 +61,7 @@ export function normalizeBrand(
   if (!value) return null;
   const name = typeof value.name === "string" ? value.name.trim() : "";
   const markSrc =
-    typeof value.markSrc === "string" ? value.markSrc.trim() : "";
+    typeof value.markSrc === "string" ? normalizeMarkSrc(value.markSrc) : undefined;
   if (!name && !markSrc) return null;
   return {
     name: name || DEFAULT_PLATFORM_BRAND_NAME,

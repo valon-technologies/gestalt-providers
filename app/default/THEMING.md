@@ -215,16 +215,18 @@ apps:
 ```
 
 gestaltd serves `GET /brand.json` as `{ "name", "markSrc" }` (empty `{}` when
-unconfigured) and injects the same JSON into `index.html`'s
-`#gestalt-platform-brand` placeholder so the first paint does not flash the
-framework default. The public bundle reads that contract through
-`getPlatformBrand()` / `usePlatformBrand()` and defaults to **Gestalt**.
+unconfigured). `markSrc` is a site-root absolute path under the app mount
+(e.g. `/theme/mark.svg` or `/portal/theme/mark.svg`). gestaltd also injects
+the same JSON into `index.html`'s `#gestalt-platform-brand` placeholder so the
+first paint does not flash the framework default. The public bundle reads that
+contract through `getPlatformBrand()` / `usePlatformBrand()` and defaults to
+**Gestalt**.
 
 Local-dev mirrors:
 
 ```bash
 GESTALT_BRAND_NAME="Valon Tools"
-GESTALT_BRAND_MARK="theme/mark.svg"
+GESTALT_BRAND_MARK="/theme/mark.svg"
 # or GESTALT_BRAND_FILE=/path/to/brand.json
 ```
 
