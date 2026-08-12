@@ -405,13 +405,6 @@ const countWorkflowConcurrency = 4
 var countWorkflowGate = make(chan struct{}, countWorkflowConcurrency)
 
 func (b *temporalBackend) countWorkflows(ctx context.Context, query string) (int64, error) {
-	select {
-	case countWorkflowGate <- struct{}{}:
-		defer func() { <-countWorkflowGate }()
-	case <-ctx.Done():
-		return 0, ctx.Err()
-	}
-
 	var last error
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
@@ -423,11 +416,9 @@ func (b *temporalBackend) countWorkflows(ctx context.Context, query string) (int
 			case <-timer.C:
 			}
 		}
-		resp, err := b.client.CountWorkflow(ctx, &workflowservicepb.CountWorkflowExecutionsRequest{
-			Query: query,
-		})
+		total, err := b.countWorkflowsOnce(ctx, query)
 		if err == nil {
-			return resp.GetCount(), nil
+			return total, nil
 		}
 		last = err
 		if !isRetryableTemporalCountError(err) {
@@ -437,14 +428,27 @@ func (b *temporalBackend) countWorkflows(ctx context.Context, query string) (int
 	return 0, mapTemporalWorkflowCallError("count temporal workflows", last)
 }
 
+// countWorkflowsOnce holds the process-wide visibility slot only for the RPC,
+// not for retry backoff, so sleeping retries do not starve other groups.
+func (b *temporalBackend) countWorkflowsOnce(ctx context.Context, query string) (int64, error) {
+	select {
+	case countWorkflowGate <- struct{}{}:
+		defer func() { <-countWorkflowGate }()
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	}
+	resp, err := b.client.CountWorkflow(ctx, &workflowservicepb.CountWorkflowExecutionsRequest{
+		Query: query,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return resp.GetCount(), nil
+}
+
 func isRetryableTemporalCountError(err error) bool {
 	if err == nil {
 		return false
-	}
-	var exhausted *serviceerror.ResourceExhausted
-	var unavailable *serviceerror.Unavailable
-	if errors.As(err, &exhausted) || errors.As(err, &unavailable) {
-		return true
 	}
 	code := status.Code(err)
 	return code == codes.ResourceExhausted || code == codes.Unavailable
