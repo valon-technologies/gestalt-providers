@@ -541,6 +541,9 @@ func (p *Provider) grantStore() (*grantStore, error) {
 
 func (p *Provider) callerSubject(ctx context.Context) (string, error) {
 	call := gestalt.IdentityCallContextFromContext(ctx)
+	if subject := strings.TrimSpace(call.CallerSubjectID); subject != "" {
+		return subject, nil
+	}
 	if call.Introspection != nil && call.Introspection.Active && strings.TrimSpace(call.Introspection.Subject) != "" {
 		return strings.TrimSpace(call.Introspection.Subject), nil
 	}

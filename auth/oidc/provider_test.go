@@ -200,7 +200,7 @@ func TestListGrantsScopesToCaller(t *testing.T) {
 	if err != nil {
 		t.Fatalf("issue() error = %v", err)
 	}
-	grantID, token := issued.grantID, issued.accessToken
+	grantID := issued.grantID
 	otherIssued, err := p.grants.issue(ctx, "user:other@example.com", "openid", defaultOAuthClientID, grantCategoryAPIToken, time.Hour)
 	if err != nil {
 		t.Fatalf("issue(other) error = %v", err)
@@ -208,7 +208,7 @@ func TestListGrantsScopesToCaller(t *testing.T) {
 	otherGrantID := otherIssued.grantID
 
 	callCtx := gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
-		CallerBearerToken: token,
+		CallerSubjectID: "user:owner@example.com",
 	})
 	resp, err := p.ListGrants(callCtx, &gestalt.ListGrantsRequest{})
 	if err != nil {
@@ -1163,7 +1163,7 @@ func TestGrantManagementExcludesSessionGrants(t *testing.T) {
 	}
 
 	callCtx := gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
-		CallerBearerToken: apiIssued.accessToken,
+		CallerSubjectID: "user:owner@example.com",
 	})
 	listResp, err := p.ListGrants(callCtx, &gestalt.ListGrantsRequest{})
 	if err != nil {
