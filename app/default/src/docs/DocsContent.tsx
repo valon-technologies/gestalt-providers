@@ -1,23 +1,33 @@
 
-import { Link } from "@tanstack/react-router";
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type CSSProperties, type ReactNode } from "react";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { CodeBlock } from "@/components/ui/code-block";
+import { Code } from "@/components/ui/code";
+import {
+  DescriptionDetails,
+  DescriptionItem,
+  DescriptionList,
+  DescriptionTerm,
+} from "@/components/ui/description-list";
 import { Eyebrow } from "@/components/ui/eyebrow";
 import {
   PageHeader,
   PageHeaderContent,
-  PageHeaderDescription,
   PageHeaderTitle,
 } from "@/components/ui/page-header";
-import {
-  SectionHeader,
-  SectionHeaderContent,
-  SectionHeaderTitle,
-} from "@/components/ui/section-header";
 import {
   SegmentedControl,
   type SegmentedControlOption,
 } from "@/components/ui/segmented-control";
+import {
+  DOCS_AUTHORIZATION_PATH,
+  DOCS_SETTINGS_TOKENS_HREF,
+  DOCS_TOKENS_PATH,
+  DOCS_WORKFLOWS_PATH,
+  docsSubsectionLabel,
+} from "./docs-data";
+import { DOCS_PAGE_TOP_GAP } from "./docs-chrome";
+import { DocsLink } from "./DocsLink";
 
 const FALLBACK_ORIGIN = "https://your-gestalt-host";
 
@@ -43,9 +53,27 @@ const defaultMcpTabId: McpTabId = "mcp-claude-code";
 const agentEnvironmentTabIds = agentEnvironmentTabs.map((tab) => tab.id);
 const defaultAgentEnvironmentTabId: AgentEnvironmentTabId = "agent-claude-code";
 
-function agentStartupScript() {
-  return "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh";
-}
+const GESTALT_INSTALL_SCRIPT =
+  "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh";
+
+const GESTALT_HOMEBREW_INSTALL = `brew tap valon-technologies/gestalt
+brew install valon-technologies/gestalt/gestalt`;
+
+/** Distribution methods for installing the gestalt CLI (not the CLI itself). */
+const GESTALT_INSTALL_METHODS = [
+  {
+    id: "install-installer",
+    label: "Installer",
+    code: GESTALT_INSTALL_SCRIPT,
+    description: "Recommended. Runs the Gestalt install script.",
+  },
+  {
+    id: "install-homebrew",
+    label: "Homebrew",
+    code: GESTALT_HOMEBREW_INSTALL,
+    description: "Use if you already manage tools with Homebrew.",
+  },
+] as const;
 
 function cloudEnvironmentVariables(origin: string) {
   return `GESTALT_URL=${origin}
@@ -57,22 +85,17 @@ export function GettingStartedDocsPage() {
 
   return (
     <>
-      <DocsPageHeader
-        title="Getting Started"
-        description={
-          <>
-            This guide covers the user-facing workflows for the Gestalt
-            workspace you are currently using: install{" "}
-            <InlineCode>gestalt</InlineCode>,
-            point it at this workspace, sign in when required, connect
-            apps, grant authorization, invoke operations, mint API tokens,
-            and attach an MCP-aware client. No command-line experience is
-            required. Follow the pages below and copy the commands as-is.
-          </>
-        }
-      />
+      <DocsPageHeader title="Getting Started" />
       <DocsPageBody>
-        <div className="flex flex-col gap-2.5">
+        <p>
+          Walk through Gestalt setup with copy-paste{" "}
+          <Code>gestalt</Code> CLI commands. You do not need prior CLI
+          experience—run each command as shown. This page covers install, point
+          the CLI, authenticate, grant app access, and configure cloud
+          environments. Journey links then take you to connect apps, invoke
+          operations, create API tokens, and use MCP.
+        </p>
+        <div className="not-typeset flex flex-col gap-2.5">
           <Eyebrow className="block">Base URL</Eyebrow>
           <CodeBlock
             chrome="inset"
@@ -81,41 +104,32 @@ export function GettingStartedDocsPage() {
             copyLabel="Copy base URL"
           />
         </div>
-        <Subheading id="install" title="Install" />
-        <p className="doc-copy">
-          End users only need the{" "}
-          <InlineCode>gestalt</InlineCode> CLI.
+        <Subheading id="install" />
+        <p>
+          Install the <Code>gestalt</Code> CLI using one of the methods below.
         </p>
-        <p className="doc-copy">
-          The recommended way to install is the Gestalt installer script.
-        </p>
-        <CodeBlock chrome="inset" language="cli" code="curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh" />
-        <p className="doc-copy">
-          If you prefer a package manager, use Homebrew. Manual archives are
-          also available on the{" "}
-          <a
-            href="https://github.com/valon-technologies/gestalt/releases"
-            target="_blank"
-            rel="noreferrer"
-            className="doc-link"
-          >
-            GitHub releases page
-          </a>
-          .
-        </p>
-        <CodeBlock chrome="inset"
-          language="cli"
-          code={`brew tap valon-technologies/gestalt
-brew install valon-technologies/gestalt/gestalt`}
+        <MethodCodeSwitcher
+          label="Install methods"
+          items={[...GESTALT_INSTALL_METHODS]}
         />
-        <p className="doc-copy">
-          Then verify the CLI is on your{" "}
-          <InlineCode>PATH</InlineCode>.
+        <p>
+          Confirm the CLI is on your <Code>PATH</Code> by running:
         </p>
         <CodeBlock chrome="inset" language="cli" code="gestalt --version" />
+        <p>
+          You should see a version number. If you get “command not found,” open
+          a new terminal and try again.
+        </p>
+        <p>
+          Prefer a manual download? Get archives on the{" "}
+          <DocsLink href="https://github.com/valon-technologies/gestalt/releases">
+            GitHub releases page
+          </DocsLink>
+          .
+        </p>
 
-        <Subheading id="point-cli" title="Point the CLI at this workspace" />
-        <p className="doc-copy">
+        <Subheading id="point-cli" />
+        <p>
           The CLI needs the base URL for your Gestalt workspace. Use either the
           setup wizard or a direct config command.
         </p>
@@ -145,35 +159,32 @@ brew install valon-technologies/gestalt/gestalt`}
             },
           ]}
         />
-        <p className="doc-copy">
+        <p>
           The optional{" "}
-          <InlineCode>.gestalt/config.json</InlineCode>{" "}
+          <Code>.gestalt/config.json</Code>{" "}
           file stores only the base URL. The CLI searches the current directory
           and then parent directories until it finds the nearest project
           config.
         </p>
-        <div className="doc-copy space-y-2">
-          <p>Resolution order:</p>
-          <ol className="list-decimal space-y-1 pl-6">
-            <li>
-              <InlineCode>--url</InlineCode>
-            </li>
-            <li>
-              <InlineCode>GESTALT_URL</InlineCode>
-            </li>
-            <li>
-              project-local{" "}
-              <InlineCode>.gestalt/config.json</InlineCode>
-            </li>
-            <li>
-              user-local CLI config file, for example{" "}
-              <InlineCode>~/.config/gestalt/config.json</InlineCode>
-            </li>
-          </ol>
-        </div>
+        <p>Resolution order:</p>
+        <ol>
+          <li>
+            <Code>--url</Code>
+          </li>
+          <li>
+            <Code>GESTALT_URL</Code>
+          </li>
+          <li>
+            project-local <Code>.gestalt/config.json</Code>
+          </li>
+          <li>
+            user-local CLI config file, for example{" "}
+            <Code>~/.config/gestalt/config.json</Code>
+          </li>
+        </ol>
 
-        <Subheading id="authenticate" title="Authenticate" />
-        <p className="doc-copy">
+        <Subheading id="authenticate" />
+        <p>
           Use browser login for interactive sessions, or set a token directly
           for scripts and other non-interactive clients. If authentication is
           disabled, you can skip both flows and call the API directly.
@@ -197,62 +208,41 @@ brew install valon-technologies/gestalt/gestalt`}
             },
           ]}
         />
-        <p className="doc-copy">Then verify access:</p>
+        <p>
+          Confirm authentication by listing apps you can reach:
+        </p>
         <CodeBlock chrome="inset" language="cli" code="gestalt apps list" />
 
-        <Subheading id="authorization" title="Grant authorization" />
-        <p className="doc-copy">
-          Use authorization grants when another user or service account needs
-          access to an app. App admins can manage members for their own app;
-          built-in Gestalt admins can manage grants across apps.
+        <Subheading id="authorization" />
+        <p>
+          App access for other users or service accounts is managed by app
+          admins (and Gestalt admins). If you need access, ask your admin. If
+          you grant access, see{" "}
+          <DocsLink to={DOCS_AUTHORIZATION_PATH}>Grant App Access</DocsLink>{" "}
+          for member, service-account, and admin commands.
         </p>
         <CodeBlock chrome="inset"
           language="cli"
           code={`gestalt authorization apps members set <app> \\
   --email operator@example.com \\
-  --role viewer
-
-gestalt authorization subjects grants set service_account:release-bot <app> \\
   --role viewer`}
         />
-        <p className="doc-copy">
-          For service account setup, built-in admin grants, and split
-          management listener deployments, open{" "}
-          <Link to="/docs/authorization" className="doc-link">
-            Grant Authorization
-          </Link>
-          .
-        </p>
 
-        <Subheading
-          id="agent-environments"
-          title="Configure cloud environments"
-        />
-        <p className="doc-copy">
+        <Subheading id="agent-environments" />
+        <p>
           Configure the hosted coding environment before starting cloud tasks.
           Set the workspace URL and API token in that environment, then install
           the CLI in the platform setup or startup script.
         </p>
         <AgentEnvironmentTabs origin={origin} />
 
-        <Subheading id="workflows" title="Inspect workflows" />
-        <p className="doc-copy">
-          After your workspace URL and auth are set, use{" "}
-          <InlineCode>gestalt workflows</InlineCode>{" "}
-          to inspect recent workflow runs from the CLI.
-        </p>
-        <CodeBlock chrome="inset"
-          language="cli"
-          code={`gestalt workflows --help
-gestalt workflows runs list`}
-        />
-        <p className="doc-copy">
-          For a deeper walkthrough, open{" "}
-          <Link to="/docs/workflows" className="doc-link">
-            Workflows
-          </Link>
-          . If you prefer the browser, open an app&apos;s admin page and use the{" "}
-          <strong>Workflows</strong> tab to inspect runs for that app.
+        <Subheading id="workflows" />
+        <p>
+          After your workspace URL and auth are set, inspect recent runs with{" "}
+          <Code>gestalt workflows runs list</Code>. For CLI and
+          browser paths, see{" "}
+          <DocsLink to={DOCS_WORKFLOWS_PATH}>Inspect Workflows</DocsLink>
+          .
         </p>
       </DocsPageBody>
     </>
@@ -262,12 +252,14 @@ gestalt workflows runs list`}
 export function ConnectDocsPage() {
   return (
     <>
-      <DocsPageHeader
-        title="Connect Apps"
-        description="Inspect available apps first, then connect the ones you need."
-      />
+      <DocsPageHeader title="Connect Apps" />
       <DocsPageBody>
-        <p className="doc-copy">
+        <p>
+          Run <Code>gestalt apps list</Code>, then{" "}
+          <Code>gestalt apps connect &lt;app&gt;</Code>—or use the Apps page in
+          the browser.
+        </p>
+        <p>
           Apps available in this workspace appear in both the CLI and the
           UI. Use either surface to start the underlying OAuth or manual
           credential flow.
@@ -278,11 +270,9 @@ export function ConnectDocsPage() {
 gestalt apps connect <app>
 gestalt apps connect <app> --connection <name> --instance <instance>`}
         />
-        <p className="doc-copy">
+        <p>
           If you prefer the browser flow, the same work is available on{" "}
-          <Link to="/apps" className="doc-link">
-            Apps
-          </Link>
+          <DocsLink to="/apps">Apps</DocsLink>
           .
         </p>
       </DocsPageBody>
@@ -295,11 +285,12 @@ export function InvokeDocsPage() {
 
   return (
     <>
-      <DocsPageHeader
-        title="Invoke Operations"
-        description="Use the catalog built into Gestalt to discover an app's operations before making requests."
-      />
+      <DocsPageHeader title="Invoke Operations" />
       <DocsPageBody>
+        <p>
+          Use the catalog built into Gestalt to discover an app&apos;s
+          operations before making requests.
+        </p>
         <InvokeMethodTabs origin={origin} />
       </DocsPageBody>
     </>
@@ -309,22 +300,20 @@ export function InvokeDocsPage() {
 export function TokensDocsPage() {
   return (
     <>
-      <DocsPageHeader
-        title="Manage API Tokens"
-        description="User tokens work for both the HTTP API and the MCP endpoint."
-      />
+      <DocsPageHeader title="Manage API Tokens" />
       <DocsPageBody>
+        <p>
+          User tokens work for both the HTTP API and the MCP endpoint.
+        </p>
         <CodeBlock chrome="inset"
           language="cli"
           code={`gestalt tokens create --name automation
 gestalt tokens list
 gestalt tokens revoke <token-id>`}
         />
-        <p className="doc-copy">
-          Tokens can also be created from{" "}
-          <Link to="/settings/tokens/new" className="doc-link">
-            Settings
-          </Link>
+        <p>
+          Tokens can also be created in the UI under{" "}
+          <DocsLink to={DOCS_SETTINGS_TOKENS_HREF}>Settings → API tokens</DocsLink>
           . The raw token value is shown once, so store it immediately in your
           secret manager or shell environment.
         </p>
@@ -336,28 +325,30 @@ gestalt tokens revoke <token-id>`}
 export function AuthorizationDocsPage() {
   return (
     <>
-      <DocsPageHeader
-        title="Grant Authorization"
-        description="Grant users and service accounts access to app operations from the Gestalt CLI."
-      />
+      <DocsPageHeader title="Grant App Access" />
       <DocsPageBody>
-        <p className="doc-copy">
+        <p>
+          For app admins and Gestalt admins: grant users and service accounts
+          access to app operations from the Gestalt CLI. End users cannot
+          self-serve grants—ask your workspace admin.
+        </p>
+        <p>
           Most teams grant access at the app level. App admins can manage
           members for apps they administer. Built-in Gestalt admins can
           manage every app and the global admin set. If your deployment
           splits public and management listeners, pass{" "}
-          <InlineCode>--url &lt;management-url&gt;</InlineCode>{" "}
+          <Code>--url &lt;management-url&gt;</Code>{" "}
           to admin authorization commands.
         </p>
 
-        <Subheading id="authz-plugin-access" title="Grant app access" />
-        <p className="doc-copy">
+        <Subheading id="authz-plugin-access" />
+        <p>
           Grant a user or service account an app role with{" "}
-          <InlineCode>viewer</InlineCode>
+          <Code>viewer</Code>
           ,{" "}
-          <InlineCode>editor</InlineCode>
+          <Code>editor</Code>
           , or{" "}
-          <InlineCode>admin</InlineCode>.
+          <Code>admin</Code>.
         </p>
         <CodeBlock chrome="inset"
           language="cli"
@@ -375,11 +366,13 @@ gestalt authorization apps members set <app> \\
 gestalt authorization apps members remove <app> user:user_123`}
         />
 
-        <Subheading id="authz-service-accounts" title="Grant service account access" />
-        <p className="doc-copy">
-          Service accounts are managed subjects. Create the subject, grant it a
-          app role, connect any app credentials it needs, then mint a
-          scoped token for automation.
+        <Subheading id="authz-service-accounts" />
+        <p>
+          Service accounts are managed identities. Create the account, grant it
+          an app role, connect the app credentials it needs (same credential
+          flow as{" "}
+          <Code>gestalt apps connect</Code>, scoped to that
+          account), then mint a scoped token for automation.
         </p>
         <CodeBlock chrome="inset"
           language="cli"
@@ -396,8 +389,8 @@ gestalt authorization subjects tokens create service_account:release-bot \\
   --permission <app>:<operation>`}
         />
 
-        <Subheading id="authz-admins" title="Grant built-in admin access" />
-        <p className="doc-copy">
+        <Subheading id="authz-admins" />
+        <p>
           Built-in admins can administer the global authorization surface. Use
           this only for operators who should manage grants beyond one app.
         </p>
@@ -412,10 +405,12 @@ gestalt authorization admins members set \\
 gestalt authorization admins members remove user:user_123`}
         />
 
-        <Subheading id="authz-inspect" title="Inspect grants" />
-        <p className="doc-copy">
+        <Subheading id="authz-inspect" />
+        <p>
           Use provider and relationship views to confirm which authorization
-          provider is active and which dynamic app grants are stored.
+          provider is active and which app grants are stored.{" "}
+          <Code>plugin_dynamic</Code> is the internal resource type
+          for app-scoped grants.
         </p>
         <CodeBlock chrome="inset"
           language="cli"
@@ -433,27 +428,28 @@ gestalt authorization relationships list \\
 export function WorkflowsDocsPage() {
   return (
     <>
-      <DocsPageHeader
-        title="Inspect Workflows"
-        description="Use the workflow CLI to inspect durable workflow run history without leaving the terminal."
-      />
+      <DocsPageHeader title="Inspect Workflows" />
       <DocsPageBody>
-        <p className="doc-copy">
+        <p>
+          Use the workflow CLI to inspect durable workflow run history without
+          leaving the terminal.
+        </p>
+        <p>
           Start by checking the commands exposed by the CLI installed on your machine.
           Different builds may expose different workflow subcommands, so{" "}
-          <InlineCode>--help</InlineCode> is the
+          <Code>--help</Code> is the
           fastest source of truth.
         </p>
 
-        <Subheading id="wf-help" title="Start with help" />
+        <Subheading id="wf-help" />
         <CodeBlock chrome="inset" language="cli" code="gestalt workflows --help" />
-        <p className="doc-copy">
+        <p>
           In this workspace, the default browser UI focuses on recent workflow
           execution history and durable per-step state.
         </p>
 
-        <Subheading id="wf-runs" title="Inspect runs" />
-        <p className="doc-copy">
+        <Subheading id="wf-runs" />
+        <p>
           Run history tells you whether work executed, which definition and
           generation were used, which step is current, and which inputs and
           outputs were captured.
@@ -464,13 +460,13 @@ export function WorkflowsDocsPage() {
 gestalt workflows runs list --app <app>
 gestalt workflows runs get <run-id>`}
         />
-        <p className="doc-copy">
+        <p>
           In the browser, open an app&apos;s admin page at{" "}
-          <InlineCode>/apps/&lt;app&gt;/admin/workflows</InlineCode>{" "}
+          <Code>/apps/&lt;app&gt;/admin/workflows</Code>{" "}
           for run history,{" "}
-          <InlineCode>/apps/&lt;app&gt;/admin/workflows/runs/&lt;run-id&gt;</InlineCode>{" "}
+          <Code>/apps/&lt;app&gt;/admin/workflows/runs/&lt;run-id&gt;</Code>{" "}
           for a single run, and{" "}
-          <InlineCode>/apps/&lt;app&gt;/admin/workflows/definitions</InlineCode>{" "}
+          <Code>/apps/&lt;app&gt;/admin/workflows/definitions</Code>{" "}
           for definition inventory.
         </p>
       </DocsPageBody>
@@ -483,20 +479,26 @@ export function McpDocsPage() {
 
   return (
     <>
-      <DocsPageHeader
-        title="Use With MCP"
-        description="Gestalt exposes a single MCP endpoint that gives AI tools access to all your connected apps. If authentication is enabled, create an API token on the API Tokens page first."
-      />
+      <DocsPageHeader title="Use With MCP" />
       <DocsPageBody>
-        <p className="doc-copy">
+        <p>
+          Gestalt exposes a single MCP endpoint that gives AI tools access to
+          all your connected apps. If authentication is enabled, create an API
+          token first—in the UI at{" "}
+          <DocsLink to={DOCS_SETTINGS_TOKENS_HREF}>Settings → API tokens</DocsLink>
+          , or with <Code>gestalt tokens create</Code> (see{" "}
+          <DocsLink to={DOCS_TOKENS_PATH}>Manage API Tokens</DocsLink>
+          ).
+        </p>
+        <p>
           On workspaces with authentication disabled, omit the bearer-token flag
           and header blocks shown below.
         </p>
-        <p className="doc-copy">
+        <p>
           These examples assume the agent environment runs this startup script
           before the MCP client starts.
         </p>
-        <CodeBlock chrome="inset" language="cli" code={agentStartupScript()} />
+        <CodeBlock chrome="inset" language="cli" code={GESTALT_INSTALL_SCRIPT} />
         <InfoTable
           rows={[
             ["Endpoint", `${origin}/mcp`],
@@ -519,42 +521,44 @@ export function McpDocsPage() {
 export function TroubleshootingDocsPage() {
   return (
     <>
-      <DocsPageHeader
-        title="Troubleshooting"
-        description="Most user-facing problems come down to the wrong URL, expired auth, or ambiguous connection selection."
-      />
+      <DocsPageHeader title="Troubleshooting" />
       <DocsPageBody>
-        <Subheading
-          id="ts-not-authenticated"
-          title="The CLI says you are not authenticated"
-        />
-        <p className="doc-copy">
+        <p>
+          Most user-facing problems come down to the wrong URL, expired auth,
+          ambiguous connection selection, or a grant that has not taken effect
+          yet.
+        </p>
+        <Subheading id="ts-not-authenticated" />
+        <p>
           Run{" "}
-          <InlineCode>gestalt auth login</InlineCode>
+          <Code>gestalt auth login</Code>
           , or set{" "}
-          <InlineCode>GESTALT_API_KEY</InlineCode>{" "}
+          <Code>GESTALT_API_KEY</Code>{" "}
           if you are using a token directly.
         </p>
 
-        <Subheading
-          id="ts-multiple-connections"
-          title="An app has multiple connections"
-        />
-        <p className="doc-copy">
+        <Subheading id="ts-multiple-connections" />
+        <p>
           Pass{" "}
-          <InlineCode>--connection</InlineCode>{" "}
+          <Code>--connection</Code>{" "}
           or{" "}
-          <InlineCode>--instance</InlineCode> so
+          <Code>--instance</Code> so
           Gestalt can resolve the correct credentials.
         </p>
 
-        <Subheading
-          id="ts-empty-tools"
-          title="The MCP endpoint is mounted, but the tool list is empty"
-        />
-        <p className="doc-copy">
+        <Subheading id="ts-empty-tools" />
+        <p>
           That usually means the app is available in the workspace config
           but has not been connected for your current user yet.
+        </p>
+
+        <Subheading id="ts-forbidden" />
+        <p>
+          Confirm an app admin granted you the expected role (
+          <DocsLink to={DOCS_AUTHORIZATION_PATH}>Grant App Access</DocsLink>
+          ), that the operation allows that role, and that you are
+          authenticated as the same user or service account the grant targets.
+          Then retry the invoke or MCP call.
         </p>
       </DocsPageBody>
     </>
@@ -564,58 +568,53 @@ export function TroubleshootingDocsPage() {
 function DocsPageHeader({
   eyebrow,
   title,
-  description,
 }: {
   eyebrow?: string;
   title: string;
-  description: ReactNode;
 }) {
   const showEyebrow = eyebrow != null && eyebrow !== title;
 
   return (
-    <PageHeader className="scroll-mt-[var(--page-layout-anchor-offset)] border-b border-alpha pb-10">
+    <PageHeader className="scroll-mt-[var(--page-layout-anchor-offset)]">
       <PageHeaderContent size="lg">
         {showEyebrow ? <Eyebrow>{eyebrow}</Eyebrow> : null}
         <PageHeaderTitle>{title}</PageHeaderTitle>
-        <PageHeaderDescription className="max-w-3xl text-foreground/80">
-          {description}
-        </PageHeaderDescription>
       </PageHeaderContent>
     </PageHeader>
   );
 }
 
 function DocsPageBody({ children }: { children: ReactNode }) {
+  // Reading contract: prose uses typeset-reading (lists, markers, code).
+  // Chrome islands use `.not-typeset` or `[data-typeset-chrome]` (flow gap only).
+  // Set h2 start on this node — `.typeset` owns the token and would ignore an
+  // inherited value from PageLayout.
   return (
-    <div className="mt-8 space-y-5 animate-fade-in-up [animation-delay:60ms]">
+    <div
+      className="typeset typeset-docs mt-[length:var(--typeset-flow,1.5em)]"
+      style={
+        {
+          "--typeset-h2-margin-start": DOCS_PAGE_TOP_GAP,
+        } as CSSProperties
+      }
+    >
       {children}
     </div>
   );
 }
 
 function useHashTab(ids: readonly string[], fallbackId: string) {
-  const [activeId, setActiveId] = useState(fallbackId);
-
-  useEffect(() => {
-    function syncFromHash() {
-      const hash = window.location.hash.replace(/^#/, "");
-      if (ids.includes(hash)) {
-        setActiveId(hash);
-      } else if (!hash) {
-        setActiveId(fallbackId);
-      }
-    }
-
-    syncFromHash();
-    window.addEventListener("hashchange", syncFromHash);
-    return () => window.removeEventListener("hashchange", syncFromHash);
-  }, [fallbackId, ids]);
+  const { hash, pathname } = useRouterState({
+    select: (state) => ({
+      hash: state.location.hash.replace(/^#/, ""),
+      pathname: state.location.pathname,
+    }),
+  });
+  const navigate = useNavigate();
+  const activeId = ids.includes(hash) ? hash : fallbackId;
 
   function selectTab(id: string) {
-    setActiveId(id);
-    const url = new URL(window.location.href);
-    url.hash = id;
-    window.history.replaceState(null, "", url);
+    void navigate({ to: pathname, hash: id, replace: true });
   }
 
   return [activeId, selectTab] as const;
@@ -626,14 +625,12 @@ function DocsOptionSwitcher<V extends string>({
   options,
   value,
   onValueChange,
-  density = "default",
   children,
 }: {
   label: string;
   options: ReadonlyArray<SegmentedControlOption<V>>;
   value: V;
   onValueChange: (value: V) => void;
-  density?: "default" | "relaxed";
   children: ReactNode;
 }) {
   // Stable panel id — never the option value. Hash-backed switchers write
@@ -644,14 +641,18 @@ function DocsOptionSwitcher<V extends string>({
     options.find((option) => option.value === value)?.label ?? label;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div
+      data-typeset-chrome
+      data-docs-option-switcher
+      data-docs-hash-ids={options.map((option) => option.value).join(" ")}
+      className="scroll-mt-[var(--page-layout-anchor-offset)]"
+    >
       {/*
         Horizontal scroll for long labelled tracks. `overflow-x-auto` forces
         y-clipping too (CSS overflow pairing), so pad the clip edges for outward
-        focus rings. Negative margin only on top/sides — keep bottom so gap-4
-        between the control and the panel stays intact.
+        focus rings.
       */}
-      <div className="-mx-1 -mt-1 min-w-0 overflow-x-auto px-1 pb-1 pt-1">
+      <div className="not-typeset -mx-1 -mt-1 min-w-0 overflow-x-auto px-1 pb-1 pt-1">
         <SegmentedControl
           size="sm"
           label={label}
@@ -667,7 +668,6 @@ function DocsOptionSwitcher<V extends string>({
         role="region"
         aria-label={`${label}: ${activeLabel}`}
         aria-live="polite"
-        className={density === "relaxed" ? "space-y-5" : "space-y-4"}
       >
         {children}
       </div>
@@ -682,7 +682,8 @@ function MethodCodeSwitcher({
   label: string;
   items: { id: string; label: string; code: string; description: string }[];
 }) {
-  const [activeId, setActiveId] = useState(items[0]?.id ?? "");
+  const ids = items.map((item) => item.id);
+  const [activeId, setActiveId] = useHashTab(ids, items[0]?.id ?? "");
   const active = items.find((item) => item.id === activeId) ?? items[0];
   if (!active) return null;
 
@@ -693,16 +694,15 @@ function MethodCodeSwitcher({
       value={activeId}
       onValueChange={setActiveId}
     >
+      <p>{active.description}</p>
       <CodeBlock chrome="inset" language="cli" code={active.code} />
-      <p className="doc-copy">{active.description}</p>
     </DocsOptionSwitcher>
   );
 }
 
 function InvokeMethodTabs({ origin }: { origin: string }) {
-  const [activeId, setActiveId] = useState<"invoke-cli" | "invoke-http">(
-    "invoke-cli",
-  );
+  const invokeTabIds = ["invoke-cli", "invoke-http"] as const;
+  const [activeId, setActiveId] = useHashTab(invokeTabIds, "invoke-cli");
 
   return (
     <DocsOptionSwitcher
@@ -711,7 +711,7 @@ function InvokeMethodTabs({ origin }: { origin: string }) {
         { value: "invoke-cli", label: "CLI" },
         { value: "invoke-http", label: "HTTP" },
       ]}
-      value={activeId}
+      value={activeId as "invoke-cli" | "invoke-http"}
       onValueChange={setActiveId}
     >
       {activeId === "invoke-cli" ? (
@@ -724,15 +724,15 @@ gestalt apps invoke <app> <operation> -p key=value
 gestalt apps invoke <app> <operation> -p filters:='{"status":"open"}'
 gestalt apps invoke <app> <operation> --input-file payload.json --select data.items`}
           />
-          <p className="doc-copy">
+          <p>
             If you omit the operation,{" "}
-            <InlineCode>gestalt apps invoke &lt;app&gt;</InlineCode>{" "}
+            <Code>gestalt apps invoke &lt;app&gt;</Code>{" "}
             lists available operations instead of running one.
           </p>
         </>
       ) : (
         <>
-          <p className="doc-copy">
+          <p>
             The CLI calls the same HTTP API that the workspace exposes for direct
             programmatic access. Use the app catalog route for discovery and the
             app-specific invoke route for operation calls.
@@ -770,42 +770,27 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
       }))}
       value={activeTabId as AgentEnvironmentTabId}
       onValueChange={setActiveTabId}
-      density="relaxed"
     >
       {activeTabId === "agent-codex" ? (
         <>
-          <p className="doc-copy">
+          <p>
             Navigate to{" "}
-            <a
-              href="https://chatgpt.com/codex/settings/environments"
-              target="_blank"
-              rel="noreferrer"
-              className="doc-link"
-            >
-              Codex environment settings
-            </a>
+            <DocsLink href="https://chatgpt.com/codex/settings/environments">Codex environment settings</DocsLink>
             , open the cloud environment, and add these environment variables.
             Use a scoped API token for the cloud agent.
           </p>
           <CodeBlock chrome="inset" language="cli" code={cloudEnvironmentVariables(origin)} />
-          <p className="doc-copy">
+          <p>
             Then add this to the environment setup script.
           </p>
-          <CodeBlock chrome="inset" language="cli" code={agentStartupScript()} />
-          <p className="doc-copy">
+          <CodeBlock chrome="inset" language="cli" code={GESTALT_INSTALL_SCRIPT} />
+          <p>
             Keep the values above in the cloud environment variables, not in the
             setup script. Codex secrets are only available during setup.
           </p>
-          <p className="doc-copy">
+          <p>
             Reference:{" "}
-            <a
-              href="https://developers.openai.com/codex/cloud/environments"
-              target="_blank"
-              rel="noreferrer"
-              className="doc-link"
-            >
-              Codex cloud environments
-            </a>
+            <DocsLink href="https://developers.openai.com/codex/cloud/environments">Codex cloud environments</DocsLink>
             .
           </p>
         </>
@@ -813,19 +798,12 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
 
       {activeTabId === "agent-cursor" ? (
         <>
-          <p className="doc-copy">
+          <p>
             Navigate to{" "}
-            <a
-              href="https://cursor.com/dashboard/cloud-agents#environments"
-              target="_blank"
-              rel="noreferrer"
-              className="doc-link"
-            >
-              Cursor Cloud Agents settings
-            </a>
+            <DocsLink href="https://cursor.com/dashboard/cloud-agents#environments">Cursor Cloud Agents settings</DocsLink>
             , configure the workspace URL as an environment variable, and add the
             API token as a Cursor secret. Put the install command in{" "}
-            <InlineCode>.cursor/environment.json</InlineCode>
+            <Code>.cursor/environment.json</Code>
             .
           </p>
           <CodeBlock
@@ -835,26 +813,19 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
   "install": "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh"
 }`}
           />
-          <p className="doc-copy">
+          <p>
             Set{" "}
-            <InlineCode>GESTALT_URL</InlineCode>{" "}
+            <Code>GESTALT_URL</Code>{" "}
             to{" "}
-            <InlineCode>{origin}</InlineCode> and{" "}
-            <InlineCode>GESTALT_API_KEY</InlineCode>{" "}
+            <Code>{origin}</Code> and{" "}
+            <Code>GESTALT_API_KEY</Code>{" "}
             as a Cursor Cloud Agent secret containing a Gestalt API token. Cursor
             provides the secret to the agent environment at runtime under that
             variable name.
           </p>
-          <p className="doc-copy">
+          <p>
             Reference:{" "}
-            <a
-              href="https://cursor.com/docs/cloud-agent"
-              target="_blank"
-              rel="noreferrer"
-              className="doc-link"
-            >
-              Cursor Cloud Agents
-            </a>
+            <DocsLink href="https://cursor.com/docs/cloud-agent">Cursor Cloud Agents</DocsLink>
             .
           </p>
         </>
@@ -862,16 +833,9 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
 
       {activeTabId === "agent-claude-code" ? (
         <>
-          <p className="doc-copy">
+          <p>
             Navigate to{" "}
-            <a
-              href="https://claude.ai/code"
-              target="_blank"
-              rel="noreferrer"
-              className="doc-link"
-            >
-              claude.ai/code
-            </a>
+            <DocsLink href="https://claude.ai/code">claude.ai/code</DocsLink>
             , choose the cloud environment, and open its settings.
           </p>
           <img
@@ -881,25 +845,18 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
             height={558}
             className="w-full rounded-lg border border-border"
           />
-          <p className="doc-copy">
+          <p>
             Add environment variables in the cloud environment editor. Values use{" "}
-            <InlineCode>.env</InlineCode> format.
+            <Code>.env</Code> format.
           </p>
           <CodeBlock chrome="inset" language="cli" code={cloudEnvironmentVariables(origin)} />
-          <p className="doc-copy">
+          <p>
             Then add this to the cloud environment setup script.
           </p>
-          <CodeBlock chrome="inset" language="cli" code={agentStartupScript()} />
-          <p className="doc-copy">
+          <CodeBlock chrome="inset" language="cli" code={GESTALT_INSTALL_SCRIPT} />
+          <p>
             Reference:{" "}
-            <a
-              href="https://code.claude.com/docs/en/claude-code-on-the-web"
-              target="_blank"
-              rel="noreferrer"
-              className="doc-link"
-            >
-              Claude Code web
-            </a>
+            <DocsLink href="https://code.claude.com/docs/en/claude-code-on-the-web">Claude Code web</DocsLink>
             .
           </p>
         </>
@@ -917,15 +874,14 @@ function McpClientTabs({ origin }: { origin: string }) {
       options={mcpTabs.map((tab) => ({ value: tab.id, label: tab.label }))}
       value={activeTabId as McpTabId}
       onValueChange={setActiveTabId}
-      density="relaxed"
     >
       {activeTabId === "mcp-claude-code" ? (
         <>
-          <p className="doc-copy">
+          <p>
             Use{" "}
-            <InlineCode>.mcp.json</InlineCode>{" "}
+            <Code>.mcp.json</Code>{" "}
             for a project-scoped workspace shared in version control, or{" "}
-            <InlineCode>~/.claude.json</InlineCode>{" "}
+            <Code>~/.claude.json</Code>{" "}
             for a private local or user-scoped config.
           </p>
           <CodeBlock
@@ -943,7 +899,7 @@ function McpClientTabs({ origin }: { origin: string }) {
   }
 }`}
           />
-          <p className="doc-copy">Or add it from the CLI:</p>
+          <p>Or add it from the CLI:</p>
           <CodeBlock chrome="inset"
             language="cli"
             code={`claude mcp add --transport http --scope project \\
@@ -955,16 +911,16 @@ function McpClientTabs({ origin }: { origin: string }) {
 
       {activeTabId === "mcp-codex" ? (
         <>
-          <p className="doc-copy">
+          <p>
             Codex can register the workspace directly from the CLI:
           </p>
           <CodeBlock chrome="inset"
             language="cli"
             code={`codex mcp add gestalt --url "$GESTALT_URL/mcp" --bearer-token-env-var GESTALT_API_KEY`}
           />
-          <p className="doc-copy">
+          <p>
             If authentication is disabled, omit{" "}
-            <InlineCode>--bearer-token-env-var GESTALT_API_KEY</InlineCode>{" "}
+            <Code>--bearer-token-env-var GESTALT_API_KEY</Code>{" "}
             from the command.
           </p>
         </>
@@ -972,11 +928,11 @@ function McpClientTabs({ origin }: { origin: string }) {
 
       {activeTabId === "mcp-cursor" ? (
         <>
-          <p className="doc-copy">
+          <p>
             Config file:{" "}
-            <InlineCode>.cursor/mcp.json</InlineCode>{" "}
+            <Code>.cursor/mcp.json</Code>{" "}
             in your project root, or{" "}
-            <InlineCode>~/.cursor/mcp.json</InlineCode>{" "}
+            <Code>~/.cursor/mcp.json</Code>{" "}
             globally.
           </p>
           <CodeBlock
@@ -998,7 +954,7 @@ function McpClientTabs({ origin }: { origin: string }) {
 
       {activeTabId === "mcp-other" ? (
         <>
-          <p className="doc-copy">
+          <p>
             Any MCP-compatible client can connect to Gestalt. You need three
             pieces of information:
           </p>
@@ -1043,45 +999,33 @@ function useDeploymentOrigin() {
   return origin;
 }
 
-function InlineCode({ children }: { children: React.ReactNode }) {
+function Subheading({ id }: { id: string }) {
+  // Real heading so Registry typeset owns section rhythm (h2 margins /
+  // after-heading). `id` and `scroll-mt` must share the same node — hash /
+  // scrollIntoView only apply scroll-margin on the matched element.
+  // Offset token includes measured sticky chrome (worktree banner + top bar).
+  // Title comes from docs-data so TOC labels and headings cannot drift.
   return (
-    <code className="rounded-sm border border-border bg-muted px-[0.3em] py-[0.1em] font-mono text-[0.875em] text-foreground">
-      {children}
-    </code>
-  );
-}
-
-function Subheading({ id, title }: { id?: string; title: string }) {
-  return (
-    // `id` and `scroll-mt` must share the same node — hash / scrollIntoView
-    // targets only apply scroll-margin on the matched element (not ancestors).
-    // Offset token includes measured sticky chrome (worktree banner + top bar).
-    <SectionHeader
-      id={id}
-      className="scroll-mt-[var(--page-layout-anchor-offset)] pt-2"
-    >
-      <SectionHeaderContent size="sm">
-        <SectionHeaderTitle>{title}</SectionHeaderTitle>
-      </SectionHeaderContent>
-    </SectionHeader>
+    <h2 id={id} className="scroll-mt-[var(--page-layout-anchor-offset)]">
+      {docsSubsectionLabel(id)}
+    </h2>
   );
 }
 
 function InfoTable({ rows }: { rows: [string, string][] }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-border">
-      <table className="w-full border-collapse bg-card text-left text-sm text-card-foreground">
-        <tbody>
-          {rows.map(([label, value]) => (
-            <tr key={label} className="border-t border-border first:border-t-0">
-              <th className="w-56 bg-muted px-4 py-3 align-top font-medium text-foreground">
-                {label}
-              </th>
-              <td className="px-4 py-3 text-muted-foreground">{value}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <DescriptionList
+      density="condensed"
+      termWidth="14rem"
+      className="not-typeset mt-[length:var(--typeset-flow,1.5em)]"
+      data-testid="docs-info-table"
+    >
+      {rows.map(([label, value]) => (
+        <DescriptionItem key={label}>
+          <DescriptionTerm>{label}</DescriptionTerm>
+          <DescriptionDetails>{value}</DescriptionDetails>
+        </DescriptionItem>
+      ))}
+    </DescriptionList>
   );
 }

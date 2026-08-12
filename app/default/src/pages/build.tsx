@@ -22,7 +22,20 @@ import {
   radioLabelWrappedDisabledClassName,
 } from "@/lib/choice-card-chrome";
 import { Eyebrow } from "@/components/ui/eyebrow";
+import {
+  Alert,
+  AlertCollapsibleContent,
+  AlertDescription,
+  AlertTitle,
+  AlertTrigger,
+} from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
+import {
+  StepPager,
+  StepPagerNext,
+  StepPagerPrevious,
+  StepPagerStartSpacer,
+} from "@/components/ui/step-pager";
 import {
   PageHeader,
   PageHeaderContent,
@@ -38,11 +51,9 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { CodeBlock } from "@/components/ui/code-block";
 import { CopyableCode } from "@/components/ui/copyable-code";
-import { cardVariants } from "@/components/ui/card";
 import {
   Collapsible,
   CollapsibleContent,
-  CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import {
   Accordion,
@@ -87,8 +98,6 @@ import TokenCreateForm, {
 } from "@/components/TokenCreateForm";
 import {
   ChevronDownIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   SpinnerIcon,
 } from "@/components/icons";
 import { useBuildSession } from "@/hooks/use-build-session";
@@ -711,27 +720,19 @@ function IntroStepActions({
         </div>
       </div>
 
-      <nav
-        aria-label="Continue"
-        className="mt-2 flex justify-end border-t border-alpha pt-6"
-      >
-        <button
-          type="button"
+      <StepPager aria-label="Continue" className="mt-2">
+        <StepPagerStartSpacer />
+        <StepPagerNext
+          asChild
+          title={
+            BUILD_STEPS.find((step) => step.id === "authorize")?.title ??
+            "Authorize"
+          }
           data-testid="build-intro-continue"
-          onClick={handleContinue}
-          className={cn(buildStepPagerCardClassName, "sm:items-end sm:text-right")}
         >
-          <Eyebrow>Next</Eyebrow>
-          <span className="flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground sm:flex-row-reverse">
-            <ChevronRightIcon
-              tight
-              strokeWidth={1.5}
-              className="size-[1ex] shrink-0 text-muted-foreground transition-colors duration-hover-out group-hover:text-foreground"
-            />
-            {BUILD_STEPS.find((step) => step.id === "authorize")?.title}
-          </span>
-        </button>
-      </nav>
+          <button type="button" onClick={handleContinue} />
+        </StepPagerNext>
+      </StepPager>
     </div>
   );
 }
@@ -1178,9 +1179,6 @@ function BuildStepPanel({
   );
 }
 
-const buildStepPagerCardClassName =
-  "group flex w-fit max-w-xs flex-col gap-2.5 rounded-xl bg-neutral-hover px-5 py-5 text-left transition-[background-color] duration-hover-out ease-out-quart hover:bg-neutral-dark-hover hover:duration-hover-in active:bg-neutral-dark-pressed focus-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-neutral-hover disabled:active:bg-neutral-hover";
-
 function BuildStepPager({
   stepId,
   onGoToStep,
@@ -1204,71 +1202,47 @@ function BuildStepPager({
       : null;
   if (!prev && !next && !terminalNext) return null;
 
-  const cardClass = buildStepPagerCardClassName;
-
-  const nextCardClassName = cn(cardClass, "ms-auto items-end text-right");
-  const nextEyebrow = <Eyebrow>Next</Eyebrow>;
-  const nextTitle = (title: string) => (
-    <span className="flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground flex-row-reverse">
-      <ChevronRightIcon
-        tight
-        strokeWidth={1.5}
-        className="size-[1ex] shrink-0 text-muted-foreground transition-colors duration-hover-out group-hover:text-foreground"
-      />
-      {title}
-    </span>
-  );
-
   return (
-    <nav
+    <StepPager
       aria-label="Build step navigation"
       data-testid="build-step-pager"
-      className="mt-8 flex flex-wrap items-stretch justify-between gap-3 border-t border-alpha pt-6"
+      className="mt-8"
     >
       {prev ? (
-        <button
-          type="button"
+        <StepPagerPrevious
+          asChild
+          title={prev.title}
           data-testid="build-step-prev"
-          onClick={() => onGoToStep(prev.id)}
-          className={cardClass}
         >
-          <Eyebrow>Previous</Eyebrow>
-          <span className="flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground">
-            <ChevronLeftIcon
-              tight
-              strokeWidth={1.5}
-              className="size-[1ex] shrink-0 text-muted-foreground transition-colors duration-hover-out group-hover:text-foreground"
-            />
-            {prev.title}
-          </span>
-        </button>
+          <button type="button" onClick={() => onGoToStep(prev.id)} />
+        </StepPagerPrevious>
       ) : (
-        <span className="hidden sm:block" aria-hidden />
+        <StepPagerStartSpacer />
       )}
       {next ? (
-        <button
-          type="button"
+        <StepPagerNext
+          asChild
+          title={next.title}
           data-testid="build-step-next"
-          onClick={() => onGoToStep(next.id)}
-          disabled={nextDisabled}
-          aria-disabled={nextDisabled}
-          title={nextDisabled ? nextDisabledTitle : undefined}
-          className={nextCardClassName}
         >
-          {nextEyebrow}
-          {nextTitle(next.title)}
-        </button>
+          <button
+            type="button"
+            onClick={() => onGoToStep(next.id)}
+            disabled={nextDisabled}
+            aria-disabled={nextDisabled}
+            title={nextDisabled ? nextDisabledTitle : undefined}
+          />
+        </StepPagerNext>
       ) : terminalNext ? (
-        <Link
-          to={terminalNext.to}
+        <StepPagerNext
+          asChild
+          title={terminalNext.label}
           data-testid="build-step-next"
-          className={nextCardClassName}
         >
-          {nextEyebrow}
-          {nextTitle(terminalNext.label)}
-        </Link>
+          <Link to={terminalNext.to} />
+        </StepPagerNext>
       ) : null}
-    </nav>
+    </StepPager>
   );
 }
 
@@ -1660,28 +1634,28 @@ function InvokeStepActions({
           .
         </p>
 
-        {/* Registry Card Collapsible — compose cardVariants; do not restyle chrome. */}
-        <Collapsible
+        <Alert
+          collapsible
           defaultOpen
-          className={cn(cardVariants({ variant: "outline" }), "w-full")}
+          variant="outline"
+          className="w-full"
           data-testid="build-cli-alert"
         >
-          <CollapsibleTrigger className="rounded-t-xl p-4 data-[state=closed]:rounded-b-xl">
-            How to do it with the CLI
-            <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform duration-overshoot ease-out-back" />
-          </CollapsibleTrigger>
-          <CollapsibleContent className="space-y-3 rounded-b-xl border-t border-border px-4 py-3">
-            <p className="text-body-lg font-normal text-muted-foreground text-pretty">
+          <AlertTrigger>
+            <AlertTitle>How to do it with the CLI</AlertTitle>
+          </AlertTrigger>
+          <AlertCollapsibleContent>
+            <AlertDescription>
               If you want to use the CLI instead, do it this way:
-            </p>
+            </AlertDescription>
             <CodeBlock
               variant="outline"
               code={exemplar.invokeRecipe}
               language="cli"
               filename="Terminal"
             />
-          </CollapsibleContent>
-        </Collapsible>
+          </AlertCollapsibleContent>
+        </Alert>
       </div>
 
       <div className="space-y-6" data-testid="build-shipped-app">

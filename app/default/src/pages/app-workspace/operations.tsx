@@ -538,7 +538,7 @@ export default function AppWorkspaceOperationsPage() {
               ·
             </span>
             <UiLink asChild>
-              <Link to={AUTHORIZATION_DOCS_PATH}>Roles & access</Link>
+              <Link to={AUTHORIZATION_DOCS_PATH}>Grant App Access</Link>
             </UiLink>
           </p>
         </PageHeaderContent>

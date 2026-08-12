@@ -1,5 +1,6 @@
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ * Registry `spinner`.
  */
 
 import type { ComponentProps } from "react";
@@ -18,7 +19,7 @@ function Spinner({ className, ...props }: ComponentProps<"span">) {
       role="status"
       aria-label="Loading"
       data-slot="spinner"
-      className={cn("valon-spinner-trail size-4", className)}
+      className={cn("spinner-trail size-4", className)}
       {...props}
     />
   );

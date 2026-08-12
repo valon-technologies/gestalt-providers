@@ -11,6 +11,7 @@ import {
   ghostQuietChromePaintClassName,
   pressFeedbackScrimClassName,
   pressFeedbackScrimOptOutClassName,
+  secondarySurfaceFillClassName,
 } from "@/lib/press-feedback";
 import { Spinner } from "@/components/ui/spinner";
 
@@ -23,7 +24,7 @@ import { Spinner } from "@/components/ui/spinner";
 // (disabled-states.md / RES-20260617-003): the brand hue is erased so disabled
 // can't read as a dimmer enabled. Disabled opts out of the scrim.
 //
-// Scrim SoT: `@/lib/press-feedback` (toolshed#4081). Ghost paint shares
+// Scrim SoT: `@/lib/press-feedback`. Ghost paint shares
 // `ghostQuietChromePaintClassName` with Badge ghost.
 //
 // We deliberately DON'T set `disabled:pointer-events-none` — that would suppress
@@ -63,8 +64,10 @@ const buttonVariants = cva(
         danger:
           "border border-destructive/30 bg-destructive/5 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground aria-disabled:hover:border-destructive/30 aria-disabled:hover:bg-destructive/5 aria-disabled:hover:text-destructive aria-disabled:active:bg-destructive/5",
         outline:
-          "border border-input bg-background hover:bg-neutral-hover active:bg-neutral-pressed hover:after:opacity-0 active:after:opacity-0 disabled:bg-transparent aria-disabled:hover:bg-background aria-disabled:active:bg-background",
-        secondary: "bg-secondary text-secondary-foreground",
+          "border border-input bg-transparent disabled:bg-transparent aria-disabled:hover:bg-transparent aria-disabled:active:bg-transparent",
+        // Soft deepen of the parent — ink-alpha fill (Badge secondary), not
+        // solid `bg-secondary` (that reads as a gray chip on Alert washes).
+        secondary: [secondarySurfaceFillClassName, "text-foreground"],
         // Transparent quiet chrome paint SoT: ghostQuietChromePaintClassName.
         // Hover/press come from the base scrim — never --accent-hover (menus/breadcrumbs).
         ghost: [

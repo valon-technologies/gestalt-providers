@@ -1,9 +1,17 @@
 @import "../shared/theme.css";
-@import "./styles/typeset-code-hljs.css";
 
 /* Scan src/ only — do not crawl bundled admin vendor files for candidates. */
 @import "tailwindcss" source(".");
 @import "tw-animate-css";
+
+/*
+ * Typeset is NOT imported here. `main.tsx` side-effect-imports
+ * `./styles/typeset-reading.css` after this file so Vite always tracks it as a
+ * module edge (and Tailwind layers are already defined). A CSS `@import` of
+ * typeset from this file can drop out of the served bundle after stash/rebase
+ * while the rest of the app keeps painting — docs then show zero block gaps.
+ * hljs theme ships inside typeset-reading.
+ */
 
 /* Dark mode follows the class set by useTheme. */
 @custom-variant dark (&:is(.dark *));
@@ -14,12 +22,13 @@
  * or timing.
  */
 @theme {
-  --animate-fade-in-up: fade-in-up 0.5s cubic-bezier(0.19, 1, 0.22, 1) both;
   --tracking-eyebrow: 0.075em;
 
   --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out-back: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Minimal overshoot — Accordion / Collapsible / Alert height drawers. */
+  --ease-out-back-softer: cubic-bezier(0.34, 1.04, 0.64, 1);
 
   --duration-0: 0ms;
   --duration-50: 50ms;
@@ -41,6 +50,11 @@
   --transition-duration-dismiss-lg: 200ms;
   --transition-duration-move: 200ms;
   --transition-duration-overshoot: 200ms;
+  /* Accordion / Collapsible / Alert height drawers (Registry --motion-drawer-*). */
+  --motion-drawer-open: 250ms;
+  --motion-drawer-close: 150ms;
+  --transition-duration-drawer-open: var(--motion-drawer-open);
+  --transition-duration-drawer-close: var(--motion-drawer-close);
   --transition-duration-toast: 250ms;
 
   /* Semantic motion aliases consumed by Registry primitives (Link underline
@@ -63,18 +77,6 @@
   --control-icon-sm: 1rem;
   --control-icon-default: 1rem;
   --control-icon-lg: 1.125rem;
-
-  @keyframes fade-in-up {
-    from {
-      opacity: 0;
-      transform: translateY(12px);
-    }
-
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
 }
 
 /*
@@ -117,12 +119,28 @@
   --color-success-foreground: var(--success-foreground);
   --color-success-solid: var(--success-solid);
   --color-success-solid-foreground: var(--success-solid-foreground);
+  --color-success-hover: var(--success-hover);
+  --color-success-pressed: var(--success-pressed);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
   --color-warning-solid: var(--warning-solid);
   --color-warning-solid-foreground: var(--warning-solid-foreground);
+  --color-warning-hover: var(--warning-hover);
+  --color-warning-pressed: var(--warning-pressed);
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
+  --color-info-hover: var(--info-hover);
+  --color-info-pressed: var(--info-pressed);
+  --color-error-hover: var(--error-hover);
+  --color-error-pressed: var(--error-pressed);
+  --color-blue-200: var(--blue-200);
+  --color-blue-800: var(--blue-800);
+  --color-green-200: var(--green-200);
+  --color-green-800: var(--green-800);
+  --color-yellow-200: var(--yellow-200);
+  --color-yellow-800: var(--yellow-800);
+  --color-red-200: var(--red-200);
+  --color-red-800: var(--red-800);
   --color-badge-success: var(--badge-success);
   --color-badge-success-foreground: var(--badge-success-foreground);
   --color-badge-warning: var(--badge-warning);
@@ -178,6 +196,10 @@
   --color-surface-pressed: var(--surface-pressed);
   --color-error: var(--error);
   --color-error-foreground: var(--error-foreground);
+  --color-success-ink: var(--success-ink);
+  --color-warning-ink: var(--warning-ink);
+  --color-error-ink: var(--error-ink);
+  --color-info-ink: var(--info-ink);
   --color-code-line-emphasis: var(--code-line-emphasis);
   --background-image-promo-stage: var(--promo-stage-background);
 
@@ -466,12 +488,6 @@
     --muted-foreground-soft: color-mix(in oklab, var(--foreground) 40%, transparent);
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .animate-fade-in-up {
-      opacity: 1 !important;
-      animation: none !important;
-    }
-  }
 }
 
 /*
@@ -495,12 +511,23 @@
     text-transform: uppercase;
   }
 
-  .doc-copy {
-    @apply text-base leading-7 text-muted-foreground;
-  }
-
-  .doc-link {
-    @apply text-foreground underline decoration-border underline-offset-4 transition-colors duration-150 hover:text-foreground;
+  /*
+   * This app's `@theme inline reference` does not emit `--color-*` on the
+   * document — only semantic tokens (`--muted`, `--foreground`, …). Bridge
+   * them for typeset-reading, which reads the Tailwind `--color-*` names.
+   */
+  .typeset,
+  .slate-editor,
+  .group\/editor {
+    --color-foreground: var(--foreground);
+    --color-muted: var(--muted);
+    --color-border: var(--border);
+    --color-primary: var(--primary);
+    --color-accent: var(--accent);
+    --color-accent-solid: var(--accent-solid);
+    --color-link: var(--link);
+    --color-link-hover: var(--link-hover);
+    --color-link-pressed: var(--link-pressed);
   }
 }
 
@@ -544,6 +571,93 @@
   background-color: color-mix(in oklab, var(--scrollbar-thumb), var(--foreground) 22%);
 }
 
+/*
+ * Accordion / Collapsible drawer — height to/from intrinsic `auto` (no JS
+ * measurement), enabled by `interpolate-size: allow-keywords` on the panel.
+ * Registry also adds opt-in width animation for Alert `animateSize`.
+ */
+@keyframes accordion-drawer-open {
+  from {
+    height: 0;
+  }
+  to {
+    height: auto;
+  }
+}
+
+@keyframes accordion-drawer-close {
+  from {
+    height: auto;
+  }
+  to {
+    height: 0;
+  }
+}
+
+[data-slot="accordion-content"][data-state="open"],
+[data-slot="collapsible-content"][data-state="open"] {
+  animation-name: accordion-drawer-open;
+  animation-duration: var(--motion-drawer-open);
+  animation-timing-function: var(--ease-out-back-softer);
+}
+
+[data-slot="accordion-content"][data-state="closed"],
+[data-slot="collapsible-content"][data-state="closed"] {
+  animation-name: accordion-drawer-close;
+  animation-duration: var(--motion-drawer-close);
+  animation-timing-function: var(--ease-out-back-softer);
+}
+
+@keyframes collapsible-maxwidth-open {
+  from {
+    max-width: 0;
+  }
+  to {
+    max-width: 42rem;
+  }
+}
+
+@keyframes collapsible-maxwidth-close {
+  from {
+    max-width: 42rem;
+  }
+  to {
+    max-width: 0;
+  }
+}
+
+[data-slot="collapsible"][data-animate-size],
+[data-slot="alert"][data-animate-size] {
+  width: fit-content;
+  max-width: 42rem;
+}
+
+[data-slot="collapsible"][data-animate-size] > [data-slot="collapsible-content"],
+[data-slot="alert"][data-animate-size] > [data-slot="collapsible-content"] {
+  width: max-content;
+  box-sizing: border-box;
+}
+
+[data-slot="collapsible"][data-animate-size]
+  > [data-slot="collapsible-content"][data-state="open"],
+[data-slot="alert"][data-animate-size]
+  > [data-slot="collapsible-content"][data-state="open"] {
+  max-width: 42rem;
+  animation-name: accordion-drawer-open, collapsible-maxwidth-open;
+  animation-duration: var(--motion-drawer-open), var(--motion-drawer-open);
+  animation-timing-function: var(--ease-out-back-softer), var(--ease-out-back-softer);
+}
+
+[data-slot="collapsible"][data-animate-size]
+  > [data-slot="collapsible-content"][data-state="closed"],
+[data-slot="alert"][data-animate-size]
+  > [data-slot="collapsible-content"][data-state="closed"] {
+  max-width: 0;
+  animation-name: accordion-drawer-close, collapsible-maxwidth-close;
+  animation-duration: var(--motion-drawer-close), var(--motion-drawer-close);
+  animation-timing-function: var(--ease-out-back-softer), var(--ease-out-back-softer);
+}
+
 @keyframes selection-check-bounce {
   0% {
     transform: scale(1);
@@ -561,15 +675,15 @@
 /*
  * Spinner (routine busy) — fade-trail ring. Conic-gradient paints opaque tip →
  * transparent tail in currentColor; radial mask carves the donut. Brand /
- * identity waits use BrandSpinner (.valon-spinner_*), not this class.
+ * identity waits use BrandSpinner (`.brand-spinner*`), not this class.
  */
-@keyframes valon-spinner-trail-spin {
+@keyframes spinner-trail-spin {
   to {
     transform: rotate(1turn);
   }
 }
 
-.valon-spinner-trail {
+.spinner-trail {
   display: inline-block;
   flex-shrink: 0;
   aspect-ratio: 1;
@@ -577,14 +691,14 @@
   background: conic-gradient(from 0deg, transparent 0%, transparent 8%, currentColor 100%);
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
   mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
-  animation: valon-spinner-trail-spin 0.8s cubic-bezier(0.42, 0.28, 0.58, 0.72) infinite;
+  animation: spinner-trail-spin 0.8s cubic-bezier(0.42, 0.28, 0.58, 0.72) infinite;
 }
 
 /*
- * BrandSpinner — Gestalt mark trail. Track/trail map to semantic tokens (not
+ * BrandSpinner — mark trail. Track/trail map to semantic tokens (not
  * Registry palette constants) so tenants can restyle via theme.css.
  */
-@keyframes valon-spinner-trail {
+@keyframes brand-spinner-trail {
   0% {
     opacity: 0;
   }
@@ -606,20 +720,25 @@
   }
 }
 
-.valon-spinner__track {
+.brand-spinner__track {
   stroke: var(--border);
 }
 
-.valon-spinner__trail {
+.brand-spinner__trail {
   stroke: var(--accent-strong);
   opacity: 0;
-  animation: valon-spinner-trail 0.8s var(--ease-out-quart) infinite;
+  animation: brand-spinner-trail 0.8s var(--ease-out-quart) infinite;
   animation-delay: calc(var(--piece-index, 0) * 0.1s - 0.8s);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .valon-spinner__trail,
-  .valon-spinner-trail {
+  :root {
+    --motion-drawer-open: 0ms;
+    --motion-drawer-close: 0ms;
+  }
+
+  .brand-spinner__trail,
+  .spinner-trail {
     animation-play-state: paused;
   }
 }

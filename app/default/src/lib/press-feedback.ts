@@ -4,20 +4,23 @@
  * On-color state-layer overlay + transparent quiet chrome (`ghost`).
  *
  * Normative: Registry `guidelines/press-feedback.md`, `hover-pressed-color.md`,
- * `buttons.md` (RES-20260617-004 / RES-20260702-002). toolshed#4081
+ * `buttons.md` (RES-20260617-004 / RES-20260702-002).
  *
  * Prefer these role utilities — never hand-roll `after:bg-current` opacity
  * scrims or `hover:bg-accent` on transparent quiet chrome.
  *
  * | Export | Rest | Hover | Press |
  * | `pressFeedbackScrimClassName` | (inherits fill) | on-color scrim 0.08 | on-color scrim 0.14 |
+ * | `secondarySurfaceFillClassName` | `bg-foreground/[0.06]` (parent shows through) | (scrim on Button base) | (scrim) |
  * | `ghostQuietChromePaintClassName` | transparent + muted ink | foreground ink | — |
  * | `ghostQuietChromeClassName` | paint + hover/press scrim | (composed) | (composed) |
  *
  * Button puts the scrim on its **base** (every filled variant needs it) and
- * composes only `ghostQuietChromePaintClassName` on `variant="ghost"`.
+ * composes `secondarySurfaceFillClassName` on `variant="secondary"` and
+ * `ghostQuietChromePaintClassName` on `variant="ghost"`.
  * Badge (and any surface without a control base) consumes
- * `ghostQuietChromeClassName` on its ghost variant.
+ * `ghostQuietChromeClassName` on its ghost variant and
+ * `secondarySurfaceFillClassName` on secondary.
  */
 
 /** Mechanical `::after` on-color overlay — hover then press. Snap, never transition. */
@@ -39,6 +42,15 @@ export const pressFeedbackScrimOptOutClassName =
  */
 export const ghostQuietChromePaintClassName =
   "bg-transparent text-muted-foreground hover:text-foreground";
+
+/**
+ * Soft secondary fill — translucent foreground ink so the parent surface shows
+ * through (darkens cream / lightens night). Same recipe as Badge `secondary`
+ * (`badges-and-tags.md`). Prefer this over `bg-secondary` on controls that sit
+ * on washed parents (Alert, tinted cards) — a solid `--secondary` chip reads as
+ * a second surface, not a deepen of the parent.
+ */
+export const secondarySurfaceFillClassName = "bg-foreground/[0.06]";
 
 /**
  * Full transparent quiet chrome for surfaces that do not already carry the

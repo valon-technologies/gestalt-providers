@@ -13,6 +13,10 @@ const DOCS_SHELL = readFileSync(
   join(HERE, "../docs/DocsShell.tsx"),
   "utf8",
 );
+const DOCS_CONTENT = readFileSync(
+  join(HERE, "../docs/DocsContent.tsx"),
+  "utf8",
+);
 const CATALOG = readFileSync(
   join(HERE, "../components/AppsCatalogPageClient.tsx"),
   "utf8",
@@ -31,5 +35,25 @@ describe("page-layout anchor offset ownership", () => {
     expect(CATALOG).toContain("usePageLayoutAnchorOffsetPx");
     expect(CATALOG).not.toContain("CATALOG_TOC_ACTIVATION_OFFSET_MOBILE");
     expect(DOCS_SHELL).not.toContain("function readPageLayoutAnchorOffsetPx");
+  });
+
+  test("docs probes anchor offset from the chrome-var scope, not only :root", () => {
+    expect(HELPER).toContain("scopeRef");
+    expect(HELPER).toContain("scope ?? document.documentElement");
+    expect(DOCS_SHELL).toContain("pageLayoutRef");
+    expect(DOCS_SHELL).toContain("usePageLayoutAnchorOffsetPx(");
+    expect(DOCS_SHELL).toContain("pageLayoutRef");
+  });
+
+  test("docs hash scroll targets the switcher that owns the hash", () => {
+    expect(DOCS_CONTENT).toContain("data-docs-hash-ids");
+    expect(DOCS_CONTENT).toContain(
+      'className="scroll-mt-[var(--page-layout-anchor-offset)]"',
+    );
+    expect(DOCS_SHELL).toContain("data-docs-hash-ids");
+    expect(DOCS_SHELL).toContain("CSS.escape(id)");
+    expect(DOCS_CONTENT).toContain("navigate({ to: pathname, hash: id, replace: true })");
+    expect(DOCS_CONTENT).not.toContain("history.replaceState");
+    expect(DOCS_SHELL).not.toContain("history.replaceState");
   });
 });

@@ -71,7 +71,8 @@ function NavListGroup({
       data-slot="nav-list-group"
       className={cn(
         // First group in the list: no label top pad so the eyebrow lines up with
-        // sibling content (e.g. catalog facets). Later groups keep pt-4 separation.
+        // sibling content (e.g. catalog facets / docs title). Later groups keep
+        // pt-4 separation.
         "min-w-0 first:[&_[data-slot=nav-list-group-label]]:pt-0",
         className,
       )}

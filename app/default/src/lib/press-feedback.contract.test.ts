@@ -13,11 +13,13 @@ const SOURCE = readFileSync(
   "utf8",
 );
 
-describe("press-feedback quiet chrome (toolshed#4081)", () => {
-  test("exports scrim + ghost paint roles", () => {
+describe("press-feedback quiet chrome", () => {
+  test("exports scrim + ghost paint + secondary surface roles", () => {
     expect(SOURCE).toContain("export const pressFeedbackScrimClassName");
     expect(SOURCE).toContain("export const ghostQuietChromePaintClassName");
     expect(SOURCE).toContain("export const ghostQuietChromeClassName");
+    expect(SOURCE).toContain("export const secondarySurfaceFillClassName");
+    expect(SOURCE).toContain('bg-foreground/[0.06]');
   });
 
   test("ghost paint never uses accent hover wash", () => {

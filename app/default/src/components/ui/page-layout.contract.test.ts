@@ -162,45 +162,54 @@ describe("PageLayout sticky contract", () => {
     expect(SOURCE).not.toMatch(/\btop-\d/);
   });
 
-  test("sticks paneMobile inside a tall main that includes header + columns", () => {
-    // Sticky fails if the parent is only as tall as the Menu bar. paneMobile +
-    // header + columns share page-layout-main so sticky outlives the short bar,
-    // Menu sits above PageHeader on small viewports, and rubber-bands with
-    // sticky AppTopBar. Opaque bg + shared gap so SegmentedControl hosts stay
-    // readable/spaced. Menu docks on mobile-nav-top (flush chrome), not pane-top.
+  test("leaves a spacing band for outward focus rings in scrollable rails", () => {
+    expect(SOURCE).toContain("pageLayoutRailStickyClassName");
+    expect(SOURCE).toContain("pageLayoutRailStickyClassName.lg");
+    expect(SOURCE).toContain("pageLayoutRailStickyClassName.xl");
+    // Tailwind @source only emits complete class strings — no `${bp}:` templates.
+    expect(SOURCE).not.toMatch(/\$\{bp\}:/);
+    expect(SOURCE).toContain("lg:overflow-y-auto");
+    expect(SOURCE).toContain("lg:px-1");
+    expect(SOURCE).toContain("lg:pb-1");
+    expect(SOURCE).toContain("lg:pt-0");
+    expect(SOURCE).toContain("xl:overflow-y-auto");
+    expect(SOURCE).toContain("xl:px-1");
+    expect(SOURCE).toContain("xl:pb-1");
+    expect(SOURCE).toContain("xl:pt-0");
+    // Rails stay on pane-top; switching them to mobile-nav-top would collapse
+    // the two-seam contract on desktop.
+    expect(SOURCE).toContain("lg:top-[var(--page-layout-pane-top,0px)]");
+    expect(SOURCE).toContain("xl:top-[var(--page-layout-pane-top,0px)]");
+    // columns share page-layout-main so sticky Menu outlives the short bar;
+    // paneMobile itself must not overflow-x (clips edge bleed). Opaque bg +
+    // same gap as outer layout so SegmentedControl hosts stay readable/spaced.
     expect(SOURCE).toContain('data-slot="page-layout-main"');
-    expect(SOURCE).toContain('data-slot="page-layout-pane-mobile"');
-    expect(SOURCE).toContain(
-      'className={cn("grid grid-cols-1", pageLayoutGapVariants[gap ?? "default"])}',
-    );
+    expect(SOURCE).toContain("pageLayoutMainVariants({ gap })");
     expect(SOURCE).toContain(
       "sticky top-[var(--page-layout-mobile-nav-top,var(--page-layout-pane-top,0px))] z-40 w-full min-w-0 bg-background lg:hidden",
     );
-    // DOM order: paneMobile → header → columns (not header above paneMobile).
-    const paneMobileIdx = SOURCE.indexOf('data-slot="page-layout-pane-mobile"');
-    const headerIdx = SOURCE.indexOf(
-      "{header ? <PageLayoutHeader>{header}</PageLayoutHeader> : null}",
-      paneMobileIdx,
-    );
-    const columnsIdx = SOURCE.indexOf('data-slot="page-layout-columns"', headerIdx);
-    expect(paneMobileIdx).toBeGreaterThan(-1);
-    expect(headerIdx).toBeGreaterThan(paneMobileIdx);
-    expect(columnsIdx).toBeGreaterThan(headerIdx);
     expect(SOURCE).not.toContain("overflow-x-auto p-1 lg:hidden");
   });
 
-  test("leaves a spacing band for outward focus rings in scrollable rails", () => {
-    expect(SOURCE).toContain("lg:overflow-y-auto");
-    expect(SOURCE).toContain("lg:p-1");
-    expect(SOURCE).toContain("xl:overflow-y-auto");
-    expect(SOURCE).toContain("xl:p-1");
+  test("renders paneMobile before header so Menu stays above PageHeader", () => {
+    const mainStart = SOURCE.indexOf('data-slot="page-layout-main"');
+    expect(mainStart).toBeGreaterThan(-1);
+    const main = SOURCE.slice(mainStart);
+    const paneMobile = main.indexOf('data-slot="page-layout-pane-mobile"');
+    const header = main.indexOf("<PageLayoutHeader");
+    const columns = main.indexOf('data-slot="page-layout-columns"');
+    expect(paneMobile).toBeGreaterThan(-1);
+    expect(header).toBeGreaterThan(paneMobile);
+    expect(columns).toBeGreaterThan(header);
+    // Header must not render as a sibling above page-layout-main.
+    expect(SOURCE.indexOf("<PageLayoutHeader")).toBeGreaterThan(mainStart);
   });
 
-  test("shares the gap variant between the outer layout, main, and track grid", () => {
+  test("shares the gap variant between the outer layout and track grid", () => {
     expect(SOURCE).toContain("const pageLayoutGapVariants");
     expect(SOURCE).toContain("pageLayoutColumnsVariants({ gap })");
     expect(SOURCE).toContain("pageLayoutVariants({ gap })");
-    expect(SOURCE).toContain('pageLayoutGapVariants[gap ?? "default"]');
+    expect(SOURCE).toContain("pageLayoutMainVariants({ gap })");
   });
 });
 

@@ -19,6 +19,12 @@ const codeFenceShellVariants = cva("overflow-hidden rounded-md", {
       outline: "border border-border bg-transparent",
       /** Filled muted band — when a second outline frame is not enough contrast. */
       solid: "bg-muted",
+      /**
+       * Mid quiet L-step (`bg-muted-strong`) — darker solid fill on an
+       * already-muted parent (Alert wash, solid Card). Same warmth as `solid`
+       * / muted; only lightness drops.
+       */
+      "solid-dark": "bg-muted-strong",
     },
   },
   defaultVariants: {

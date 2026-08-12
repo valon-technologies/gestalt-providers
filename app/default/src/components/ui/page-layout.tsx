@@ -1,5 +1,6 @@
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ * Registry `page-layout` (Menu vs rail sticky seams).
  */
 
 import * as React from "react";
@@ -80,6 +81,15 @@ const pageLayoutTrackVariants = cva("", {
 });
 
 const pageLayoutColumnsVariants = cva("grid min-w-0 grid-cols-1", {
+  variants: {
+    gap: pageLayoutGapVariants,
+  },
+  defaultVariants: {
+    gap: "default",
+  },
+});
+
+const pageLayoutMainVariants = cva("grid grid-cols-1", {
   variants: {
     gap: pageLayoutGapVariants,
   },
@@ -200,7 +210,7 @@ function PageLayout({
         */}
         <div
           data-slot="page-layout-main"
-          className={cn("grid grid-cols-1", pageLayoutGapVariants[gap ?? "default"])}
+          className={pageLayoutMainVariants({ gap })}
         >
           {paneMobile ? (
             <div
@@ -254,17 +264,27 @@ function PageLayoutHeader({ className, ...props }: React.ComponentProps<"div">) 
 // (next to their nav-height token) instead of scattering a magic `top-*` across
 // every page. `--page-layout-mobile-nav-top` is the seam for the Menu bar
 // (secondary chrome — usually flush under AppTopBar, without the rail breathing
-// gap). Menu sticky falls back to pane-top when unset. 0px is correct for an app
-// with no fixed chrome, so the default is safe rather than merely inert.
+// gap). Theme defaults mobile-nav-top to pane-top so single-token hosts stay
+// coupled; the nested var() fallback covers a host that loads the component
+// without the theme token. 0px pane-top is correct with no fixed chrome.
+//
+// Tailwind `@source` only emits complete class strings (selection-interaction.ts).
+// Keep lg/xl literals in lockstep — do not interpolate `${bp}:…`.
+const pageLayoutRailStickyClassName = {
+  // `overflow-y-auto` computes a non-visible x overflow too, which clips
+  // NavList's standard outward focus ring. Keep one spacing step of
+  // horizontal / bottom scrollport padding so the ring remains visible —
+  // not top, so sticky rails share a top edge with the content column.
+  lg: "lg:sticky lg:top-[var(--page-layout-pane-top,0px)] lg:max-h-[calc(100svh-var(--page-layout-pane-top,0px)-var(--page-layout-pane-bottom,0px))] lg:overflow-y-auto lg:overscroll-contain lg:px-1 lg:pb-1 lg:pt-0",
+  xl: "xl:sticky xl:top-[var(--page-layout-pane-top,0px)] xl:max-h-[calc(100svh-var(--page-layout-pane-top,0px)-var(--page-layout-pane-bottom,0px))] xl:overflow-y-auto xl:overscroll-contain xl:px-1 xl:pb-1 xl:pt-0",
+} as const;
+
 const pageLayoutPaneVariants = cva(
   "hidden min-w-0 lg:block",
   {
     variants: {
       sticky: {
-        // `overflow-y-auto` computes a non-visible x overflow too, which clips
-        // NavList's standard outward focus ring. Keep one spacing step of
-        // scrollport breathing room so the ring remains fully visible.
-        true: "lg:sticky lg:top-[var(--page-layout-pane-top,0px)] lg:max-h-[calc(100svh-var(--page-layout-pane-top,0px)-var(--page-layout-pane-bottom,0px))] lg:overflow-y-auto lg:overscroll-contain lg:p-1",
+        true: pageLayoutRailStickyClassName.lg,
         false: "",
       },
     },
@@ -303,9 +323,7 @@ function PageLayoutContent({ className, ...props }: React.ComponentProps<"main">
 const pageLayoutAsideVariants = cva("hidden min-w-0 xl:block", {
   variants: {
     sticky: {
-      // The Aside is the same clipping scrollport as the Pane; keep focus rings
-      // visible for TableOfContents buttons and any other interactive content.
-      true: "xl:sticky xl:top-[var(--page-layout-pane-top,0px)] xl:max-h-[calc(100svh-var(--page-layout-pane-top,0px)-var(--page-layout-pane-bottom,0px))] xl:overflow-y-auto xl:overscroll-contain xl:p-1",
+      true: pageLayoutRailStickyClassName.xl,
       false: "",
     },
   },
@@ -349,6 +367,7 @@ export {
   usePageHeadingLevel,
   pageLayoutVariants,
   pageLayoutTrackVariants,
+  pageLayoutMainVariants,
   pageLayoutPaneVariants,
   pageLayoutAsideVariants,
   PAGE_LAYOUT_COLUMN_TEMPLATES,
