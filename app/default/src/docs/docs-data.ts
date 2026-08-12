@@ -47,8 +47,6 @@ export interface DocsNavItem {
   /** Who the page is written for. Admin pages need an audience callout in body. */
   audience: DocsAudience;
   subsections: DocsSubsection[];
-  /** Primary next step in the same journey (rendered as page footer). */
-  next?: DocsNavLink;
 }
 
 export const DOCS_NAV_GROUPS: ReadonlyArray<{
@@ -69,13 +67,12 @@ export const docsNavItems: DocsNavItem[] = [
     audience: "user",
     subsections: [
       { id: "install", label: "Install" },
-      { id: "point-cli", label: "Point the CLI" },
+      { id: "point-cli", label: "Point the CLI at this workspace" },
       { id: "authenticate", label: "Authenticate" },
       { id: "authorization", label: "Grant App Access" },
       { id: "agent-environments", label: "Configure cloud environments" },
       { id: "workflows", label: "Inspect Workflows" },
     ],
-    next: { href: DOCS_CONNECT_PATH, label: "Connect Apps" },
   },
   {
     id: "connect",
@@ -84,7 +81,6 @@ export const docsNavItems: DocsNavItem[] = [
     group: "setup",
     audience: "user",
     subsections: [],
-    next: { href: DOCS_INVOKE_PATH, label: "Invoke Operations" },
   },
   {
     id: "invoke",
@@ -94,7 +90,6 @@ export const docsNavItems: DocsNavItem[] = [
     audience: "user",
     // Option switchers use hash values without matching DOM ids (sticky chrome).
     subsections: [],
-    next: { href: DOCS_TOKENS_PATH, label: "Manage API Tokens" },
   },
   {
     id: "tokens",
@@ -103,7 +98,6 @@ export const docsNavItems: DocsNavItem[] = [
     group: "automate",
     audience: "user",
     subsections: [],
-    next: { href: DOCS_MCP_PATH, label: "Use With MCP" },
   },
   {
     id: "mcp",
@@ -113,7 +107,6 @@ export const docsNavItems: DocsNavItem[] = [
     audience: "user",
     // MCP client options are hash-backed SegmentedControl values, not headings.
     subsections: [],
-    next: { href: DOCS_WORKFLOWS_PATH, label: "Inspect Workflows" },
   },
   {
     id: "workflows",
@@ -125,7 +118,6 @@ export const docsNavItems: DocsNavItem[] = [
       { id: "wf-help", label: "Start with help" },
       { id: "wf-runs", label: "Inspect runs" },
     ],
-    next: { href: DOCS_AUTHORIZATION_PATH, label: "Grant App Access" },
   },
   {
     id: "authorization",
@@ -135,11 +127,10 @@ export const docsNavItems: DocsNavItem[] = [
     audience: "admin",
     subsections: [
       { id: "authz-plugin-access", label: "Grant app access" },
-      { id: "authz-service-accounts", label: "Service accounts" },
-      { id: "authz-admins", label: "Built-in admins" },
+      { id: "authz-service-accounts", label: "Grant service account access" },
+      { id: "authz-admins", label: "Grant built-in admin access" },
       { id: "authz-inspect", label: "Inspect grants" },
     ],
-    next: { href: DOCS_TROUBLESHOOTING_PATH, label: "Troubleshooting" },
   },
   {
     id: "troubleshooting",
@@ -148,13 +139,22 @@ export const docsNavItems: DocsNavItem[] = [
     group: "administer",
     audience: "user",
     subsections: [
-      { id: "ts-not-authenticated", label: "Not authenticated" },
-      { id: "ts-multiple-connections", label: "Multiple connections" },
-      { id: "ts-empty-tools", label: "Empty MCP tool list" },
+      { id: "ts-not-authenticated", label: "The CLI says you are not authenticated" },
+      { id: "ts-multiple-connections", label: "An app has multiple connections" },
+      { id: "ts-empty-tools", label: "The MCP endpoint is mounted, but the tool list is empty" },
       { id: "ts-forbidden", label: "Access denied after grant" },
     ],
   },
 ];
+
+/** Heading / TOC label for a subsection id. DocsContent must not restate titles. */
+export function docsSubsectionLabel(id: string): string {
+  for (const item of docsNavItems) {
+    const subsection = item.subsections.find((entry) => entry.id === id);
+    if (subsection) return subsection.label;
+  }
+  throw new Error(`Unknown docs subsection id: ${id}`);
+}
 
 export function getActiveDocsNavItem(pathname: string): DocsNavItem {
   if (pathname === DOCS_PATH || pathname === DOCS_GETTING_STARTED_PATH) {
@@ -175,21 +175,24 @@ export function docsNavItemsByGroup(
 }
 
 /**
- * Linear journey edges for StepPager. Previous is the page whose `next` points
- * here (inverse of the forward chain). Soft prose prerequisites are not modeled
- * on nav items — journey edges and hand-authored copy stay separate.
+ * Linear journey edges for StepPager. Forward/back follow sidebar order so the
+ * nav array is the only sequence to maintain. Soft prose prerequisites are not
+ * modeled on nav items — journey edges and hand-authored copy stay separate.
  */
 export function getDocsJourneyEdges(item: DocsNavItem): {
   previous: DocsNavLink | null;
   next: DocsNavLink | null;
 } {
-  const previousItem = docsNavItems.find(
-    (candidate) => candidate.next?.href === item.href,
-  );
+  const index = docsNavItems.findIndex((candidate) => candidate.id === item.id);
+  const previousItem = index > 0 ? docsNavItems[index - 1] : undefined;
+  const nextItem =
+    index >= 0 && index < docsNavItems.length - 1
+      ? docsNavItems[index + 1]
+      : undefined;
   return {
     previous: previousItem
       ? { href: previousItem.href, label: previousItem.label }
       : null,
-    next: item.next ?? null,
+    next: nextItem ? { href: nextItem.href, label: nextItem.label } : null,
   };
 }

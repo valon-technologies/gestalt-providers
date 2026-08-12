@@ -31,7 +31,7 @@ When lifting a shared UI kit control into `src/components/ui/`:
 
 ## Alert
 
-Registry `alert` is vendored here (toolshed#4191). Status washes stay borderless;
+Registry `alert` is vendored here. Status washes stay borderless;
 `variant="outline"` is quiet Card chrome for CLI tips (no Tip primitive). Sole
 primary copy uses `AlertTitle` or Description alone — Description is
 `text-foreground` until a Title is present. Collapsible secondary help:
@@ -47,7 +47,7 @@ vendored here. Theme bridges (`--primary`, `--muted`, `--input`, `--disabled*`,
 `@theme inline`. Spinner motion CSS (`.spinner-trail`, `.brand-spinner*`)
 lives in `globals.css` and maps BrandSpinner strokes to semantic tokens
 (`--border`, `--accent-strong`) — not Registry palette constants. Class /
-keyframe IDs match Registry (toolshed#4224).
+keyframe IDs match Registry.
 Prefer `@/components/ui/button`, `@/components/ui/input`, and
 `@/components/ui/select` at call sites;
 `@/components/Button` is a legacy adapter (`primary` → `default`,
@@ -81,8 +81,7 @@ stays distinct on Neutral / muted row hover — bridge `--muted-strong` in
 
 ## Badge / HoverCard
 
-Registry `badge` and `hover-card` are vendored here (toolshed#4057 / #4081 /
-#4113 / #4119). Badge `size` owns type / pad / icon (`py-1` / `py-1.5` / `py-2`
+Registry `badge` and `hover-card` are vendored here. Badge `size` owns type / pad / icon (`py-1` / `py-1.5` / `py-2`
 after text-box trim); base has **no** color transitions. Ink trim (`text-box:
 trim-both cap alphabetic`) lives on a `badge-label` text box via
 `partitionBadgeChildren` — not on the `inline-flex` chrome (css-inline-3).
@@ -173,13 +172,13 @@ Do not invent freestyle `tracking-*` / `text-*` sizes at call sites.
 ## RunStatusIndicator
 
 Thin **workflow vocabulary adapter** over `OutcomeStatusIndicator`
-(`succeeded` → `success`, `running` → `in_progress`, …) — toolshed#4181.
+(`succeeded` → `success`, `running` → `in_progress`, …) — Registry.
 Root keeps run vocabulary on `data-status` (overrides outcome `data-status`).
 Prefer `OutcomeStatusIndicator` for connection / deploy / non-run domains.
 
 ## OutcomeStatusIndicator
 
-Registry `outcome-status-indicator` is vendored here (toolshed#4181) —
+Registry `outcome-status-indicator` is vendored here —
 domain-neutral filled circle + symbol. Map Registry mid-dark ramps onto
 `bg-status-indicator-*`. Failure Badge pairing stays `destructive` (Registry
 `error` not vendored on Badge yet). Distinct from uptime `StatusIndicator`
@@ -187,12 +186,12 @@ dots and `TableStatusIndicator` (soft Badge washes).
 
 ## StatusIndicator
 
-Registry `status-indicator` (Feedback/StatusIndicator) is vendored here
-(toolshed#4181) — dot + optional label for live/uptime style status. Map
+Registry `status-indicator` (Feedback/StatusIndicator) is vendored here —
+dot + optional label for live/uptime style status. Map
 Registry `--valon-*` fills onto `bg-status-indicator-*` (including idle →
 `bg-status-indicator-muted`). Honor `pulse` (default `true`). Keep local
 `data-slot` / `data-state` / `data-pulse` for tests and CSS hooks. No call
-site yet — kept for Registry parity after #4181.
+site yet — kept for Registry parity.
 
 ## Tree
 
@@ -213,12 +212,11 @@ the call site (cards.md Card Collapsible). Do not restyle trigger hover/press
 (List Item Neutral via `listItemInteraction`). Drawer height animation lives on
 `[data-slot=collapsible-content]` / `[data-slot=accordion-content]` in
 `globals.css`, keyed by role-named keyframes (`accordion-drawer-*`,
-`collapsible-maxwidth-*` for Alert `animateSize`; toolshed#4224).
+`collapsible-maxwidth-*` for Alert `animateSize`).
 
 ## DescriptionList
 
-Registry `description-list` is vendored here (toolshed#4188 outline;
-toolshed#4218 density + term type). Prefer over hand-rolled KV tables for
+Registry `description-list` is vendored here. Prefer over hand-rolled KV tables for
 read-only metadata. Use `surface="outline"` for standalone inspector / docs
 panels (Card outline fill/border, `rounded-lg` — not Card's `rounded-xl`).
 Default `surface="plain"` stays flush in a parent pane. Row vertical rhythm is
@@ -230,7 +228,7 @@ tones use `--*-ink` canvas status tokens (bridged in `shared/theme.css` +
 
 ## StepPager
 
-Registry `step-pager` is vendored here (toolshed#4190 / #4224). Previous/next
+Registry `step-pager` is vendored here. Previous/next
 destination cards for docs journey edges and Build wizard steps. Compose
 `StepPager` + `StepPagerPrevious` / `StepPagerNext` (+ `StepPagerStartSpacer`
 when there is no previous). Use `asChild` for `<button>` or router `Link`.
@@ -283,7 +281,7 @@ detail sibling navigation; do not invent custom pager chrome at call sites.
 ## PageLayout / NavList
 
 Registry `page-layout`, `page-layout-pane-mobile-nav`, and `nav-list` are
-vendored here (toolshed#4242 two sticky seams). `PageLayout` owns in-page
+vendored here (Menu vs rail sticky seams). `PageLayout` owns in-page
 geometry (header band, start Pane, content, end Aside);
 `PageLayoutPaneMobileNav` is secondary mobile chrome for
 long-list `paneMobile` (sticky Menu bar under AppTopBar → modal dialog overlay

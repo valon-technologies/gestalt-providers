@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SOURCE = readFileSync(join(HERE, "description-list.tsx"), "utf8");
 
-describe("DescriptionList (toolshed#4188 / #4218)", () => {
+describe("DescriptionList", () => {
   test("exposes plain and outline surfaces via Card outline chrome", () => {
     expect(SOURCE).toContain("surface: {");
     expect(SOURCE).toContain('plain: ""');

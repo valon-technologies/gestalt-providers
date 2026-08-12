@@ -24,7 +24,7 @@ import { Spinner } from "@/components/ui/spinner";
 // (disabled-states.md / RES-20260617-003): the brand hue is erased so disabled
 // can't read as a dimmer enabled. Disabled opts out of the scrim.
 //
-// Scrim SoT: `@/lib/press-feedback` (toolshed#4081). Ghost paint shares
+// Scrim SoT: `@/lib/press-feedback`. Ghost paint shares
 // `ghostQuietChromePaintClassName` with Badge ghost.
 //
 // We deliberately DON'T set `disabled:pointer-events-none` — that would suppress

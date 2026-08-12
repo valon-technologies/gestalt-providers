@@ -9,14 +9,19 @@ import {
   docsNavItems,
   getActiveDocsNavItem,
   getDocsJourneyEdges,
+  docsSubsectionLabel,
 } from "./docs-data";
 
 describe("docs IA invariants", () => {
   it("keeps unique hrefs and ids", () => {
     const hrefs = docsNavItems.map((item) => item.href);
     const ids = docsNavItems.map((item) => item.id);
+    const subsectionIds = docsNavItems.flatMap((item) =>
+      item.subsections.map((subsection) => subsection.id),
+    );
     expect(new Set(hrefs).size).toBe(hrefs.length);
     expect(new Set(ids).size).toBe(ids.length);
+    expect(new Set(subsectionIds).size).toBe(subsectionIds.length);
   });
 
   it("assigns every item to a declared group", () => {
@@ -37,43 +42,25 @@ describe("docs IA invariants", () => {
     expect(grant?.href).toBe(DOCS_AUTHORIZATION_PATH);
   });
 
-  it("keeps journey next links inside the docs set", () => {
-    const hrefs = new Set(docsNavItems.map((item) => item.href));
-    for (const item of docsNavItems) {
-      if (item.next) {
-        expect(hrefs.has(item.next.href)).toBe(true);
-      }
-    }
-  });
-
-  it("keeps pager next edges aligned with sidebar order", () => {
-    // Footer Next should follow the left-rail sequence so readers are not
+  it("derives journey edges from sidebar order", () => {
+    // Footer Next/Previous follow the left-rail sequence so readers are not
     // skipped past a page that already appears between two destinations.
-    for (let i = 0; i < docsNavItems.length - 1; i++) {
+    for (let i = 0; i < docsNavItems.length; i++) {
       const item = docsNavItems[i]!;
-      const following = docsNavItems[i + 1]!;
-      expect(item.next).toEqual({
-        href: following.href,
-        label: following.label,
-      });
+      const edges = getDocsJourneyEdges(item);
+      const predecessor = i > 0 ? docsNavItems[i - 1] : undefined;
+      const following =
+        i < docsNavItems.length - 1 ? docsNavItems[i + 1] : undefined;
+      expect(edges.previous).toEqual(
+        predecessor
+          ? { href: predecessor.href, label: predecessor.label }
+          : null,
+      );
+      expect(edges.next).toEqual(
+        following ? { href: following.href, label: following.label } : null,
+      );
     }
-    expect(docsNavItems.at(-1)?.next).toBeUndefined();
-  });
-
-  it("derives journey Previous as the inverse of next", () => {
-    for (let i = 1; i < docsNavItems.length; i++) {
-      const item = docsNavItems[i]!;
-      const predecessor = docsNavItems[i - 1]!;
-      expect(getDocsJourneyEdges(item).previous).toEqual({
-        href: predecessor.href,
-        label: predecessor.label,
-      });
-    }
-    expect(getDocsJourneyEdges(docsNavItems[0]!).previous).toBeNull();
-    const tokens = docsNavItems.find((item) => item.id === "tokens")!;
-    expect(getDocsJourneyEdges(tokens).previous?.href).toBe(
-      docsNavItems.find((item) => item.id === "invoke")!.href,
-    );
+    expect(docsNavItems.every((item) => !("next" in item))).toBe(true);
   });
 
   it("resolves /docs and /docs/getting-started to Getting Started", () => {
@@ -97,14 +84,17 @@ describe("docs IA invariants", () => {
     expect(gettingStarted?.subsections.map((s) => s.id)).toContain("install");
   });
 
-  it("wires every TOC subsection id to a DocsContent heading", () => {
+  it("wires every TOC subsection id to a DocsContent heading owned by docs-data", () => {
     const content = readFileSync(
       join(dirname(fileURLToPath(import.meta.url)), "DocsContent.tsx"),
       "utf8",
     );
+    expect(content).toContain("docsSubsectionLabel");
+    expect(content).not.toMatch(/<Subheading[^>]*title=/);
     for (const item of docsNavItems) {
       for (const subsection of item.subsections) {
-        expect(content).toContain(`id="${subsection.id}"`);
+        expect(content).toContain(`<Subheading id="${subsection.id}" />`);
+        expect(docsSubsectionLabel(subsection.id)).toBe(subsection.label);
       }
     }
   });

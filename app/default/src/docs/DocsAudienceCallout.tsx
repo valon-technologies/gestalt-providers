@@ -25,7 +25,7 @@ export function DocsAudienceCallout({
     <div className="not-typeset mb-[length:var(--typeset-flow,1.5em)]">
       <Alert variant="info" layout="banner">
         <Info aria-hidden="true" />
-        <AlertTitle>Admin audience</AlertTitle>
+        <AlertTitle>For admins</AlertTitle>
         <AlertDescription>
           {children ?? (
             <>

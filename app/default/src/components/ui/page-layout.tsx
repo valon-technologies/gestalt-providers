@@ -1,6 +1,6 @@
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
- * Registry `page-layout` (toolshed#4242 — Menu vs rail sticky seams).
+ * Registry `page-layout` (Menu vs rail sticky seams).
  */
 
 import * as React from "react";

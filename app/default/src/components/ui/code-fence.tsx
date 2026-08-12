@@ -22,7 +22,7 @@ const codeFenceShellVariants = cva("overflow-hidden rounded-md", {
       /**
        * Mid quiet L-step (`bg-muted-strong`) — darker solid fill on an
        * already-muted parent (Alert wash, solid Card). Same warmth as `solid`
-       * / muted; only lightness drops. toolshed#4191
+       * / muted; only lightness drops.
        */
       "solid-dark": "bg-muted-strong",
     },

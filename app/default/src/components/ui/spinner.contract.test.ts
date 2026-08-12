@@ -7,7 +7,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SOURCE = readFileSync(join(HERE, "spinner.tsx"), "utf8");
 const GLOBALS = readFileSync(join(HERE, "../../globals.css"), "utf8");
 
-describe("Spinner (toolshed#4224)", () => {
+describe("Spinner", () => {
   test("is a routine busy span on spinner-trail (not Gestalt-mark SVG)", () => {
     expect(SOURCE).toContain('data-slot="spinner"');
     expect(SOURCE).toContain("spinner-trail");

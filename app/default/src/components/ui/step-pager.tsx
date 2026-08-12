@@ -1,6 +1,6 @@
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
- * Registry `step-pager` (toolshed#4190; #4224 hairline `border-border`).
+ * Registry `step-pager`.
  */
 
 import * as React from "react";
@@ -14,8 +14,7 @@ import { cn } from "@/lib/cn";
 
 // StepPager — previous/next destination cards for ordered journeys (docs
 // chapter edges, Build wizard steps). Not Pagination (numbered dataset paging)
-// and not Stepper (in-flow process rail). Research: RES-20260810-002;
-// copy-review: StepPager over DocPager/Pagination/Footer.
+// and not Stepper (in-flow process rail).
 //
 // Compound: StepPager / StepPagerPrevious / StepPagerNext / StepPagerStartSpacer.
 // Use asChild so the card can be a <button>, router <Link>, or <a>.

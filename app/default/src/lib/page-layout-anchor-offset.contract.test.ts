@@ -13,6 +13,10 @@ const DOCS_SHELL = readFileSync(
   join(HERE, "../docs/DocsShell.tsx"),
   "utf8",
 );
+const DOCS_CONTENT = readFileSync(
+  join(HERE, "../docs/DocsContent.tsx"),
+  "utf8",
+);
 const CATALOG = readFileSync(
   join(HERE, "../components/AppsCatalogPageClient.tsx"),
   "utf8",
@@ -39,5 +43,17 @@ describe("page-layout anchor offset ownership", () => {
     expect(DOCS_SHELL).toContain("pageLayoutRef");
     expect(DOCS_SHELL).toContain("usePageLayoutAnchorOffsetPx(");
     expect(DOCS_SHELL).toContain("pageLayoutRef");
+  });
+
+  test("docs hash scroll targets the switcher that owns the hash", () => {
+    expect(DOCS_CONTENT).toContain("data-docs-hash-ids");
+    expect(DOCS_CONTENT).toContain(
+      'className="scroll-mt-[var(--page-layout-anchor-offset)]"',
+    );
+    expect(DOCS_SHELL).toContain("data-docs-hash-ids");
+    expect(DOCS_SHELL).toContain("CSS.escape(id)");
+    expect(DOCS_CONTENT).toContain("navigate({ to: pathname, hash: id, replace: true })");
+    expect(DOCS_CONTENT).not.toContain("history.replaceState");
+    expect(DOCS_SHELL).not.toContain("history.replaceState");
   });
 });

@@ -296,7 +296,7 @@
   /* Structural chrome stays neutral — never derive borders from --brand*. */
   --border: color-mix(in oklab, var(--foreground) 16%, var(--background));
   /* Control border — stronger than structural `--border` (see light).
-   * Same 28% ink/paper mix as light / Registry shell anchors (toolshed#4176). */
+   * Same 28% ink/paper mix as light / Registry shell anchors. */
   --input: color-mix(in oklab, var(--foreground) 28%, var(--background));
   --ring: var(--brand);
 

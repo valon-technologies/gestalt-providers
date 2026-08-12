@@ -13,5 +13,6 @@ describe("DocsAudienceCallout", () => {
     // Alert only asserts live regions for layout=default && variant!==outline.
     expect(SOURCE).toContain('layout="banner"');
     expect(SOURCE).toContain('variant="info"');
+    expect(SOURCE).toContain("<AlertTitle>For admins</AlertTitle>");
   });
 });

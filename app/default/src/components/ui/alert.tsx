@@ -1,6 +1,6 @@
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
- * Registry `alert` (toolshed#4191 — outline tips, collapsible disclosure, ink hierarchy).
+ * Registry `alert`.
  */
 
 import * as React from "react";

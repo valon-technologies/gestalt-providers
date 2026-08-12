@@ -556,17 +556,19 @@
    * selectors — nesting `&:where([data-slot="code-fence"] pre)` under `*` is
    * invalid and browsers drop it, which left the gray typeset `pre` fill on fences.
    */
-  .typeset [data-slot="code-fence"] {
+  .typeset :is([data-slot="code-fence"], [data-slot="code-block"]) {
     margin-block-start: var(--typeset-pre-margin-start);
     margin-block-end: 0;
   }
   /* Nested fences inside full chrome islands — island owns the flow gap.
    * Do not include [data-typeset-chrome]: mixed blocks still typeset their
    * panel (description → fence) with normal pre margin. */
-  .typeset :where(.not-typeset, [data-not-typeset]) [data-slot="code-fence"] {
+  .typeset
+    :where(.not-typeset, [data-not-typeset])
+    :is([data-slot="code-fence"], [data-slot="code-block"]) {
     margin-block-start: 0;
   }
-  .typeset [data-slot="code-fence"] pre {
+  .typeset :is([data-slot="code-fence"], [data-slot="code-block"]) pre {
     background-color: transparent;
     border-radius: 0;
     padding: unset;

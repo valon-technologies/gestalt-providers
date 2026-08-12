@@ -40,6 +40,12 @@ test("typeset-reading paragraphs use text-wrap pretty to avoid orphans", () => {
   expect(TYPESET).toMatch(/&:where\(p\)\s*\{[^}]*text-wrap:\s*pretty/s);
 });
 
+test("typeset-reading styles both CodeFence and CodeBlock shells", () => {
+  expect(TYPESET).toContain(
+    ':is([data-slot="code-fence"], [data-slot="code-block"])',
+  );
+});
+
 test("typeset-reading stays tenant-neutral (no org brand filename/comments)", () => {
   expect(TYPESET).not.toMatch(/valon/i);
   expect(TYPESET).not.toMatch(/Melange|Season Serif/i);

@@ -1,12 +1,5 @@
-import {
-  useCallback,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-} from "react";
-import { useRouterState } from "@tanstack/react-router";
+import { useCallback, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import Container from "@/components/Container";
 import { PageLayout } from "@/components/ui/page-layout";
 import {
@@ -57,6 +50,7 @@ export default function DocsShell({
   const locationHash = useRouterState({
     select: (state) => state.location.hash,
   });
+  const navigate = useNavigate();
 
   useLayoutEffect(() => {
     scrollRootRef.current = document.documentElement;
@@ -86,9 +80,8 @@ export default function DocsShell({
   // Client navigations land under sticky chrome (worktree banner + top bar).
   // Root publishes `--app-sticky-chrome-height` in its layout effect first;
   // `scroll-mt` on the hash target then clears that measured stack.
-  // Hash-backed option switchers intentionally omit matching DOM ids — scroll
-  // to the switcher chrome so deep links like `#mcp-codex` still bring the
-  // control into view after `useHashTab` selects the option.
+  // Hash-backed option switchers omit matching DOM ids — scroll to the
+  // switcher that owns this hash so `#agent-codex` does not land on Install.
   useLayoutEffect(() => {
     const id = locationHash.replace(/^#/, "");
     if (!id) return;
@@ -99,7 +92,7 @@ export default function DocsShell({
       return;
     }
     const switcher = document.querySelector<HTMLElement>(
-      "[data-docs-option-switcher]",
+      `[data-docs-hash-ids~="${CSS.escape(id)}"]`,
     );
     switcher?.scrollIntoView({ block: "start" });
   }, [activate, locationHash, pathname, sectionsKey]);
@@ -109,12 +102,10 @@ export default function DocsShell({
       const el = document.getElementById(id);
       if (!el) return;
       activate(id);
-      const url = new URL(window.location.href);
-      url.hash = id;
-      window.history.replaceState(null, "", url);
+      void navigate({ to: pathname, hash: id, replace: true });
       el.scrollIntoView({ behavior: "smooth", block: "start" });
     },
-    [activate],
+    [activate, navigate, pathname],
   );
 
   return (

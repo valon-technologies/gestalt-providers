@@ -1,6 +1,6 @@
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
- * Registry `collapsible` (toolshed#4191 — lock `data-slot` after props for drawer CSS).
+ * Registry `collapsible` (lock `data-slot` after props for drawer CSS).
  */
 
 import * as React from "react";

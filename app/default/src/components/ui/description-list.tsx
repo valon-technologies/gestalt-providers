@@ -1,6 +1,6 @@
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
- * Registry `description-list` (toolshed#4188 outline surface; #4218 density + term type).
+ * Registry `description-list`.
  */
 
 import * as React from "react";

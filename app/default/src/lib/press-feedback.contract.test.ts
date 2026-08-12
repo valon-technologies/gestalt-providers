@@ -13,7 +13,7 @@ const SOURCE = readFileSync(
   "utf8",
 );
 
-describe("press-feedback quiet chrome (toolshed#4081 / #4191)", () => {
+describe("press-feedback quiet chrome", () => {
   test("exports scrim + ghost paint + secondary surface roles", () => {
     expect(SOURCE).toContain("export const pressFeedbackScrimClassName");
     expect(SOURCE).toContain("export const ghostQuietChromePaintClassName");

@@ -1,5 +1,6 @@
 
 import { useEffect, useId, useState, type CSSProperties, type ReactNode } from "react";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { CodeBlock } from "@/components/ui/code-block";
 import { Code } from "@/components/ui/code";
 import {
@@ -23,6 +24,7 @@ import {
   DOCS_SETTINGS_TOKENS_HREF,
   DOCS_TOKENS_PATH,
   DOCS_WORKFLOWS_PATH,
+  docsSubsectionLabel,
 } from "./docs-data";
 import { DOCS_PAGE_TOP_GAP } from "./docs-chrome";
 import { DocsLink } from "./DocsLink";
@@ -73,10 +75,6 @@ const GESTALT_INSTALL_METHODS = [
   },
 ] as const;
 
-function agentStartupScript() {
-  return GESTALT_INSTALL_SCRIPT;
-}
-
 function cloudEnvironmentVariables(origin: string) {
   return `GESTALT_URL=${origin}
 GESTALT_API_KEY=gst_api_your_token_here`;
@@ -93,8 +91,9 @@ export function GettingStartedDocsPage() {
           Walk through Gestalt setup with copy-paste{" "}
           <Code>gestalt</Code> CLI commands. You do not need prior CLI
           experience—run each command as shown. This page covers install, point
-          the CLI, authenticate, then points you to connect apps, invoke
-          operations, mint tokens, and MCP.
+          the CLI, authenticate, grant app access, and configure cloud
+          environments. Journey links then take you to connect apps, invoke
+          operations, create API tokens, and use MCP.
         </p>
         <div className="not-typeset flex flex-col gap-2.5">
           <Eyebrow className="block">Base URL</Eyebrow>
@@ -105,7 +104,7 @@ export function GettingStartedDocsPage() {
             copyLabel="Copy base URL"
           />
         </div>
-        <Subheading id="install" title="Install" />
+        <Subheading id="install" />
         <p>
           Install the <Code>gestalt</Code> CLI using one of the methods below.
         </p>
@@ -129,7 +128,7 @@ export function GettingStartedDocsPage() {
           .
         </p>
 
-        <Subheading id="point-cli" title="Point the CLI at this workspace" />
+        <Subheading id="point-cli" />
         <p>
           The CLI needs the base URL for your Gestalt workspace. Use either the
           setup wizard or a direct config command.
@@ -184,7 +183,7 @@ export function GettingStartedDocsPage() {
           </li>
         </ol>
 
-        <Subheading id="authenticate" title="Authenticate" />
+        <Subheading id="authenticate" />
         <p>
           Use browser login for interactive sessions, or set a token directly
           for scripts and other non-interactive clients. If authentication is
@@ -214,7 +213,7 @@ export function GettingStartedDocsPage() {
         </p>
         <CodeBlock chrome="inset" language="cli" code="gestalt apps list" />
 
-        <Subheading id="authorization" title="Grant App Access" />
+        <Subheading id="authorization" />
         <p>
           App access for other users or service accounts is managed by app
           admins (and Gestalt admins). If you need access, ask your admin. If
@@ -229,10 +228,7 @@ export function GettingStartedDocsPage() {
   --role viewer`}
         />
 
-        <Subheading
-          id="agent-environments"
-          title="Configure cloud environments"
-        />
+        <Subheading id="agent-environments" />
         <p>
           Configure the hosted coding environment before starting cloud tasks.
           Set the workspace URL and API token in that environment, then install
@@ -240,7 +236,7 @@ export function GettingStartedDocsPage() {
         </p>
         <AgentEnvironmentTabs origin={origin} />
 
-        <Subheading id="workflows" title="Inspect Workflows" />
+        <Subheading id="workflows" />
         <p>
           After your workspace URL and auth are set, inspect recent runs with{" "}
           <Code>gestalt workflows runs list</Code>. For CLI and
@@ -345,7 +341,7 @@ export function AuthorizationDocsPage() {
           to admin authorization commands.
         </p>
 
-        <Subheading id="authz-plugin-access" title="Grant app access" />
+        <Subheading id="authz-plugin-access" />
         <p>
           Grant a user or service account an app role with{" "}
           <Code>viewer</Code>
@@ -370,12 +366,13 @@ gestalt authorization apps members set <app> \\
 gestalt authorization apps members remove <app> user:user_123`}
         />
 
-        <Subheading id="authz-service-accounts" title="Grant service account access" />
+        <Subheading id="authz-service-accounts" />
         <p>
-          Service accounts are managed subjects. Create the subject, grant it an
-          app role, connect the app credentials it needs (same credential flow as{" "}
+          Service accounts are managed identities. Create the account, grant it
+          an app role, connect the app credentials it needs (same credential
+          flow as{" "}
           <Code>gestalt apps connect</Code>, scoped to that
-          subject), then mint a scoped token for automation.
+          account), then mint a scoped token for automation.
         </p>
         <CodeBlock chrome="inset"
           language="cli"
@@ -392,7 +389,7 @@ gestalt authorization subjects tokens create service_account:release-bot \\
   --permission <app>:<operation>`}
         />
 
-        <Subheading id="authz-admins" title="Grant built-in admin access" />
+        <Subheading id="authz-admins" />
         <p>
           Built-in admins can administer the global authorization surface. Use
           this only for operators who should manage grants beyond one app.
@@ -408,7 +405,7 @@ gestalt authorization admins members set \\
 gestalt authorization admins members remove user:user_123`}
         />
 
-        <Subheading id="authz-inspect" title="Inspect grants" />
+        <Subheading id="authz-inspect" />
         <p>
           Use provider and relationship views to confirm which authorization
           provider is active and which app grants are stored.{" "}
@@ -444,14 +441,14 @@ export function WorkflowsDocsPage() {
           fastest source of truth.
         </p>
 
-        <Subheading id="wf-help" title="Start with help" />
+        <Subheading id="wf-help" />
         <CodeBlock chrome="inset" language="cli" code="gestalt workflows --help" />
         <p>
           In this workspace, the default browser UI focuses on recent workflow
           execution history and durable per-step state.
         </p>
 
-        <Subheading id="wf-runs" title="Inspect runs" />
+        <Subheading id="wf-runs" />
         <p>
           Run history tells you whether work executed, which definition and
           generation were used, which step is current, and which inputs and
@@ -501,7 +498,7 @@ export function McpDocsPage() {
           These examples assume the agent environment runs this startup script
           before the MCP client starts.
         </p>
-        <CodeBlock chrome="inset" language="cli" code={agentStartupScript()} />
+        <CodeBlock chrome="inset" language="cli" code={GESTALT_INSTALL_SCRIPT} />
         <InfoTable
           rows={[
             ["Endpoint", `${origin}/mcp`],
@@ -531,10 +528,7 @@ export function TroubleshootingDocsPage() {
           ambiguous connection selection, or a grant that has not taken effect
           yet.
         </p>
-        <Subheading
-          id="ts-not-authenticated"
-          title="The CLI says you are not authenticated"
-        />
+        <Subheading id="ts-not-authenticated" />
         <p>
           Run{" "}
           <Code>gestalt auth login</Code>
@@ -543,10 +537,7 @@ export function TroubleshootingDocsPage() {
           if you are using a token directly.
         </p>
 
-        <Subheading
-          id="ts-multiple-connections"
-          title="An app has multiple connections"
-        />
+        <Subheading id="ts-multiple-connections" />
         <p>
           Pass{" "}
           <Code>--connection</Code>{" "}
@@ -555,25 +546,19 @@ export function TroubleshootingDocsPage() {
           Gestalt can resolve the correct credentials.
         </p>
 
-        <Subheading
-          id="ts-empty-tools"
-          title="The MCP endpoint is mounted, but the tool list is empty"
-        />
+        <Subheading id="ts-empty-tools" />
         <p>
           That usually means the app is available in the workspace config
           but has not been connected for your current user yet.
         </p>
 
-        <Subheading
-          id="ts-forbidden"
-          title="I was granted access but still get forbidden"
-        />
+        <Subheading id="ts-forbidden" />
         <p>
           Confirm an app admin granted you the expected role (
           <DocsLink to={DOCS_AUTHORIZATION_PATH}>Grant App Access</DocsLink>
           ), that the operation allows that role, and that you are
-          authenticated as the same subject the grant targets. Then retry the
-          invoke or MCP call.
+          authenticated as the same user or service account the grant targets.
+          Then retry the invoke or MCP call.
         </p>
       </DocsPageBody>
     </>
@@ -619,28 +604,17 @@ function DocsPageBody({ children }: { children: ReactNode }) {
 }
 
 function useHashTab(ids: readonly string[], fallbackId: string) {
-  const [activeId, setActiveId] = useState(fallbackId);
-
-  useEffect(() => {
-    function syncFromHash() {
-      const hash = window.location.hash.replace(/^#/, "");
-      if (ids.includes(hash)) {
-        setActiveId(hash);
-      } else if (!hash) {
-        setActiveId(fallbackId);
-      }
-    }
-
-    syncFromHash();
-    window.addEventListener("hashchange", syncFromHash);
-    return () => window.removeEventListener("hashchange", syncFromHash);
-  }, [fallbackId, ids]);
+  const { hash, pathname } = useRouterState({
+    select: (state) => ({
+      hash: state.location.hash.replace(/^#/, ""),
+      pathname: state.location.pathname,
+    }),
+  });
+  const navigate = useNavigate();
+  const activeId = ids.includes(hash) ? hash : fallbackId;
 
   function selectTab(id: string) {
-    setActiveId(id);
-    const url = new URL(window.location.href);
-    url.hash = id;
-    window.history.replaceState(null, "", url);
+    void navigate({ to: pathname, hash: id, replace: true });
   }
 
   return [activeId, selectTab] as const;
@@ -667,7 +641,12 @@ function DocsOptionSwitcher<V extends string>({
     options.find((option) => option.value === value)?.label ?? label;
 
   return (
-    <div data-typeset-chrome data-docs-option-switcher>
+    <div
+      data-typeset-chrome
+      data-docs-option-switcher
+      data-docs-hash-ids={options.map((option) => option.value).join(" ")}
+      className="scroll-mt-[var(--page-layout-anchor-offset)]"
+    >
       {/*
         Horizontal scroll for long labelled tracks. `overflow-x-auto` forces
         y-clipping too (CSS overflow pairing), so pad the clip edges for outward
@@ -703,7 +682,8 @@ function MethodCodeSwitcher({
   label: string;
   items: { id: string; label: string; code: string; description: string }[];
 }) {
-  const [activeId, setActiveId] = useState(items[0]?.id ?? "");
+  const ids = items.map((item) => item.id);
+  const [activeId, setActiveId] = useHashTab(ids, items[0]?.id ?? "");
   const active = items.find((item) => item.id === activeId) ?? items[0];
   if (!active) return null;
 
@@ -803,7 +783,7 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
           <p>
             Then add this to the environment setup script.
           </p>
-          <CodeBlock chrome="inset" language="cli" code={agentStartupScript()} />
+          <CodeBlock chrome="inset" language="cli" code={GESTALT_INSTALL_SCRIPT} />
           <p>
             Keep the values above in the cloud environment variables, not in the
             setup script. Codex secrets are only available during setup.
@@ -873,7 +853,7 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
           <p>
             Then add this to the cloud environment setup script.
           </p>
-          <CodeBlock chrome="inset" language="cli" code={agentStartupScript()} />
+          <CodeBlock chrome="inset" language="cli" code={GESTALT_INSTALL_SCRIPT} />
           <p>
             Reference:{" "}
             <DocsLink href="https://code.claude.com/docs/en/claude-code-on-the-web">Claude Code web</DocsLink>
@@ -1019,14 +999,15 @@ function useDeploymentOrigin() {
   return origin;
 }
 
-function Subheading({ id, title }: { id?: string; title: string }) {
+function Subheading({ id }: { id: string }) {
   // Real heading so Registry typeset owns section rhythm (h2 margins /
   // after-heading). `id` and `scroll-mt` must share the same node — hash /
   // scrollIntoView only apply scroll-margin on the matched element.
   // Offset token includes measured sticky chrome (worktree banner + top bar).
+  // Title comes from docs-data so TOC labels and headings cannot drift.
   return (
     <h2 id={id} className="scroll-mt-[var(--page-layout-anchor-offset)]">
-      {title}
+      {docsSubsectionLabel(id)}
     </h2>
   );
 }

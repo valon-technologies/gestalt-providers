@@ -7,7 +7,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SOURCE = readFileSync(join(HERE, "brand-spinner.tsx"), "utf8");
 const GLOBALS = readFileSync(join(HERE, "../../globals.css"), "utf8");
 
-describe("BrandSpinner (toolshed#4224)", () => {
+describe("BrandSpinner", () => {
   test("lights whole V pieces via trail hooks (not path-dash snake)", () => {
     expect(SOURCE).toContain('className="brand-spinner__trail"');
     expect(SOURCE).toContain('className="brand-spinner__track"');

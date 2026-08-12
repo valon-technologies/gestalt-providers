@@ -574,7 +574,7 @@
 /*
  * Accordion / Collapsible drawer — height to/from intrinsic `auto` (no JS
  * measurement), enabled by `interpolate-size: allow-keywords` on the panel.
- * toolshed#4191 also adds opt-in width animation for Alert `animateSize`.
+ * Registry also adds opt-in width animation for Alert `animateSize`.
  */
 @keyframes accordion-drawer-open {
   from {

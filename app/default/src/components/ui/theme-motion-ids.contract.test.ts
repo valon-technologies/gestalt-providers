@@ -1,6 +1,6 @@
 /**
  * Tenant-neutral motion identifiers — public bundle must not publish
- * org-branded class/keyframe IDs (toolshed#4224).
+ * org-branded class/keyframe IDs.
  *
  * Ownership: `globals.css` owns keyframe IDs; components bind via class /
  * `[data-slot=*-content]`. Names describe the motion role
@@ -22,7 +22,7 @@ const GLOBALS = readFileSync(
 
 const BRANDED_MOTION_ID = /valon-(spinner|accordion|collapsible)/;
 
-describe("tenant-neutral motion IDs (toolshed#4224)", () => {
+describe("tenant-neutral motion IDs", () => {
   test("globals.css uses Registry spinner / drawer keyframe and class names", () => {
     expect(GLOBALS).toContain("@keyframes spinner-trail-spin");
     expect(GLOBALS).toContain(".spinner-trail");

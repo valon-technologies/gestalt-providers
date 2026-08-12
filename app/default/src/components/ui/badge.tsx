@@ -65,7 +65,7 @@ const badgeVariants = cva(
   // distinct envelopes (badges-and-tags.md), never padding-only nudges.
   // No transition: Badge is static metadata; color/surface feedback snaps
   // (`transitions.md`). Bare Tailwind color-transition utilities carry a 150ms
-  // default — never add them here. toolshed#4057 / #4081 / #4113 / #4119
+  // default — never add them here.
   // Chrome shell is inline-flex (icon + label gap). Ink trim lives on the label
   // text box (`badgeLabelClassName`) — text-box-trim does not apply to flex
   // formatting contexts (css-inline-3) and does not inherit.

@@ -4,7 +4,7 @@
  * On-color state-layer overlay + transparent quiet chrome (`ghost`).
  *
  * Normative: Registry `guidelines/press-feedback.md`, `hover-pressed-color.md`,
- * `buttons.md` (RES-20260617-004 / RES-20260702-002). toolshed#4081 / #4191
+ * `buttons.md` (RES-20260617-004 / RES-20260702-002).
  *
  * Prefer these role utilities — never hand-roll `after:bg-current` opacity
  * scrims or `hover:bg-accent` on transparent quiet chrome.

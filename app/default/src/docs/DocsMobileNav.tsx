@@ -1,19 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { ChevronDownIcon } from "@/components/icons";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+import { PageLayoutPaneMobileNav } from "@/components/ui/page-layout-pane-mobile-nav";
 import {
   NavList,
   NavListGroup,
   NavListItem,
   NavListItemLabel,
 } from "@/components/ui/nav-list";
-import { disclosureCaretClassName } from "@/lib/disclosure-caret";
-import { cn } from "@/lib/cn";
 import {
   DOCS_NAV_GROUPS,
   docsNavItemsByGroup,
@@ -22,7 +15,8 @@ import {
 
 /**
  * Mobile stand-in for the docs Pane. Same destinations as the desktop rail,
- * inside a disclosure — SegmentedControl is wrong for 8 grouped pages.
+ * inside PageLayoutPaneMobileNav (Menu bar → overlay). SegmentedControl is
+ * wrong for 8 grouped pages.
  */
 export function DocsMobileNav({
   pathname,
@@ -38,31 +32,15 @@ export function DocsMobileNav({
   }, [pathname]);
 
   return (
-    <Collapsible
+    <PageLayoutPaneMobileNav
       open={open}
       onOpenChange={setOpen}
-      className="w-full min-w-0"
+      panelLabel="Documentation"
+      aria-label={`Documentation, current: ${activeItem.label}`}
       data-testid="docs-mobile-nav"
     >
-      <CollapsibleTrigger
-        className={cn(
-          "group flex w-full items-center rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground",
-          "hover:bg-neutral-hover active:bg-neutral-pressed",
-        )}
-        aria-label={`Documentation, current: ${activeItem.label}`}
-      >
-        <span className="min-w-0 truncate">{activeItem.label}</span>
-        <ChevronDownIcon
-          className={cn(disclosureCaretClassName, "ml-auto text-muted-foreground")}
-          aria-hidden
-        />
-      </CollapsibleTrigger>
-      <CollapsibleContent className="pt-2">
-        <div className="rounded-lg border border-border bg-background p-2">
-          <DocsNavList activeId={activeItem.id} />
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
+      <DocsNavList activeId={activeItem.id} />
+    </PageLayoutPaneMobileNav>
   );
 }
 

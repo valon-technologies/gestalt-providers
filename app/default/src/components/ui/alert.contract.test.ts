@@ -8,7 +8,7 @@ const SOURCE = readFileSync(
   "utf8",
 );
 
-describe("Alert (toolshed#4191)", () => {
+describe("Alert", () => {
   test("exposes outline quiet chrome and collapsible disclosure", () => {
     expect(SOURCE).toContain('outline: "border border-border bg-card"');
     expect(SOURCE).toContain("collapsible: true");
