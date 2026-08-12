@@ -47,7 +47,7 @@ vendored here. Theme bridges (`--primary`, `--muted`, `--input`, `--disabled*`,
 `@theme inline`. Spinner motion CSS (`.spinner-trail`, `.brand-spinner*`)
 lives in `globals.css` and maps BrandSpinner strokes to semantic tokens
 (`--border`, `--accent-strong`) — not Registry palette constants. Class /
-keyframe IDs match Registry after toolshed#4224 (no `valon-spinner*` remap).
+keyframe IDs match Registry (toolshed#4224).
 Prefer `@/components/ui/button`, `@/components/ui/input`, and
 `@/components/ui/select` at call sites;
 `@/components/Button` is a legacy adapter (`primary` → `default`,
@@ -211,7 +211,9 @@ Do not hand-roll `ul.divide-y` when Item fits. Expand/collapse is owned by
 `Collapsible` — paint the root with `cardVariants({ variant: "outline" })` at
 the call site (cards.md Card Collapsible). Do not restyle trigger hover/press
 (List Item Neutral via `listItemInteraction`). Drawer height animation lives on
-`[data-slot=collapsible-content]` in `globals.css` (Registry theme keyframes).
+`[data-slot=collapsible-content]` / `[data-slot=accordion-content]` in
+`globals.css`, keyed by role-named keyframes (`accordion-drawer-*`,
+`collapsible-maxwidth-*` for Alert `animateSize`; toolshed#4224).
 
 ## DescriptionList
 
@@ -228,14 +230,13 @@ tones use `--*-ink` canvas status tokens (bridged in `shared/theme.css` +
 
 ## StepPager
 
-Registry `step-pager` is vendored here (toolshed#4190). Previous/next
+Registry `step-pager` is vendored here (toolshed#4190 / #4224). Previous/next
 destination cards for docs journey edges and Build wizard steps. Compose
 `StepPager` + `StepPagerPrevious` / `StepPagerNext` (+ `StepPagerStartSpacer`
 when there is no previous). Use `asChild` for `<button>` or router `Link`.
 Surfaces: `solid` (default) / `outline` / `ghost`. Not `Pagination` (dataset
 paging) and not `Stepper` (in-flow process rail). Strip `"use client"`; prefer
-`@/lib/cn`. Map Registry `border-alpha` on the pager rule to semantic
-`border-border` for this public bundle.
+`@/lib/cn`. Hairline is semantic `border-border`.
 
 ## Tabs
 
@@ -282,8 +283,9 @@ detail sibling navigation; do not invent custom pager chrome at call sites.
 ## PageLayout / NavList
 
 Registry `page-layout`, `page-layout-pane-mobile-nav`, and `nav-list` are
-vendored here. `PageLayout` owns in-page geometry (header band, start Pane,
-content, end Aside); `PageLayoutPaneMobileNav` is secondary mobile chrome for
+vendored here (toolshed#4242 two sticky seams). `PageLayout` owns in-page
+geometry (header band, start Pane, content, end Aside);
+`PageLayoutPaneMobileNav` is secondary mobile chrome for
 long-list `paneMobile` (sticky Menu bar under AppTopBar → modal dialog overlay
 with FocusScope trap + `react-remove-scroll`, Next.js docs pattern); `NavList`
 is router-agnostic section navigation for rails, sheets, and flyouts. Set sticky
@@ -358,7 +360,6 @@ field·operator·value bars stay Registry `Filters` (not yet required here).
 | --- | --- |
 | **TableOfContents `kind: "separator"`** | Apps catalog TOC divider between groups |
 | **`AGENT_CONSOLE_THEME_CODEX` / `_CURSOR` exports** (optional) | Story palettes only today; Build re-copies them — promote from `agent-console.stories` |
-| **`--page-layout-mobile-nav-top` + Menu sticky** | Flush Menu under AppTopBar vs Pane rail breathing gap (`pane-top`). Registry still docks Menu on `pane-top`; raise token + `page-layout` sticky class + mobile `anchor-offset` composition. |
 
 ### Avatar (synced)
 

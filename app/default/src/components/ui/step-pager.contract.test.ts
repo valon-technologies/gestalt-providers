@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SOURCE = readFileSync(join(HERE, "step-pager.tsx"), "utf8");
 
-describe("StepPager (toolshed#4190)", () => {
+describe("StepPager (toolshed#4190 / #4224)", () => {
   test("imports cn from @/lib/cn (console vendor convention)", () => {
     expect(SOURCE).toContain('from "@/lib/cn"');
     expect(SOURCE).not.toContain('from "@/lib/utils"');

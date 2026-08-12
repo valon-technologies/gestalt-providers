@@ -1,6 +1,6 @@
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
- * Registry `step-pager` (toolshed#4190).
+ * Registry `step-pager` (toolshed#4190; #4224 hairline `border-border`).
  */
 
 import * as React from "react";

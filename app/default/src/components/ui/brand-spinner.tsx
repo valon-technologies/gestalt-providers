@@ -1,5 +1,6 @@
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ * Registry `brand-spinner` (toolshed#4224 — tenant-neutral motion IDs).
  */
 
 import * as React from "react";
