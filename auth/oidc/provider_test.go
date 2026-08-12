@@ -229,6 +229,71 @@ func TestListGrantsScopesToCaller(t *testing.T) {
 	}
 }
 
+func TestListGrantsUsesVerifiedCallerSubjectWithoutBearer(t *testing.T) {
+	p := New()
+	attachGrantStore(t, p)
+	ctx := context.Background()
+	subject := "user:owner@example.com"
+	if _, err := p.grants.issue(ctx, subject, "openid", defaultOAuthClientID, grantCategorySession, time.Hour); err != nil {
+		t.Fatalf("issue(session) error = %v", err)
+	}
+	issued, err := p.grants.issue(ctx, subject, "openid", defaultOAuthClientID, grantCategoryAPIToken, time.Hour)
+	if err != nil {
+		t.Fatalf("issue() error = %v", err)
+	}
+	otherIssued, err := p.grants.issue(ctx, "user:other@example.com", "openid", defaultOAuthClientID, grantCategoryAPIToken, time.Hour)
+	if err != nil {
+		t.Fatalf("issue(other) error = %v", err)
+	}
+
+	callCtx := gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
+		CallerSubjectID: subject,
+	})
+	resp, err := p.ListGrants(callCtx, &gestalt.ListGrantsRequest{})
+	if err != nil {
+		t.Fatalf("ListGrants() error = %v", err)
+	}
+	if len(resp.GrantIDs) != 1 || resp.GrantIDs[0] != issued.grantID {
+		t.Fatalf("ListGrants() = %v, want [%q]", resp.GrantIDs, issued.grantID)
+	}
+	if _, err := p.GetGrant(callCtx, &gestalt.GetGrantRequest{GrantID: otherIssued.grantID}); err == nil {
+		t.Fatal("GetGrant(other) error = nil, want not found")
+	}
+}
+
+func TestListGrantsUsesTrustedCallerSubjectWithoutBearer(t *testing.T) {
+	p := New()
+	attachGrantStore(t, p)
+	ctx := context.Background()
+	subject := "user:owner@example.com"
+	issued, err := p.grants.issue(ctx, subject, "openid", defaultOAuthClientID, grantCategoryAPIToken, time.Hour)
+	if err != nil {
+		t.Fatalf("issue() error = %v", err)
+	}
+
+	callCtx := gestalt.WithTrustedCallerSubject(ctx, subject)
+	resp, err := p.ListGrants(callCtx, &gestalt.ListGrantsRequest{})
+	if err != nil {
+		t.Fatalf("ListGrants() error = %v", err)
+	}
+	if len(resp.GrantIDs) != 1 || resp.GrantIDs[0] != issued.grantID {
+		t.Fatalf("ListGrants() = %v, want [%q]", resp.GrantIDs, issued.grantID)
+	}
+}
+
+func TestListGrantsRequiresCallerIdentity(t *testing.T) {
+	p := New()
+	attachGrantStore(t, p)
+
+	_, err := p.ListGrants(context.Background(), &gestalt.ListGrantsRequest{})
+	if err == nil {
+		t.Fatal("ListGrants() error = nil, want caller identity required")
+	}
+	if !strings.Contains(err.Error(), "caller identity is required") {
+		t.Fatalf("ListGrants() error = %v, want caller identity required", err)
+	}
+}
+
 func TestConfigureRejectsInsecureIssuerURLByDefault(t *testing.T) {
 	p := New()
 

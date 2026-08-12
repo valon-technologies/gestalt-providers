@@ -544,9 +544,19 @@ func (p *Provider) callerSubject(ctx context.Context) (string, error) {
 	if call.Introspection != nil && call.Introspection.Active && strings.TrimSpace(call.Introspection.Subject) != "" {
 		return strings.TrimSpace(call.Introspection.Subject), nil
 	}
+	// Cookie-authenticated console requests resolve the caller at ingress and
+	// pass CallerSubjectID (or TrustedCallerSubject) without an Authorization
+	// bearer. Grant listing is subject-scoped, so the verified subject is the
+	// canonical identity. CLI/API-token callers still arrive with a bearer.
+	if subject := strings.TrimSpace(call.CallerSubjectID); subject != "" {
+		return subject, nil
+	}
+	if subject := strings.TrimSpace(gestalt.TrustedCallerSubjectFromContext(ctx)); subject != "" {
+		return subject, nil
+	}
 	token := strings.TrimSpace(call.CallerBearerToken)
 	if token == "" {
-		return "", fmt.Errorf("oidc auth: caller bearer token is required")
+		return "", fmt.Errorf("oidc auth: caller identity is required")
 	}
 	resp, err := p.Introspect(ctx, &gestalt.IntrospectRequest{Token: token})
 	if err != nil {
