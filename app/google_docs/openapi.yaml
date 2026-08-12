@@ -102,6 +102,17 @@ paths:
           - PREVIEW_SUGGESTIONS_ACCEPTED
           - PREVIEW_WITHOUT_SUGGESTIONS
           type: string
+      - description: 'Whether to populate the Document.tabs field instead of the text
+          content fields like `body` and `documentStyle` on Document. - When `True`:
+          Document content populates in the Document.tabs field instead of the text
+          content fields in Document. - When `False`: The content of the document''s
+          first tab populates the content fields in Document excluding Document.tabs.
+          If a document has only one tab, then that tab is used to populate the document
+          content. Document.tabs will be empty.'
+        in: query
+        name: includeTabsContent
+        schema:
+          type: boolean
       responses:
         '200':
           content:
@@ -662,6 +673,14 @@ components:
             is defined on a SectionStyle, the reference to this footer is removed
             and the footer of that type is now continued from the previous section.
           type: string
+        tabId:
+          description: 'The tab that contains the footer to delete. When omitted,
+            the request is applied to the first tab. In a document containing a single
+            tab: - If provided, must match the singular tab''s ID. - If omitted, the
+            request applies to the singular tab. In a document containing multiple
+            tabs: - If provided, the request applies to the specified tab. - If omitted,
+            the request applies to the first tab in the document.'
+          type: string
       type: object
     DeleteHeaderRequest:
       description: Deletes a Header from the document.
@@ -672,6 +691,14 @@ components:
             header of that type for the first section of the document. If this header
             is defined on a SectionStyle, the reference to this header is removed
             and the header of that type is now continued from the previous section.
+          type: string
+        tabId:
+          description: 'The tab containing the header to delete. When omitted, the
+            request is applied to the first tab. In a document containing a single
+            tab: - If provided, must match the singular tab''s ID. - If omitted, the
+            request applies to the singular tab. In a document containing multiple
+            tabs: - If provided, the request applies to the specified tab. - If omitted,
+            the request applies to the first tab in the document.'
           type: string
       type: object
     DeleteNamedRangeRequest:
@@ -684,6 +711,15 @@ components:
         namedRangeId:
           description: The ID of the named range to delete.
           type: string
+        tabsCriteria:
+          description: 'Optional. The criteria used to specify which tab(s) the range
+            deletion should occur in. When omitted, the range deletion is applied
+            to all tabs. In a document containing a single tab: - If provided, must
+            match the singular tab''s ID. - If omitted, the range deletion applies
+            to the singular tab. In a document containing multiple tabs: - If provided,
+            the range deletion applies to the specified tabs. - If not provided, the
+            range deletion applies to all tabs.'
+          $ref: '#/components/schemas/TabsCriteria'
       type: object
     DeleteParagraphBulletsRequest:
       description: Deletes bullets from all of the paragraphs that overlap with the
@@ -700,6 +736,14 @@ components:
         objectId:
           description: The ID of the positioned object to delete.
           type: string
+        tabId:
+          type: string
+          description: 'The tab that the positioned object to delete is in. When omitted,
+            the request is applied to the first tab. In a document containing a single
+            tab: - If provided, must match the singular tab''s ID. - If omitted, the
+            request applies to the singular tab. In a document containing multiple
+            tabs: - If provided, the request applies to the specified tab. - If omitted,
+            the request applies to the first tab in the document.'
       type: object
     DeleteTableColumnRequest:
       description: Deletes a column from a table.
@@ -828,6 +872,13 @@ components:
         title:
           description: The title of the document.
           type: string
+        tabs:
+          type: array
+          description: Tabs that are part of a document. Tabs can contain child tabs,
+            a tab nested within another tab. Child tabs are represented by the Tab.childTabs
+            field.
+          items:
+            $ref: '#/components/schemas/Tab'
       type: object
     DocumentStyle:
       description: The style of the document.
@@ -1127,6 +1178,14 @@ components:
         segmentId:
           description: The ID of the header, footer or footnote the location is in.
             An empty segment ID signifies the document's body.
+          type: string
+        tabId:
+          description: 'The tab that the location is in. When omitted, the request
+            is applied to the first tab. In a document containing a single tab: -
+            If provided, must match the singular tab''s ID. - If omitted, the request
+            applies to the singular tab. In a document containing multiple tabs: -
+            If provided, the request applies to the specified tab. - If omitted, the
+            request applies to the first tab in the document.'
           type: string
       type: object
     Equation:
@@ -1579,6 +1638,21 @@ components:
         url:
           description: An external URL.
           type: string
+        bookmark:
+          description: A bookmark in this document. In documents containing a single
+            tab, links to bookmarks within the singular tab continue to return Link.bookmarkId
+            when the includeTabsContent parameter is set to `false` or unset. Otherwise,
+            this field is returned.
+          $ref: '#/components/schemas/BookmarkLink'
+        heading:
+          description: A heading in this document. In documents containing a single
+            tab, links to headings within the singular tab continue to return Link.headingId
+            when the includeTabsContent parameter is set to `false` or unset. Otherwise,
+            this field is returned.
+          $ref: '#/components/schemas/HeadingLink'
+        tabId:
+          description: The ID of a tab in this document.
+          type: string
       type: object
     LinkedContentReference:
       description: A reference to the external linked source content.
@@ -1662,6 +1736,14 @@ components:
           description: The ID of the header, footer or footnote the location is in.
             An empty segment ID signifies the document's body.
           type: string
+        tabId:
+          type: string
+          description: 'The tab that the location is in. When omitted, the request
+            is applied to the first tab. In a document containing a single tab: -
+            If provided, must match the singular tab''s ID. - If omitted, the request
+            applies to the singular tab. In a document containing multiple tabs: -
+            If provided, the request applies to the specified tab. - If omitted, the
+            request applies to the first tab in the document.'
       type: object
     MergeTableCellsRequest:
       description: Merges cells in a Table.
@@ -2454,6 +2536,14 @@ components:
             Int32Value in order to accommodate future use cases with open-ended ranges.
           format: int32
           type: integer
+        tabId:
+          type: string
+          description: 'The tab that contains this range. When omitted, the request
+            applies to the first tab. In a document containing a single tab: - If
+            provided, must match the singular tab''s ID. - If omitted, the request
+            applies to the singular tab. In a document containing multiple tabs: -
+            If provided, the request applies to the specified tab. - If omitted, the
+            request applies to the first tab in the document.'
       type: object
     ReplaceAllTextRequest:
       description: Replaces all instances of text matching a criteria with replace
@@ -2465,6 +2555,14 @@ components:
         replaceText:
           description: The text that will replace the matched text.
           type: string
+        tabsCriteria:
+          description: 'Optional. The criteria used to specify in which tabs the replacement
+            occurs. When omitted, the replacement applies to all tabs. In a document
+            containing a single tab: - If provided, must match the singular tab''s
+            ID. - If omitted, the replacement applies to the singular tab. In a document
+            containing multiple tabs: - If provided, the replacement applies to the
+            specified tabs. - If omitted, the replacement applies to all tabs.'
+          $ref: '#/components/schemas/TabsCriteria'
       type: object
     ReplaceAllTextResponse:
       description: The result of replacing text.
@@ -2497,6 +2595,14 @@ components:
             is saved with the image, and exposed through the ImageProperties.source_uri
             field.
           type: string
+        tabId:
+          type: string
+          description: 'The tab that the image to be replaced is in. When omitted,
+            the request is applied to the first tab. In a document containing a single
+            tab: - If provided, must match the singular tab''s ID. - If omitted, the
+            request applies to the singular tab. In a document containing multiple
+            tabs: - If provided, the request applies to the specified tab. - If omitted,
+            the request applies to the first tab in the document.'
       type: object
     ReplaceNamedRangeContentRequest:
       description: Replaces the contents of the specified NamedRange or NamedRanges
@@ -2520,6 +2626,14 @@ components:
           description: Replaces the content of the specified named range(s) with the
             given text.
           type: string
+        tabsCriteria:
+          description: 'Optional. The criteria used to specify in which tabs the replacement
+            occurs. When omitted, the replacement applies to all tabs. In a document
+            containing a single tab: - If provided, must match the singular tab''s
+            ID. - If omitted, the replacement applies to the singular tab. In a document
+            containing multiple tabs: - If provided, the replacement applies to the
+            specified tabs. - If omitted, the replacement applies to all tabs.'
+          $ref: '#/components/schemas/TabsCriteria'
       type: object
     Request:
       description: A single update to apply to a document.
@@ -2626,6 +2740,15 @@ components:
         addDocumentTab:
           description: Adds a document tab.
           $ref: '#/components/schemas/AddDocumentTabRequest'
+        deleteTab:
+          description: Deletes a document tab.
+          $ref: '#/components/schemas/DeleteTabRequest'
+        updateDocumentTabProperties:
+          description: Updates the properties of a document tab.
+          $ref: '#/components/schemas/UpdateDocumentTabPropertiesRequest'
+        updateNamedStyle:
+          description: Updates a named style.
+          $ref: '#/components/schemas/UpdateNamedStyleRequest'
       type: object
     Response:
       description: A single response from an update.
@@ -3669,6 +3792,14 @@ components:
             example to update the background, set `fields` to `"background"`.
           format: google-fieldmask
           type: string
+        tabId:
+          description: 'The tab that contains the style to update. When omitted, the
+            request applies to the first tab. In a document containing a single tab:
+            - If provided, must match the singular tab''s ID. - If omitted, the request
+            applies to the singular tab. In a document containing multiple tabs: -
+            If provided, the request applies to the specified tab. - If not provided,
+            the request applies to the first tab in the document.'
+          type: string
       type: object
     UpdateParagraphStyleRequest:
       description: Update the styling of all paragraphs that overlap with the given
@@ -3870,32 +4001,34 @@ components:
           type: string
       type: object
     TabProperties:
-      description: Properties of a tab.
       properties:
-        tabId:
-          description: The immutable ID of the tab.
+        parentTabId:
           type: string
+          description: Optional. The ID of the parent tab. Empty when the current
+            tab is a root-level tab, which means it doesn't have any parents.
+        index:
+          type: integer
+          description: The zero-based index of the tab within the parent.
+          format: int32
         title:
           description: The user-visible name of the tab.
           type: string
-        parentTabId:
-          description: Optional. The ID of the parent tab. Empty when the current
-            tab is a root-level tab, which means it does not have any parents.
+        tabId:
           type: string
-        index:
-          description: The zero-based index of the tab within the parent.
-          format: int32
-          type: integer
+          description: The immutable ID of the tab.
         nestingLevel:
           description: Output only. The depth of the tab within the document. Root-level
             tabs start at 0.
           format: int32
           type: integer
         iconEmoji:
-          description: Optional. The emoji icon displayed with the tab. A valid emoji
-            icon is a non-empty Unicode string representing a single emoji. If unset
-            or empty, the tab displays the default tab icon.
           type: string
+          description: Optional. The emoji icon displayed with the tab. A valid emoji
+            icon is represented by a non-empty Unicode string. Any set of characters
+            that don't represent a single emoji is invalid. If an emoji is invalid,
+            a 400 bad request error is returned. If this value is unset or empty,
+            the tab will display the default tab icon.
+      description: Properties of a tab.
       type: object
     AddDocumentTabRequest:
       description: Adds a document tab. When a tab is added at a given index, all
@@ -3911,6 +4044,155 @@ components:
         tabProperties:
           description: The properties of the newly added tab.
           $ref: '#/components/schemas/TabProperties'
+      type: object
+    BookmarkLink:
+      properties:
+        id:
+          type: string
+          description: The ID of a bookmark in this document.
+        tabId:
+          type: string
+          description: The ID of the tab containing this bookmark.
+      description: A reference to a bookmark in this document.
+      type: object
+    HeadingLink:
+      properties:
+        id:
+          type: string
+          description: The ID of a heading in this document.
+        tabId:
+          description: The ID of the tab containing this heading.
+          type: string
+      type: object
+      description: A reference to a heading in this document.
+    DocumentTab:
+      type: object
+      description: A tab with document contents.
+      properties:
+        positionedObjects:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/PositionedObject'
+          description: The positioned objects in the document tab, keyed by object
+            ID.
+        documentStyle:
+          description: The style of the document tab.
+          $ref: '#/components/schemas/DocumentStyle'
+        lists:
+          description: The lists in the document tab, keyed by list ID.
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/List'
+        namedRanges:
+          description: The named ranges in the document tab, keyed by name.
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/NamedRanges'
+        footnotes:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/Footnote'
+          description: The footnotes in the document tab, keyed by footnote ID.
+        namedStyles:
+          description: The named styles of the document tab.
+          $ref: '#/components/schemas/NamedStyles'
+        footers:
+          description: The footers in the document tab, keyed by footer ID.
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/Footer'
+        suggestedNamedStylesChanges:
+          description: The suggested changes to the named styles of the document tab,
+            keyed by suggestion ID.
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/SuggestedNamedStyles'
+        headers:
+          description: The headers in the document tab, keyed by header ID.
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/Header'
+        body:
+          description: The main body of the document tab.
+          $ref: '#/components/schemas/Body'
+        suggestedDocumentStyleChanges:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/SuggestedDocumentStyle'
+          description: The suggested changes to the style of the document tab, keyed
+            by suggestion ID.
+        inlineObjects:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/InlineObject'
+          description: The inline objects in the document tab, keyed by object ID.
+    Tab:
+      description: A tab in a document.
+      type: object
+      properties:
+        childTabs:
+          type: array
+          description: The child tabs nested within this tab.
+          items:
+            $ref: '#/components/schemas/Tab'
+        documentTab:
+          description: A tab with document contents, like text and images.
+          $ref: '#/components/schemas/DocumentTab'
+        tabProperties:
+          description: The properties of the tab, like ID and title.
+          $ref: '#/components/schemas/TabProperties'
+    TabsCriteria:
+      properties:
+        tabIds:
+          items:
+            type: string
+          type: array
+          description: The list of tab IDs in which the request executes.
+      description: A criteria that specifies in which tabs a request executes.
+      type: object
+    DeleteTabRequest:
+      properties:
+        tabId:
+          type: string
+          description: The ID of the tab to delete.
+      description: Deletes a tab. If the tab has child tabs, they are deleted as well.
+      type: object
+    UpdateDocumentTabPropertiesRequest:
+      properties:
+        tabProperties:
+          description: The tab properties to update.
+          $ref: '#/components/schemas/TabProperties'
+        fields:
+          description: The fields that should be updated. At least one field must
+            be specified. The root `tab_properties` is implied and should not be specified.
+            A single `"*"` can be used as short-hand for listing every field.
+          format: google-fieldmask
+          type: string
+      type: object
+      description: Update the properties of a document tab.
+    UpdateNamedStyleRequest:
+      properties:
+        tabId:
+          description: The document tab to update. By default, the update is applied
+            to the first tab.
+          type: string
+        fields:
+          description: The NamedStyle fields that should be updated. At least `named_style_type`
+            must be specified. The root `named_style` is implied and should not be
+            specified. A single `"*"` can be used as short-hand for listing every
+            field. For example, to update the text style to bold, set `fields` to
+            include `"text_style"` and `"text_style.bold"`. To update the paragraph
+            style's alignment property, set `fields` to include `"paragraph_style"`
+            and `"paragraph_style.alignment"`. To reset a property to its default
+            value, include its field name in the field mask but leave the field itself
+            unset. Specifying `"text_style"` or `"paragraph_style"` with an empty
+            TextStyle or ParagraphStyle will reset all of its nested fields.
+          format: google-fieldmask
+          type: string
+        namedStyle:
+          description: The document style to update.
+          $ref: '#/components/schemas/NamedStyle'
+      description: Updates a named style.
       type: object
   securitySchemes:
     Oauth2:
