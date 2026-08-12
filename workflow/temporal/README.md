@@ -84,10 +84,11 @@ Metadata-only reads do not start the Temporal worker.
   on the first page only, attaches visibility aggregates from `CountWorkflow`
   (not `len(runs)`):
   - `total_count` uses the same visibility filter as the page (including
-    status); it is Visibility cardinality and may exceed hydrated list rows
-    when executions lack listable memo
+    status and `definition_id`); it is Visibility cardinality and may exceed
+    hydrated list rows when executions lack listable memo
   - `status_counts` is the provider + `target_app` status histogram with the
-    list status filter cleared (tab/facet totals)
+    list status filter cleared (tab/facet totals). Omitted on definition-scoped
+    lists so grouped Runs does not stampede CountWorkflow
   - either aggregate is omitted when its count RPC fails ("unknown", not zero);
     continuation pages omit both so paging stays a single ListWorkflow call
 - IndexedDB stores workflow definitions and request idempotency records only;
