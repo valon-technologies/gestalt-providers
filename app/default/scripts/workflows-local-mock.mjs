@@ -101,6 +101,65 @@ export function resolvePlatformBrandPayload(env = process.env) {
   return {};
 }
 
+const PLATFORM_BRAND_SCRIPT_RE =
+  /(<script\b[^>]*\bid\s*=\s*["']gestalt-platform-brand["'][^>]*>)([\s\S]*?)(<\/script>)/i;
+const PLATFORM_BRAND_TITLE_RE = /(<title\b[^>]*>)([\s\S]*?)(<\/title>)/i;
+const PLATFORM_BRAND_ICON_LINK_RE =
+  /<link\b[^>]*\brel\s*=\s*["'](?:apple-touch-icon|shortcut icon|icon)["'][^>]*>/gi;
+
+function escapeHtmlAttr(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function brandJsonBody(payload) {
+  if (!payload || typeof payload !== "object") return "{}";
+  const out = {};
+  if (typeof payload.name === "string" && payload.name.trim()) {
+    out.name = payload.name.trim();
+  }
+  if (typeof payload.markSrc === "string" && payload.markSrc.trim()) {
+    out.markSrc = payload.markSrc.trim();
+  }
+  return Object.keys(out).length ? JSON.stringify(out) : "{}";
+}
+
+/**
+ * Mirror gestaltd index injection for Vite /local-dev: brand JSON, title, and
+ * favicon hrefs so the tab icon is the tenant mark on first paint.
+ */
+export function injectPlatformBrandHtml(html, payload) {
+  const json = brandJsonBody(payload);
+  html = html.replace(PLATFORM_BRAND_SCRIPT_RE, `$1${json}$3`);
+
+  const name =
+    payload && typeof payload.name === "string" ? payload.name.trim() : "";
+  if (name) {
+    html = html.replace(PLATFORM_BRAND_TITLE_RE, `$1${escapeHtmlAttr(name)}$3`);
+  }
+
+  const markSrc =
+    payload && typeof payload.markSrc === "string"
+      ? payload.markSrc.trim()
+      : "";
+  if (!markSrc) return html;
+
+  const href = `href="${escapeHtmlAttr(markSrc)}"`;
+  return html.replace(PLATFORM_BRAND_ICON_LINK_RE, (tag) => {
+    let next = tag.replace(/\bhref\s*=\s*["'][^"']*["']/, href);
+    if (/\brel\s*=\s*["'](?:shortcut icon|icon)["']/i.test(next)) {
+      if (/\btype\s*=/.test(next)) {
+        next = next.replace(/\btype\s*=\s*["'][^"']*["']/, 'type="image/svg+xml"');
+      }
+      next = next.replace(/\s*\bsizes\s*=\s*["'][^"']*["']/, "");
+    }
+    return next;
+  });
+}
+
 function contentTypeForThemeAsset(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   switch (ext) {

@@ -34,8 +34,8 @@ repo**:
 
 - **Theme** (`static.theme`): colors, fonts, radii — CSS custom properties.
 - **Brand** (`static.brand`): product name + optional mark — `/brand.json`.
-  Chrome reads it via `usePlatformBrand()` (default: Gestalt). Never hardcode
-  a tenant product name in this repo.
+  Chrome reads it via `usePlatformBrand()` (default: Gestalt). The mark is
+  also the tab icon. Never hardcode a tenant product name in this repo.
 
 Tenants declare palette constants at the top of their theme file, then map them
 onto the semantic names this bundle consumes (`--foreground`, `--text-display-sm`,

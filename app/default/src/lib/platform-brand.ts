@@ -81,6 +81,39 @@ export function getPlatformBrand(): PlatformBrand {
   return readWindowBrand() ?? readInjectedBrand() ?? defaultPlatformBrand();
 }
 
+const BRAND_ICON_SELECTOR =
+  'link[rel="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]';
+
+type BrandIconLink = {
+  rel: string;
+  setAttribute(name: string, value: string): void;
+  removeAttribute(name: string): void;
+};
+
+type BrandIconDocument = {
+  querySelectorAll(selectors: string): ArrayLike<BrandIconLink>;
+};
+
+/**
+ * Point tab / touch icons at the tenant mark. Raster bundle favicons would
+ * otherwise win over an SVG mark in some browsers.
+ */
+export function applyPlatformBrandIcons(
+  markSrc: string | undefined,
+  doc: BrandIconDocument | undefined = typeof document === "undefined"
+    ? undefined
+    : (document as unknown as BrandIconDocument),
+): void {
+  if (!doc || !markSrc) return;
+  const links = Array.from(doc.querySelectorAll(BRAND_ICON_SELECTOR));
+  for (const link of links) {
+    link.setAttribute("href", markSrc);
+    if (link.rel === "apple-touch-icon") continue;
+    link.setAttribute("type", "image/svg+xml");
+    link.removeAttribute("sizes");
+  }
+}
+
 export function applyPlatformBrand(brand: PlatformBrand): PlatformBrand {
   const normalized = normalizeBrand(brand) ?? defaultPlatformBrand();
   if (typeof window !== "undefined") {
@@ -89,6 +122,7 @@ export function applyPlatformBrand(brand: PlatformBrand): PlatformBrand {
   if (typeof document !== "undefined" && document.title === DEFAULT_PLATFORM_BRAND_NAME) {
     document.title = normalized.name;
   }
+  applyPlatformBrandIcons(normalized.markSrc);
   return normalized;
 }
 

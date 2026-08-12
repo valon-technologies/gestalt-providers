@@ -218,9 +218,10 @@ gestaltd serves `GET /brand.json` as `{ "name", "markSrc" }` (empty `{}` when
 unconfigured). `markSrc` is a site-root absolute path under the app mount
 (e.g. `/theme/mark.svg` or `/portal/theme/mark.svg`). gestaltd also injects
 the same JSON into `index.html`'s `#gestalt-platform-brand` placeholder so the
-first paint does not flash the framework default. The public bundle reads that
-contract through `getPlatformBrand()` / `usePlatformBrand()` and defaults to
-**Gestalt**.
+first paint does not flash the framework default, and retargets favicon /
+apple-touch links at the mark when one is configured. The public bundle reads
+that contract through `getPlatformBrand()` / `usePlatformBrand()` and defaults
+to **Gestalt**.
 
 Local-dev mirrors:
 

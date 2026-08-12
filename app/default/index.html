@@ -22,6 +22,19 @@
           if (typeof brand.name === "string" && brand.name.trim()) {
             document.title = brand.name.trim();
           }
+          if (typeof brand.markSrc === "string" && brand.markSrc.trim()) {
+            var markSrc = brand.markSrc.trim();
+            var icons = document.querySelectorAll(
+              'link[rel="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]',
+            );
+            for (var i = 0; i < icons.length; i++) {
+              var link = icons[i];
+              link.setAttribute("href", markSrc);
+              if (link.getAttribute("rel") === "apple-touch-icon") continue;
+              link.setAttribute("type", "image/svg+xml");
+              link.removeAttribute("sizes");
+            }
+          }
         } catch (e) {}
       })();
     </script>

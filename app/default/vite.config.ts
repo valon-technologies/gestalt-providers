@@ -6,6 +6,8 @@ import react from "@vitejs/plugin-react";
 import { gestalt } from "@valon-technologies/gestalt/vite";
 import { defineConfig, loadEnv, type Plugin, type ProxyOptions } from "vite";
 import {
+  injectPlatformBrandHtml,
+  resolvePlatformBrandPayload,
   resolveWorktreeDisplayName,
   workflowsLocalMockEnabled,
   workflowsLocalMockMiddleware,
@@ -66,6 +68,9 @@ function resolveGestaltPublicOrigin(
 function workflowsLocalMockPlugin(): Plugin {
   return {
     name: "workflows-local-mock",
+    transformIndexHtml(html) {
+      return injectPlatformBrandHtml(html, resolvePlatformBrandPayload(process.env));
+    },
     configureServer(server) {
       server.middlewares.use(workflowsLocalMockMiddleware);
     },
