@@ -19,7 +19,8 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 ## Capabilities
 
 Declarative provider built on the Google Docs OpenAPI specification. Exposes
-operations for getting, creating, and batch-updating documents.
+operations for getting, creating, and batch-updating documents, including
+creating document tabs.
 
 Authenticates with Google OAuth 2.0.
 
@@ -52,7 +53,6 @@ Operation surfaces: OpenAPI.
 Representative operations include:
 
 - `get`
-- `get`
 - `create`
 - `batchUpdate`
 
@@ -64,6 +64,24 @@ Example `get` call:
 
 ```ts
 await app.invoke("google_docs", "get", { documentId: "document-id" });
+```
+
+Create a document tab with `batchUpdate`. Google returns the new tab's assigned
+ID in the matching `replies[].addDocumentTab.tabProperties` entry:
+
+```ts
+await app.invoke("google_docs", "batchUpdate", {
+  documentId: "document-id",
+  requests: [
+    {
+      addDocumentTab: {
+        tabProperties: {
+          title: "Project notes",
+        },
+      },
+    },
+  ],
+});
 ```
 
 ## Documentation
