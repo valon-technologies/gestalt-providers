@@ -85,6 +85,39 @@ Example `files.list` call:
 await app.invoke("google_drive", "files.list", { pageSize: 10, q: "mimeType != 'application/vnd.google-apps.folder'" });
 ```
 
+### File metadata and downloads
+
+`files.get` continues to return file metadata when `alt` is omitted (or set to
+`"json"`):
+
+```ts
+const metadata = await app.invoke("google_drive", "files.get", {
+  fileId: "FILE_ID",
+});
+```
+
+To download a non-Google Workspace file, set `alt: "media"` and use
+`invokeRaw` so the response body is returned as bytes rather than decoded as
+JSON:
+
+```ts
+const result = await app.invokeRaw({
+  app: "google_drive",
+  operation: "files.get",
+  params: {
+    fileId: "FILE_ID",
+    alt: "media",
+  },
+});
+
+const bytes = result.body;
+```
+
+The response preserves the upstream status, headers, and content bytes. Google
+Workspace documents (Docs, Sheets, and Slides) should be downloaded with
+`files.export` and an appropriate `mimeType` instead. Only use
+`acknowledgeAbuse: true` after warning the user about the download risk.
+
 ### Comments and replies
 
 For all comment and reply operations except `comments.delete` and `replies.delete`, Google requires a `fields` query parameter specifying which fields to return. Omitting `fields` causes the API to return an error.
@@ -209,6 +242,8 @@ await app.invoke("google_drive", "replies.delete", {
 ```
 
 ## Documentation
+
 - [Provider Development](https://gestaltd.ai/providers)
 - [Manifest Reference](https://gestaltd.ai/reference/plugin-manifests)
 - [Manage comments and replies](https://developers.google.com/drive/api/guides/manage-comments)
+- [Download and export files](https://developers.google.com/workspace/drive/api/guides/manage-downloads)
