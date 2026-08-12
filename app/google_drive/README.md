@@ -247,9 +247,3 @@ await app.invoke("google_drive", "replies.delete", {
 - [Manifest Reference](https://gestaltd.ai/reference/plugin-manifests)
 - [Manage comments and replies](https://developers.google.com/drive/api/guides/manage-comments)
 - [Download and export files](https://developers.google.com/workspace/drive/api/guides/manage-downloads)
-
-The provider vendors the Google Drive OpenAPI document in `openapi.json` so
-the operation catalog remains stable. It is based on the APIs.guru Drive v3
-document fetched on 2026-08-12 (SHA-256:
-`e274823d74b0677ea391d0ea8bbf4c06c2aa6a488554ee0eab88e4e07523c9ca`) with the
-`files.get` `alt=media` parameter and binary response added locally.
