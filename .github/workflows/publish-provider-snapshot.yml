@@ -236,6 +236,13 @@ jobs:
           if [ "${{ matrix.provider.has_python }}" = "true" ]; then
             python_image="python:${{ matrix.provider.python_version }}-alpine${{ env.PYTHON_ALPINE_VERSION }}"
             .github/scripts/package_python_docker.sh linux/amd64 "${python_image}" gestaltd GESTALT_PYTHON_LINUX_AMD64 linux/amd64 "$PROVIDER_DIR" "$SNAPSHOT_VERSION"
+          elif [ "${{ matrix.provider.has_go }}" = "false" ] \
+            && [ "${{ matrix.provider.has_rust }}" = "false" ] \
+            && [ "${{ matrix.provider.has_typescript }}" = "false" ] \
+            && [ "${{ matrix.provider.has_frontend }}" = "false" ]; then
+            # Declarative providers are platform-independent. Keep their
+            # generic archive so locks can resolve on both Linux and macOS.
+            (cd "$PROVIDER_DIR" && gestaltd provider package --version "$SNAPSHOT_VERSION")
           else
             (cd "$PROVIDER_DIR" && gestaltd provider package --version "$SNAPSHOT_VERSION" --platform linux/amd64)
           fi
