@@ -9,7 +9,7 @@ spec:
   surfaces:
     openapi:
       connection: default
-      document: openapi.json
+      document: openapi.yaml
   allowedOperations:
     drive.files.list:
       alias: files.list
