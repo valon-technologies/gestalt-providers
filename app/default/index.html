@@ -9,6 +9,22 @@
     <link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32" />
     <link rel="icon" href="/favicon-48x48.png" type="image/png" sizes="48x48" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+    <script type="application/json" id="gestalt-platform-brand">{}</script>
+    <script>
+      (function () {
+        try {
+          var el = document.getElementById("gestalt-platform-brand");
+          var raw = el && el.textContent ? el.textContent.trim() : "";
+          if (!raw || raw === "{}") return;
+          var brand = JSON.parse(raw);
+          if (!brand || typeof brand !== "object") return;
+          window.__GESTALT_PLATFORM_BRAND__ = brand;
+          if (typeof brand.name === "string" && brand.name.trim()) {
+            document.title = brand.name.trim();
+          }
+        } catch (e) {}
+      })();
+    </script>
     <script>
       (function () {
         const media = window.matchMedia("(prefers-color-scheme: dark)");

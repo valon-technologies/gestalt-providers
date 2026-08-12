@@ -25,7 +25,7 @@ shared/theme.css (:where defaults, tenant-neutral names)
 | Generic defaults | `app/default/shared/theme.css` | Semantic names: `--foreground`, `--text-display-sm`, `--tracking-display` |
 | Tailwind bridge | `app/default/src/globals.css` | `--text-display-sm: var(--text-display-sm)` — references semantic names only |
 | Tenant palette + mapping | `<deployment-repo>/deploy/ui/theme.css` | Org palette constants → semantic token overrides |
-| Delivery | `<deployment-repo>/deploy/config.yaml` | `static.theme.stylesheet: ./ui/theme.css` |
+| Delivery | `<deployment-repo>/deploy/config.yaml` | `static.theme.stylesheet: ./ui/theme.css`; optional `static.brand.{name,mark}` → `/brand.json` |
 
 ## Deny list (public bundle)
 
@@ -39,6 +39,9 @@ component source:
 4. **Imports or path references** to `deploy/ui/theme.css` or private Registry
    theme files.
 5. **Hardcoded brand literals** in components (oklch/hex) except documented APIs.
+6. **Hardcoded tenant product names or logo marks** in chrome (use
+   `usePlatformBrand()` / `/brand.json` instead of string literals like
+   `"Valon Tools"`).
 
 ## Allow list (public bundle)
 

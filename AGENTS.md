@@ -23,16 +23,24 @@ This is a **public, tenant-neutral** UI platform repository.
 
 ### Where tenant branding goes
 
-Tenant themes are served at runtime from the **deployment repo**:
+Tenant themes and platform identity are served at runtime from the **deployment
+repo**:
 
 ```text
 <deployment-repo>/deploy/ui/theme.css   → served as /theme.css
-<deployment-repo>/deploy/config.yaml    → apps.<name>.static.theme.stylesheet
+<deployment-repo>/deploy/ui/mark.svg    → served as /theme/mark.svg (optional)
+<deployment-repo>/deploy/config.yaml    → apps.<name>.static.theme + static.brand
 ```
+
+- **Theme** (`static.theme`): colors, fonts, radii — CSS custom properties.
+- **Brand** (`static.brand`): product name + optional mark — `/brand.json`.
+  Chrome reads it via `usePlatformBrand()` (default: Gestalt). Never hardcode
+  a tenant product name in this repo.
 
 Tenants declare palette constants at the top of their theme file, then map them
 onto the semantic names this bundle consumes (`--foreground`, `--text-display-sm`,
-…). Local dev: `GESTALT_THEME_FILE=/path/to/deploy/ui/theme.css` (see THEMING.md).
+…). Local dev: `GESTALT_THEME_FILE=/path/to/deploy/ui/theme.css` (see THEMING.md);
+optional `GESTALT_BRAND_NAME` / `deploy/ui/brand.json` for the top-bar name.
 
 ### Porting Registry components
 

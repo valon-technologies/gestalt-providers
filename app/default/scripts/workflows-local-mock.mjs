@@ -12,6 +12,9 @@ export const SLACK_APP = "slack";
 export const WORKFLOWS_LOCAL_MOCK_ENV = "GESTALT_WORKFLOWS_LOCAL_MOCK";
 export const GESTALT_THEME_FILE_ENV = "GESTALT_THEME_FILE";
 export const GESTALT_THEME_ASSETS_DIR_ENV = "GESTALT_THEME_ASSETS_DIR";
+export const GESTALT_BRAND_NAME_ENV = "GESTALT_BRAND_NAME";
+export const GESTALT_BRAND_MARK_ENV = "GESTALT_BRAND_MARK";
+export const GESTALT_BRAND_FILE_ENV = "GESTALT_BRAND_FILE";
 
 /**
  * Resolve a live tenant stylesheet for /theme.css (same contract as gestaltd).
@@ -48,6 +51,56 @@ export function resolveTenantThemeAssetsDir(
   return fs.existsSync(dir) ? dir : null;
 }
 
+/**
+ * Resolve platform brand JSON for /brand.json (same contract as gestaltd).
+ * Prefer GESTALT_BRAND_FILE, else build from GESTALT_BRAND_NAME + optional mark.
+ */
+export function resolvePlatformBrandPayload(env = process.env) {
+  const brandFile = env[GESTALT_BRAND_FILE_ENV]?.trim();
+  if (brandFile && fs.existsSync(brandFile) && fs.statSync(brandFile).isFile()) {
+    try {
+      return JSON.parse(fs.readFileSync(brandFile, "utf8"));
+    } catch {
+      return {};
+    }
+  }
+
+  const name = env[GESTALT_BRAND_NAME_ENV]?.trim() || "";
+  const mark = env[GESTALT_BRAND_MARK_ENV]?.trim() || "";
+  if (name || mark) {
+    const payload = {};
+    if (name) payload.name = name;
+    if (mark) payload.markSrc = mark;
+    return payload;
+  }
+
+  const themeFile = resolveTenantThemeFile(env);
+  if (themeFile) {
+    const besideTheme = path.join(path.dirname(themeFile), "brand.json");
+    if (fs.existsSync(besideTheme) && fs.statSync(besideTheme).isFile()) {
+      try {
+        return JSON.parse(fs.readFileSync(besideTheme, "utf8"));
+      } catch {
+        return {};
+      }
+    }
+  }
+
+  const worktreeRoot = path.resolve(
+    path.dirname(path.dirname(fileURLToPath(import.meta.url))),
+    "../..",
+  );
+  const synced = path.join(worktreeRoot, ".local", "tenant-theme", "brand.json");
+  if (fs.existsSync(synced) && fs.statSync(synced).isFile()) {
+    try {
+      return JSON.parse(fs.readFileSync(synced, "utf8"));
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
 function contentTypeForThemeAsset(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   switch (ext) {
@@ -77,6 +130,20 @@ function contentTypeForThemeAsset(filePath) {
 export function handleTenantThemeRequest(req, res, pathname, env = process.env) {
   const method = req.method || "GET";
   if (method !== "GET" && method !== "HEAD") return false;
+
+  if (pathname === "/brand.json") {
+    const payload = resolvePlatformBrandPayload(env);
+    const body = JSON.stringify(payload);
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache");
+    if (method === "HEAD") {
+      res.end();
+      return true;
+    }
+    res.end(body);
+    return true;
+  }
 
   if (pathname === "/theme.css") {
     const themeFile = resolveTenantThemeFile(env);

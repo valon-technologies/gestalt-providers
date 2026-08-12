@@ -168,7 +168,7 @@ export function workspaceLocationForPathname(
   };
 }
 
-/** Browser/tab title segment before the product suffix (`· Gestalt`). */
+/** Browser/tab title segment before the platform brand suffix (`· ${brand.name}`). */
 export function workspaceDocumentTitle(
   appLabel: string,
   location: WorkspaceLocation,

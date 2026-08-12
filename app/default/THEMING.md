@@ -195,6 +195,41 @@ is immutable and environment-agnostic, tenant theming is applied at serve time:
    Assets in `assetsDir` (typically font files) are served under `/theme/`,
    a path the artifact does not own (`/fonts/*` it does).
 
+### Platform brand (product name + mark)
+
+Visual tokens are not enough for chrome identity. Tenants also set the
+**platform brand** — the product name shown in the top bar and document
+title, plus an optional logo mark — via `static.brand` next to `static.theme`:
+
+```yaml
+apps:
+  home:
+    static:
+      mount: /
+      theme:
+        stylesheet: ./ui/theme.css
+        assetsDir: ./ui
+      brand:
+        name: Valon Tools
+        mark: ./ui/mark.svg   # must live under assetsDir → /theme/mark.svg
+```
+
+gestaltd serves `GET /brand.json` as `{ "name", "markSrc" }` (empty `{}` when
+unconfigured) and injects the same JSON into `index.html`'s
+`#gestalt-platform-brand` placeholder so the first paint does not flash the
+framework default. The public bundle reads that contract through
+`getPlatformBrand()` / `usePlatformBrand()` and defaults to **Gestalt**.
+
+Local-dev mirrors:
+
+```bash
+GESTALT_BRAND_NAME="Valon Tools"
+GESTALT_BRAND_MARK="theme/mark.svg"
+# or GESTALT_BRAND_FILE=/path/to/brand.json
+```
+
+Do **not** put tenant product names or marks into this public repo.
+
 Alternatives considered and rejected (full record in RES-20260612-002):
 
 - **Theme tokens over the runtime API** — runtime fetch + JS-applied

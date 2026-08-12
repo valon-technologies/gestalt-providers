@@ -3,6 +3,7 @@ import { clearSession, sessionDisplayLabel, sessionInitials } from "@/lib/auth";
 import { BUILD_PATH } from "@/lib/constants";
 import { appPath } from "@/lib/mount";
 import { useAuthInfoQuery, useAuthSessionQuery } from "@/lib/queries";
+import { usePlatformBrand } from "@/hooks/use-platform-brand";
 import { AccountMenu } from "./AccountMenu";
 import {
   AppTopBar,
@@ -12,7 +13,7 @@ import {
   AppTopBarInner,
   AppTopBarStart,
 } from "./ui/app-top-bar";
-import { AppLogoName } from "./ui/app-logo";
+import { AppLogoMark, AppLogoName } from "./ui/app-logo";
 import {
   NavigationMenu,
   NavigationMenuItem,
@@ -26,7 +27,29 @@ const links = [
   { href: BUILD_PATH, label: "Build" },
 ];
 
+function PlatformBrandMark({ markSrc }: { markSrc: string }) {
+  // Mono marks paint via mask so light/dark both read as foreground ink.
+  return (
+    <AppLogoMark variant="plain" aria-hidden="true">
+      <span
+        className="block size-full bg-foreground"
+        style={{
+          maskImage: `url(${markSrc})`,
+          maskSize: "contain",
+          maskRepeat: "no-repeat",
+          maskPosition: "center",
+          WebkitMaskImage: `url(${markSrc})`,
+          WebkitMaskSize: "contain",
+          WebkitMaskRepeat: "no-repeat",
+          WebkitMaskPosition: "center",
+        }}
+      />
+    </AppLogoMark>
+  );
+}
+
 export default function Nav() {
+  const brand = usePlatformBrand();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const sessionQuery = useAuthSessionQuery();
   const session = sessionQuery.data ?? null;
@@ -45,10 +68,11 @@ export default function Nav() {
     <AppTopBar>
       <AppTopBarInner>
         <AppTopBarStart>
-          {/* SPA link semantics via asChild — caller supplies AppLogoName inside Link. */}
+          {/* SPA link semantics via asChild — caller supplies lockup parts inside Link. */}
           <AppTopBarBrand size="lg" asChild>
             <Link to="/apps">
-              <AppLogoName size="lg">Gestalt</AppLogoName>
+              {brand.markSrc ? <PlatformBrandMark markSrc={brand.markSrc} /> : null}
+              <AppLogoName size="lg">{brand.name}</AppLogoName>
             </Link>
           </AppTopBarBrand>
         </AppTopBarStart>

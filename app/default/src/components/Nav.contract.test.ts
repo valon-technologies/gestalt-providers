@@ -15,6 +15,9 @@ describe("Nav AppTopBar composition", () => {
     expect(NAV).toContain('<AppTopBarBrand size="lg" asChild>');
     expect(NAV).toContain('<Link to="/apps">');
     expect(NAV).toContain("AppLogoName");
+    expect(NAV).toContain("usePlatformBrand");
+    expect(NAV).toContain("brand.name");
+    expect(NAV).not.toContain(">Gestalt<");
     expect(NAV).toContain("AppTopBarStart");
     expect(NAV).toContain("AppTopBarCenter");
     expect(NAV).toContain("AppTopBarEnd");

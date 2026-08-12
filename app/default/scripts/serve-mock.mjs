@@ -52,6 +52,11 @@ const server = http.createServer(async (req, res) => {
       res.end();
       return;
     }
+    if (appPath === "/brand.json") {
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+      res.end("{}");
+      return;
+    }
     if (appPath.startsWith("/theme/")) {
       res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
       res.end("Not Found");

@@ -126,6 +126,11 @@ test("index.html boot script stays aligned with theme-source constants", () => {
   expect(indexHtml).toContain('id="tenant-theme"');
 });
 
+test("index.html declares the platform-brand bootstrap placeholder", () => {
+  expect(indexHtml).toContain('id="gestalt-platform-brand"');
+  expect(indexHtml).toContain("__GESTALT_PLATFORM_BRAND__");
+});
+
 test("example tenant theme fixture satisfies the contract", () => {
   const css = readFileSync(fixturePath, "utf8");
   const errors = validateTenantTheme(css, fixturePath);

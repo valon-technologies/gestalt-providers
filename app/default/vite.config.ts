@@ -132,6 +132,7 @@ export default defineConfig(({ mode }) => {
             "/api": nativeApiProxy(backendOrigin),
             "/theme.css": nativeApiProxy(backendOrigin),
             "/theme/": nativeApiProxy(backendOrigin),
+            "/brand.json": nativeApiProxy(backendOrigin),
           },
     },
     test: {
