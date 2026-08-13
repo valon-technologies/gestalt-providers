@@ -361,10 +361,9 @@ func (b *temporalBackend) ListRuns(ctx context.Context, req *gestalt.ListWorkflo
 // total_count uses the same filter as the page; status_counts is the
 // provider+target_app histogram with status cleared. Failures leave fields
 // unset rather than failing the list.
-//
-// Definition-scoped lists skip the 5-way status histogram: grouped Runs
-// only needs total_count, and N definitions × 6 CountWorkflow RPCs stamps
-// Temporal visibility so every group omits totals.
+// Definition-scoped lists skip the 5-way status histogram: grouped Runs only
+// needs total_count, and N definitions × 6 CountWorkflow RPCs stamps Temporal
+// visibility so every group omits totals.
 func (b *temporalBackend) attachListRunAggregates(ctx context.Context, req *gestalt.ListWorkflowProviderRunsRequest, query string, out *gestalt.ListWorkflowProviderRunsResponse) {
 	definitionScoped := req != nil && strings.TrimSpace(req.DefinitionID) != ""
 	if definitionScoped {
@@ -400,58 +399,14 @@ func (b *temporalBackend) attachListRunAggregates(ctx context.Context, req *gest
 	}
 }
 
-const countWorkflowConcurrency = 4
-
-var countWorkflowGate = make(chan struct{}, countWorkflowConcurrency)
-
 func (b *temporalBackend) countWorkflows(ctx context.Context, query string) (int64, error) {
-	var last error
-	for attempt := 0; attempt < 3; attempt++ {
-		if attempt > 0 {
-			timer := time.NewTimer(time.Duration(attempt) * 50 * time.Millisecond)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return 0, ctx.Err()
-			case <-timer.C:
-			}
-		}
-		total, err := b.countWorkflowsOnce(ctx, query)
-		if err == nil {
-			return total, nil
-		}
-		last = err
-		if !isRetryableTemporalCountError(err) {
-			break
-		}
-	}
-	return 0, mapTemporalWorkflowCallError("count temporal workflows", last)
-}
-
-// countWorkflowsOnce holds the process-wide visibility slot only for the RPC,
-// not for retry backoff, so sleeping retries do not starve other groups.
-func (b *temporalBackend) countWorkflowsOnce(ctx context.Context, query string) (int64, error) {
-	select {
-	case countWorkflowGate <- struct{}{}:
-		defer func() { <-countWorkflowGate }()
-	case <-ctx.Done():
-		return 0, ctx.Err()
-	}
 	resp, err := b.client.CountWorkflow(ctx, &workflowservicepb.CountWorkflowExecutionsRequest{
 		Query: query,
 	})
 	if err != nil {
-		return 0, err
+		return 0, mapTemporalWorkflowCallError("count temporal workflows", err)
 	}
 	return resp.GetCount(), nil
-}
-
-func isRetryableTemporalCountError(err error) bool {
-	if err == nil {
-		return false
-	}
-	code := status.Code(err)
-	return code == codes.ResourceExhausted || code == codes.Unavailable
 }
 
 var listRunStatusHistogram = []gestalt.WorkflowRunStatus{
@@ -466,9 +421,7 @@ func (b *temporalBackend) countWorkflowsByStatus(ctx context.Context, req *gesta
 	base := &gestalt.ListWorkflowProviderRunsRequest{}
 	if req != nil {
 		base.TargetApp = req.TargetApp
-		base.DefinitionID = req.DefinitionID
 		// Preserve KnownApps so histogram ownership matches list/total filters
-		// once visibility can express definition-owner disambiguation.
 		base.KnownApps = append([]string(nil), req.KnownApps...)
 	}
 	type statusCount struct {
