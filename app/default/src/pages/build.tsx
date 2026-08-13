@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Lightbulb } from "lucide-react";
+import { toast } from "sonner";
 import {
   Link,
   Navigate,
@@ -8,6 +10,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
+import SeeMoreAppsTrigger from "@/components/SeeMoreAppsTrigger";
 import { InvokeOperationReference } from "@/components/InvokeOperationReference";
 import IntegrationIcon from "@/components/IntegrationIcon";
 import { Link as UiLink } from "@/components/ui/link";
@@ -24,18 +27,19 @@ import {
 import { Eyebrow } from "@/components/ui/eyebrow";
 import {
   Alert,
+  AlertActions,
   AlertCollapsibleContent,
   AlertDescription,
   AlertTitle,
   AlertTrigger,
 } from "@/components/ui/alert";
-import { Label } from "@/components/ui/label";
 import {
   StepPager,
   StepPagerNext,
   StepPagerPrevious,
   StepPagerStartSpacer,
 } from "@/components/ui/step-pager";
+import { Label } from "@/components/ui/label";
 import {
   PageHeader,
   PageHeaderContent,
@@ -48,7 +52,6 @@ import {
   SectionHeaderDescription,
   SectionHeaderTitle,
 } from "@/components/ui/section-header";
-import { Separator } from "@/components/ui/separator";
 import { CodeBlock } from "@/components/ui/code-block";
 import { CopyableCode } from "@/components/ui/copyable-code";
 import {
@@ -62,6 +65,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
+import { ChipGroup, ChipGroupItem } from "@/components/ui/chip-group";
 import {
   Stepper,
   StepperIndicator,
@@ -73,6 +77,8 @@ import {
 } from "@/components/ui/stepper";
 import {
   AGENT_CONSOLE_THEME_CLAUDE,
+  AGENT_CONSOLE_THEME_CODEX,
+  AGENT_CONSOLE_THEME_CURSOR,
   AgentConsole,
   AgentConsoleBody,
   AgentConsoleChrome,
@@ -91,13 +97,14 @@ import {
   AgentConsoleTrafficLights,
   AgentConsoleTyping,
   AgentConsoleWindowTitle,
-  type AgentConsoleTheme,
 } from "@/components/ui/agent-console";
-import TokenCreateForm, {
-  type TokenCreateFormHandle,
-} from "@/components/TokenCreateForm";
+import ErrorNotice from "@/components/ErrorNotice";
+import TokenCreateForm from "@/components/TokenCreateForm";
 import {
-  ChevronDownIcon,
+  ClaudeIcon,
+  CodexIcon,
+  CursorIcon,
+  MoreHorizontalIcon,
   SpinnerIcon,
 } from "@/components/icons";
 import { useBuildSession } from "@/hooks/use-build-session";
@@ -108,6 +115,7 @@ import {
   useInvalidateTokens,
   useTokensQuery,
 } from "@/lib/queries";
+import { PAGE_LAYOUT_READING_COLUMN_CLASS } from "@/lib/page-layout-content-top";
 import {
   type APIToken,
   type Integration,
@@ -115,19 +123,28 @@ import {
 import {
   BUILD_CREATE_NEW_TOKEN_ID,
   BUILD_USE_EXISTING_TOKEN_ID,
-  buildInstallAgentSelected,
-  BUILD_EXEMPLARS,
   BUILD_STEPS,
+  buildInstallAgentSelected,
   buildAuthorizeSelectionReady,
   buildMcpCredentialReady,
+  buildStepDescription,
+  buildStepTitle,
   canNavigateToBuildStep,
   companionAppLabel,
-  connectedAppIds,
   DEFAULT_BUILD_TOKEN_NAME,
   firstIncompleteStepId,
   getExemplar,
+  isBuildComplete,
   isBuildStepId,
+  isLegacySetupConnectStepId,
   resolveExemplarOpenPath,
+  SETUP_PRODUCT_NAME,
+  SETUP_JOURNEY_EYEBROW,
+  isSetupDataSourceApp,
+  setupAppsConnected,
+  setupAppsHasConnectable,
+  setupDataSourceIntegrations,
+  writeSetupSkipped,
   type BuildExemplar,
   type BuildExemplarId,
   type BuildInstallAgentId,
@@ -136,11 +153,43 @@ import {
   type BuildWorkspaceSnapshot,
 } from "@/lib/buildPaths";
 import { cn } from "@/lib/cn";
-import { BUILD_PATH, DOCS_PATH } from "@/lib/constants";
+import { DOCS_PATH, SETUP_PATH } from "@/lib/constants";
+import { userFacingError } from "@/lib/user-facing-error";
+import { getIntegrationLabel } from "@/lib/integrationSearch";
+import {
+  catalogBucketIdFor,
+  catalogBucketsPresentIn,
+  CATALOG_BUCKETS,
+} from "@/lib/catalogBuckets";
+import {
+  SETUP_APPS_CATEGORY_ALL,
+  SETUP_APPS_GRID_CLASS,
+  SETUP_APPS_PAGE_SIZE,
+} from "@/lib/setupSeeMore";
 
-/** `/build` → first incomplete step. */
+function buildSnapshot(
+  session: ReturnType<typeof useBuildSession>,
+  integrations: Integration[],
+  tokens: APIToken[],
+): BuildWorkspaceSnapshot {
+  return {
+    integrations,
+    tokens,
+    activeExemplarId: session.activeExemplarId,
+    mcpInstalled: session.mcpInstalled,
+    apiToken: session.apiToken,
+    apiTokenGrantId: session.apiTokenGrantId,
+    tokenName: session.tokenName,
+    selectedTokenId: session.selectedTokenId,
+    installAgentId: session.selectedInstallAgent,
+    welcomeSeen: session.welcomeSeen,
+    trySeen: session.trySeen,
+  };
+}
+
+/** `/setup` → overview when complete, else first incomplete step. */
 export function BuildIndexRedirect() {
-  useDocumentTitle("Build");
+  useDocumentTitle("Setup");
   const session = useBuildSession();
   const integrationsQuery = useIntegrationsQuery();
   const tokensQuery = useTokensQuery();
@@ -154,30 +203,134 @@ export function BuildIndexRedirect() {
         <div className="mx-auto flex min-h-[50vh] w-full max-w-4xl items-center justify-center">
           <p className="flex items-center gap-2 text-sm text-faint">
             <SpinnerIcon className="size-3.5 animate-spin" aria-hidden />
-            Loading Build…
+            Loading setup…
           </p>
         </div>
       </Container>
     );
   }
 
-  const snapshot: BuildWorkspaceSnapshot = {
-    integrations: integrationsQuery.data ?? [],
-    tokens: tokensQuery.data ?? [],
-    activeExemplarId: session.activeExemplarId,
-    mcpInstalled: session.mcpInstalled,
-    apiToken: session.apiToken,
-    apiTokenGrantId: session.apiTokenGrantId,
-    tokenName: session.tokenName,
-    selectedTokenId: session.selectedTokenId,
-    introSeen: session.introSeen,
-  };
+  const snapshot = buildSnapshot(
+    session,
+    integrationsQuery.data ?? [],
+    tokensQuery.data ?? [],
+  );
+
+  if (isBuildComplete(snapshot)) {
+    return <SetupOverview snapshot={snapshot} />;
+  }
 
   const stepId = firstIncompleteStepId(snapshot, (step) =>
     isStepDone(step, snapshot, tokensReady, integrationsReady),
   );
 
-  return <Navigate to="/build/$stepId" params={{ stepId }} replace />;
+  return <Navigate to="/setup/$stepId" params={{ stepId }} replace />;
+}
+
+function SetupStepperList({
+  titleForStep,
+  itemTestId,
+  listTestId,
+}: {
+  titleForStep: (step: BuildStep) => string;
+  itemTestId?: (id: BuildStepId) => string;
+  listTestId?: string;
+}) {
+  return (
+    <StepperList aria-label="Setup steps" data-testid={listTestId}>
+      {BUILD_STEPS.map((step) => (
+        <StepperItem
+          key={step.id}
+          value={step.id}
+          data-testid={itemTestId?.(step.id)}
+        >
+          <StepperSeparator />
+          <StepperTrigger>
+            <StepperIndicator />
+            <StepperTitle>{titleForStep(step)}</StepperTitle>
+          </StepperTrigger>
+        </StepperItem>
+      ))}
+    </StepperList>
+  );
+}
+
+function SetupPageChrome({
+  value,
+  onValueChange,
+  titleForStep,
+  itemTestId,
+  listTestId,
+  children,
+}: {
+  value: string;
+  onValueChange: (next: string) => void;
+  titleForStep: (step: BuildStep) => string;
+  itemTestId?: (id: BuildStepId) => string;
+  listTestId?: string;
+  children: ReactNode;
+}) {
+  return (
+    <Container className="pb-12 pt-16">
+      <div className={PAGE_LAYOUT_READING_COLUMN_CLASS}>
+        <Stepper
+          value={value}
+          onValueChange={onValueChange}
+          orientation="horizontal"
+          activationMode="jump"
+          size="sm"
+          completedVariant="success"
+          connectorVariant="primary"
+        >
+          <SetupStepperList
+            titleForStep={titleForStep}
+            itemTestId={itemTestId}
+            listTestId={listTestId}
+          />
+        </Stepper>
+        <div className="mt-8">{children}</div>
+      </div>
+    </Container>
+  );
+}
+
+function SetupOverview({ snapshot }: { snapshot: BuildWorkspaceSnapshot }) {
+  const navigate = useNavigate();
+  const lastStepId = BUILD_STEPS[BUILD_STEPS.length - 1]!.id;
+
+  return (
+    <SetupPageChrome
+      value={lastStepId}
+      onValueChange={(next) => {
+        if (!isBuildStepId(next)) return;
+        void navigate({ to: "/setup/$stepId", params: { stepId: next } });
+      }}
+      titleForStep={(step) => buildStepTitle(step, snapshot.installAgentId)}
+      itemTestId={(id) => `build-overview-${id}`}
+    >
+      <div className="space-y-8" data-testid="build-setup-overview">
+        <PageHeader>
+          <PageHeaderContent size="lg">
+            <Eyebrow tone="accent">{SETUP_JOURNEY_EYEBROW}</Eyebrow>
+            <PageHeaderTitle>You&apos;re all set</PageHeaderTitle>
+            <PageHeaderDescription>
+              Your assistant is connected and your workspace apps are ready to
+              use.
+            </PageHeaderDescription>
+          </PageHeaderContent>
+        </PageHeader>
+
+        <StepPager variant="ghost" aria-label="After setup">
+          <StepPagerPrevious asChild title="Run setup again">
+            <Link to="/setup/$stepId" params={{ stepId: "welcome" }} />
+          </StepPagerPrevious>
+          <StepPagerNext asChild title="Browse apps">
+            <Link to="/apps" />
+          </StepPagerNext>
+        </StepPager>
+      </div>
+    </SetupPageChrome>
+  );
 }
 
 export default function BuildStepPage() {
@@ -189,45 +342,59 @@ export default function BuildStepPage() {
   const integrationsQuery = useIntegrationsQuery();
   const tokensQuery = useTokensQuery();
   const invalidateTokens = useInvalidateTokens();
-  const stepId = rawStepId && isBuildStepId(rawStepId) ? rawStepId : null;
+  const legacyConnect = Boolean(
+    rawStepId && isLegacySetupConnectStepId(rawStepId),
+  );
+  const stepId =
+    !legacyConnect && rawStepId && isBuildStepId(rawStepId) ? rawStepId : null;
   const currentStep = stepId
     ? BUILD_STEPS.find((s) => s.id === stepId)!
     : null;
-  useDocumentTitle(
-    currentStep ? `${currentStep.title} · Build` : "Build",
-  );
+  const stepTitle = currentStep
+    ? buildStepTitle(currentStep, session.selectedInstallAgent)
+    : "Setup";
+  useDocumentTitle(currentStep ? `${stepTitle} · Setup` : "Setup");
+
+  if (legacyConnect) {
+    return (
+      <Navigate to="/setup/$stepId" params={{ stepId: "token" }} replace />
+    );
+  }
 
   if (!stepId || !currentStep) {
-    return <Navigate to="/build" replace />;
+    return <Navigate to="/setup" replace />;
   }
 
   const tokensReady = !tokensQuery.isPending;
   const integrationsReady = !integrationsQuery.isPending;
 
-  const snapshot: BuildWorkspaceSnapshot = {
-    integrations: integrationsQuery.data ?? [],
-    tokens: tokensQuery.data ?? [],
-    activeExemplarId: session.activeExemplarId,
-    mcpInstalled: session.mcpInstalled,
-    apiToken: session.apiToken,
-    apiTokenGrantId: session.apiTokenGrantId,
-    tokenName: session.tokenName,
-    selectedTokenId: session.selectedTokenId,
-    introSeen: session.introSeen,
-  };
+  const snapshot = buildSnapshot(
+    session,
+    integrationsQuery.data ?? [],
+    tokensQuery.data ?? [],
+  );
 
   const error =
     integrationsQuery.error != null
-      ? errorMessage(integrationsQuery.error)
+      ? userFacingError(
+          integrationsQuery.error,
+          "Couldn't load this workspace. Try again.",
+        )
       : tokensQuery.error != null
-        ? errorMessage(tokensQuery.error)
+        ? userFacingError(
+            tokensQuery.error,
+            "Couldn't load this workspace. Try again.",
+          )
         : null;
 
   const activeExemplar = getExemplar(session.activeExemplarId);
-  const connected = connectedAppIds(snapshot.integrations);
+
+  useEffect(() => {
+    if (currentStep?.id === "try") session.markTrySeen();
+  }, [currentStep?.id, session.markTrySeen]);
 
   function goToStep(id: BuildStepId) {
-    void navigate({ to: "/build/$stepId", params: { stepId: id } });
+    void navigate({ to: "/setup/$stepId", params: { stepId: id } });
   }
 
   const stepIsDone = (step: BuildStep) =>
@@ -243,51 +410,36 @@ export default function BuildStepPage() {
   }
 
   return (
-    <Container as="main" className="py-12">
-      <div className="mx-auto w-full max-w-4xl">
-        {error && (
-          <p className="mb-8 text-sm text-ember-500">{error}</p>
-        )}
+    <SetupPageChrome
+      value={stepId}
+      onValueChange={(next) => {
+        if (isBuildStepId(next)) tryGoToStep(next);
+      }}
+      titleForStep={(step) => step.title}
+      itemTestId={(id) => `build-nav-${id}`}
+      listTestId="build-step-nav"
+    >
+      {error ? (
+        <ErrorNotice
+          className="mb-8"
+          message={error}
+          onRetry={() => {
+            void integrationsQuery.refetch();
+            void tokensQuery.refetch();
+          }}
+          retrying={integrationsQuery.isFetching || tokensQuery.isFetching}
+        />
+      ) : null}
 
-        <div data-testid="build-step-nav">
-          <Stepper
-            value={stepId}
-            onValueChange={(next) => {
-              if (isBuildStepId(next)) tryGoToStep(next);
-            }}
-            activationMode="jump"
-          >
-            <StepperList aria-label="Build steps">
-              {BUILD_STEPS.map((step) => (
-                <StepperItem
-                  key={step.id}
-                  value={step.id}
-                  data-testid={`build-nav-${step.id}`}
-                >
-                  <StepperSeparator />
-                  <StepperTrigger>
-                    <StepperIndicator />
-                    <StepperTitle>{step.title}</StepperTitle>
-                  </StepperTrigger>
-                </StepperItem>
-              ))}
-            </StepperList>
-          </Stepper>
-        </div>
-
-        <PageHeader
-          className={cn(
-            "mt-10",
-            stepId === "authorize" && "hidden",
-          )}
-        >
+      <div className="space-y-8">
+        <PageHeader className={cn(stepId === "welcome" && "hidden")}>
           <PageHeaderContent size="lg">
-            {currentStep.eyebrow ? (
-              <Eyebrow tone="accent">{currentStep.eyebrow}</Eyebrow>
-            ) : null}
-            <PageHeaderTitle>{currentStep.title}</PageHeaderTitle>
+            <Eyebrow tone="accent">{currentStep.eyebrow}</Eyebrow>
+            <PageHeaderTitle>
+              {buildStepTitle(currentStep, session.selectedInstallAgent)}
+            </PageHeaderTitle>
             <PageHeaderDescription>
-              {currentStep.description}
+              {buildStepDescription(currentStep, session.selectedInstallAgent)}
             </PageHeaderDescription>
           </PageHeaderContent>
         </PageHeader>
@@ -296,7 +448,6 @@ export default function BuildStepPage() {
           step={currentStep}
           tokensReady={tokensReady}
           integrationsReady={integrationsReady}
-          connected={connected}
           integrations={snapshot.integrations}
           tokens={snapshot.tokens}
           activeExemplar={activeExemplar}
@@ -313,11 +464,11 @@ export default function BuildStepPage() {
           onSelectedInstallAgent={session.setSelectedInstallAgent}
           onRefreshTokens={refreshTokens}
           onMarkMcpInstalled={session.markMcpInstalled}
-          onMarkIntroSeen={session.markIntroSeen}
+          onMarkWelcomeSeen={session.markWelcomeSeen}
           onGoToStep={goToStep}
         />
       </div>
-    </Container>
+    </SetupPageChrome>
   );
 }
 
@@ -329,16 +480,18 @@ function isStepDone(
 ): boolean {
   if (!step.isComplete(snapshot)) return false;
   switch (step.id) {
-    case "intro":
+    case "welcome":
       return true;
-    case "authorize":
-      return buildAuthorizeSelectionReady(snapshot);
+    case "assistant":
+      return buildInstallAgentSelected(snapshot.installAgentId);
+    case "token":
+      return tokensReady;
     case "install":
       return true;
-    case "connect":
+    case "apps":
       return integrationsReady;
-    case "invoke":
-      return integrationsReady && buildAuthorizeSelectionReady(snapshot);
+    case "try":
+      return integrationsReady;
     default:
       return true;
   }
@@ -385,43 +538,25 @@ function ClaudePixelIcon({ className }: { className?: string }) {
 }
 
 /**
- * Build-page skin ids — composition variants, not an AgentConsole prop.
- * Palettes match Registry `agent-console.stories` (THEME_CODEX / THEME_CURSOR).
- * Prefer promoting story themes to Registry exports if other apps need them.
+ * Setup-page skin ids — composition variants, not an AgentConsole prop.
+ * Palettes are Registry exports (`AGENT_CONSOLE_THEME_*`).
  */
 type BuildAgentSkin = "claude" | "codex" | "cursor";
 
-const BUILD_AGENT_SKINS: BuildAgentSkin[] = ["claude", "codex", "cursor"];
-
-const BUILD_AGENT_THEMES: Record<BuildAgentSkin, AgentConsoleTheme> = {
-  claude: AGENT_CONSOLE_THEME_CLAUDE,
-  // OpenAI Codex CLI — near-black charcoal, white caret, green prompt glyph.
-  codex: {
-    background: "#121212",
-    accent: "#f0f0f0",
-    traffic: "#3a3a3a",
-    foreground: "#f8f8f8",
-    muted: "rgba(255,255,255,0.45)",
-    glyph: "#b0d8a8",
-  },
-  // Cursor Agent terminal — near-black charcoal, white caret.
-  cursor: {
-    background: "#141414",
-    accent: "#f5f5f5",
-    traffic: "#3a3a3a",
-    foreground: "#e8e8e8",
-    muted: "rgba(255,255,255,0.45)",
-    glyph: "rgba(255,255,255,0.85)",
-  },
-};
-
-function pickBuildAgentSkin(exclude?: BuildAgentSkin): BuildAgentSkin {
-  const options =
-    exclude == null
-      ? BUILD_AGENT_SKINS
-      : BUILD_AGENT_SKINS.filter((id) => id !== exclude);
-  return options[Math.floor(Math.random() * options.length)]!;
+function buildAgentSkin(
+  installAgentId: BuildInstallAgentId | "",
+): BuildAgentSkin {
+  if (installAgentId === "codex" || installAgentId === "cursor") {
+    return installAgentId;
+  }
+  return "claude";
 }
+
+const BUILD_AGENT_THEMES = {
+  claude: AGENT_CONSOLE_THEME_CLAUDE,
+  codex: AGENT_CONSOLE_THEME_CODEX,
+  cursor: AGENT_CONSOLE_THEME_CURSOR,
+} as const;
 
 /** Codex CLI status-panel highlights — Registry AgentConsole Codex story. */
 const CODEX_HL = {
@@ -448,10 +583,10 @@ function BuildAgentConsolePreview({
     reply ? "prompt" : "prompt",
   );
 
-  // Reset the turn when the exemplar prompt/reply changes.
+  // Reset the turn when the exemplar prompt/reply or assistant skin changes.
   useEffect(() => {
     setPhase("prompt");
-  }, [prompt, reply]);
+  }, [prompt, reply, variant]);
 
   useEffect(() => {
     if (!reply || phase !== "thinking") return;
@@ -569,7 +704,7 @@ function BuildAgentConsolePreview({
             <AgentConsoleHeading>
               <AgentConsoleProduct>Cursor Agent</AgentConsoleProduct>
               <AgentConsoleSubtitle className="text-[var(--agent-console-muted)]">
-                Building with Gestalt
+                Gestalt workspace
               </AgentConsoleSubtitle>
             </AgentConsoleHeading>
           </AgentConsoleIdentity>
@@ -602,7 +737,7 @@ function BuildAgentConsolePreview({
           </AgentConsoleMedia>
           <AgentConsoleHeading>
             <AgentConsoleProduct>Claude Code</AgentConsoleProduct>
-            <AgentConsoleSubtitle>Building with Gestalt</AgentConsoleSubtitle>
+            <AgentConsoleSubtitle>Gestalt workspace</AgentConsoleSubtitle>
             <AgentConsolePath>{cwd}</AgentConsolePath>
           </AgentConsoleHeading>
         </AgentConsoleIdentity>
@@ -622,132 +757,187 @@ function BuildAgentConsolePreview({
   );
 }
 
-/** Registry ChoiceCards — vertical rail (features-14 spine); no-indicator tiles. */
-
-function IntroStepActions({
-  activeExemplarId,
-  onSelectExemplar,
-  onMarkIntroSeen,
+function WelcomeStorytelling({
+  onMarkWelcomeSeen,
   onGoToStep,
 }: {
-  activeExemplarId: BuildExemplarId;
-  onSelectExemplar: (id: BuildExemplarId) => void;
-  onMarkIntroSeen: () => void;
+  onMarkWelcomeSeen: () => void;
   onGoToStep: (id: BuildStepId) => void;
 }) {
-  const exemplar = getExemplar(activeExemplarId);
-  const [agentSkin, setAgentSkin] = useState<BuildAgentSkin>("claude");
-  const cwd = `~/${exemplar.department.toLowerCase().replace(/\s+/g, "-")}`;
-
-  function handleSelectExemplar(id: BuildExemplarId) {
-    onSelectExemplar(id);
-    setAgentSkin((current) => pickBuildAgentSkin(current));
-  }
+  const navigate = useNavigate();
 
   function handleContinue() {
-    onMarkIntroSeen();
-    onGoToStep("authorize");
+    onMarkWelcomeSeen();
+    onGoToStep("assistant");
+  }
+
+  function handleSkip() {
+    writeSetupSkipped(true);
+    void navigate({ to: "/apps" });
   }
 
   return (
-    <div className="space-y-6" data-testid="build-intro">
-      {/*
-        features-14 spine: ~⅓ pick rail + ~⅔ preview panel.
-        Selection = RadioGroup ChoiceCards (pick-one outcomes); panel = AgentConsole slot.
-      */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] lg:items-stretch lg:gap-8">
-        <div data-testid="build-outcome-toggle" className="min-w-0">
-          <RadioGroup
-            value={activeExemplarId}
-            onValueChange={(value) =>
-              handleSelectExemplar(value as BuildExemplarId)
-            }
-            className="grid grid-cols-1 gap-2"
-            aria-label="What to build"
-          >
-            {BUILD_EXEMPLARS.map((item) => {
-              const inputId = `build-outcome-${item.id}`;
-              return (
-                <Label
-                  key={item.id}
-                  htmlFor={inputId}
-                  className={cn(
-                    choiceCardNoIndicatorClassName,
-                    choiceCardHoverClassName,
-                  )}
-                  data-testid={`build-outcome-card-${item.id}`}
-                >
-                  <RadioGroupItem
-                    focusRing="none"
-                    value={item.id}
-                    id={inputId}
-                    className={choiceCardRadioHiddenClassName}
-                    aria-label={item.outcomeTitle}
-                  />
-                  <div className={choiceCardContentNoIndicatorClassName}>
-                    <Eyebrow
-                      data-testid={
-                        item.id === activeExemplarId
-                          ? "build-outcome-department"
-                          : undefined
-                      }
-                    >
-                      {item.department}
-                    </Eyebrow>
-                    <span
-                      data-choice-title
-                      className="text-base font-medium text-foreground"
-                    >
-                      {item.outcomeTitle}
-                    </span>
-                  </div>
-                </Label>
-              );
-            })}
-          </RadioGroup>
-        </div>
+    <div className="space-y-8" data-testid="build-welcome">
+      <PageHeader>
+        <PageHeaderContent size="lg">
+          <Eyebrow tone="accent">{SETUP_JOURNEY_EYEBROW}</Eyebrow>
+          <PageHeaderTitle>
+            Your AI assistant, wired into your work
+          </PageHeaderTitle>
+          <PageHeaderDescription>
+            Generic AI doesn&apos;t know how your company runs.{" "}
+            {SETUP_PRODUCT_NAME} connects the assistant you already use to the
+            company apps your teams rely on — with your permission.
+          </PageHeaderDescription>
+        </PageHeaderContent>
+      </PageHeader>
 
-        <div
-          data-testid="build-agent-console"
-          className="flex min-h-0 min-w-0"
+      <ul className="max-w-xl space-y-3 text-body-lg text-muted-foreground">
+        <li className="flex gap-2">
+          <span className="text-foreground" aria-hidden>
+            ·
+          </span>
+          <span>Ask in plain English in Cursor, Claude, or Codex</span>
+        </li>
+        <li className="flex gap-2">
+          <span className="text-foreground" aria-hidden>
+            ·
+          </span>
+          <span>Answers from real company systems — not generic web results</span>
+        </li>
+        <li className="flex gap-2">
+          <span className="text-foreground" aria-hidden>
+            ·
+          </span>
+          <span>You choose which apps to connect</span>
+        </li>
+      </ul>
+
+      <p className="text-sm text-muted-foreground">About 5 minutes</p>
+
+      <StepPager variant="ghost" aria-label="Continue">
+        <button
+          type="button"
+          data-testid="build-welcome-skip"
+          onClick={handleSkip}
+          className="self-center text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
         >
-          <BuildAgentConsolePreview
-            key={`${exemplar.id}-${agentSkin}`}
-            variant={agentSkin}
-            prompt={exemplar.llmPrompt}
-            cwd={cwd}
+          Skip for now
+        </button>
+        <StepPagerNext asChild title="Choose your assistant">
+          <button
+            type="button"
+            data-testid="build-welcome-continue"
+            onClick={handleContinue}
           />
-        </div>
-      </div>
-
-      <StepPager aria-label="Continue" className="mt-2">
-        <StepPagerStartSpacer />
-        <StepPagerNext
-          asChild
-          title={
-            BUILD_STEPS.find((step) => step.id === "authorize")?.title ??
-            "Authorize"
-          }
-          data-testid="build-intro-continue"
-        >
-          <button type="button" onClick={handleContinue} />
         </StepPagerNext>
       </StepPager>
     </div>
   );
 }
 
-function McpInstallPanel({
-  apiToken,
-  hasMcpCredential,
+function AssistantPickerStepActions({
   selectedAgent,
   onSelectedAgent,
-  onMarkMcpInstalled,
 }: {
-  apiToken: string;
-  hasMcpCredential: boolean;
   selectedAgent: BuildInstallAgentId | "";
   onSelectedAgent: (id: BuildInstallAgentId) => void;
+}) {
+  // Third-party product marks (not tenant palette). Cursor is monochrome.
+  const agents: {
+    id: BuildInstallAgentId;
+    label: string;
+    testId: string;
+    icon: ReactNode;
+  }[] = [
+    {
+      id: "cursor",
+      label: "Cursor",
+      testId: "build-install-card-cursor",
+      icon: <CursorIcon className="size-12 shrink-0 text-foreground" />,
+    },
+    {
+      id: "claude",
+      label: "Claude Code",
+      testId: "build-install-card-claude",
+      icon: <ClaudeIcon className="size-12 shrink-0 text-[#D97757]" />,
+    },
+    {
+      id: "codex",
+      label: "Codex",
+      testId: "build-install-card-codex",
+      icon: <CodexIcon className="size-12 shrink-0" />,
+    },
+    {
+      id: "other",
+      label: "Other",
+      testId: "build-install-card-other",
+      icon: (
+        <span className="flex size-12 shrink-0 items-center justify-center">
+          <MoreHorizontalIcon className="size-6 text-muted-foreground" />
+        </span>
+      ),
+    },
+  ];
+
+  return (
+    <RadioGroup
+      value={selectedAgent || undefined}
+      onValueChange={(value) => onSelectedAgent(value as BuildInstallAgentId)}
+      className="grid grid-cols-2 gap-3 sm:grid-cols-4"
+      data-testid="build-install-radio"
+      aria-label="Choose your assistant"
+    >
+      {agents.map((agent) => {
+        const inputId = `build-assistant-${agent.id}`;
+        return (
+          <Label
+            key={agent.id}
+            htmlFor={inputId}
+            data-testid={agent.testId}
+            className={cn(
+              choiceCardNoIndicatorClassName,
+              choiceCardHoverClassName,
+              "h-full items-center text-center",
+            )}
+          >
+            <RadioGroupItem
+              focusRing="none"
+              value={agent.id}
+              id={inputId}
+              className={choiceCardRadioHiddenClassName}
+              aria-label={agent.label}
+            />
+            <div
+              className={cn(
+                choiceCardContentNoIndicatorClassName,
+                "items-center gap-2.5",
+              )}
+            >
+              {agent.icon}
+              <span
+                data-choice-title
+                className="text-sm font-medium text-foreground"
+              >
+                {agent.label}
+              </span>
+            </div>
+          </Label>
+        );
+      })}
+    </RadioGroup>
+  );
+}
+
+function SingleAgentMcpInstall({
+  agent,
+  apiToken,
+  hasMcpCredential,
+  onMarkMcpInstalled,
+}: {
+  agent: BuildInstallAgentId;
+  apiToken: string;
+  hasMcpCredential: boolean;
   onMarkMcpInstalled: () => void;
 }) {
   const mcpBase = gestaltMcpBaseUrl();
@@ -756,6 +946,9 @@ function McpInstallPanel({
   const cursorInstallHref = hasMcpCredential
     ? cursorMcpInstallHref(mcpUrl, apiToken)
     : null;
+  const [cursorMethod, setCursorMethod] = useState<"open" | "paste">(
+    hasMcpCredential ? "open" : "paste",
+  );
 
   const cursorConfig = `{
   "mcpServers": {
@@ -776,231 +969,182 @@ function McpInstallPanel({
 codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
 
   return (
-    <div className="max-w-xl">
-      <RadioGroup
-        value={selectedAgent || undefined}
-        onValueChange={(value) => onSelectedAgent(value as BuildInstallAgentId)}
-        className="flex flex-col gap-2"
-        data-testid="build-install-radio"
-        aria-label="Choose how to install Gestalt"
-      >
-        <div
-          key="cursor"
-          className={choiceCardFormShellClassName}
-          data-testid="build-install-card-cursor"
-        >
-          <Label
-            htmlFor="build-install-cursor"
-            className={cn(
-              "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
-              radioLabelWrappedDisabledClassName,
-            )}
+    <div className="w-full space-y-4" data-testid="build-mcp-install-single">
+      {agent === "cursor" ? (
+        <div className="space-y-4">
+          {!hasMcpCredential ? (
+            <Alert variant="info" data-testid="build-install-token-needed">
+              <AlertTitle>Create a token first</AlertTitle>
+              <AlertDescription>
+                We can only add Gestalt in Cursor with a token created in this
+                session. Existing tokens cannot be shown again.
+              </AlertDescription>
+              <AlertActions>
+                <Button asChild variant="secondary" size="sm">
+                  <Link to="/setup/$stepId" params={{ stepId: "token" }}>
+                    Create an API token
+                  </Link>
+                </Button>
+              </AlertActions>
+            </Alert>
+          ) : null}
+
+          <RadioGroup
+            value={cursorMethod}
+            onValueChange={(value) =>
+              setCursorMethod(value as "open" | "paste")
+            }
+            className="flex max-w-xl flex-col gap-2"
+            data-testid="build-install-cursor-method"
+            aria-label="How to add Gestalt in Cursor"
           >
-            <RadioGroupItem
-              focusRing="none"
-              value="cursor"
-              id="build-install-cursor"
-              className={choiceCardRadioHiddenClassName}
-              aria-label="Cursor"
-            />
-            <div className={choiceCardContentNoIndicatorClassName}>
-              <span
-                data-choice-title
-                className="text-sm font-medium text-foreground"
+            <div className={choiceCardFormShellClassName}>
+              <Label
+                htmlFor="build-install-open-cursor"
+                className={cn(
+                  "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
+                  radioLabelWrappedDisabledClassName,
+                )}
               >
-                Cursor
-              </span>
-            </div>
-          </Label>
-          <Collapsible open={selectedAgent === "cursor"}>
-            <CollapsibleContent
-              className={choiceCardFormFieldsClassName}
-              onPointerDown={(event) => event.stopPropagation()}
-            >
-              <p className="text-sm text-muted-foreground">
-                One-click install adds this workspace as an MCP server using your
-                API token.
-              </p>
-              {cursorInstallHref ? (
-                <Button asChild>
-                  <a
-                    href={cursorInstallHref}
-                    data-testid="build-add-to-cursor"
-                    onClick={() => onMarkMcpInstalled()}
+                <RadioGroupItem
+                  focusRing="none"
+                  value="open"
+                  id="build-install-open-cursor"
+                  disabled={!hasMcpCredential}
+                  className={choiceCardRadioHiddenClassName}
+                  aria-label="Open Cursor"
+                />
+                <div className={choiceCardContentNoIndicatorClassName}>
+                  <span
+                    data-choice-title
+                    className="text-sm font-medium text-foreground"
                   >
-                    Add to Cursor
-                  </a>
-                </Button>
-              ) : (
-                <Button type="button" disabled data-testid="build-add-to-cursor">
-                  Add to Cursor
-                </Button>
-              )}
-              <details
-                className="group rounded-md border border-alpha bg-base-white dark:bg-surface"
-                data-testid="build-cursor-manual-config"
-              >
-                <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-medium text-foreground marker:content-none [&::-webkit-details-marker]:hidden">
-                  <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform duration-hover-out ease-out-quart group-open:rotate-180" />
-                  <span>
-                    Or paste into{" "}
-                    <code className="font-mono text-xs">.cursor/mcp.json</code>
+                    Open Cursor
                   </span>
-                </summary>
-                <div className="space-y-2 border-t border-alpha px-3 py-3">
-                  <p className="text-sm text-muted-foreground">
-                    Skip one-click and add this MCP server block to your
-                    project’s Cursor config, then reload MCP in Cursor.
-                  </p>
+                  <span
+                    data-choice-desc
+                    className="text-sm font-normal text-muted-foreground"
+                  >
+                    Adds Gestalt in one click.
+                  </span>
+                </div>
+              </Label>
+              <Collapsible open={cursorMethod === "open"}>
+                <CollapsibleContent
+                  className={choiceCardFormFieldsClassName}
+                  onPointerDown={(event) => event.stopPropagation()}
+                >
+                  {cursorInstallHref ? (
+                    <Button asChild>
+                      <a
+                        href={cursorInstallHref}
+                        data-testid="build-add-to-cursor"
+                        onClick={() => onMarkMcpInstalled()}
+                      >
+                        Add in Cursor
+                      </a>
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      disabled
+                      data-testid="build-add-to-cursor"
+                      title="Create a token first so Cursor can sign in."
+                    >
+                      Add in Cursor
+                    </Button>
+                  )}
+                </CollapsibleContent>
+              </Collapsible>
+            </div>
+
+            <div className={choiceCardFormShellClassName}>
+              <Label
+                htmlFor="build-install-paste-cursor"
+                className={cn(
+                  "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
+                  radioLabelWrappedDisabledClassName,
+                )}
+              >
+                <RadioGroupItem
+                  focusRing="none"
+                  value="paste"
+                  id="build-install-paste-cursor"
+                  className={choiceCardRadioHiddenClassName}
+                  aria-label="Paste the config yourself"
+                />
+                <div className={choiceCardContentNoIndicatorClassName}>
+                  <span
+                    data-choice-title
+                    className="text-sm font-medium text-foreground"
+                  >
+                    Paste the config yourself
+                  </span>
+                  <span
+                    data-choice-desc
+                    className="text-sm font-normal text-muted-foreground"
+                  >
+                    Copy this into Cursor if you cannot use the button.
+                  </span>
+                </div>
+              </Label>
+              <Collapsible open={cursorMethod === "paste"}>
+                <CollapsibleContent
+                  className={choiceCardFormFieldsClassName}
+                  onPointerDown={(event) => event.stopPropagation()}
+                >
                   <CodeBlock
                     variant="outline"
                     code={cursorConfig}
                     language="json"
                     filename=".cursor/mcp.json"
                   />
-                </div>
-              </details>
-            </CollapsibleContent>
-          </Collapsible>
-        </div>
-
-        <div
-          key="claude"
-          className={choiceCardFormShellClassName}
-          data-testid="build-install-card-claude"
-        >
-          <Label
-            htmlFor="build-install-claude"
-            className={cn(
-              "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
-              radioLabelWrappedDisabledClassName,
-            )}
-          >
-            <RadioGroupItem
-              focusRing="none"
-              value="claude"
-              id="build-install-claude"
-              className={choiceCardRadioHiddenClassName}
-              aria-label="Claude Code"
-            />
-            <div className={choiceCardContentNoIndicatorClassName}>
-              <span
-                data-choice-title
-                className="text-sm font-medium text-foreground"
-              >
-                Claude Code
-              </span>
+                </CollapsibleContent>
+              </Collapsible>
             </div>
-          </Label>
-          <Collapsible open={selectedAgent === "claude"}>
-            <CollapsibleContent
-              className={choiceCardFormFieldsClassName}
-              onPointerDown={(event) => event.stopPropagation()}
-              data-testid="build-install-claude-snippet"
-            >
-              <CodeBlock
-                variant="outline"
-                code={claudeCommand}
-                language="cli"
-                filename="Terminal"
-              />
-            </CollapsibleContent>
-          </Collapsible>
+          </RadioGroup>
         </div>
+      ) : null}
 
-        <div
-          key="codex"
-          className={choiceCardFormShellClassName}
-          data-testid="build-install-card-codex"
-        >
-          <Label
-            htmlFor="build-install-codex"
-            className={cn(
-              "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
-              radioLabelWrappedDisabledClassName,
-            )}
-          >
-            <RadioGroupItem
-              focusRing="none"
-              value="codex"
-              id="build-install-codex"
-              className={choiceCardRadioHiddenClassName}
-              aria-label="Codex"
-            />
-            <div className={choiceCardContentNoIndicatorClassName}>
-              <span
-                data-choice-title
-                className="text-sm font-medium text-foreground"
-              >
-                Codex
-              </span>
-            </div>
-          </Label>
-          <Collapsible open={selectedAgent === "codex"}>
-            <CollapsibleContent
-              className={choiceCardFormFieldsClassName}
-              onPointerDown={(event) => event.stopPropagation()}
-              data-testid="build-install-codex-snippet"
-            >
-              <CodeBlock
-                variant="outline"
-                code={codexCommand}
-                language="cli"
-                filename="Terminal"
-              />
-            </CollapsibleContent>
-          </Collapsible>
+      {agent === "claude" ? (
+        <div data-testid="build-install-claude-snippet">
+          <CodeBlock
+            variant="outline"
+            chrome="inset"
+            code={claudeCommand}
+            language="bash"
+          />
         </div>
+      ) : null}
 
-        <div
-          key="other"
-          className={choiceCardFormShellClassName}
-          data-testid="build-install-card-other"
-        >
-          <Label
-            htmlFor="build-install-other"
-            className={cn(
-              "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
-              radioLabelWrappedDisabledClassName,
-            )}
-          >
-            <RadioGroupItem
-              focusRing="none"
-              value="other"
-              id="build-install-other"
-              className={choiceCardRadioHiddenClassName}
-              aria-label="Using a different agent?"
-            />
-            <div className={choiceCardContentNoIndicatorClassName}>
-              <span
-                data-choice-title
-                className="text-sm font-medium text-foreground"
-              >
-                Using a different agent?
-              </span>
-            </div>
-          </Label>
-          <Collapsible open={selectedAgent === "other"}>
-            <CollapsibleContent
-              className={choiceCardFormFieldsClassName}
-              onPointerDown={(event) => event.stopPropagation()}
-            >
-              <p className="text-sm text-muted-foreground">
-                Point any HTTP MCP client at{" "}
-                <code className="font-mono text-xs">{mcpUrl}</code> with{" "}
-                <code className="font-mono text-xs">
-                  Authorization: Bearer {tokenForSnippets}
-                </code>
-                . See{" "}
-                <UiLink asChild className="text-sm">
-                  <Link to={`${DOCS_PATH}/mcp`}>Use with MCP</Link>
-                </UiLink>{" "}
-                for full setup notes.
-              </p>
-            </CollapsibleContent>
-          </Collapsible>
+      {agent === "codex" ? (
+        <div data-testid="build-install-codex-snippet">
+          <CodeBlock
+            variant="outline"
+            chrome="inset"
+            code={codexCommand}
+            language="bash"
+          />
         </div>
-      </RadioGroup>
+      ) : null}
+
+      {agent === "other" ? (
+        <div className="space-y-2">
+          <CopyableCode value={mcpUrl} tooltip="Copy connection URL" />
+        </div>
+      ) : null}
+
+      <p className="flex items-start gap-2 text-sm text-muted-foreground text-pretty">
+        <Lightbulb className="mt-0.5 size-4 shrink-0" aria-hidden />
+        <span>
+          This lets your assistant talk to {SETUP_PRODUCT_NAME} with your
+          token. See the{" "}
+          <UiLink asChild>
+            <Link to={`${DOCS_PATH}/mcp`}>setup notes</Link>
+          </UiLink>{" "}
+          if you need more detail.
+        </span>
+      </p>
     </div>
   );
 }
@@ -1009,7 +1153,6 @@ function BuildStepPanel({
   step,
   tokensReady,
   integrationsReady,
-  connected,
   integrations,
   tokens,
   activeExemplar,
@@ -1026,13 +1169,12 @@ function BuildStepPanel({
   onSelectedInstallAgent,
   onRefreshTokens,
   onMarkMcpInstalled,
-  onMarkIntroSeen,
+  onMarkWelcomeSeen,
   onGoToStep,
 }: {
   step: BuildStep;
   tokensReady: boolean;
   integrationsReady: boolean;
-  connected: Set<string>;
   integrations: Integration[];
   tokens: APIToken[];
   activeExemplar: BuildExemplar;
@@ -1049,15 +1191,13 @@ function BuildStepPanel({
   onSelectedInstallAgent: (id: BuildInstallAgentId | "") => void;
   onRefreshTokens: () => void | Promise<void>;
   onMarkMcpInstalled: () => void;
-  onMarkIntroSeen: () => void;
+  onMarkWelcomeSeen: () => void;
   onGoToStep: (id: BuildStepId) => void;
 }) {
   const authorizeReady = buildAuthorizeSelectionReady({
     apiToken,
     apiTokenGrantId,
     selectedTokenId,
-    tokenName,
-    tokens,
   });
   const mcpCredentialReady = buildMcpCredentialReady({
     apiToken,
@@ -1065,17 +1205,8 @@ function BuildStepPanel({
     selectedTokenId,
   });
   const installReady = buildInstallAgentSelected(selectedInstallAgent);
-  const tokenCreateFormRef = useRef<TokenCreateFormHandle>(null);
 
-  async function handleAuthorizeNext(id: BuildStepId) {
-    if (
-      step.id === "authorize" &&
-      selectedTokenId === BUILD_CREATE_NEW_TOKEN_ID &&
-      !mcpCredentialReady
-    ) {
-      const created = (await tokenCreateFormRef.current?.create()) ?? false;
-      if (!created) return;
-    }
+  function handleStepNext(id: BuildStepId) {
     if (step.id === "install") {
       const from = BUILD_STEPS.findIndex((s) => s.id === step.id);
       const to = BUILD_STEPS.findIndex((s) => s.id === id);
@@ -1087,26 +1218,29 @@ function BuildStepPanel({
   return (
     <section
       data-testid="build-step-panel"
-      className="mt-10 space-y-3"
+      className="space-y-3"
       aria-busy={
-        (step.id === "authorize" && !tokensReady) ||
-        (step.id === "connect" && !integrationsReady) ||
-        (step.id === "invoke" && (!tokensReady || !integrationsReady))
+        (step.id === "token" && !tokensReady) ||
+        ((step.id === "apps" || step.id === "try") &&
+          (!tokensReady || !integrationsReady))
       }
     >
-      {step.id === "intro" ? (
-        <IntroStepActions
-          activeExemplarId={activeExemplarId}
-          onSelectExemplar={onSelectExemplar}
-          onMarkIntroSeen={onMarkIntroSeen}
+      {step.id === "welcome" ? (
+        <WelcomeStorytelling
+          onMarkWelcomeSeen={onMarkWelcomeSeen}
           onGoToStep={onGoToStep}
         />
       ) : null}
 
-      {step.id === "authorize" ? (
+      {step.id === "assistant" ? (
+        <AssistantPickerStepActions
+          selectedAgent={selectedInstallAgent}
+          onSelectedAgent={onSelectedInstallAgent}
+        />
+      ) : null}
+
+      {step.id === "token" ? (
         <AuthorizeStepActions
-          title={step.title}
-          description={step.description}
           tokens={tokens}
           tokensLoaded={tokensReady}
           tokenName={tokenName}
@@ -1115,62 +1249,61 @@ function BuildStepPanel({
           onSelectedTokenId={onSelectedTokenId}
           onApiToken={onApiToken}
           onTokensChanged={onRefreshTokens}
-          createFormRef={tokenCreateFormRef}
         />
       ) : null}
 
-      {step.id === "install" ? (
-        <InstallStepActions
+      {step.id === "install" &&
+      buildInstallAgentSelected(selectedInstallAgent) ? (
+        <SingleAgentMcpInstall
+          agent={selectedInstallAgent as BuildInstallAgentId}
           apiToken={apiToken}
           hasMcpCredential={mcpCredentialReady}
-          selectedInstallAgent={selectedInstallAgent}
-          onSelectedInstallAgent={onSelectedInstallAgent}
           onMarkMcpInstalled={onMarkMcpInstalled}
         />
       ) : null}
 
-      {step.id === "connect" ? (
+      {step.id === "apps" ? (
         <ConnectStepActions
           exemplar={activeExemplar}
           integrations={integrations}
-          connected={connected}
           catalogReady={integrationsReady}
         />
       ) : null}
 
-      {step.id === "invoke" ? (
+      {step.id === "try" ? (
         <InvokeStepActions
           exemplar={activeExemplar}
           integrations={integrations}
+          installAgentId={selectedInstallAgent}
         />
       ) : null}
 
-      {step.id !== "intro" ? (
+      {step.id !== "welcome" ? (
         <BuildStepPager
           stepId={step.id}
+          installAgentId={selectedInstallAgent}
           onGoToStep={(id) => {
-            void handleAuthorizeNext(id);
+            void handleStepNext(id);
           }}
           terminalNext={
-            step.id === "invoke"
-              ? { label: "See all apps", to: "/apps" }
+            step.id === "try"
+              ? { label: "Browse apps", to: "/apps" }
               : undefined
           }
           nextDisabled={
-            (step.id === "authorize" && !authorizeReady) ||
-            (step.id === "install" && !installReady) ||
-            (step.id === "connect" &&
-              activeExemplar.companionAppIds.some(
-                (appId) => !connected.has(appId),
-              ))
+            (step.id === "assistant" && !installReady) ||
+            (step.id === "token" && !authorizeReady) ||
+            (step.id === "apps" &&
+              !setupAppsConnected({ integrations }) &&
+              setupAppsHasConnectable({ integrations }))
           }
           nextDisabledTitle={
-            step.id === "authorize"
-              ? "Pick a token or finish the new token form before continuing"
-              : step.id === "install"
-                ? "Choose how you will install Gestalt before continuing"
-                : step.id === "connect"
-                  ? "Connect every required app before continuing"
+            step.id === "assistant"
+              ? "Choose your assistant before continuing"
+              : step.id === "token"
+                ? "Create a token so we can add it in your assistant"
+                : step.id === "apps"
+                  ? "Connect at least one app to continue"
                   : undefined
           }
         />
@@ -1181,12 +1314,14 @@ function BuildStepPanel({
 
 function BuildStepPager({
   stepId,
+  installAgentId,
   onGoToStep,
   terminalNext,
   nextDisabled = false,
   nextDisabledTitle,
 }: {
   stepId: BuildStepId;
+  installAgentId: string;
   onGoToStep: (id: BuildStepId) => void;
   /** Last-step exit CTA in the Next slot when there is no following build step. */
   terminalNext?: { label: string; to: string };
@@ -1201,17 +1336,20 @@ function BuildStepPager({
       ? BUILD_STEPS[index + 1]
       : null;
   if (!prev && !next && !terminalNext) return null;
+  const prevTitle = prev ? buildStepTitle(prev, installAgentId) : "";
+  const nextTitle = next ? buildStepTitle(next, installAgentId) : "";
 
   return (
     <StepPager
-      aria-label="Build step navigation"
+      variant="ghost"
+      aria-label="Setup step navigation"
       data-testid="build-step-pager"
       className="mt-8"
     >
       {prev ? (
         <StepPagerPrevious
           asChild
-          title={prev.title}
+          title={prevTitle}
           data-testid="build-step-prev"
         >
           <button type="button" onClick={() => onGoToStep(prev.id)} />
@@ -1222,7 +1360,7 @@ function BuildStepPager({
       {next ? (
         <StepPagerNext
           asChild
-          title={next.title}
+          title={nextTitle}
           data-testid="build-step-next"
         >
           <button
@@ -1246,19 +1384,22 @@ function BuildStepPager({
   );
 }
 
-function tokenChoiceTitle(token: APIToken): string {
-  const name = token.name?.trim();
+function tokenChoiceTitle(token: APIToken, knownName?: string): string {
+  const name = token.name?.trim() || knownName?.trim();
   if (name && name !== token.id) return name;
   return token.id;
 }
 
-function tokenAddedOnLabel(createdAt: string): string {
-  const formatted = new Date(createdAt).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-  return `Added on ${formatted}`;
+function isListedTokenId(value: string, tokens: APIToken[]): boolean {
+  const trimmed = value.trim();
+  return tokens.some((token) => token.id === trimmed);
+}
+
+function createDraftTokenName(current: string, tokens: APIToken[]): string {
+  if (!current.trim() || isListedTokenId(current, tokens)) {
+    return DEFAULT_BUILD_TOKEN_NAME;
+  }
+  return current;
 }
 
 function tokenRecencyMs(token: APIToken): number {
@@ -1273,9 +1414,16 @@ function sortTokensByRecency(tokens: APIToken[]): APIToken[] {
 const BUILD_EXISTING_TOKEN_PREVIEW = 5;
 const BUILD_MORE_TOKENS_ACCORDION_VALUE = "more-tokens";
 
-function ExistingTokenRadioRow({ token }: { token: APIToken }) {
+function ExistingTokenRadioRow({
+  token,
+  knownName,
+}: {
+  token: APIToken;
+  knownName?: string;
+}) {
   const inputId = `build-token-${token.id}`;
-  const created = token.createdAt ? tokenAddedOnLabel(token.createdAt) : null;
+  const title = tokenChoiceTitle(token, knownName);
+  const showId = title !== token.id;
 
   return (
     <label
@@ -1286,17 +1434,22 @@ function ExistingTokenRadioRow({ token }: { token: APIToken }) {
         value={token.id}
         id={inputId}
         className="mt-0.5"
-        aria-label={token.id}
+        aria-label={showId ? `${title} (${token.id})` : token.id}
       />
       <span className="min-w-0">
         <span
-          className="block truncate font-mono text-sm text-foreground"
-          title={token.id}
+          className="block truncate text-sm font-medium text-foreground"
+          title={title}
         >
-          {token.id}
+          {title}
         </span>
-        {created ? (
-          <span className="block text-xs text-muted-foreground">{created}</span>
+        {showId ? (
+          <span
+            className="block truncate font-mono text-xs text-muted-foreground"
+            title={token.id}
+          >
+            {token.id}
+          </span>
         ) : null}
       </span>
     </label>
@@ -1304,8 +1457,6 @@ function ExistingTokenRadioRow({ token }: { token: APIToken }) {
 }
 
 function AuthorizeStepActions({
-  title,
-  description,
   tokens,
   tokensLoaded,
   onApiToken,
@@ -1314,10 +1465,7 @@ function AuthorizeStepActions({
   selectedTokenId,
   onSelectedTokenId,
   onTokensChanged,
-  createFormRef,
 }: {
-  title: string;
-  description: string;
   tokens: APIToken[];
   tokensLoaded: boolean;
   onApiToken: (token: string, grantId?: string) => void;
@@ -1326,7 +1474,6 @@ function AuthorizeStepActions({
   selectedTokenId: string;
   onSelectedTokenId: (id: string) => void;
   onTokensChanged: () => void | Promise<void>;
-  createFormRef: React.RefObject<TokenCreateFormHandle | null>;
 }) {
   const [moreTokensOpen, setMoreTokensOpen] = useState<string | undefined>(
     undefined,
@@ -1342,13 +1489,42 @@ function AuthorizeStepActions({
     [sortedTokens],
   );
 
-  const authorizeMode =
-    selectedTokenId === BUILD_CREATE_NEW_TOKEN_ID
+  const authorizeMode = !hasTokens
+    ? BUILD_CREATE_NEW_TOKEN_ID
+    : selectedTokenId === BUILD_CREATE_NEW_TOKEN_ID
       ? BUILD_CREATE_NEW_TOKEN_ID
       : selectedTokenId === BUILD_USE_EXISTING_TOKEN_ID ||
           tokens.some((token) => token.id === selectedTokenId)
         ? BUILD_USE_EXISTING_TOKEN_ID
         : undefined;
+
+  useEffect(() => {
+    if (!tokensLoaded || hasTokens) return;
+    if (selectedTokenId === BUILD_CREATE_NEW_TOKEN_ID) return;
+    onSelectedTokenId(BUILD_CREATE_NEW_TOKEN_ID);
+    onTokenName(createDraftTokenName(tokenName, tokens));
+  }, [
+    tokensLoaded,
+    hasTokens,
+    selectedTokenId,
+    tokenName,
+    tokens,
+    onSelectedTokenId,
+    onTokenName,
+  ]);
+
+  useEffect(() => {
+    if (!tokensLoaded) return;
+    if (authorizeMode !== BUILD_CREATE_NEW_TOKEN_ID) return;
+    const nextName = createDraftTokenName(tokenName, tokens);
+    if (nextName !== tokenName) onTokenName(nextName);
+  }, [
+    tokensLoaded,
+    authorizeMode,
+    tokenName,
+    tokens,
+    onTokenName,
+  ]);
 
   const selectedExistingTokenId = tokens.some(
     (token) => token.id === selectedTokenId,
@@ -1378,6 +1554,7 @@ function AuthorizeStepActions({
     onSelectedTokenId(created.id);
     onApiToken(plaintext, created.id);
     onTokenName(created.name);
+    toast.success("Token created.");
     await onTokensChanged();
   }
 
@@ -1392,25 +1569,21 @@ function AuthorizeStepActions({
 
   function selectCreateMode() {
     onSelectedTokenId(BUILD_CREATE_NEW_TOKEN_ID);
-    if (!tokenName.trim()) {
-      onTokenName(DEFAULT_BUILD_TOKEN_NAME);
-    }
+    onTokenName(createDraftTokenName(tokenName, tokens));
   }
 
   function selectExistingToken(token: APIToken) {
     onSelectedTokenId(token.id);
-    onTokenName(tokenChoiceTitle(token));
+  }
+
+  function knownNameFor(token: APIToken): string | undefined {
+    if (token.id !== selectedExistingTokenId) return undefined;
+    if (!tokenName.trim() || tokenName.trim() === token.id) return undefined;
+    return tokenName;
   }
 
   return (
     <div className="space-y-8">
-      <PageHeader>
-        <PageHeaderContent size="lg">
-          <PageHeaderTitle>{title}</PageHeaderTitle>
-          <PageHeaderDescription>{description}</PageHeaderDescription>
-        </PageHeaderContent>
-      </PageHeader>
-
       {!tokensLoaded ? (
         <p className="text-sm text-faint">Loading tokens…</p>
       ) : (
@@ -1428,37 +1601,38 @@ function AuthorizeStepActions({
             data-testid="build-token-radio"
             aria-label="Choose how to authorize"
           >
-            <div className={choiceCardFormShellClassName}>
-              <Label
-                htmlFor="build-authorize-existing"
-                className={cn(
-                  "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
-                  radioLabelWrappedDisabledClassName,
-                )}
-              >
-                <RadioGroupItem
-                  focusRing="none"
-                  value={BUILD_USE_EXISTING_TOKEN_ID}
-                  id="build-authorize-existing"
-                  className={choiceCardRadioHiddenClassName}
-                  aria-label="Use existing token"
-                  disabled={!hasTokens}
-                />
-                <div className={choiceCardContentNoIndicatorClassName}>
-                  <span
-                    data-choice-title
-                    className="text-sm font-medium text-foreground"
-                  >
-                    Use existing token
-                  </span>
-                </div>
-              </Label>
-              <Collapsible open={authorizeMode === BUILD_USE_EXISTING_TOKEN_ID}>
-                <CollapsibleContent
-                  className={choiceCardFormFieldsClassName}
-                  onPointerDown={(event) => event.stopPropagation()}
+            {hasTokens ? (
+              <div className={choiceCardFormShellClassName}>
+                <Label
+                  htmlFor="build-authorize-existing"
+                  className={cn(
+                    "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
+                    radioLabelWrappedDisabledClassName,
+                  )}
                 >
-                  {hasTokens ? (
+                  <RadioGroupItem
+                    focusRing="none"
+                    value={BUILD_USE_EXISTING_TOKEN_ID}
+                    id="build-authorize-existing"
+                    className={choiceCardRadioHiddenClassName}
+                    aria-label="Use existing token"
+                  />
+                  <div className={choiceCardContentNoIndicatorClassName}>
+                    <span
+                      data-choice-title
+                      className="text-sm font-medium text-foreground"
+                    >
+                      Use existing token
+                    </span>
+                  </div>
+                </Label>
+                <Collapsible
+                  open={authorizeMode === BUILD_USE_EXISTING_TOKEN_ID}
+                >
+                  <CollapsibleContent
+                    className={choiceCardFormFieldsClassName}
+                    onPointerDown={(event) => event.stopPropagation()}
+                  >
                     <div className="space-y-2">
                       <RadioGroup
                         value={selectedExistingTokenId}
@@ -1471,7 +1645,11 @@ function AuthorizeStepActions({
                         aria-label="Existing tokens"
                       >
                         {previewTokens.map((token) => (
-                          <ExistingTokenRadioRow key={token.id} token={token} />
+                          <ExistingTokenRadioRow
+                            key={token.id}
+                            token={token}
+                            knownName={knownNameFor(token)}
+                          />
                         ))}
                         {overflowTokens.length > 0 ? (
                           <Accordion
@@ -1497,6 +1675,7 @@ function AuthorizeStepActions({
                                   <ExistingTokenRadioRow
                                     key={token.id}
                                     token={token}
+                                    knownName={knownNameFor(token)}
                                   />
                                 ))}
                               </AccordionContent>
@@ -1505,14 +1684,10 @@ function AuthorizeStepActions({
                         ) : null}
                       </RadioGroup>
                     </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      No tokens yet — create one below.
-                    </p>
-                  )}
-                </CollapsibleContent>
-              </Collapsible>
-            </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              </div>
+            ) : null}
 
             <div className={choiceCardFormShellClassName}>
               <Label
@@ -1544,12 +1719,10 @@ function AuthorizeStepActions({
                   onPointerDown={(event) => event.stopPropagation()}
                 >
                   <TokenCreateForm
-                    ref={createFormRef}
                     name={tokenName}
                     onNameChange={onTokenName}
                     defaultName={DEFAULT_BUILD_TOKEN_NAME}
                     onCreated={handleTokenCreated}
-                    showSubmit={false}
                     showPlaintextResult={false}
                     fieldOrientation="horizontal"
                   />
@@ -1563,36 +1736,14 @@ function AuthorizeStepActions({
   );
 }
 
-function InstallStepActions({
-  apiToken,
-  hasMcpCredential,
-  selectedInstallAgent,
-  onSelectedInstallAgent,
-  onMarkMcpInstalled,
-}: {
-  apiToken: string;
-  hasMcpCredential: boolean;
-  selectedInstallAgent: BuildInstallAgentId | "";
-  onSelectedInstallAgent: (id: BuildInstallAgentId | "") => void;
-  onMarkMcpInstalled: () => void;
-}) {
-  return (
-    <McpInstallPanel
-      apiToken={apiToken}
-      hasMcpCredential={hasMcpCredential}
-      selectedAgent={selectedInstallAgent}
-      onSelectedAgent={onSelectedInstallAgent}
-      onMarkMcpInstalled={onMarkMcpInstalled}
-    />
-  );
-}
-
 function InvokeStepActions({
   exemplar,
   integrations,
+  installAgentId,
 }: {
   exemplar: BuildExemplar;
   integrations: Integration[];
+  installAgentId: BuildInstallAgentId | "";
 }) {
   const integration = integrations.find((item) => item.name === exemplar.id);
   const open = resolveExemplarOpenPath(exemplar, integration);
@@ -1600,7 +1751,7 @@ function InvokeStepActions({
   const invokeAppLabel =
     integrations.find((item) => item.name === exemplar.invokeAppId)
       ?.displayName?.trim() || exemplar.invokeAppId;
-  const agentSkin: BuildAgentSkin = "claude";
+  const agentSkin = buildAgentSkin(installAgentId);
   const cwd = `~/${exemplar.department.toLowerCase().replace(/\s+/g, "-")}`;
 
   return (
@@ -1615,6 +1766,7 @@ function InvokeStepActions({
         <div
           className="min-h-[16rem] w-full"
           data-testid="build-agent-console-reply"
+          data-agent-skin={agentSkin}
         >
           <BuildAgentConsolePreview
             variant={agentSkin}
@@ -1777,78 +1929,189 @@ function ConnectStepActions({
 }: {
   exemplar: BuildExemplar;
   integrations: Integration[];
-  connected: Set<string>;
   catalogReady: boolean;
 }) {
   const invalidateIntegrations = useInvalidateIntegrations();
-  const returnPath = `${BUILD_PATH}/connect`;
+  const [visibleMoreCount, setVisibleMoreCount] = useState(SETUP_APPS_PAGE_SIZE);
+  const [categoryFilter, setCategoryFilter] = useState(SETUP_APPS_CATEGORY_ALL);
+  const returnPath = `${SETUP_PATH}/apps`;
 
   async function refreshIntegrations() {
     await invalidateIntegrations();
+  }
+
+  function selectCategory(next: string) {
+    setCategoryFilter(next || SETUP_APPS_CATEGORY_ALL);
+    setVisibleMoreCount(SETUP_APPS_PAGE_SIZE);
   }
 
   if (!catalogReady) {
     return <p className="text-sm text-faint">Loading apps…</p>;
   }
 
-  const companionIntegrations = exemplar.companionAppIds.map((appId) => {
+  const companionIds = new Set(exemplar.companionAppIds);
+  const suggested = exemplar.companionAppIds.flatMap((appId) => {
     const integration = integrations.find((item) => item.name === appId);
-    return { appId, integration };
+    if (integration && !isSetupDataSourceApp(integration)) return [];
+    return [{ appId, integration }];
   });
-  const missingFromCatalog = companionIntegrations.filter(
-    (item) => !item.integration,
-  );
+  const more = setupDataSourceIntegrations(integrations)
+    .filter((integration) => !companionIds.has(integration.name))
+    .sort((a, b) =>
+      getIntegrationLabel(a).localeCompare(getIntegrationLabel(b)),
+    );
+  const categoryChips = catalogBucketsPresentIn(more);
+  const effectiveCategory =
+    categoryFilter === SETUP_APPS_CATEGORY_ALL ||
+    categoryChips.some((bucket) => bucket.id === categoryFilter)
+      ? categoryFilter
+      : SETUP_APPS_CATEGORY_ALL;
+  const activeCategory =
+    effectiveCategory === SETUP_APPS_CATEGORY_ALL
+      ? null
+      : (CATALOG_BUCKETS.find((bucket) => bucket.id === effectiveCategory) ??
+        null);
+  const filteredMore =
+    effectiveCategory === SETUP_APPS_CATEGORY_ALL
+      ? more
+      : more.filter(
+          (integration) => catalogBucketIdFor(integration) === effectiveCategory,
+        );
+  const visibleMore = filteredMore.slice(0, visibleMoreCount);
+  const remainingMore = filteredMore.slice(visibleMoreCount);
+  const missingFromCatalog = suggested.filter((item) => !item.integration);
+  const moreSectionTitle = activeCategory?.label ?? "More apps";
+
+  function renderConnectCard(appId: string, integration: Integration | undefined) {
+    if (!integration) {
+      return (
+        <div
+          key={appId}
+          className="rounded-xl bg-neutral-hover p-3 text-foreground"
+          data-testid={`build-connect-app-${appId}`}
+        >
+          <div className="flex items-start gap-3">
+            <IntegrationIcon
+              name={appId}
+              displayName={companionAppLabel(appId)}
+              size="md"
+              variant="bare"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-heading text-foreground">
+                {companionAppLabel(appId)}
+              </p>
+              <Badge variant="warning" size="sm" className="mt-2">
+                Not in workspace
+              </Badge>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div key={appId} data-testid={`build-connect-app-${appId}`}>
+        <IntegrationCard
+          integration={integration}
+          returnPath={returnPath}
+          onConnected={() => void refreshIntegrations()}
+          onDisconnected={() => void refreshIntegrations()}
+          connectionEntry="modal"
+          density="compact"
+        />
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col gap-6" data-testid="build-connect-apps">
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-        {companionIntegrations.map(({ appId, integration }) => {
-          if (!integration) {
-            return (
-              <div
-                key={appId}
-                className="rounded-xl bg-neutral-hover p-4 text-foreground"
-                data-testid={`build-connect-app-${appId}`}
-              >
-                <div className="flex items-start gap-3">
-                  <IntegrationIcon
-                    name={appId}
-                    displayName={companionAppLabel(appId)}
-                    size="md"
-                    variant="bare"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-foreground">
-                      {companionAppLabel(appId)}
-                    </p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      This app is not available in your workspace yet.
-                    </p>
-                    <Badge variant="warning" size="sm" className="mt-2">
-                      Not in workspace
-                    </Badge>
-                  </div>
-                </div>
-              </div>
-            );
-          }
+    <div className="flex flex-col gap-10" data-testid="build-connect-apps">
+      {suggested.length > 0 ? (
+        <div className="space-y-6">
+          <SectionHeader>
+            <SectionHeaderContent>
+              <SectionHeaderTitle>Suggested</SectionHeaderTitle>
+            </SectionHeaderContent>
+          </SectionHeader>
+          <div className={SETUP_APPS_GRID_CLASS}>
+            {suggested.map(({ appId, integration }) =>
+              renderConnectCard(appId, integration),
+            )}
+          </div>
+        </div>
+      ) : null}
 
-          return (
-            <div
-              key={appId}
-              data-testid={`build-connect-app-${appId}`}
+      {more.length > 0 ? (
+        <div className="space-y-6">
+          {categoryChips.length > 0 ? (
+            <ChipGroup
+              type="single"
+              size="sm"
+              value={effectiveCategory}
+              onValueChange={selectCategory}
+              aria-label="Filter apps by category"
+              data-testid="build-apps-category-chips"
             >
-              <IntegrationCard
-                integration={integration}
-                returnPath={returnPath}
-                onConnected={() => void refreshIntegrations()}
-                onDisconnected={() => void refreshIntegrations()}
-                connectionEntry="modal"
-              />
+              <ChipGroupItem
+                value={SETUP_APPS_CATEGORY_ALL}
+                data-testid="build-apps-category-all"
+              >
+                All
+              </ChipGroupItem>
+              {categoryChips.map((bucket) => (
+                <ChipGroupItem
+                  key={bucket.id}
+                  value={bucket.id}
+                  data-testid={`build-apps-category-${bucket.id}`}
+                >
+                  {bucket.label}
+                </ChipGroupItem>
+              ))}
+            </ChipGroup>
+          ) : null}
+
+          <SectionHeader>
+            <SectionHeaderContent>
+              <SectionHeaderTitle>{moreSectionTitle}</SectionHeaderTitle>
+            </SectionHeaderContent>
+          </SectionHeader>
+
+          {filteredMore.length === 0 ? (
+            <div className="space-y-3" data-testid="build-apps-category-empty">
+              <p className="text-sm font-medium text-foreground">
+                No apps in this category
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Try another category, or choose All to see every app.
+              </p>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => selectCategory(SETUP_APPS_CATEGORY_ALL)}
+              >
+                Show all apps
+              </Button>
             </div>
-          );
-        })}
-      </div>
+          ) : (
+            <>
+              <div className={SETUP_APPS_GRID_CLASS}>
+                {visibleMore.map((integration) =>
+                  renderConnectCard(integration.name, integration),
+                )}
+              </div>
+              {remainingMore.length > 0 ? (
+                <SeeMoreAppsTrigger
+                  remaining={remainingMore}
+                  onSeeMore={() =>
+                    setVisibleMoreCount((count) => count + SETUP_APPS_PAGE_SIZE)
+                  }
+                />
+              ) : null}
+            </>
+          )}
+        </div>
+      ) : null}
 
       {missingFromCatalog.length > 0 ? (
         <p className="text-sm text-muted-foreground">
@@ -1860,8 +2123,3 @@ function ConnectStepActions({
   );
 }
 
-function errorMessage(reason: unknown): string {
-  if (reason instanceof Error) return reason.message;
-  if (typeof reason === "string") return reason;
-  return "Failed to load workspace status";
-}

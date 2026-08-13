@@ -63,4 +63,16 @@ describe("userFacingError", () => {
       ),
     ).toMatch(/already started/i);
   });
+
+  it("does not leak gRPC transport text", () => {
+    expect(
+      userFacingError(
+        new APIError(
+          500,
+          "list grants: rpc error: code = Unknown desc = list grants: oidc auth: caller bearer token is required",
+        ),
+        "Couldn't load this workspace. Try again.",
+      ),
+    ).toBe("Couldn't load this workspace. Try again.");
+  });
 });

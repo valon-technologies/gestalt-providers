@@ -1,4 +1,4 @@
-import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   useCallback,
   useDeferredValue,
@@ -65,12 +65,23 @@ import { Badge } from "@/components/ui/badge";
 import { ChipGroup, ChipGroupItem } from "@/components/ui/chip-group";
 import { useScrollSpy } from "@/hooks/use-scroll-spy";
 import { usePageLayoutAnchorOffsetPx } from "@/lib/page-layout-anchor-offset";
+import { pageLayoutContentTopStyle } from "@/lib/page-layout-content-top";
 import { CheckCircleIcon, CloseIcon, SpinnerIcon } from "@/components/icons";
 import Button from "@/components/Button";
+import { useBuildSession } from "@/hooks/use-build-session";
 import {
   useIntegrationsQuery,
   useInvalidateIntegrations,
+  useTokensQuery,
 } from "@/lib/queries";
+import {
+  isActivationDue,
+  isBuildComplete,
+  readResumeBannerDismissed,
+  readSetupSkipped,
+  writeResumeBannerDismissed,
+  type BuildWorkspaceSnapshot,
+} from "@/lib/buildPaths";
 
 function resolveConnectedAppLabel(
   connectedParam: string,
@@ -137,14 +148,23 @@ function CatalogBucketSectionHeader({
 
 export default function AppsCatalogPageClient() {
   const navigate = useNavigate();
+  const session = useBuildSession();
   const locationSearch = useRouterState({
     select: (state) => state.location.search,
   });
   const connectedParam = new URLSearchParams(locationSearch).get("connected");
   const integrationsQuery = useIntegrationsQuery();
+  const tokensQuery = useTokensQuery();
   const invalidateIntegrations = useInvalidateIntegrations();
+  const activationCheckedRef = useRef(false);
+  const [resumeBannerDismissed, setResumeBannerDismissed] = useState(
+    readResumeBannerDismissed,
+  );
 
   const integrations: Integration[] = integrationsQuery.data ?? [];
+  const tokens = tokensQuery.data ?? [];
+  const tokensReady = !tokensQuery.isPending;
+  const integrationsReady = !integrationsQuery.isPending;
   // Full-page loading only on cold cache — revisits render immediately.
   const loading = integrationsQuery.isPending;
   const error =
@@ -259,7 +279,11 @@ export default function AppsCatalogPageClient() {
     });
   }, [linkItems]);
 
-  const tocActivationOffset = usePageLayoutAnchorOffsetPx();
+  const pageLayoutRef = useRef<HTMLDivElement | null>(null);
+  const tocActivationOffset = usePageLayoutAnchorOffsetPx(
+    undefined,
+    pageLayoutRef,
+  );
 
   const { activeId, activate } = useScrollSpy({
     scrollRootRef,
@@ -281,6 +305,73 @@ export default function AppsCatalogPageClient() {
     },
     [activate],
   );
+
+  const setupSnapshot: BuildWorkspaceSnapshot = useMemo(
+    () => ({
+      integrations,
+      tokens,
+      activeExemplarId: session.activeExemplarId,
+      mcpInstalled: session.mcpInstalled,
+      apiToken: session.apiToken,
+      apiTokenGrantId: session.apiTokenGrantId,
+      tokenName: session.tokenName,
+      selectedTokenId: session.selectedTokenId,
+      installAgentId: session.selectedInstallAgent,
+      welcomeSeen: session.welcomeSeen,
+      trySeen: session.trySeen,
+    }),
+    [
+      integrations,
+      tokens,
+      session.activeExemplarId,
+      session.mcpInstalled,
+      session.apiToken,
+      session.apiTokenGrantId,
+      session.tokenName,
+      session.selectedTokenId,
+      session.selectedInstallAgent,
+      session.welcomeSeen,
+      session.trySeen,
+    ],
+  );
+
+  const setupComplete = isBuildComplete(setupSnapshot);
+  const setupSkipped = readSetupSkipped();
+  const showResumeBanner =
+    tokensReady &&
+    integrationsReady &&
+    !setupComplete &&
+    (setupSkipped || session.welcomeSeen) &&
+    !resumeBannerDismissed;
+
+  useEffect(() => {
+    if (!tokensReady || !integrationsReady || activationCheckedRef.current) {
+      return;
+    }
+    activationCheckedRef.current = true;
+    if (
+      isActivationDue({
+        tokens,
+        integrations,
+        skipped: setupSkipped,
+        complete: setupComplete,
+      })
+    ) {
+      void navigate({
+        to: "/setup/$stepId",
+        params: { stepId: "welcome" },
+        replace: true,
+      });
+    }
+  }, [
+    tokensReady,
+    integrationsReady,
+    tokens,
+    integrations,
+    setupSkipped,
+    setupComplete,
+    navigate,
+  ]);
 
   useEffect(() => {
     if (!connectedNotice) {
@@ -369,7 +460,8 @@ export default function AppsCatalogPageClient() {
     ) : undefined;
 
   return (
-    <Container className="pb-24">
+    <Container className="pb-24 pt-16">
+      <div ref={pageLayoutRef} style={pageLayoutContentTopStyle}>
       <PageLayout
         tracks="compact"
         pane={catalogPane}
@@ -385,7 +477,7 @@ export default function AppsCatalogPageClient() {
           ) : undefined
         }
       >
-        <PageHeader className="mt-8 mb-8">
+        <PageHeader className="mb-8">
           <PageHeaderContent size="lg">
             <PageHeaderTitle>Apps</PageHeaderTitle>
             <PageHeaderDescription>
@@ -431,8 +523,36 @@ export default function AppsCatalogPageClient() {
         ) : null}
         {connectedSuccessLabel ||
         needsAttentionCopy ||
-        flashError ? (
+        flashError ||
+        showResumeBanner ? (
           <div className="mb-6 space-y-3">
+            {showResumeBanner ? (
+              <Alert variant="info" data-testid="setup-resume-banner">
+                <AlertTitle>Finish setup</AlertTitle>
+                <AlertDescription>
+                  Pick up where you left off and connect your assistant to this
+                  workspace.
+                </AlertDescription>
+                <AlertActions>
+                  <UiButton variant="secondary" size="sm" asChild>
+                    <Link to="/setup">Resume</Link>
+                  </UiButton>
+                  <UiButton
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="Dismiss setup reminder"
+                    onClick={() => {
+                      writeResumeBannerDismissed(true);
+                      setResumeBannerDismissed(true);
+                    }}
+                  >
+                    <CloseIcon className="size-4" />
+                  </UiButton>
+                </AlertActions>
+              </Alert>
+            ) : null}
+
             {connectedSuccessLabel ? (
               <Alert
                 variant="success"
@@ -629,6 +749,7 @@ export default function AppsCatalogPageClient() {
           </div>
         ) : null}
       </PageLayout>
+      </div>
     </Container>
   );
 }

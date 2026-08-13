@@ -229,12 +229,12 @@ tones use `--*-ink` canvas status tokens (bridged in `shared/theme.css` +
 ## StepPager
 
 Registry `step-pager` is vendored here. Previous/next
-destination cards for docs journey edges and Build wizard steps. Compose
+destination cards for docs journey edges and Setup wizard steps. Compose
 `StepPager` + `StepPagerPrevious` / `StepPagerNext` (+ `StepPagerStartSpacer`
 when there is no previous). Use `asChild` for `<button>` or router `Link`.
-Surfaces: `solid` (default) / `outline` / `ghost`. Not `Pagination` (dataset
-paging) and not `Stepper` (in-flow process rail). Strip `"use client"`; prefer
-`@/lib/cn`. Hairline is semantic `border-border`.
+Surfaces: `solid` (default) / `outline` / `ghost`. Setup uses `variant="ghost"`.
+Not `Pagination` (dataset paging) and not `Stepper` (in-flow process rail).
+Strip `"use client"`; prefer `@/lib/cn`. Hairline is semantic `border-border`.
 
 ## Tabs
 
@@ -267,8 +267,11 @@ vendored `tabs`.
 Registry `stepper` is vendored as `ui/stepper.tsx` (process navigation with
 checks + connectors). Depends on `lib/list-item-interaction.ts` and
 `selection-check`. Theme bridges include `--accent-fill-hover` /
-`--accent-fill-pressed` for soft-selected hover (selectable-rows). Build page
-uses controlled `activationMode="jump"` — do not restyle Stepper chrome at the
+`--accent-fill-pressed` for soft-selected hover (selectable-rows). Setup uses a
+controlled horizontal Stepper with `activationMode="jump"`, `size="sm"`,
+`completedVariant="success"` (Registry step-rail semantic green on checks)
+and `connectorVariant="primary"` (ink rails, same as the active indicator).
+Default connectors stay `accent-solid`. Do not restyle Stepper chrome at the
 call site (layout-only wrappers OK).
 
 ## Pagination
@@ -357,7 +360,12 @@ field·operator·value bars stay Registry `Filters` (not yet required here).
 | Item | Why |
 | --- | --- |
 | **TableOfContents `kind: "separator"`** | Apps catalog TOC divider between groups |
-| **`AGENT_CONSOLE_THEME_CODEX` / `_CURSOR` exports** (optional) | Story palettes only today; Build re-copies them — promote from `agent-console.stories` |
+
+### AgentConsole (synced)
+
+Vendored with Registry: Claude / Codex / Cursor skins as `AGENT_CONSOLE_THEME_*`
+exports. Setup consumes those constants — do not re-copy palettes at the call
+site. Strip `"use client"`; prefer `@/lib/cn` over Registry `@/lib/utils`.
 
 ### Avatar (synced)
 

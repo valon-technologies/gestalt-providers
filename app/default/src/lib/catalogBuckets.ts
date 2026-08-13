@@ -165,6 +165,16 @@ export function catalogBucketIdFor(
   return "other";
 }
 
+/** Buckets that contain at least one of the given apps, in catalog order. */
+export function catalogBucketsPresentIn(
+  integrations: Integration[],
+): CatalogBucket[] {
+  const present = new Set(
+    integrations.map((integration) => catalogBucketIdFor(integration)),
+  );
+  return CATALOG_BUCKETS.filter((bucket) => present.has(bucket.id));
+}
+
 /** Credential-connected apps — shown in the Installed section first. */
 export function isCatalogInstalled(integration: Integration): boolean {
   const state = catalogInstallState(integration);

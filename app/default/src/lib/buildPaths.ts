@@ -1,12 +1,18 @@
 import type { APIToken, Integration } from "@/lib/api";
+import {
+  appShowsCredentialSurface,
+  catalogInstallState,
+} from "@/lib/catalogFilters";
+import { SETUP_PATH } from "@/lib/constants";
 import { normalizeIntegrationStatus } from "@/lib/integrationStatus";
 
 export type BuildStepId =
-  | "intro"
-  | "authorize"
+  | "welcome"
+  | "assistant"
+  | "token"
   | "install"
-  | "connect"
-  | "invoke";
+  | "apps"
+  | "try";
 
 export type BuildExemplarId =
   | "aiSpendTracker"
@@ -15,24 +21,24 @@ export type BuildExemplarId =
   | "servicingQuiz";
 
 /**
- * Access-safe mounted app behind a Build journey.
- * Intro faces a **department + outcome**; invoke reveals the **app**.
+ * Access-safe mounted app behind a Setup journey.
+ * Try step faces a **department + outcome**; invoke reveals the **app**.
  */
 export type BuildExemplar = {
   id: BuildExemplarId;
-  /** Product name — reveal only on invoke / store CTA. */
+  /** Product name — reveal only on try / store CTA. */
   label: string;
   /** Rippling-style department for the intro eyebrow. */
   department: string;
-  /** Short outcome title on the intro toggle. */
+  /** Short outcome title on the try promo. */
   outcomeTitle: string;
   /** One-line need under the toggle. */
   need: string;
   /** AgentConsole typewriter — need-shaped, no product spoiler. */
   llmPrompt: string;
   /**
-   * Catalog apps the Connect step must link before Next.
-   * Every exemplar requires at least one — Build always teaches connect.
+   * Catalog apps the Try step should connect.
+   * Every exemplar requires at least one — Setup always teaches connect.
    */
   companionAppIds: readonly [string, ...string[]];
   /** App used for the first-call proof (often the exemplar itself). */
@@ -56,21 +62,25 @@ export interface BuildWorkspaceSnapshot {
   apiToken: string;
   /** Grant id the plaintext {@link apiToken} was issued for — empty when unset. */
   apiTokenGrantId: string;
-  /** Display name for the token chosen or drafted in this Build session. */
+  /** Display name for the token chosen or drafted in this Setup session. */
   tokenName: string;
   /**
-   * Radio selection on authorize: an existing token id, {@link BUILD_CREATE_NEW_TOKEN_ID},
-   * or empty when nothing chosen yet.
+   * Radio selection on the token step: an existing token id,
+   * {@link BUILD_CREATE_NEW_TOKEN_ID}, or empty when nothing chosen yet.
    */
   selectedTokenId: string;
-  introSeen: boolean;
+  /** Host assistant chosen on the Assistant step. */
+  installAgentId: string;
+  welcomeSeen: boolean;
+  /** Try step was opened — last-step completion, independent of app connects. */
+  trySeen: boolean;
 }
 
 export interface BuildStep {
   id: BuildStepId;
   title: string;
-  /** Optional PageHeader eyebrow — omit when the step title stands alone. */
-  eyebrow?: string;
+  /** PageHeader kicker. Same journey label on every step; the title owns the task. */
+  eyebrow: string;
   /** Plain-English support line under the title — must not restate the title. */
   description: string;
   ctaLabel: string;
@@ -157,92 +167,108 @@ Ready for a new attempt when you are.`,
   },
 ];
 
+/** Tenant-neutral product noun for Setup copy (deployments may override later). */
+export const SETUP_PRODUCT_NAME = "Gestalt";
+
+/** PageHeader kicker for the Setup journey. Eyebrow CSS uppercases it. */
+export const SETUP_JOURNEY_EYEBROW = "Setup";
+
 export const BUILD_STEPS: BuildStep[] = [
   {
-    id: "intro",
-    title: "Pick what to build",
+    id: "welcome",
+    title: "Welcome",
+    eyebrow: SETUP_JOURNEY_EYEBROW,
     description:
-      "Choose a team outcome, then watch how an agent would ask for it.",
-    ctaLabel: "Continue",
-    to: "/build/intro",
-    isComplete: (snapshot) => snapshot.introSeen,
+      "Connect the assistant you already use to this workspace so it can use your company’s apps — with your permission.",
+    ctaLabel: "Choose your assistant",
+    to: `${SETUP_PATH}/welcome`,
+    isComplete: (snapshot) => snapshot.welcomeSeen,
   },
   {
-    id: "authorize",
-    title: "Choose a token",
+    id: "assistant",
+    title: "Choose your assistant",
+    eyebrow: SETUP_JOURNEY_EYEBROW,
     description:
-      "Your agent needs a key to use Gestalt. Make a new one here, or pick one you already have.",
-    ctaLabel: "Create API token",
-    to: "/build/authorize",
-    isComplete: (snapshot) => buildAuthorizeSelectionReady(snapshot),
+      "Pick the tool you work in — Cursor, Claude Code, Codex, or another assistant.",
+    ctaLabel: "Continue",
+    to: `${SETUP_PATH}/assistant`,
+    isComplete: (snapshot) => buildInstallAgentSelected(snapshot.installAgentId),
+  },
+  {
+    id: "token",
+    title: "Create an API token",
+    eyebrow: SETUP_JOURNEY_EYEBROW,
+    description:
+      "Your assistant needs a token to reach this workspace securely.",
+    ctaLabel: "Continue",
+    to: `${SETUP_PATH}/token`,
+    isComplete: (snapshot) => buildAuthorizeStepComplete(snapshot),
   },
   {
     id: "install",
-    title: "Install Gestalt",
-    description:
-      "Add Gestalt to Cursor, Claude Code, or Codex so the agent can reach your workspace.",
-    ctaLabel: "Open MCP docs",
-    to: "/build/install",
+    title: `Add ${SETUP_PRODUCT_NAME}`,
+    eyebrow: SETUP_JOURNEY_EYEBROW,
+    description: `Add ${SETUP_PRODUCT_NAME} so your assistant can reach this workspace.`,
+    ctaLabel: "Continue",
+    to: `${SETUP_PATH}/install`,
     isComplete: (snapshot) => snapshot.mcpInstalled,
   },
   {
-    id: "connect",
+    id: "apps",
     title: "Connect apps",
+    eyebrow: SETUP_JOURNEY_EYEBROW,
     description:
-      "Connect the apps below so your agent can use them.",
-    ctaLabel: "See all apps",
-    to: "/build/connect",
-    isComplete: (snapshot) => exemplarCompanionsConnected(snapshot),
+      "Pick the apps your assistant can use. Connect at least one to continue.",
+    ctaLabel: "Continue",
+    to: `${SETUP_PATH}/apps`,
+    isComplete: (snapshot) =>
+      setupAppsConnected(snapshot) || !setupAppsHasConnectable(snapshot),
   },
   {
-    id: "invoke",
-    title: "Make your first call",
+    id: "try",
+    title: "Try it",
+    eyebrow: SETUP_JOURNEY_EYEBROW,
     description:
-      "Paste the prompt into your agent and confirm you get a real answer.",
-    ctaLabel: "Open Invoke docs",
-    to: "/build/invoke",
-    isComplete: (snapshot) =>
-      buildAuthorizeSelectionReady(snapshot) &&
-      snapshot.mcpInstalled &&
-      exemplarCompanionsConnected(snapshot),
+      "Paste a test prompt in your assistant and see it use this workspace.",
+    ctaLabel: "Browse apps",
+    to: `${SETUP_PATH}/try`,
+    isComplete: (snapshot) => snapshot.trySeen,
   },
 ];
 
-/** Radio value for “use an existing token” on the authorize step. */
+/** Radio value for “use an existing token” on the token step. */
 export const BUILD_USE_EXISTING_TOKEN_ID = "existing";
 
-/** Radio value for “create a new token” on the authorize step. */
+/** Radio value for “create a new token” on the token step. */
 export const BUILD_CREATE_NEW_TOKEN_ID = "new";
 
-/** Demo name prefilled when drafting a Build token. */
-export const DEFAULT_BUILD_TOKEN_NAME = "Gestalt Build";
+/** Pre-split Connect URL — redirect to the token step. */
+export const LEGACY_SETUP_CONNECT_STEP_ID = "connect";
+
+/** Demo name prefilled when drafting a Setup token. */
+export const DEFAULT_BUILD_TOKEN_NAME = "Workspace assistant";
 
 /**
- * Authorize is ready when the user picked an existing token or created/pasted
- * a secret for this session — not merely because tokens exist in the account.
+ * Authorize is ready when the user picked an existing token or minted a
+ * secret for this session. A filled create-token name is not enough.
  */
-export function buildAuthorizeCreateDraftReady(
-  snapshot: Pick<BuildWorkspaceSnapshot, "tokenName" | "selectedTokenId">,
-): boolean {
-  if (snapshot.selectedTokenId !== BUILD_CREATE_NEW_TOKEN_ID) return false;
-  return snapshot.tokenName.trim().length > 0;
-}
-
 export function buildAuthorizeSelectionReady(
   snapshot: Pick<
     BuildWorkspaceSnapshot,
-    "apiToken" | "apiTokenGrantId" | "selectedTokenId" | "tokenName" | "tokens"
+    "apiToken" | "apiTokenGrantId" | "selectedTokenId"
   >,
 ): boolean {
-  const selected = snapshot.selectedTokenId.trim();
-  if (!selected || selected === BUILD_USE_EXISTING_TOKEN_ID) return false;
-  if (selected === BUILD_CREATE_NEW_TOKEN_ID) {
-    return (
-      buildAuthorizeCreateDraftReady(snapshot) ||
-      buildMcpCredentialReady(snapshot)
-    );
-  }
-  return snapshot.tokens.some((token) => token.id === selected);
+  return buildMcpCredentialReady(snapshot);
+}
+
+/** Token step is done when an existing token is chosen or a new secret exists. */
+export function buildAuthorizeStepComplete(
+  snapshot: Pick<
+    BuildWorkspaceSnapshot,
+    "apiToken" | "apiTokenGrantId" | "selectedTokenId"
+  >,
+): boolean {
+  return buildMcpCredentialReady(snapshot);
 }
 
 /** Plaintext bearer secret bound to the current grant selection — required for MCP install. */
@@ -304,6 +330,42 @@ export function connectedAppIds(integrations: Integration[]): Set<string> {
   );
 }
 
+/**
+ * Setup Connect apps — only catalog rows that connect this workspace to an
+ * external data source (OAuth / API key). Native / mount-only products stay
+ * in the store, not on this step.
+ */
+export function isSetupDataSourceApp(integration: Integration): boolean {
+  return appShowsCredentialSurface(integration);
+}
+
+export function setupDataSourceIntegrations(
+  integrations: Integration[],
+): Integration[] {
+  return integrations.filter(isSetupDataSourceApp);
+}
+
+/** True when the user has connected at least one external data-source app. */
+export function setupAppsConnected(
+  snapshot: Pick<BuildWorkspaceSnapshot, "integrations">,
+): boolean {
+  return setupDataSourceIntegrations(snapshot.integrations).some(
+    (integration) => catalogInstallState(integration) === "connected",
+  );
+}
+
+/** True when a data-source app is still waiting to be connected. */
+export function setupAppsHasConnectable(
+  snapshot: Pick<BuildWorkspaceSnapshot, "integrations">,
+): boolean {
+  return setupDataSourceIntegrations(snapshot.integrations).some(
+    (integration) => {
+      const state = catalogInstallState(integration);
+      return state === "not_connected" || state === "needs_attention";
+    },
+  );
+}
+
 export function isBuildComplete(snapshot: BuildWorkspaceSnapshot): boolean {
   return BUILD_STEPS.every((step) => step.isComplete(snapshot));
 }
@@ -315,6 +377,31 @@ export function firstIncompleteStepId(
 ): BuildStepId {
   const first = BUILD_STEPS.find((step) => !isStepDone(step));
   return first?.id ?? BUILD_STEPS[BUILD_STEPS.length - 1]!.id;
+}
+
+/** Warm workspace: already has a token or a connected app — never auto-prompt Setup. */
+export function isWorkspaceWarm(
+  tokens: APIToken[],
+  integrations: Integration[],
+): boolean {
+  if (tokens.length > 0) return true;
+  return connectedAppIds(integrations).size > 0;
+}
+
+/**
+ * Soft-force Setup only for empty net-new accounts that have not skipped.
+ * Warm / complete / skipped users are never redirected.
+ */
+export function isActivationDue(args: {
+  tokens: APIToken[];
+  integrations: Integration[];
+  skipped: boolean;
+  complete?: boolean;
+}): boolean {
+  if (args.skipped) return false;
+  if (args.complete) return false;
+  if (isWorkspaceWarm(args.tokens, args.integrations)) return false;
+  return true;
 }
 
 export function companionAppLabel(appId: string): string {
@@ -373,7 +460,9 @@ export function resolveExemplarOpenPath(
 
 export const MCP_INSTALLED_STORAGE_KEY = "gestalt.build.mcpInstalled";
 export const BUILD_EXEMPLAR_STORAGE_KEY = "gestalt.build.activeExemplarId";
+/** Welcome-seen flag (legacy key `introSeen` retained for in-flight sessions). */
 export const BUILD_INTRO_SEEN_STORAGE_KEY = "gestalt.build.introSeen";
+export const BUILD_TRY_SEEN_STORAGE_KEY = "gestalt.build.trySeen";
 export const BUILD_API_TOKEN_STORAGE_KEY = "gestalt.build.apiToken";
 export const BUILD_API_TOKEN_GRANT_ID_STORAGE_KEY =
   "gestalt.build.apiTokenGrantId";
@@ -381,6 +470,9 @@ export const BUILD_TOKEN_NAME_STORAGE_KEY = "gestalt.build.tokenName";
 export const BUILD_SELECTED_TOKEN_ID_STORAGE_KEY =
   "gestalt.build.selectedTokenId";
 export const BUILD_INSTALL_AGENT_STORAGE_KEY = "gestalt.build.installAgent";
+export const SETUP_SKIPPED_STORAGE_KEY = "gestalt.setup.skipped";
+export const SETUP_RESUME_BANNER_DISMISSED_KEY =
+  "gestalt.setup.resumeBannerDismissed";
 
 export type BuildInstallAgentId = "cursor" | "claude" | "codex" | "other";
 
@@ -401,6 +493,54 @@ export function buildInstallAgentSelected(installAgentId: string): boolean {
   return isBuildInstallAgentId(installAgentId);
 }
 
+export function buildInstallStepTitle(installAgentId: string): string {
+  switch (installAgentId) {
+    case "cursor":
+      return `Add ${SETUP_PRODUCT_NAME} in Cursor`;
+    case "claude":
+      return `Add ${SETUP_PRODUCT_NAME} in Claude Code`;
+    case "codex":
+      return `Add ${SETUP_PRODUCT_NAME} in Codex`;
+    default:
+      return `Add ${SETUP_PRODUCT_NAME} to your assistant`;
+  }
+}
+
+export function buildInstallStepDescription(installAgentId: string): string {
+  switch (installAgentId) {
+    case "cursor":
+      return `Connect Cursor so it can use your ${SETUP_PRODUCT_NAME} apps.`;
+    case "claude":
+      return `Run this command in Claude Code to connect ${SETUP_PRODUCT_NAME}.`;
+    case "codex":
+      return `Run this command in Codex to connect ${SETUP_PRODUCT_NAME}.`;
+    default:
+      return `Paste this address into your assistant with your token.`;
+  }
+}
+
+export function buildStepTitle(
+  step: BuildStep,
+  installAgentId: string,
+): string {
+  if (step.id === "install") return buildInstallStepTitle(installAgentId);
+  return step.title;
+}
+
+export function buildStepDescription(
+  step: BuildStep,
+  installAgentId: string,
+): string {
+  if (step.id === "install" && isBuildInstallAgentId(installAgentId)) {
+    return buildInstallStepDescription(installAgentId);
+  }
+  return step.description;
+}
+
+export function isLegacySetupConnectStepId(value: string): boolean {
+  return value === LEGACY_SETUP_CONNECT_STEP_ID;
+}
+
 export function readMcpInstalledFlag(): boolean {
   return readSessionFlag(MCP_INSTALLED_STORAGE_KEY);
 }
@@ -415,6 +555,58 @@ export function readIntroSeenFlag(): boolean {
 
 export function writeIntroSeenFlag(value: boolean): void {
   writeSessionFlag(BUILD_INTRO_SEEN_STORAGE_KEY, value);
+}
+
+export function readTrySeenFlag(): boolean {
+  return readSessionFlag(BUILD_TRY_SEEN_STORAGE_KEY);
+}
+
+export function writeTrySeenFlag(value: boolean): void {
+  writeSessionFlag(BUILD_TRY_SEEN_STORAGE_KEY, value);
+}
+
+export function readSetupSkipped(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(SETUP_SKIPPED_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function writeSetupSkipped(value: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (value) {
+      window.localStorage.setItem(SETUP_SKIPPED_STORAGE_KEY, "1");
+    } else {
+      window.localStorage.removeItem(SETUP_SKIPPED_STORAGE_KEY);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+export function readResumeBannerDismissed(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(SETUP_RESUME_BANNER_DISMISSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function writeResumeBannerDismissed(value: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (value) {
+      window.localStorage.setItem(SETUP_RESUME_BANNER_DISMISSED_KEY, "1");
+    } else {
+      window.localStorage.removeItem(SETUP_RESUME_BANNER_DISMISSED_KEY);
+    }
+  } catch {
+    /* ignore */
+  }
 }
 
 export function readActiveExemplarId(): BuildExemplarId {

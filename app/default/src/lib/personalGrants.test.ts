@@ -33,6 +33,23 @@ describe("personalGrants", () => {
       createdAt: new Date(1_700_000_000 * 1000).toISOString(),
       expiresAt: undefined,
     });
+    expect(token).not.toHaveProperty("name");
     expect(token).not.toHaveProperty("lastUsedAt");
+  });
+
+  it("maps a grant display name when the wire includes one", () => {
+    const token = identityGrantToAPIToken("grant-1", {
+      name: "Workspace assistant",
+      createdAt: 1_700_000_000,
+    });
+    expect(token.name).toBe("Workspace assistant");
+  });
+
+  it("does not treat the grant id as a display name", () => {
+    const token = identityGrantToAPIToken("grant-1", {
+      name: "grant-1",
+      createdAt: 1_700_000_000,
+    });
+    expect(token).not.toHaveProperty("name");
   });
 });

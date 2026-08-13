@@ -23,11 +23,17 @@ type ActivationMode = "jump" | "linear";
 /** Visual progress relative to the active step — not a sticky visit history. */
 type StepDataState = "active" | "completed" | "pending";
 type StepperSize = "sm" | "default" | "lg";
+/** Completed check paint. `success` is the Registry step-rail semantic green. */
+type StepperCompletedVariant = "accent" | "success";
+/** Completed connector fill. `primary` is ink (same as the active indicator). */
+type StepperConnectorVariant = "accent" | "primary";
 
 interface StepperContextValue {
   orientation: Orientation;
   activationMode: ActivationMode;
   size: StepperSize;
+  completedVariant: StepperCompletedVariant;
+  connectorVariant: StepperConnectorVariant;
   value: string;
   setValue: (next: string) => void;
   register: (value: string) => void;
@@ -76,7 +82,6 @@ const stepperVariants = cva(
   [
     "flex w-full gap-6",
     "[--stepper-rail-pending:var(--border)]",
-    "[--stepper-trigger-pad:0.375rem]",
     // Slightly longer than --motion-move so the grow reads as progress.
     "[--stepper-rail-duration:var(--duration-250)]",
     // Extra beat after the rail arrives before destination ink / checks commit.
@@ -88,9 +93,15 @@ const stepperVariants = cva(
         horizontal: "flex-col",
         vertical: "flex-col sm:flex-row sm:items-start",
       },
+      size: {
+        sm: "[--stepper-trigger-pad:0.25rem]",
+        default: "[--stepper-trigger-pad:0.375rem]",
+        lg: "[--stepper-trigger-pad:0.5rem]",
+      },
     },
     defaultVariants: {
       orientation: "horizontal",
+      size: "default",
     },
   },
 );
@@ -113,6 +124,16 @@ interface StepperProps
   activationMode?: ActivationMode;
   /** Indicator / connector scale. Default `default`. */
   size?: StepperSize;
+  /**
+   * Paint for completed checks only. Default `accent`. `success` uses
+   * `success-solid` (Registry step-rail semantic green).
+   */
+  completedVariant?: StepperCompletedVariant;
+  /**
+   * Paint for completed connectors. Default `accent` (`accent-solid`).
+   * `primary` is ink, matching the active indicator.
+   */
+  connectorVariant?: StepperConnectorVariant;
 }
 
 function Stepper({
@@ -120,6 +141,8 @@ function Stepper({
   orientation: orientationProp,
   activationMode = "jump",
   size = "default",
+  completedVariant = "accent",
+  connectorVariant = "accent",
   value: valueProp,
   defaultValue,
   onValueChange,
@@ -206,6 +229,8 @@ function Stepper({
       orientation,
       activationMode,
       size: resolvedSize,
+      completedVariant,
+      connectorVariant,
       value,
       setValue,
       register,
@@ -219,6 +244,8 @@ function Stepper({
       orientation,
       activationMode,
       resolvedSize,
+      completedVariant,
+      connectorVariant,
       value,
       setValue,
       register,
@@ -238,7 +265,9 @@ function Stepper({
         data-orientation={orientation}
         data-activation-mode={activationMode}
         data-size={resolvedSize}
-        className={cn(stepperVariants({ orientation }), className)}
+        data-completed-variant={completedVariant}
+        data-connector-variant={connectorVariant}
+        className={cn(stepperVariants({ orientation, size: resolvedSize }), className)}
         {...props}
       >
         {children}
@@ -282,8 +311,10 @@ function StepperList({ className, ...props }: React.ComponentProps<"ol">) {
 const stepperItemVariants = cva("group/step relative flex", {
   variants: {
     orientation: {
-      horizontal: "flex-1 flex-col items-center",
-      vertical: "flex-row items-start gap-3 pb-8 last:pb-0",
+      horizontal: "flex-1 flex-col items-stretch",
+      // Vertical rail is a two-row grid: trigger plate, then the connector in
+      // the gutter so the line starts where hover ends (not at the dot).
+      vertical: "grid grid-cols-1",
     },
   },
   defaultVariants: {
@@ -344,7 +375,7 @@ const stepperTriggerVariants = cva(
   // listItemInteraction — selectable-rows.md. Pad uses `--stepper-trigger-pad`
   // (same token the rail `top`/`left` offsets) so geometry stays centered.
   [
-    "relative z-0 inline-flex items-center gap-2 rounded-md p-[var(--stepper-trigger-pad)] text-left outline-none",
+    "relative z-0 inline-flex items-center rounded-md p-[var(--stepper-trigger-pad)] outline-none",
     "transition-[color,background-color,border-color,opacity] duration-hover-out ease-out-quart hover:duration-hover-in",
     "focus-ring",
     listItemInteraction({ pointer: "css" }),
@@ -353,12 +384,18 @@ const stepperTriggerVariants = cva(
   {
     variants: {
       orientation: {
-        horizontal: "flex-col",
-        vertical: "flex-row",
+        horizontal: "flex w-full min-w-0 flex-col text-center",
+        vertical: "row-start-1 w-max max-w-full min-w-0 justify-self-start flex-row text-left",
+      },
+      size: {
+        sm: "gap-1.5",
+        default: "gap-2",
+        lg: "gap-2.5",
       },
     },
     defaultVariants: {
       orientation: "horizontal",
+      size: "default",
     },
   },
 );
@@ -374,7 +411,7 @@ function StepperTrigger({
   onClick,
   ...props
 }: StepperTriggerProps) {
-  const { orientation, setValue } = useStepper("StepperTrigger");
+  const { orientation, size, setValue } = useStepper("StepperTrigger");
   const { value, dataState, disabled } = useStepItem("StepperTrigger");
   const Comp = asChild ? Slot : "button";
 
@@ -385,7 +422,7 @@ function StepperTrigger({
       data-state={dataState}
       disabled={disabled}
       aria-current={dataState === "active" ? "step" : undefined}
-      className={cn(stepperTriggerVariants({ orientation }), className)}
+      className={cn(stepperTriggerVariants({ orientation, size }), className)}
       {...props}
       onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
         onClick?.(event);
@@ -418,6 +455,9 @@ const stepperIndicatorVariants = cva(
         // Completed = accent-solid fill (mid-gold — same as progress connectors).
         completed:
           "border-accent-solid bg-accent-solid text-accent-foreground",
+        // Registry step-rail semantic success (green check).
+        success:
+          "border-success-solid bg-success-solid text-success-solid-foreground",
         // Pending ring uses the same paint as pending connectors (--stepper-rail-pending).
         pending:
           "border-[color:var(--stepper-rail-pending)] bg-background text-muted-foreground",
@@ -438,7 +478,7 @@ interface StepperIndicatorProps
 }
 
 function StepperIndicator({ className, size, children, ...props }: StepperIndicatorProps) {
-  const { size: contextSize, getChromeDelayMs } = useStepper("StepperIndicator");
+  const { size: contextSize, getChromeDelayMs, completedVariant } = useStepper("StepperIndicator");
   const { dataState, index } = useStepItem("StepperIndicator");
   const resolvedSize = size ?? contextSize;
   const isCompleted = dataState === "completed";
@@ -510,13 +550,18 @@ function StepperIndicator({ className, size, children, ...props }: StepperIndica
     }
   }, [isCompleted, getChromeDelayMs]);
 
+  const visualPaint =
+    paintState === "completed" && completedVariant === "success"
+      ? "success"
+      : paintState;
+
   return (
     <span
       data-slot="stepper-indicator"
       data-state={dataState}
-      data-paint-state={paintState}
+      data-paint-state={visualPaint}
       data-size={resolvedSize}
-      className={cn(stepperIndicatorVariants({ size: resolvedSize, state: paintState }), className)}
+      className={cn(stepperIndicatorVariants({ size: resolvedSize, state: visualPaint }), className)}
       {...props}
     >
       {children ?? (
@@ -553,18 +598,31 @@ function StepperIndicator({ className, size, children, ...props }: StepperIndica
 const stepperSeparatorVariants = cva(
   // Destination-owned rail track. Fill child scales like a progress line
   // (`--stepper-rail-duration`). Pad offset keeps the line on the circle center.
-  "pointer-events-none absolute z-[1] overflow-hidden bg-[var(--stepper-rail-pending)]",
+  "pointer-events-none z-[1] overflow-hidden bg-[var(--stepper-rail-pending)]",
   {
     variants: {
       orientation: {
         horizontal:
-          "left-[calc(-50%+var(--stepper-indicator-size,2rem)*0.5)] top-[calc(var(--stepper-trigger-pad,0.375rem)+var(--stepper-indicator-size,2rem)*0.5)] h-[1.5px] w-[calc(100%-var(--stepper-indicator-size,2rem))] -translate-y-1/2 group-first/step:hidden",
+          "absolute left-[calc(-50%+var(--stepper-indicator-size,2rem)*0.5)] top-[calc(var(--stepper-trigger-pad,0.375rem)+var(--stepper-indicator-size,2rem)*0.5)] h-[1.5px] w-[calc(100%-var(--stepper-indicator-size,2rem))] -translate-y-1/2 group-first/step:hidden",
+        // In-flow gutter under the trigger plate — even gap from both dots
+        // (trigger pad) and the line starts where the previous hover ends.
         vertical:
-          "left-[calc(var(--stepper-trigger-pad,0.375rem)+var(--stepper-indicator-size,2rem)*0.5)] top-[calc(var(--stepper-trigger-pad,0.375rem)+var(--stepper-indicator-size,2rem))] h-[calc(100%-var(--stepper-indicator-size,2rem)-var(--stepper-trigger-pad,0.375rem))] w-[1.5px] -translate-x-1/2 group-last/step:hidden",
+          "relative row-start-2 w-[1.5px] -translate-x-1/2 group-last/step:hidden left-[calc(var(--stepper-trigger-pad,0.375rem)+var(--stepper-indicator-size,2rem)*0.5)]",
+      },
+      size: {
+        sm: "",
+        default: "",
+        lg: "",
       },
     },
+    compoundVariants: [
+      { orientation: "vertical", size: "sm", class: "h-4" },
+      { orientation: "vertical", size: "default", class: "h-8" },
+      { orientation: "vertical", size: "lg", class: "h-10" },
+    ],
     defaultVariants: {
       orientation: "horizontal",
+      size: "default",
     },
   },
 );
@@ -573,7 +631,7 @@ const stepperSeparatorFillVariants = cva(
   // Clip grow = progress line (SelectionCheck uses the same clip-path pattern).
   // Prefer clip over scale-x — scale axis utilities are not always emitted here.
   [
-    "size-full bg-accent-solid transition-[clip-path] ease-out-quart",
+    "size-full transition-[clip-path] ease-out-quart",
     "duration-[var(--stepper-rail-duration,var(--motion-move))]",
   ].join(" "),
   {
@@ -584,15 +642,26 @@ const stepperSeparatorFillVariants = cva(
         vertical:
           "[clip-path:inset(100%_0_0_0)] data-[state=completed]:[clip-path:inset(0_0_0_0)]",
       },
+      connector: {
+        accent: "bg-accent-solid",
+        primary: "bg-primary",
+      },
     },
     defaultVariants: {
       orientation: "horizontal",
+      connector: "accent",
     },
   },
 );
 
 function StepperSeparator({ className, ...props }: React.ComponentProps<"div">) {
-  const { orientation, size, value: activeValue, order } = useStepper("StepperSeparator");
+  const {
+    orientation,
+    size,
+    value: activeValue,
+    order,
+    connectorVariant,
+  } = useStepper("StepperSeparator");
   const { index } = useStepItem("StepperSeparator");
   const activeIndex = order.indexOf(activeValue);
   // Horizontal = segment into this step → fill when progress has reached here.
@@ -618,13 +687,16 @@ function StepperSeparator({ className, ...props }: React.ComponentProps<"div">) 
       data-orientation={orientation}
       data-state={lineState}
       aria-hidden="true"
-      className={cn(sizeVar, stepperSeparatorVariants({ orientation }), className)}
+      className={cn(sizeVar, stepperSeparatorVariants({ orientation, size }), className)}
       {...props}
     >
       <div
         data-slot="stepper-separator-fill"
         data-state={lineState}
-        className={stepperSeparatorFillVariants({ orientation })}
+        className={stepperSeparatorFillVariants({
+          orientation,
+          connector: connectorVariant,
+        })}
       />
     </div>
   );
@@ -636,12 +708,14 @@ function StepperSeparator({ className, ...props }: React.ComponentProps<"div">) 
 
 function StepperTitle({ className, ...props }: React.ComponentProps<"span">) {
   const { dataState } = useStepItem("StepperTitle");
+  const { size } = useStepper("StepperTitle");
   return (
     <span
       data-slot="stepper-title"
       data-state={dataState}
       className={cn(
-        "text-sm font-medium leading-none tracking-tight",
+        "min-w-0 text-pretty font-medium leading-none tracking-tight",
+        size === "sm" ? "text-xs" : "text-sm",
         dataState === "active" && "text-foreground",
         dataState === "completed" && "text-foreground",
         dataState === "pending" && "text-muted-foreground",

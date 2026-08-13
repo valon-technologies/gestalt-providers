@@ -36,7 +36,7 @@ describe("Nav AppTopBar composition", () => {
 
   test("primary nav stays product destinations", () => {
     expect(NAV).toContain('{ href: "/apps", label: "Apps" }');
-    expect(NAV).toContain('{ href: BUILD_PATH, label: "Build" }');
+    expect(NAV).toContain('{ href: SETUP_PATH, label: "Setup" }');
     expect(NAV).not.toContain('label: "Docs"');
   });
 });

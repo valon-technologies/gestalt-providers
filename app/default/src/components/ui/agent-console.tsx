@@ -1,4 +1,3 @@
-
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
@@ -33,16 +32,6 @@ function usePrefersReducedMotion(): boolean {
   return reduced;
 }
 
-/** Claude Code / Val Town palette — default skin. */
-export const AGENT_CONSOLE_THEME_CLAUDE = {
-  background: "#4b3d35",
-  accent: "#ff7250",
-  traffic: "#695e57",
-  foreground: "#ffffff",
-  muted: "rgba(255,255,255,0.4)",
-  glyph: "rgba(255,255,255,0.5)",
-} as const;
-
 export type AgentConsoleTheme = {
   background: string;
   accent: string;
@@ -51,6 +40,36 @@ export type AgentConsoleTheme = {
   muted: string;
   glyph: string;
 };
+
+/** Claude Code / Val Town palette — default skin. */
+export const AGENT_CONSOLE_THEME_CLAUDE = {
+  background: "#4b3d35",
+  accent: "#ff7250",
+  traffic: "#695e57",
+  foreground: "#ffffff",
+  muted: "rgba(255,255,255,0.4)",
+  glyph: "rgba(255,255,255,0.5)",
+} as const satisfies AgentConsoleTheme;
+
+/** OpenAI Codex CLI — near-black charcoal, white caret, green prompt glyph. */
+export const AGENT_CONSOLE_THEME_CODEX = {
+  background: "#121212",
+  accent: "#f0f0f0",
+  traffic: "#3a3a3a",
+  foreground: "#f8f8f8",
+  muted: "rgba(255,255,255,0.45)",
+  glyph: "#b0d8a8",
+} as const satisfies AgentConsoleTheme;
+
+/** Cursor Agent terminal — near-black charcoal, white caret. */
+export const AGENT_CONSOLE_THEME_CURSOR = {
+  background: "#141414",
+  accent: "#f5f5f5",
+  traffic: "#3a3a3a",
+  foreground: "#e8e8e8",
+  muted: "rgba(255,255,255,0.45)",
+  glyph: "rgba(255,255,255,0.85)",
+} as const satisfies AgentConsoleTheme;
 
 /** Shared wrap recipe for measure + typed line — must stay identical. */
 const AGENT_CONSOLE_PROMPT_WRAP =

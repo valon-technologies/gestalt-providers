@@ -548,7 +548,52 @@ type CustomFixtures = {
   authenticatedPage: Page;
 };
 
+/**
+ * Catalog and chrome tests represent a user already in the workspace.
+ * Net-new auto-entry is opt-in via {@link enableSetupActivationPrompt}.
+ * Keep in sync with SETUP_SKIPPED_STORAGE_KEY and
+ * SETUP_RESUME_BANNER_DISMISSED_KEY in src/lib/buildPaths.ts.
+ */
+const SETUP_SKIPPED_STORAGE_KEY = "gestalt.setup.skipped";
+const SETUP_RESUME_BANNER_DISMISSED_KEY = "gestalt.setup.resumeBannerDismissed";
+const SETUP_E2E_FORCE_ACTIVATION_KEY = "gestalt.e2e.forceActivation";
+
+export async function enableSetupActivationPrompt(page: Page) {
+  await page.addInitScript(
+    ({ skipKey, bannerKey, forceKey }) => {
+      window.sessionStorage.setItem(forceKey, "1");
+      if (!window.sessionStorage.getItem(`${forceKey}:armed`)) {
+        window.sessionStorage.setItem(`${forceKey}:armed`, "1");
+        window.localStorage.removeItem(skipKey);
+        window.localStorage.removeItem(bannerKey);
+      }
+    },
+    {
+      skipKey: SETUP_SKIPPED_STORAGE_KEY,
+      bannerKey: SETUP_RESUME_BANNER_DISMISSED_KEY,
+      forceKey: SETUP_E2E_FORCE_ACTIVATION_KEY,
+    },
+  );
+}
+
 export const test = base.extend<CustomFixtures>({
+  page: async ({ page }, use) => {
+    await page.addInitScript(
+      ({ skipKey, bannerKey, forceKey }) => {
+        if (window.sessionStorage.getItem(forceKey) === "1") {
+          return;
+        }
+        window.localStorage.setItem(skipKey, "1");
+        window.localStorage.setItem(bannerKey, "1");
+      },
+      {
+        skipKey: SETUP_SKIPPED_STORAGE_KEY,
+        bannerKey: SETUP_RESUME_BANNER_DISMISSED_KEY,
+        forceKey: SETUP_E2E_FORCE_ACTIVATION_KEY,
+      },
+    );
+    await use(page);
+  },
   authenticatedPage: async ({ page }, runAuthenticatedPage) => {
     await page.addInitScript(() => {
       localStorage.setItem(

@@ -19,7 +19,11 @@ import {
   primaryConnectLabel,
 } from "@/lib/catalogFilters";
 import { shouldShowIntegrationSettings } from "@/lib/integrationStatus";
-import { getIntegrationLabel } from "@/lib/integrationSearch";
+import { catalogCardDescription, getIntegrationLabel } from "@/lib/integrationSearch";
+import {
+  connectEntryPlan,
+  type ConnectFormView,
+} from "@/lib/connectionAuthActions";
 import {
   normalizeIntegrationStatus,
   type ConnectionContext,
@@ -104,6 +108,7 @@ export default function IntegrationCard({
   connectionContext = "current_user",
   connectionEntry = connectionContext === "current_user" ? "app-detail" : "modal",
   highlightQuery = "",
+  density = "default",
 }: {
   integration: Integration;
   onConnected?: () => void;
@@ -119,12 +124,18 @@ export default function IntegrationCard({
   connectionEntry?: "app-detail" | "modal";
   /** Catalog search query — highlights matching tokens in title/description. */
   highlightQuery?: string;
+  /**
+   * `compact` is Setup Connect browse: smaller mark, name + one-line
+   * description, Connect instead of catalog Add. Default is the `/apps`
+   * store tile.
+   */
+  density?: "default" | "compact";
 }) {
   const navigate = useNavigate();
   const label = getIntegrationLabel(integration);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsInitialView, setSettingsInitialView] = useState<
-    "default" | "disconnect"
+    "default" | "disconnect" | ConnectFormView
   >("default");
   const [destructiveActionLabel, setDestructiveActionLabel] = useState<
     "Disconnect" | "Remove app"
@@ -143,6 +154,9 @@ export default function IntegrationCard({
     onFlowComplete: () => setSettingsOpen(false),
   });
 
+  const compact = density === "compact";
+  const connectActionLabel = compact ? "Connect" : "Add";
+  const description = catalogCardDescription(integration);
   const normalizedStatus = normalizeIntegrationStatus(
     integration,
     connectionContext,
@@ -153,6 +167,7 @@ export default function IntegrationCard({
   const mountedPath = appOpenPath(integration);
   const connectLabel = primaryConnectLabel(integration, connectionContext);
   const settingsAvailable =
+    !compact &&
     !useAppDetailConnection &&
     shouldShowIntegrationSettings(normalizedStatus, readOnly);
   /** Attention notice — inline Alert, not a status Badge. */
@@ -162,19 +177,24 @@ export default function IntegrationCard({
   const cardNavigationEnabled = !disableNavigation && !settingsOpen;
   /** Connected → More (Remove app). Discovery → Add when connectable. */
   const showInstalledMenu =
+    !compact &&
     useAppDetailConnection &&
     !readOnly &&
     (installState === "connected" || installState === "needs_attention");
   /** Success checkmark only when healthy — attention rows keep Alert, not Connected. */
   const showInstalledCheck =
-    useAppDetailConnection && !readOnly && installState === "connected";
+    !readOnly &&
+    installState === "connected" &&
+    (compact || useAppDetailConnection);
   const showAddButton =
     !readOnly &&
     (installState === "mount_only" ||
       installState === "not_connected" ||
       connectLabel !== null);
   const showOpenAppButton =
-    !readOnly && catalogShowOpenAppButton(integration, connectionContext);
+    !compact &&
+    !readOnly &&
+    catalogShowOpenAppButton(integration, connectionContext);
   /** Top-right utility chrome only — Open app is the bottom-right primary CTA. */
   const showTrailingChrome =
     showInstalledCheck ||
@@ -202,11 +222,31 @@ export default function IntegrationCard({
     openConnectionModal(options?.action === "disconnect" ? "disconnect" : "default");
   }
 
-  function openConnectionModal(view: "default" | "disconnect" = "default") {
+  function openConnectionModal(
+    view: "default" | "disconnect" | ConnectFormView = "default",
+  ) {
     setSettingsInitialView(view);
     setDestructiveActionLabel(view === "disconnect" ? "Remove app" : "Disconnect");
     connection.clearError();
     setSettingsOpen(true);
+  }
+
+  async function beginConnect() {
+    if (connection.loading || connection.submitting) return;
+    if (useAppDetailConnection) {
+      navigateToAppDetail({ connection: true });
+      return;
+    }
+    const plan = connectEntryPlan(integration, connectionContext);
+    if (plan.kind === "oauth") {
+      const started = await connection.handleStartOAuth(
+        undefined,
+        plan.connection,
+      );
+      if (!started) openConnectionModal();
+      return;
+    }
+    openConnectionModal(plan.kind === "form" ? plan.view : "default");
   }
 
   function handleSettingsClose() {
@@ -232,6 +272,10 @@ export default function IntegrationCard({
   function handleCardClick(event: MouseEvent<HTMLDivElement>) {
     if (!useCardClickActivate) return;
     if (isInteractiveTarget(event.target)) return;
+    if (showAddButton) {
+      void beginConnect();
+      return;
+    }
     navigateToAppDetail();
   }
 
@@ -239,12 +283,21 @@ export default function IntegrationCard({
     if (!useCardClickActivate || event.target !== event.currentTarget) return;
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
+    if (showAddButton) {
+      void beginConnect();
+      return;
+    }
     navigateToAppDetail();
   }
 
   function renderCardTitle() {
     const title = (
-      <h3 className="text-base font-heading text-foreground">
+      <h3
+        className={cn(
+          "font-heading text-foreground",
+          compact ? "text-sm" : "text-base",
+        )}
+      >
         <SearchHighlight text={label} query={highlightQuery} variant="vivid" />
       </h3>
     );
@@ -291,7 +344,8 @@ export default function IntegrationCard({
       className={cn(
         // Solid catalog card — Neutral hover rest so Neutral dark deepen is a
         // visible L-step (tenant `--secondary` may diverge from `--neutral-hover`).
-        "relative rounded-xl bg-neutral-hover p-4 text-foreground",
+        "relative rounded-xl bg-neutral-hover text-foreground",
+        compact ? "p-3" : "p-4",
         "transition-[background-color] duration-hover-out ease-out-quart",
         "hover:bg-neutral-dark-hover hover:duration-hover-in active:bg-neutral-dark-pressed",
         nestedInteractiveSuppress.solidNeutralHoverStretchLink,
@@ -306,6 +360,7 @@ export default function IntegrationCard({
       aria-label={
         useCardClickActivate ? `Open ${label}` : undefined
       }
+      aria-busy={connection.loading || undefined}
     >
       {connection.pendingSelection && (
         <form
@@ -322,25 +377,32 @@ export default function IntegrationCard({
         </form>
       )}
       <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-4">
+        <div className={cn("flex min-w-0 items-start", compact ? "gap-3" : "gap-4")}>
           <IntegrationIcon
             iconSvg={integration.iconSvg}
             name={integration.name}
             displayName={integration.displayName}
-            size="xl"
+            size={compact ? "md" : "xl"}
           />
           <div className="min-w-0">
             {renderCardTitle()}
-            {integration.description && (
-              <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+            {description ? (
+              <p
+                className={cn(
+                  "text-muted-foreground",
+                  compact
+                    ? "mt-0.5 line-clamp-1 text-xs"
+                    : "mt-1 line-clamp-2 text-sm",
+                )}
+              >
                 <SearchHighlight
-                  text={integration.description}
+                  text={description}
                   query={highlightQuery}
                   variant="vivid"
                 />
               </p>
-            )}
-            {(surfaces.hasUi || isAppAdmin) && (
+            ) : null}
+            {!compact && (surfaces.hasUi || isAppAdmin) && (
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 {surfaces.hasUi ? (
                   <Badge variant="secondary">
@@ -457,14 +519,15 @@ export default function IntegrationCard({
                         type="button"
                         variant="ghost"
                         size="icon-sm"
-                        aria-label={`Add ${label}`}
-                        onClick={() => navigateToAppDetail({ connection: true })}
+                        loading={connection.loading}
+                        aria-label={`${connectActionLabel} ${label}`}
+                        onClick={() => void beginConnect()}
                       >
                         <PlusIcon />
                       </Button>
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent side="top">Add</TooltipContent>
+                  <TooltipContent side="top">{connectActionLabel}</TooltipContent>
                 </Tooltip>
               ) : null}
             </TooltipProvider>

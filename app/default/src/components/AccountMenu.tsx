@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { DOCS_PATH } from "@/lib/constants";
+import { DOCS_PATH, SETUP_PATH } from "@/lib/constants";
 import { cn } from "@/lib/cn";
 import { Avatar, AvatarFallback } from "./ui/avatar";
 import { Button } from "./ui/button";
@@ -25,6 +25,7 @@ export const ACCOUNT_MENU_THEME_SECTION_LABEL = "Theme";
  * Docs is account-gated (docs routes require auth); not shown in guest chrome.
  */
 export const ACCOUNT_MENU_UTILITY_LINKS = [
+  { to: SETUP_PATH, label: "Setup guide" },
   { to: DOCS_PATH, label: "Docs" },
   { to: "/settings", label: "Settings" },
 ] as const;

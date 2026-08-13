@@ -69,6 +69,8 @@ export const stepRailIndicatorVariants = cva(
         active: "border-primary bg-primary text-primary-foreground",
         completed: "border-accent-solid bg-accent-solid text-accent-foreground",
         pending: "border-[1.5px] border-[color:var(--step-rail-pending)] bg-background text-muted-foreground",
+        success:
+          "border-success-solid bg-success-solid text-success-solid-foreground",
         warning: "border-warning bg-warning text-warning-foreground",
       },
     },
@@ -122,7 +124,7 @@ export function StepRailIndicator({
     return chromeDelayMs ?? 0;
   }, [chromeDelayMs, getChromeDelayMs]);
 
-  type IndicatorPaintState = StepRailVisualState | "warning";
+  type IndicatorPaintState = StepRailVisualState | "success" | "warning";
   const prevDataState = React.useRef<IndicatorPaintState | null>(null);
   const [paintState, setPaintState] = React.useState<IndicatorPaintState>(dataState);
   const wasCompleted = React.useRef<boolean | null>(null);

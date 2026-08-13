@@ -1,6 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { clearSession, sessionDisplayLabel, sessionInitials } from "@/lib/auth";
-import { BUILD_PATH } from "@/lib/constants";
+import { SETUP_PATH } from "@/lib/constants";
 import { appPath } from "@/lib/mount";
 import { useAuthInfoQuery, useAuthSessionQuery } from "@/lib/queries";
 import { AccountMenu } from "./AccountMenu";
@@ -23,7 +23,7 @@ import { ThemeToggle } from "./ui/theme-toggle";
 
 const links = [
   { href: "/apps", label: "Apps" },
-  { href: BUILD_PATH, label: "Build" },
+  { href: SETUP_PATH, label: "Setup" },
 ];
 
 export default function Nav() {
