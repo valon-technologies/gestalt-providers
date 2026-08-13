@@ -977,7 +977,8 @@ export async function getAuthSession(): Promise<AuthSession> {
 }
 
 /**
- * App authorization member row — human/group grants on an app.
+ * App authorization member row from GET /api/v1/apps/{app}/admin/members.
+ * Humans are subject_id; groups are subject_set (e.g. group:eng#member).
  * Service-account grants live on AppAdminIdentity.
  */
 export interface AppAuthorizationMember {
@@ -990,6 +991,35 @@ export interface AppAuthorizationMember {
   selectorKind?: string;
   selectorValue?: string;
   subjectId?: string;
+}
+
+export interface AuthorizationResource {
+  type: string;
+  id: string;
+}
+
+export interface AuthorizationSubject {
+  type: string;
+  id: string;
+}
+
+export interface AuthorizationRelationshipTarget {
+  subject?: AuthorizationSubject;
+  subjectSet?: {
+    resource: AuthorizationResource;
+    relation: string;
+  };
+}
+
+export interface AuthorizationRelationshipTuple {
+  resource: AuthorizationResource;
+  relation: string;
+  target: AuthorizationRelationshipTarget;
+}
+
+export interface AuthorizationResourceType {
+  name: string;
+  defaultRole?: string;
 }
 
 /**
@@ -1007,8 +1037,8 @@ export interface AppAdminIdentity {
 }
 
 /**
- * List humans (and selectors) with access to an app.
- * Requires admin authorization for the app; callers should handle 403.
+ * List humans and groups with access to an app.
+ * Requires app admin; callers should handle 403.
  */
 export async function getAppAuthorizationMembers(
   appName: string,
@@ -1032,6 +1062,56 @@ export async function getAppAdminIdentities(
   >(`/api/v1/apps/${encodeURIComponent(appName)}/admin/identities`);
   if (Array.isArray(response)) return response;
   return response.identities ?? [];
+}
+
+export async function listAuthorizationResourceTypes(): Promise<
+  AuthorizationResourceType[]
+> {
+  const types: AuthorizationResourceType[] = [];
+  let pageToken = "";
+  for (;;) {
+    const query = new URLSearchParams({ pageSize: "100" });
+    if (pageToken) query.set("pageToken", pageToken);
+    const response = await fetchAPI<{
+      resourceTypes?: Array<{ name?: string; defaultRole?: string; default_role?: string }>;
+      resource_types?: Array<{ name?: string; defaultRole?: string; default_role?: string }>;
+      nextPageToken?: string;
+      next_page_token?: string;
+    }>(`/api/v2/authorization/models/active/resource-types?${query}`);
+    const raw = response.resourceTypes ?? response.resource_types ?? [];
+    for (const item of raw) {
+      if (!item.name) continue;
+      types.push({
+        name: item.name,
+        defaultRole: item.defaultRole ?? item.default_role,
+      });
+    }
+    pageToken =
+      response.nextPageToken?.trim() ||
+      response.next_page_token?.trim() ||
+      "";
+    if (!pageToken) return types;
+  }
+}
+
+export async function addAuthorizationRelationship(
+  tuple: AuthorizationRelationshipTuple,
+): Promise<void> {
+  await fetchAPI("/api/v2/authorization/relationships", {
+    method: "POST",
+    body: JSON.stringify({
+      relationship: { tuple },
+    }),
+  });
+}
+
+export async function deleteAuthorizationRelationship(
+  tuple: AuthorizationRelationshipTuple,
+): Promise<void> {
+  await fetchAPI("/api/v2/authorization/relationships:delete", {
+    method: "POST",
+    body: JSON.stringify({ relationshipTuple: tuple }),
+  });
 }
 
 export async function logout(): Promise<void> {

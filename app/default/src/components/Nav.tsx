@@ -1,8 +1,10 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { clearSession, sessionDisplayLabel, sessionInitials } from "@/lib/auth";
-import { SETUP_PATH } from "@/lib/constants";
+import { ADMIN_PATH, SETUP_PATH } from "@/lib/constants";
+import { isLocalDevChrome } from "@/lib/local-dev-chrome";
 import { appPath } from "@/lib/mount";
-import { useAuthInfoQuery, useAuthSessionQuery } from "@/lib/queries";
+import { useAuthInfoQuery, useAuthSessionQuery, useIntegrationsQuery } from "@/lib/queries";
+import { canShowAdminNav } from "@/features/admin-access/admin-access-gate";
 import { AccountMenu } from "./AccountMenu";
 import {
   AppTopBar,
@@ -21,10 +23,10 @@ import {
 } from "./ui/navigation-menu";
 import { ThemeToggle } from "./ui/theme-toggle";
 
-const links = [
+const productLinks = [
   { href: "/apps", label: "Apps" },
   { href: SETUP_PATH, label: "Setup" },
-];
+] as const;
 
 export default function Nav() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -34,6 +36,16 @@ export default function Nav() {
   const initials = sessionInitials(session);
   const authInfoQuery = useAuthInfoQuery(!!displayLabel);
   const loginSupported = authInfoQuery.data?.loginSupported ?? false;
+  const integrationsQuery = useIntegrationsQuery({
+    enabled: Boolean(displayLabel) && !isLocalDevChrome(),
+  });
+  const showAdmin = canShowAdminNav({
+    localDevChrome: isLocalDevChrome(),
+    integrations: integrationsQuery.data,
+  });
+  const links = showAdmin
+    ? [...productLinks, { href: ADMIN_PATH, label: "Admin" as const }]
+    : [...productLinks];
 
   async function handleLogout() {
     clearSession();
@@ -53,7 +65,7 @@ export default function Nav() {
           </AppTopBarBrand>
         </AppTopBarStart>
 
-        {/* Two primary destinations — keep visible below lg (no Sheet mobile nav yet). */}
+        {/* Primary destinations — keep visible below lg (no Sheet mobile nav yet). */}
         <AppTopBarCenter className="flex">
           <NavigationMenu
             viewport={false}

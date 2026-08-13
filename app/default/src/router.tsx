@@ -28,11 +28,14 @@ import AppWorkspaceOperationsPage from "@/pages/app-workspace/operations";
 import AppWorkspaceOverviewPage from "@/pages/app-workspace/overview";
 import AppAdminServiceAccountsPage from "@/pages/app-workspace/admin/service-accounts";
 import AppAdminMembersPage from "@/pages/app-workspace/admin/members";
+import AdminPage from "@/pages/admin";
+import AdminAppPage from "@/pages/admin-app";
 import AppsPage from "@/pages/apps";
 import BuildPage, { BuildIndexRedirect } from "@/pages/build";
 import SettingsPage from "@/pages/settings";
 import SettingsTokenCreate from "@/components/SettingsTokenCreate";
 import SettingsTokensSection from "@/components/SettingsTokensSection";
+import { canAccessAdminRoute } from "@/features/admin-access/admin-access-gate";
 import { appBasepath } from "@/lib/mount";
 import { rootRoute } from "./routes/__root";
 
@@ -112,6 +115,29 @@ const appsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/apps",
   component: AppsPage,
+});
+
+/** Workspace Admin — who can use which apps. */
+const adminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin",
+  beforeLoad: async () => {
+    if (!(await canAccessAdminRoute())) {
+      throw redirect({ to: "/apps" });
+    }
+  },
+  component: AdminPage,
+});
+
+const adminAppRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/apps/$app",
+  beforeLoad: async () => {
+    if (!(await canAccessAdminRoute())) {
+      throw redirect({ to: "/apps" });
+    }
+  },
+  component: AdminAppPage,
 });
 
 const setupIndexRoute = createRoute({
@@ -462,6 +488,8 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   agentsRoute,
   appsRoute,
+  adminRoute,
+  adminAppRoute,
   appWorkspaceLayoutRoute.addChildren([
     appOverviewRoute,
     appConnectionRoute,

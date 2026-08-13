@@ -70,14 +70,11 @@ export default function AppAdminMembersPage() {
         <PageHeaderContent size="md">
           <PageHeaderTitle>Members</PageHeaderTitle>
           <PageHeaderDescription>
-            People and groups with an authorization grant on this app. This
-            roster is read-only — use{" "}
+            People and groups who can use this app. This roster is read-only —
+            use{" "}
             <Link asChild>
-              <RouterLink
-                to={AUTHORIZATION_DOCS_PATH}
-                hash={AUTHORIZATION_DOCS_GRANT_HASH}
-              >
-                How to grant access
+              <RouterLink to="/admin/apps/$app" params={{ app }}>
+                Who can use this app
               </RouterLink>
             </Link>{" "}
             to add or change access. Service accounts appear under{" "}

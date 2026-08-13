@@ -21,6 +21,10 @@ export const queryKeys = {
     members: (app: string) => ["app-admin", app, "members"] as const,
     identities: (app: string) => ["app-admin", app, "identities"] as const,
   },
+  authorization: {
+    root: ["authorization"] as const,
+    resourceTypes: () => ["authorization", "resource-types"] as const,
+  },
   workflows: {
     root: ["workflows"] as const,
     list: (app: string) => ["workflows", app, "list"] as const,

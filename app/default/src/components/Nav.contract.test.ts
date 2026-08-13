@@ -39,4 +39,11 @@ describe("Nav AppTopBar composition", () => {
     expect(NAV).toContain('{ href: SETUP_PATH, label: "Setup" }');
     expect(NAV).not.toContain('label: "Docs"');
   });
+
+  test("gates Admin nav on local-dev chrome or app admin", () => {
+    expect(NAV).toContain("canShowAdminNav");
+    expect(NAV).toContain("isLocalDevChrome");
+    expect(NAV).toContain("ADMIN_PATH");
+    expect(NAV).toContain('label: "Admin"');
+  });
 });

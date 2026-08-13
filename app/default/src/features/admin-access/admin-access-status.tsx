@@ -1,0 +1,91 @@
+import type { AppAccessEntry } from "./admin-access";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  AvatarGroup,
+  AvatarGroupCount,
+  AvatarGroupItem,
+} from "@/components/ui/avatar-group";
+import { Badge } from "@/components/ui/badge";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+const VISIBLE_PEOPLE = 5;
+
+function rosterInitials(label: string): string {
+  const trimmed = label.trim();
+  if (!trimmed) return "?";
+  if (trimmed.includes("@")) {
+    const local = trimmed.split("@")[0] ?? trimmed;
+    const parts = local.split(/[._-]+/).filter(Boolean);
+    if (parts.length >= 2) {
+      return `${parts[0]![0] ?? ""}${parts[1]![0] ?? ""}`.toUpperCase();
+    }
+    return local.slice(0, 2).toUpperCase();
+  }
+  const parts = trimmed.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return `${parts[0]![0] ?? ""}${parts[parts.length - 1]![0] ?? ""}`.toUpperCase();
+}
+
+export function AdminAccessStatus({
+  status,
+  groups,
+  people,
+}: {
+  status: string;
+  groups: AppAccessEntry[];
+  people: AppAccessEntry[];
+}) {
+  const showRoster = groups.length > 0 || people.length > 0;
+  if (!showRoster) {
+    return <span className="text-sm text-muted-foreground">{status}</span>;
+  }
+
+  const visiblePeople = people.slice(0, VISIBLE_PEOPLE);
+  const overflow = people.length - visiblePeople.length;
+  const whoLabel = [
+    ...groups.map((entry) => entry.label),
+    people.length === 1 ? "1 person" : people.length > 0 ? `${people.length} people` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  return (
+    <div
+      data-no-row-click
+      data-testid="admin-access-status"
+      role="group"
+      aria-label={whoLabel}
+      className="flex items-center gap-1.5"
+    >
+      {groups.map((entry) => (
+        <Badge
+          key={entry.member.selectorValue ?? entry.label}
+          variant="secondary"
+          size="sm"
+          className="max-w-32 truncate"
+        >
+          {entry.label}
+        </Badge>
+      ))}
+      {visiblePeople.length > 0 ? (
+        <TooltipProvider delayDuration={0}>
+          <AvatarGroup variant="motion" aria-label="People">
+            {visiblePeople.map((entry) => (
+              <AvatarGroupItem
+                key={entry.member.selectorValue ?? entry.label}
+                tooltip={entry.label}
+              >
+                <Avatar variant="outline" size="sm">
+                  <AvatarFallback>{rosterInitials(entry.label)}</AvatarFallback>
+                </Avatar>
+              </AvatarGroupItem>
+            ))}
+            {overflow > 0 ? (
+              <AvatarGroupCount size="sm">+{overflow}</AvatarGroupCount>
+            ) : null}
+          </AvatarGroup>
+        </TooltipProvider>
+      ) : null}
+    </div>
+  );
+}
