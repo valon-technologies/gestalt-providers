@@ -81,14 +81,17 @@ Metadata-only reads do not start the Temporal worker.
   queries Temporal Visibility and builds summaries from search attributes plus
   memo (`gestaltOwnerKey`, `gestaltListSummary` for list-safe trigger metadata
   and startedAt — not full event payloads) without per-run worker round-trips;
-  on the first page only, attaches visibility aggregates from `CountWorkflow`
-  (not `len(runs)`):
-  - `total_count` uses the same visibility filter as the page (including
-    status and `definition_id`); it is Visibility cardinality and may exceed
-    hydrated list rows when executions lack listable memo
-  - `status_counts` is the provider + `target_app` status histogram with the
-    list status filter cleared (tab/facet totals). Omitted on definition-scoped
-    lists so grouped Runs does not stampede CountWorkflow
+  on the first page only, attaches visibility aggregates (not `len(runs)`):
+  - when that page has no continuation token, `total_count` is the number of
+    visibility hits on the page (including executions that lack listable memo).
+    CountWorkflow is not used. Grouped Runs is one complete ListWorkflow per
+    definition; those groups do not stampede Temporal.
+  - when the first page is truncated, `total_count` comes from CountWorkflow
+    with the same filter as the page (including status and `definition_id`)
+  - `status_counts` is the provider + `target_app` histogram with the list
+    status filter cleared (tab/facet totals). On a complete unfiltered page it
+    is counted from that page. Truncated pages and status-filtered lists still
+    CountWorkflow. Omitted on definition-scoped lists (grouped Runs has no tabs)
   - either aggregate is omitted when its count RPC fails ("unknown", not zero);
     continuation pages omit both so paging stays a single ListWorkflow call
   - CountWorkflow retries `ResourceExhausted` and `Unavailable` up to 3 attempts;
