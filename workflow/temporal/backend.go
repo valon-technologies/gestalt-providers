@@ -404,7 +404,14 @@ func (b *temporalBackend) attachListRunAggregates(ctx context.Context, req *gest
 	}
 }
 
-const countWorkflowConcurrency = 4
+// Unscoped first-page lists can issue 6 CountWorkflow RPCs (total + 5 status
+// buckets). Cap below that peak so visibility is not fully occupied; slots
+// are held only for the RPC, not retry wait.
+const (
+	countWorkflowConcurrency  = 4
+	countWorkflowMaxAttempts  = 3
+	countWorkflowRetryBackoff = 50 * time.Millisecond
+)
 
 func (b *temporalBackend) acquireCountSlot(ctx context.Context) error {
 	select {
@@ -431,9 +438,9 @@ func (b *temporalBackend) countWorkflowOnce(ctx context.Context, query string) (
 
 func (b *temporalBackend) countWorkflows(ctx context.Context, query string) (int64, error) {
 	var last error
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := 0; attempt < countWorkflowMaxAttempts; attempt++ {
 		if attempt > 0 {
-			timer := time.NewTimer(time.Duration(attempt) * 50 * time.Millisecond)
+			timer := time.NewTimer(time.Duration(attempt) * countWorkflowRetryBackoff)
 			select {
 			case <-ctx.Done():
 				timer.Stop()
@@ -478,8 +485,6 @@ func (b *temporalBackend) countWorkflowsByStatus(ctx context.Context, req *gesta
 	base := &gestalt.ListWorkflowProviderRunsRequest{}
 	if req != nil {
 		base.TargetApp = req.TargetApp
-		// Preserve KnownApps so histogram ownership matches list/total filters
-		// once visibility can express definition-owner disambiguation.
 		base.KnownApps = append([]string(nil), req.KnownApps...)
 	}
 	type statusCount struct {

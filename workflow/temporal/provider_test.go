@@ -726,9 +726,7 @@ func TestBackendListRunsFiltersByDefinitionID(t *testing.T) {
 				},
 			},
 		},
-		countRespByQuery: map[string]int64{
-			"WorkflowType = 'TemporalRun' AND GestaltScopeId = 'scope' AND GestaltProviderName = 'temporal' AND GestaltTargetApps = 'slack' AND GestaltDefinitionId = 'definition-1'": 4,
-		},
+		countDefault: 4,
 	}
 	backend := newRecordingTemporalBackend(tc, state)
 
@@ -857,8 +855,9 @@ func TestBackendListRunsOmitsAggregatesWhenCountFails(t *testing.T) {
 	if resp.GetStatusCounts() != nil {
 		t.Fatalf("status_counts should be omitted when CountWorkflow fails, got %#v", resp.StatusCounts)
 	}
-	if len(tc.countWorkflowRequests) == 0 {
-		t.Fatalf("expected CountWorkflow attempts before omission")
+	wantCounts := 1 + len(listRunStatusHistogram)
+	if got := len(tc.countWorkflowRequests); got != wantCounts {
+		t.Fatalf("count workflow requests = %d, want %d (one total + histogram, no retries on Internal)", got, wantCounts)
 	}
 }
 
@@ -953,8 +952,20 @@ func TestBackendListRunsRetriesCountOnTransientVisibilityErrors(t *testing.T) {
 			} else if resp.TotalCount != nil {
 				t.Fatalf("total_count should be omitted after count retries fail, got %#v", resp.TotalCount)
 			}
+			if resp.GetStatusCounts() != nil {
+				t.Fatalf("definition-scoped list should omit status_counts, got %#v", resp.StatusCounts)
+			}
 			if got := len(tc.countWorkflowRequests); got != tt.wantAttempts {
 				t.Fatalf("count workflow requests = %d, want %d", got, tt.wantAttempts)
+			}
+			if len(tc.listWorkflowRequests) != 1 {
+				t.Fatalf("list workflow requests = %#v", tc.listWorkflowRequests)
+			}
+			listQuery := tc.listWorkflowRequests[0].GetQuery()
+			for _, countReq := range tc.countWorkflowRequests {
+				if got := countReq.GetQuery(); got != listQuery {
+					t.Fatalf("count query = %q, want list query %q", got, listQuery)
+				}
 			}
 		})
 	}
