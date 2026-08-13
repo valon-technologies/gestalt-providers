@@ -361,9 +361,6 @@ func (b *temporalBackend) ListRuns(ctx context.Context, req *gestalt.ListWorkflo
 // total_count uses the same filter as the page; status_counts is the
 // provider+target_app histogram with status cleared. Failures leave fields
 // unset rather than failing the list.
-// Definition-scoped lists skip the 5-way status histogram: grouped Runs only
-// needs total_count, and N definitions × 6 CountWorkflow RPCs stamps Temporal
-// visibility so every group omits totals.
 func (b *temporalBackend) attachListRunAggregates(ctx context.Context, req *gestalt.ListWorkflowProviderRunsRequest, query string, out *gestalt.ListWorkflowProviderRunsResponse) {
 	definitionScoped := req != nil && strings.TrimSpace(req.DefinitionID) != ""
 	if definitionScoped {
