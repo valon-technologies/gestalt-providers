@@ -140,16 +140,27 @@ export function normalizeIntegrationStatus(
     normalizeConnection(integration, connection, context),
   );
   const actions = validActions(integration.actions);
-  const status =
-    validStatus(integration.status) ??
+  // Connection rows own whether this workspace can act. Alternative auth
+  // methods are OR: an unused API key must not override a linked OAuth row.
+  // Top-level API summaries that AND those methods are ignored when rows exist.
+  const derivedStatus =
     aggregateStatus(connections) ??
     inferIntegrationStatus(integration, connections);
+  const derivedCredentialState = aggregateCredentialState(connections);
+  const derivedHealthState = aggregateHealthState(connections);
+  const status =
+    connections.length > 0
+      ? derivedStatus
+      : (validStatus(integration.status) ?? derivedStatus);
   const credentialState =
-    validCredentialState(integration.credentialState) ??
-    aggregateCredentialState(connections);
+    connections.length > 0
+      ? derivedCredentialState
+      : (validCredentialState(integration.credentialState) ??
+        derivedCredentialState);
   const healthState =
-    validHealthState(integration.healthState) ??
-    aggregateHealthState(connections);
+    connections.length > 0
+      ? derivedHealthState
+      : (validHealthState(integration.healthState) ?? derivedHealthState);
   const connected =
     connections.some((connection) => connection.connected) ||
     (credentialState === "not_required" && status === "ready");
@@ -600,19 +611,45 @@ function inferConnectionActions(
   return actions;
 }
 
+/**
+ * Alternative auth methods (OAuth vs API key vs PAT) are OR, not AND.
+ * Once any connection is product-connected, unused methods stay as add-account
+ * options — they must not roll the app back to "Not connected".
+ */
+function connectionsForAppRollup(
+  connections: NormalizedConnection[],
+): NormalizedConnection[] {
+  const acting = connections.filter((connection) => connection.connected);
+  return acting.length > 0 ? acting : connections;
+}
+
 function aggregateStatus(
   connections: NormalizedConnection[],
 ): IntegrationStatus | undefined {
   if (connections.length === 0) return undefined;
-  const statuses = connections.map((connection) => connection.status);
-  for (const status of [
-    "unavailable",
-    "needs_admin_configuration",
-    "needs_user_connection",
-    "needs_instance_selection",
-    "degraded",
-    "unknown",
-  ] satisfies IntegrationStatus[]) {
+  const canAct = connections.some((connection) => connection.connected);
+  const statuses = connectionsForAppRollup(connections).map(
+    (connection) => connection.status,
+  );
+  const severity = (
+    canAct
+      ? [
+          "unavailable",
+          "needs_admin_configuration",
+          "needs_instance_selection",
+          "degraded",
+          "unknown",
+        ]
+      : [
+          "unavailable",
+          "needs_admin_configuration",
+          "needs_user_connection",
+          "needs_instance_selection",
+          "degraded",
+          "unknown",
+        ]
+  ) satisfies IntegrationStatus[];
+  for (const status of severity) {
     if (statuses.includes(status)) return status;
   }
   return "ready";
@@ -621,21 +658,25 @@ function aggregateStatus(
 function aggregateCredentialState(
   connections: NormalizedConnection[],
 ): CredentialState {
-  const states = connections.map((connection) => connection.credentialState);
-  for (const state of [
-    "invalid",
-    "missing",
-    "unknown",
-    "connected",
-    "configured",
-  ] satisfies CredentialState[]) {
+  const canAct = connections.some((connection) => connection.connected);
+  const states = connectionsForAppRollup(connections).map(
+    (connection) => connection.credentialState,
+  );
+  const order = (
+    canAct
+      ? ["invalid", "connected", "configured", "unknown"]
+      : ["invalid", "missing", "unknown", "connected", "configured"]
+  ) satisfies CredentialState[];
+  for (const state of order) {
     if (states.includes(state)) return state;
   }
   return "not_required";
 }
 
 function aggregateHealthState(connections: NormalizedConnection[]): HealthState {
-  const states = connections.map((connection) => connection.healthState);
+  const states = connectionsForAppRollup(connections).map(
+    (connection) => connection.healthState,
+  );
   for (const state of [
     "unhealthy",
     "not_checked",
