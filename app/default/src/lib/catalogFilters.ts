@@ -160,6 +160,11 @@ function needsFirstUserConnection(
   if (status.connections.some((connection) => connection.canReconnect)) {
     return false;
   }
+  // Unused alternative methods still advertise `connect`. That is Add account
+  // on Connection — not app-level first-time connect — once any method works.
+  if (status.connected) {
+    return false;
+  }
   return (
     status.status === "needs_user_connection" ||
     status.connections.some(
