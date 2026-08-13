@@ -142,7 +142,7 @@ export type TableHeadProps = Omit<
   align?: TableAlign;
 };
 
-// Column labels are eyebrow microtype at default ink (60%) — dense chrome,
+// Column labels are eyebrow microtype at default muted-foreground ink — dense chrome,
 // not a kicker over a display value. Rely on Eyebrow's default tone; do not
 // override text-* after eyebrowVariants() (guidelines/eyebrow.md).
 const TableHead = React.forwardRef<HTMLTableCellElement, TableHeadProps>(

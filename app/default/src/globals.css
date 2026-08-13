@@ -477,14 +477,14 @@
 }
 
 @layer base {
-  /* Re-bind caption ink after tenant theme.css sets --foreground (registry parity). */
+  /* Re-bind secondary body ink after tenant theme.css sets --foreground. */
   :root {
-    --muted-foreground: color-mix(in oklab, var(--foreground) 60%, transparent);
+    --muted-foreground: color-mix(in oklab, var(--foreground) 80%, transparent);
     --muted-foreground-soft: color-mix(in oklab, var(--foreground) 40%, transparent);
   }
 
   .dark {
-    --muted-foreground: color-mix(in oklab, var(--foreground) 60%, transparent);
+    --muted-foreground: color-mix(in oklab, var(--foreground) 80%, transparent);
     --muted-foreground-soft: color-mix(in oklab, var(--foreground) 40%, transparent);
   }
 

@@ -50,3 +50,12 @@ test("typeset-reading stays tenant-neutral (no org brand filename/comments)", ()
   expect(TYPESET).not.toMatch(/valon/i);
   expect(TYPESET).not.toMatch(/Melange|Season Serif/i);
 });
+
+test("typeset muted fallback matches secondary body ink at 80%", () => {
+  expect(TYPESET).toContain(
+    "color-mix(in oklab, currentColor 80%, transparent)",
+  );
+  expect(TYPESET).not.toContain(
+    "color-mix(in oklab, currentColor 60%, transparent)",
+  );
+});
