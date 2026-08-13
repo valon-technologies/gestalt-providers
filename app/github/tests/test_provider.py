@@ -1250,10 +1250,6 @@ class GitHubProviderTests(unittest.TestCase):
     ) -> None:
         workflow_client = FakeWorkflowClient()
         payload = {
-            "headers": {
-                "X-GitHub-Event": "pull_request",
-                "X-GitHub-Delivery": "delivery-123",
-            },
             "installation": {"id": 99},
             "repository": {"full_name": "acme/widgets"},
             "pull_request": {"number": 7},
@@ -1266,7 +1262,19 @@ class GitHubProviderTests(unittest.TestCase):
             return_value=workflow_client,
             create=True,
         ):
-            result = provider_module.github_events_handle(payload, gestalt.Request())
+            result = provider_module.github_events_handle(
+                payload,
+                gestalt.Request(
+                    workflow={
+                        "http": {
+                            "headers": {
+                                "X-GitHub-Event": ["pull_request"],
+                                "X-GitHub-Delivery": ["delivery-123"],
+                            }
+                        }
+                    }
+                ),
+            )
 
         self.assertEqual(operation_body(result)["ok"], True)
         self.assertEqual(len(workflow_client.deliver_event_requests), 1)
@@ -1319,10 +1327,6 @@ class GitHubProviderTests(unittest.TestCase):
     def test_webhook_handler_delivery_failure_is_retryable_server_error(self) -> None:
         workflow_client = FakeWorkflowClient(fail=True)
         payload = {
-            "headers": {
-                "X-GitHub-Event": "pull_request",
-                "X-GitHub-Delivery": "delivery-123",
-            },
             "action": "opened",
             "installation": {"id": 99},
             "repository": {"full_name": "acme/widgets"},
@@ -1336,7 +1340,19 @@ class GitHubProviderTests(unittest.TestCase):
             return_value=workflow_client,
             create=True,
         ):
-            result = provider_module.github_events_handle(payload, gestalt.Request())
+            result = provider_module.github_events_handle(
+                payload,
+                gestalt.Request(
+                    workflow={
+                        "http": {
+                            "headers": {
+                                "X-GitHub-Event": ["pull_request"],
+                                "X-GitHub-Delivery": ["delivery-123"],
+                            }
+                        }
+                    }
+                ),
+            )
 
         self.assertIsInstance(result, gestalt.Response)
         response = cast(gestalt.Response[dict[str, str]], result)

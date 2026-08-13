@@ -182,8 +182,6 @@ from internals.operations import (
 )
 from internals.webhook import (
     event_summary,
-    github_delivery_id,
-    github_event_header,
     github_event_type,
     installation_id_from_payload,
     payload_digest,
@@ -1130,12 +1128,8 @@ def resolve_http_subject(request: gestalt.HTTPSubjectRequest) -> gestalt.Subject
 def github_events_handle(
     input: dict[str, Any], req: gestalt.Request
 ) -> OperationResult:
-    event_header = _github_request_header(req, "X-GitHub-Event") or github_event_header(
-        input
-    )
-    delivery_id = _github_request_header(
-        req, "X-GitHub-Delivery"
-    ) or github_delivery_id(input)
+    event_header = _github_request_header(req, "X-GitHub-Event")
+    delivery_id = _github_request_header(req, "X-GitHub-Delivery")
     event_type = _github_workflow_event_name(input, event_header)
     ignored_reason = webhook_ignored_reason(
         input,
@@ -1269,9 +1263,6 @@ def _github_workflow_event_data(
     payload: dict[str, Any], summary: dict[str, Any]
 ) -> dict[str, Any]:
     github = dict(summary)
-    header = github_event_header(payload)
-    if header and "event_header" not in github:
-        github["event_header"] = header
     return {"github": github, "raw": payload}
 
 
