@@ -362,6 +362,15 @@ func (b *temporalBackend) ListRuns(ctx context.Context, req *gestalt.ListWorkflo
 // provider+target_app histogram with status cleared. Failures leave fields
 // unset rather than failing the list.
 func (b *temporalBackend) attachListRunAggregates(ctx context.Context, req *gestalt.ListWorkflowProviderRunsRequest, query string, out *gestalt.ListWorkflowProviderRunsResponse) {
+	definitionScoped := req != nil && strings.TrimSpace(req.DefinitionID) != ""
+	if definitionScoped {
+		total, err := b.countWorkflows(ctx, query)
+		if err == nil {
+			out.TotalCount = &total
+		}
+		return
+	}
+
 	var (
 		total     int64
 		totalErr  error
@@ -410,7 +419,6 @@ func (b *temporalBackend) countWorkflowsByStatus(ctx context.Context, req *gesta
 	if req != nil {
 		base.TargetApp = req.TargetApp
 		// Preserve KnownApps so histogram ownership matches list/total filters
-		// once visibility can express definition-owner disambiguation.
 		base.KnownApps = append([]string(nil), req.KnownApps...)
 	}
 	type statusCount struct {
@@ -530,6 +538,9 @@ func (b *temporalBackend) runVisibilityQuery(req *gestalt.ListWorkflowProviderRu
 	if req != nil {
 		if targetApp := strings.TrimSpace(req.TargetApp); targetApp != "" {
 			parts = append(parts, "GestaltTargetApps = "+temporalVisibilityQuote(targetApp))
+		}
+		if definitionID := strings.TrimSpace(req.DefinitionID); definitionID != "" {
+			parts = append(parts, "GestaltDefinitionId = "+temporalVisibilityQuote(definitionID))
 		}
 	}
 	return strings.Join(parts, " AND ")

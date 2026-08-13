@@ -584,8 +584,8 @@ func TestBackendListRunsUsesTemporalVisibility(t *testing.T) {
 					StartTime: startTime,
 					CloseTime: closeTime,
 					Memo: &commonpb.Memo{Fields: map[string]*commonpb.Payload{
-						memoKeyOwnerKey:     ownerPayload,
-						memoKeyListSummary:  summaryPayload,
+						memoKeyOwnerKey:    ownerPayload,
+						memoKeyListSummary: summaryPayload,
 					}},
 					SearchAttributes: &commonpb.SearchAttributes{IndexedFields: map[string]*commonpb.Payload{
 						searchAttrRunStatus.GetName():    statusPayload,
@@ -693,6 +693,47 @@ func TestBackendListRunsUsesTemporalVisibility(t *testing.T) {
 		if countQueries[statusQuery] < 1 {
 			t.Fatalf("missing status histogram CountWorkflow for %q; got %#v", statusQuery, countQueries)
 		}
+	}
+}
+
+func TestBackendListRunsFiltersByDefinitionID(t *testing.T) {
+	ctx, state := newTestWorkflowStateStore(t)
+	tc := &recordingTemporalClient{
+		listResp:     &workflowservicepb.ListWorkflowExecutionsResponse{},
+		countDefault: 4,
+	}
+	backend := newRecordingTemporalBackend(tc, state)
+
+	resp, err := backend.ListRuns(ctx, &gestalt.ListWorkflowProviderRunsRequest{
+		TargetApp:    "slack",
+		DefinitionID: "definition-1",
+	})
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(tc.listWorkflowRequests) != 1 {
+		t.Fatalf("list workflow requests = %#v", tc.listWorkflowRequests)
+	}
+	query := tc.listWorkflowRequests[0].GetQuery()
+	for _, want := range []string{
+		"GestaltTargetApps = 'slack'",
+		"GestaltDefinitionId = 'definition-1'",
+	} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("query = %q, missing %q", query, want)
+		}
+	}
+	if resp.TotalCount == nil || *resp.TotalCount != 4 {
+		t.Fatalf("total count = %#v, want 4", resp.TotalCount)
+	}
+	if resp.GetStatusCounts() != nil {
+		t.Fatalf("definition-scoped list should omit status_counts, got %#v", resp.StatusCounts)
+	}
+	if len(tc.countWorkflowRequests) != 1 {
+		t.Fatalf("count workflow requests = %d, want 1 (total only)", len(tc.countWorkflowRequests))
+	}
+	if tc.countWorkflowRequests[0].GetQuery() != query {
+		t.Fatalf("count query = %q, want list query %q", tc.countWorkflowRequests[0].GetQuery(), query)
 	}
 }
 
@@ -988,25 +1029,25 @@ type recordedTemporalCall struct {
 
 type recordingTemporalClient struct {
 	client.Client
-	mu                   sync.Mutex
-	executions           []recordedExecution
-	updateWithStartCalls []recordedUpdateWithStart
-	listWorkflowRequests []*workflowservicepb.ListWorkflowExecutionsRequest
-	listResp             *workflowservicepb.ListWorkflowExecutionsResponse
-	listErr              error
+	mu                    sync.Mutex
+	executions            []recordedExecution
+	updateWithStartCalls  []recordedUpdateWithStart
+	listWorkflowRequests  []*workflowservicepb.ListWorkflowExecutionsRequest
+	listResp              *workflowservicepb.ListWorkflowExecutionsResponse
+	listErr               error
 	countWorkflowRequests []*workflowservicepb.CountWorkflowExecutionsRequest
-	countRespByQuery     map[string]int64
-	countDefault         int64
-	countErr             error
-	describeResp         *workflowservicepb.DescribeWorkflowExecutionResponse
-	describeErr          error
-	queryRun             *gestalt.WorkflowRun
-	queryErr             error
-	queryCalls           []recordedTemporalCall
-	workflowResult       *gestalt.WorkflowRun
-	workflowErr          error
-	getWorkflowCalls     []recordedTemporalCall
-	scheduleClient       client.ScheduleClient
+	countRespByQuery      map[string]int64
+	countDefault          int64
+	countErr              error
+	describeResp          *workflowservicepb.DescribeWorkflowExecutionResponse
+	describeErr           error
+	queryRun              *gestalt.WorkflowRun
+	queryErr              error
+	queryCalls            []recordedTemporalCall
+	workflowResult        *gestalt.WorkflowRun
+	workflowErr           error
+	getWorkflowCalls      []recordedTemporalCall
+	scheduleClient        client.ScheduleClient
 }
 
 type recordedUpdateWithStart struct {
