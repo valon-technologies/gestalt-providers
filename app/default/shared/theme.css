@@ -53,10 +53,9 @@
    * family as --muted — only L drops (Registry: neutral-150). Keep chroma so
    * muted-strong does not cool to grey against atmospheric muted. */
   --muted-strong: oklch(from var(--muted) calc(l - 0.02) c h);
-  /* Ink-alpha text hierarchy (registry/theme/theme.css, color.md): secondary
-   * text is foreground at opacity so the warm undertone holds at every level.
-   * 60% = descriptions / placeholders; 40% = eyebrows / captions. */
-  --muted-foreground: color-mix(in oklab, var(--foreground) 60%, transparent);
+  /* Ink-alpha text hierarchy: secondary text is foreground at opacity so the
+   * undertone holds at every level. 80% = body / descriptions; 40% = captions. */
+  --muted-foreground: color-mix(in oklab, var(--foreground) 80%, transparent);
   --muted-foreground-soft: color-mix(in oklab, var(--foreground) 40%, transparent);
   /* Structural chrome stays neutral — never derive borders from --brand*. */
   --border: color-mix(in oklab, var(--foreground) 12%, var(--background));
@@ -290,8 +289,8 @@
 
   --muted: var(--surface-raised);
   --muted-strong: oklch(from var(--muted) calc(l - 0.02) c h);
-  /* Same ink-alpha model as light — derives from cream --foreground (registry). */
-  --muted-foreground: color-mix(in oklab, var(--foreground) 60%, transparent);
+  /* Same ink-alpha model as light — 80% body, 40% captions. */
+  --muted-foreground: color-mix(in oklab, var(--foreground) 80%, transparent);
   --muted-foreground-soft: color-mix(in oklab, var(--foreground) 40%, transparent);
   /* Structural chrome stays neutral — never derive borders from --brand*. */
   --border: color-mix(in oklab, var(--foreground) 16%, var(--background));

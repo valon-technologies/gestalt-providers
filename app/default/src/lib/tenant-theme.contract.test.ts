@@ -26,6 +26,7 @@ const manifest = JSON.parse(
   readFileSync(join(appRoot, "shared/tenant-theme-manifest.json"), "utf8"),
 );
 const bundleTheme = readFileSync(join(appRoot, "shared/theme.css"), "utf8");
+const globalsCss = readFileSync(join(appRoot, "src/globals.css"), "utf8");
 const indexHtml = readFileSync(join(appRoot, "index.html"), "utf8");
 const fixturePath = join(appRoot, manifest.fixture);
 
@@ -94,6 +95,19 @@ test("tenant manifest only lists tokens defined in shared/theme.css", () => {
   for (const token of allRequired) {
     expect(extractCssTokenValue(bundleTheme, token), token).not.toBeNull();
   }
+});
+
+test("secondary body ink is foreground at 80% in light and dark", () => {
+  const mix = "color-mix(in oklab, var(--foreground) 80%, transparent)";
+  const washedOut = "color-mix(in oklab, var(--foreground) 60%, transparent)";
+  const root = extractBlock(bundleTheme, ":where(:root)");
+  const dark = extractBlock(bundleTheme, ":where(.dark)");
+  expect(root).toContain(`--muted-foreground: ${mix}`);
+  expect(dark).toContain(`--muted-foreground: ${mix}`);
+  expect(root).not.toContain(`--muted-foreground: ${washedOut}`);
+  expect(dark).not.toContain(`--muted-foreground: ${washedOut}`);
+  expect(globalsCss).toContain(`--muted-foreground: ${mix}`);
+  expect(globalsCss).not.toContain(`--muted-foreground: ${washedOut}`);
 });
 
 test("bundle overlay surface defaults are alias traps (documented in manifest)", () => {

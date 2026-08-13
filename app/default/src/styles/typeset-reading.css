@@ -104,7 +104,7 @@
 
     --typeset-muted: var(
       --color-muted-foreground,
-      color-mix(in oklab, currentColor 60%, transparent)
+      color-mix(in oklab, currentColor 80%, transparent)
     );
     --typeset-rule: var(
       --color-border,
