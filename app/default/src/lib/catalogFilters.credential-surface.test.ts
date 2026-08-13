@@ -152,6 +152,53 @@ describe("appShowsCredentialSurface", () => {
     expect(normalizeIntegrationStatus(integration).connected).toBe(false);
   });
 
+  test("daemon app-level connected is the catalog rollup", () => {
+    expect(
+      catalogInstallState(
+        stub({
+          name: "slack",
+          status: "ready",
+          credentialState: "connected",
+          connected: true,
+          connections: [
+            {
+              name: "default",
+              status: "ready",
+              credentialState: "connected",
+              connected: true,
+            },
+          ],
+        }),
+      ),
+    ).toBe("connected");
+    expect(
+      normalizeIntegrationStatus(
+        stub({
+          name: "ready-no-account",
+          status: "ready",
+          credentialState: "not_required",
+          connected: false,
+        }),
+      ).connected,
+    ).toBe(false);
+    expect(
+      normalizeIntegrationStatus(
+        stub({
+          name: "overlay-false",
+          connected: false,
+          connections: [
+            {
+              name: "MCP",
+              status: "ready",
+              connected: true,
+              mcpPassthrough: true,
+            },
+          ],
+        }),
+      ).connected,
+    ).toBe(false);
+  });
+
   test("hides Connection for not_required with only no-auth connection rows", () => {
     expect(
       appShowsCredentialSurface(

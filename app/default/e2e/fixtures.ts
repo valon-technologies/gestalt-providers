@@ -172,6 +172,12 @@ function connectionOverlayFromMock(integrations: Integration[]) {
     credentialState: integration.credentialState,
     healthState: integration.healthState,
     actions: integration.actions,
+    connected:
+      typeof integration.connected === "boolean"
+        ? integration.connected
+        : (integration.connections ?? []).some(
+            (connection) => connection.connected === true,
+          ),
     connections: (integration.connections ?? []).map((connection) => ({
       name: connection.name,
       status: connection.status,

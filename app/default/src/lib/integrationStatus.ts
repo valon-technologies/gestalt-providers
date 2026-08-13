@@ -186,9 +186,9 @@ export function normalizeIntegrationStatus(
       ? derivedHealthState
       : (validHealthState(integration.healthState) ?? derivedHealthState);
   const connected =
-    connections.length > 0
-      ? connections.some((connection) => connection.connected)
-      : credentialState === "not_required" && status === "ready";
+    typeof integration.connected === "boolean"
+      ? integration.connected
+      : connections.some((connection) => connection.connected);
   const hasActionableConnections = connections.some(
     (connection) =>
       connection.canConnect ||

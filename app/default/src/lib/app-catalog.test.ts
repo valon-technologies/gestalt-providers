@@ -32,6 +32,7 @@ const overlay: AppConnectionStatus[] = [
     credentialState: "connected",
     healthState: "not_checked",
     actions: ["disconnect"],
+    connected: true,
     connections: [
       {
         name: "default",
@@ -69,6 +70,7 @@ describe("mergeAppCatalogWithConnections", () => {
     const apps = mergeAppCatalogWithConnections(catalog, overlay);
     expect(apps[0]?.status).toBe("ready");
     expect(apps[0]?.credentialState).toBe("connected");
+    expect(apps[0]?.connected).toBe(true);
     const connection = apps[0]?.connections?.[0] as ConnectionDefInfo;
     expect(connection.connected).toBe(true);
     expect(connection.authTypes).toEqual(["oauth"]);
@@ -128,5 +130,33 @@ describe("mergeAppCatalogWithConnections", () => {
     expect(connection.name).toBe("default");
     expect(connection.connected).toBeUndefined();
     expect(connection.instances).toBeUndefined();
+  });
+
+  it("copies the overlay app-level connected rollup instead of ORing rows", () => {
+    const apps = mergeAppCatalogWithConnections(
+      [
+        {
+          name: "mcp",
+          connections: [{ name: "MCP", displayName: "MCP", mcpPassthrough: true }],
+        },
+      ],
+      [
+        {
+          name: "mcp",
+          status: "ready",
+          credentialState: "not_required",
+          connected: false,
+          connections: [
+            {
+              name: "MCP",
+              status: "ready",
+              credentialState: "not_required",
+              connected: false,
+            },
+          ],
+        },
+      ],
+    );
+    expect(apps[0]?.connected).toBe(false);
   });
 });

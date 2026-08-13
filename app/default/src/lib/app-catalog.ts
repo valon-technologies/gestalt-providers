@@ -27,6 +27,7 @@ export function mergeAppCatalogWithConnections(
       credentialState: status?.credentialState,
       healthState: status?.healthState,
       actions: status?.actions,
+      connected: status?.connected,
       connections: mergeCatalogConnections(entry.connections, status?.connections),
     };
   });

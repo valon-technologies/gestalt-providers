@@ -109,6 +109,11 @@ export interface Integration {
   credentialState?: CredentialState;
   healthState?: HealthState;
   actions?: IntegrationAction[];
+  /**
+   * True only when this subject has a chosen account. Overlay and composed
+   * listings both emit this rollup; do not OR connection rows in the client.
+   */
+  connected?: boolean;
   /** Curated prompts projected from the root app's deployment config. */
   prompts?: IntegrationPrompt[];
   /**
@@ -1327,6 +1332,8 @@ export interface AppConnectionStatus {
   credentialState?: CredentialState;
   healthState?: HealthState;
   actions?: IntegrationAction[];
+  /** Product-connected rollup for this subject. Same meaning as Integration.connected. */
+  connected?: boolean;
   connections?: AppConnectionOverlay[];
 }
 
