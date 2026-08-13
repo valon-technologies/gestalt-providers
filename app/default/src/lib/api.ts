@@ -1276,10 +1276,8 @@ export async function logout(): Promise<void> {
 }
 
 /**
- * Client abort for GET /api/v1/apps. Healthy catalog assembly is ~5s;
- * the load balancer often returns 503 around 30s. Fail in between so the
- * UI can leave loading and show retry instead of spinning until the gateway
- * gives up.
+ * Client abort for GET /api/v1/apps so the UI can leave loading and show
+ * retry instead of waiting for an upstream gateway failure.
  */
 export const APPS_CATALOG_TIMEOUT_MS = 12_000;
 

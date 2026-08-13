@@ -941,16 +941,21 @@ test.describe("Setup page", () => {
   test("connect shows retry when the apps catalog returns 503", async ({
     authenticatedPage: page,
   }) => {
+    let fail = true;
     await page.route("**/api/v1/apps", async (route, request) => {
       if (request.method() !== "GET") {
         await route.fallback();
         return;
       }
-      await route.fulfill({
-        status: 503,
-        contentType: "application/json",
-        body: JSON.stringify({ error: "Service Unavailable" }),
-      });
+      if (fail) {
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "Service Unavailable" }),
+        });
+        return;
+      }
+      await route.fulfill({ json: catalogFixtures });
     });
     await mockTokens(page, [defaultToken]);
     await page.addInitScript(() => {
@@ -967,5 +972,48 @@ test.describe("Setup page", () => {
     await expect(
       page.getByText("Couldn't load apps. Try again."),
     ).toBeVisible();
+    await expect(page.getByTestId("build-connect-apps")).toHaveCount(0);
+
+    fail = false;
+    await page.getByRole("button", { name: "Retry" }).click();
+    await expect(page.getByTestId("build-connect-apps")).toBeVisible();
+  });
+
+  test("authorize select-apps catalog 503 recovers on retry", async ({
+    authenticatedPage: page,
+  }) => {
+    let fail = true;
+    await page.route("**/api/v1/apps", async (route, request) => {
+      if (request.method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      if (fail) {
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "Service Unavailable" }),
+        });
+        return;
+      }
+      await route.fulfill({ json: catalogFixtures });
+    });
+
+    await page.addInitScript(() => {
+      sessionStorage.setItem("gestalt.build.introSeen", "1");
+      sessionStorage.setItem("gestalt.build.selectedTokenId", "new");
+    });
+    await page.goto("/build/authorize");
+    await page.getByRole("radio", { name: "Only select apps" }).click();
+
+    await expect(page.getByTestId("error-notice")).toBeVisible();
+    await expect(
+      page.getByText("Couldn't load apps. Try again."),
+    ).toBeVisible();
+
+    fail = false;
+    await page.getByRole("button", { name: "Retry" }).click();
+    await expect(page.getByRole("searchbox", { name: "Search apps" })).toBeVisible();
+    await expect(page.getByText("Oncall")).toBeVisible();
   });
 });
