@@ -182,8 +182,6 @@ from internals.operations import (
 )
 from internals.webhook import (
     event_summary,
-    github_delivery_id,
-    github_event_header,
     github_event_type,
     installation_id_from_payload,
     payload_digest,
@@ -1130,7 +1128,9 @@ def resolve_http_subject(request: gestalt.HTTPSubjectRequest) -> gestalt.Subject
 def github_events_handle(
     input: dict[str, Any], req: gestalt.Request
 ) -> OperationResult:
-    event_type = _github_workflow_event_name(input)
+    event_header = _github_request_header(req, "X-GitHub-Event")
+    delivery_id = _github_request_header(req, "X-GitHub-Delivery")
+    event_type = _github_workflow_event_name(input, event_header)
     ignored_reason = webhook_ignored_reason(
         input,
         event_type=event_type,
@@ -1141,6 +1141,9 @@ def github_events_handle(
 
     installation_id = installation_id_from_payload(input)
     summary = event_summary(input, installation_id, event_type=event_type)
+    summary["delivery_id"] = delivery_id
+    if event_header:
+        summary["event_header"] = event_header
     workflow_request = _build_workflow_deliver_event_request(input, summary)
     try:
         logger.info(
@@ -1194,7 +1197,7 @@ def github_events_handle(
 def _build_workflow_deliver_event_request(
     payload: dict[str, Any], summary: dict[str, Any]
 ) -> gestalt.WorkflowDeliverEvent:
-    delivery_id = github_delivery_id(payload)
+    delivery_id = str(summary.get("delivery_id", "")).strip()
     event_id = (
         f"github:{delivery_id}" if delivery_id else f"github:{payload_digest(payload)}"
     )
@@ -1220,8 +1223,30 @@ def _github_workflow_event_type(summary: dict[str, Any]) -> str:
     return f"github.{event_type}"
 
 
-def _github_workflow_event_name(payload: dict[str, Any]) -> str:
-    return (github_event_header(payload) or github_event_type(payload)).strip().lower()
+def _github_workflow_event_name(
+    payload: dict[str, Any], event_header: str = ""
+) -> str:
+    return (event_header or github_event_type(payload)).strip().lower()
+
+
+def _github_request_header(req: gestalt.Request, name: str) -> str:
+    workflow = req.workflow
+    if not isinstance(workflow, dict):
+        return ""
+    http_context = workflow.get("http")
+    if not isinstance(http_context, dict):
+        return ""
+    headers = http_context.get("headers")
+    if not isinstance(headers, dict):
+        return ""
+    wanted = name.lower()
+    for key, value in headers.items():
+        if str(key).lower() != wanted:
+            continue
+        if isinstance(value, list):
+            return str(value[-1] if value else "").strip()
+        return str(value).strip()
+    return ""
 
 
 def _github_workflow_event_subject(
@@ -1238,9 +1263,6 @@ def _github_workflow_event_data(
     payload: dict[str, Any], summary: dict[str, Any]
 ) -> dict[str, Any]:
     github = dict(summary)
-    header = github_event_header(payload)
-    if header:
-        github["event_header"] = header
     return {"github": github, "raw": payload}
 
 

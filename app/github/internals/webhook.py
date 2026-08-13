@@ -148,14 +148,6 @@ def github_delivery_id(payload: dict[str, Any]) -> str:
     return ""
 
 
-def github_event_header(payload: dict[str, Any]) -> str:
-    headers = map_field(payload, "headers")
-    for key, value in headers.items():
-        if str(key).lower() == "x-github-event" and isinstance(value, str):
-            return value.strip()
-    return ""
-
-
 def payload_digest(payload: dict[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode(
