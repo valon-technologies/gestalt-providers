@@ -890,8 +890,38 @@ export class APIError extends Error {
   }
 }
 
+/** The request was aborted because it exceeded this client's timeout. */
+export class APITimeoutError extends Error {
+  constructor(message = "Request timed out") {
+    super(message);
+    this.name = "APITimeoutError";
+  }
+}
+
 export function isAPIErrorStatus(error: unknown, status: number): boolean {
   return error instanceof APIError && error.status === status;
+}
+
+export function isAPITimeoutError(error: unknown): boolean {
+  return error instanceof APITimeoutError;
+}
+
+export type FetchAPIOptions = RequestInit & {
+  /** Abort the request if it has not settled within this many milliseconds. */
+  timeoutMs?: number;
+};
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+function mergeAbortSignals(
+  ...signals: Array<AbortSignal | null | undefined>
+): AbortSignal | undefined {
+  const active = signals.filter((signal): signal is AbortSignal => signal != null);
+  if (active.length === 0) return undefined;
+  if (active.length === 1) return active[0];
+  return AbortSignal.any(active);
 }
 
 export function redirectToLogin(returnPath?: string): void {
@@ -929,16 +959,34 @@ export function resolveAPIPath(path: string): string {
 
 export async function fetchAPI<T>(
   path: string,
-  options?: RequestInit,
+  options?: FetchAPIOptions,
 ): Promise<T> {
-  const res = await fetch(resolveAPIPath(path), {
-    ...options,
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...options?.headers,
-    },
-  });
+  const { timeoutMs, signal: callerSignal, headers, ...requestInit } =
+    options ?? {};
+  const timeoutSignal =
+    timeoutMs != null && timeoutMs > 0
+      ? AbortSignal.timeout(timeoutMs)
+      : undefined;
+  const signal = mergeAbortSignals(callerSignal, timeoutSignal);
+
+  let res: Response;
+  try {
+    res = await fetch(resolveAPIPath(path), {
+      ...requestInit,
+      signal,
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...headers,
+      },
+    });
+  } catch (error) {
+    if (isAbortError(error)) {
+      if (callerSignal?.aborted) throw error;
+      if (timeoutSignal?.aborted) throw new APITimeoutError();
+    }
+    throw error;
+  }
 
   if (res.status === HTTP_UNAUTHORIZED) {
     redirectToLogin();
@@ -1227,8 +1275,21 @@ export async function logout(): Promise<void> {
   await fetchAPI("/api/v1/auth/logout", { method: "POST" });
 }
 
-export async function getIntegrations(): Promise<Integration[]> {
-  return fetchAPI<Integration[]>("/api/v1/apps");
+/**
+ * Client abort for GET /api/v1/apps. Healthy catalog assembly is ~5s;
+ * the load balancer often returns 503 around 30s. Fail in between so the
+ * UI can leave loading and show retry instead of spinning until the gateway
+ * gives up.
+ */
+export const APPS_CATALOG_TIMEOUT_MS = 12_000;
+
+export async function getIntegrations(
+  signal?: AbortSignal,
+): Promise<Integration[]> {
+  return fetchAPI<Integration[]>("/api/v1/apps", {
+    timeoutMs: APPS_CATALOG_TIMEOUT_MS,
+    signal,
+  });
 }
 
 export async function getAppAdminRegistry(

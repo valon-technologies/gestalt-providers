@@ -68,6 +68,7 @@ import { usePageLayoutAnchorOffsetPx } from "@/lib/page-layout-anchor-offset";
 import { pageLayoutContentTopStyle } from "@/lib/page-layout-content-top";
 import { CheckCircleIcon, CloseIcon, SpinnerIcon } from "@/components/icons";
 import Button from "@/components/Button";
+import ErrorNotice from "@/components/ErrorNotice";
 import { useBuildSession } from "@/hooks/use-build-session";
 import {
   useIntegrationsQuery,
@@ -83,6 +84,10 @@ import {
   readSetupSkipped,
   writeResumeBannerDismissed,
 } from "@/lib/buildPaths";
+import {
+  APPS_CATALOG_UNAVAILABLE,
+  userFacingError,
+} from "@/lib/user-facing-error";
 
 function resolveConnectedAppLabel(
   connectedParam: string,
@@ -168,12 +173,9 @@ export default function AppsCatalogPageClient() {
   const integrationsReady = !integrationsQuery.isPending;
   // Full-page loading only on cold cache — revisits render immediately.
   const loading = integrationsQuery.isPending;
-  const error =
-    integrationsQuery.error instanceof Error
-      ? integrationsQuery.error.message
-      : integrationsQuery.error
-        ? "Couldn't load apps. Refresh the page and try again."
-        : null;
+  const error = integrationsQuery.error
+    ? userFacingError(integrationsQuery.error, APPS_CATALOG_UNAVAILABLE)
+    : null;
 
   const [query, setQuery] = useState("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -620,29 +622,23 @@ export default function AppsCatalogPageClient() {
         ) : null}
 
         {loading && (
-          <p className="flex items-center gap-1.5 text-sm text-muted-foreground-soft">
+          <p
+            className="flex items-center gap-1.5 text-sm text-muted-foreground-soft"
+            data-testid="apps-catalog-loading"
+          >
             <SpinnerIcon className="size-4 animate-spin" aria-hidden />
-            Loading...
+            Loading apps…
           </p>
         )}
 
         {error && (
-          <div className="flex flex-col items-start gap-3">
-            <p className="text-sm text-ember-500">
-              {error === "Failed to load"
-                ? "Couldn't load apps. Refresh the page and try again."
-                : error}
-            </p>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => {
-                void integrationsQuery.refetch();
-              }}
-            >
-              Retry
-            </Button>
-          </div>
+          <ErrorNotice
+            message={error}
+            retrying={integrationsQuery.isFetching}
+            onRetry={() => {
+              void integrationsQuery.refetch();
+            }}
+          />
         )}
 
         {!loading && !error && integrations.length === 0 && (

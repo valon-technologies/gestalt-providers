@@ -1,7 +1,10 @@
 import { describe, expect, it, test } from "vitest";
 
-import { APIError } from "@/lib/api";
-import { userFacingError } from "@/lib/user-facing-error";
+import { APIError, APITimeoutError } from "@/lib/api";
+import {
+  APPS_CATALOG_UNAVAILABLE,
+  userFacingError,
+} from "@/lib/user-facing-error";
 import { WorkflowProviderConfigurationError } from "@/lib/workflowProvider";
 
 describe("userFacingError", () => {
@@ -74,5 +77,17 @@ describe("userFacingError", () => {
         "Couldn't load this workspace. Try again.",
       ),
     ).toBe("Couldn't load this workspace. Try again.");
+  });
+
+  it("maps catalog timeouts and 503s to the caller fallback", () => {
+    expect(
+      userFacingError(new APITimeoutError(), APPS_CATALOG_UNAVAILABLE),
+    ).toBe(APPS_CATALOG_UNAVAILABLE);
+    expect(
+      userFacingError(
+        new APIError(503, "Service Unavailable"),
+        APPS_CATALOG_UNAVAILABLE,
+      ),
+    ).toBe(APPS_CATALOG_UNAVAILABLE);
   });
 });

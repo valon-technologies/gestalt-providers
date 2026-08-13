@@ -1,6 +1,9 @@
 import { APIError } from "@/lib/api";
 import { WorkflowProviderConfigurationError } from "@/lib/workflowProvider";
 
+export const APPS_CATALOG_UNAVAILABLE = "Couldn't load apps. Try again.";
+export const TOKENS_UNAVAILABLE = "Couldn't load tokens. Try again.";
+
 const WORKFLOW_PROVIDER_UNAVAILABLE =
   /workflow provider .+ is not available/i;
 const WORKFLOW_CANCEL_ALREADY_STARTED =

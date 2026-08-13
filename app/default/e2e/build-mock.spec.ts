@@ -910,4 +910,62 @@ test.describe("Setup page", () => {
       "/apps",
     );
   });
+
+  test("slow apps catalog does not block token setup", async ({
+    authenticatedPage: page,
+  }) => {
+    let catalogReleased = false;
+    await page.route("**/api/v1/apps", async (route, request) => {
+      if (request.method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+      catalogReleased = true;
+      await route.fulfill({ json: catalogFixtures });
+    });
+
+    await page.goto("/build");
+
+    await expect(page).toHaveURL(/\/build\/intro$/);
+    await expect(page.getByTestId("build-intro")).toBeVisible();
+    await expect(page.getByText("Loading Build…")).toHaveCount(0);
+    expect(catalogReleased).toBe(false);
+
+    await page.getByTestId("build-intro-continue").click();
+    await expect(page).toHaveURL(/\/build\/authorize$/);
+    await expect(page.getByTestId("build-step-panel")).toBeVisible();
+    expect(catalogReleased).toBe(false);
+  });
+
+  test("connect shows retry when the apps catalog returns 503", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.route("**/api/v1/apps", async (route, request) => {
+      if (request.method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Service Unavailable" }),
+      });
+    });
+    await mockTokens(page, [defaultToken]);
+    await page.addInitScript(() => {
+      sessionStorage.setItem("gestalt.build.introSeen", "1");
+      sessionStorage.setItem("gestalt.build.selectedTokenId", "tok_123");
+      sessionStorage.setItem("gestalt.build.mcpInstalled", "1");
+      sessionStorage.setItem("gestalt.build.activeExemplarId", "oncall");
+    });
+
+    await page.goto("/build");
+
+    await expect(page).toHaveURL(/\/build\/connect$/);
+    await expect(page.getByTestId("error-notice")).toBeVisible();
+    await expect(
+      page.getByText("Couldn't load apps. Try again."),
+    ).toBeVisible();
+  });
 });

@@ -2,10 +2,19 @@ import { useQuery, useQueryClient, type UseQueryOptions } from "@tanstack/react-
 import {
   getIntegrationOperations,
   getIntegrations,
+  isAPIErrorStatus,
+  isAPITimeoutError,
   type Integration,
   type IntegrationOperation,
 } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
+
+function shouldRetryAppsCatalogQuery(failureCount: number, error: Error): boolean {
+  if (isAPITimeoutError(error) || isAPIErrorStatus(error, 503)) {
+    return false;
+  }
+  return failureCount < 1;
+}
 
 export function useIntegrationsQuery(
   options?: Omit<
@@ -14,9 +23,10 @@ export function useIntegrationsQuery(
   >,
 ) {
   return useQuery({
-    queryKey: queryKeys.integrations.list(),
-    queryFn: getIntegrations,
     ...options,
+    queryKey: queryKeys.integrations.list(),
+    queryFn: ({ signal }) => getIntegrations(signal),
+    retry: options?.retry ?? shouldRetryAppsCatalogQuery,
   });
 }
 

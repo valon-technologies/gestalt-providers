@@ -155,7 +155,11 @@ import {
 } from "@/lib/buildPaths";
 import { cn } from "@/lib/cn";
 import { DOCS_PATH, SETUP_PATH } from "@/lib/constants";
-import { userFacingError } from "@/lib/user-facing-error";
+import {
+  APPS_CATALOG_UNAVAILABLE,
+  TOKENS_UNAVAILABLE,
+  userFacingError,
+} from "@/lib/user-facing-error";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import {
   catalogBucketIdFor,
@@ -192,7 +196,9 @@ export function BuildIndexRedirect() {
   const tokensReady = !tokensQuery.isPending;
   const integrationsReady = !integrationsQuery.isPending;
 
-  if (!tokensReady || !integrationsReady) {
+  // Token setup does not need the apps catalog. Waiting on GET /api/v1/apps
+  // here is what turned a hung catalog into an infinite "Loading Build…".
+  if (tokensQuery.isPending && !tokensQuery.data) {
     return (
       <Container as="main">
         <div className="mx-auto flex min-h-[50vh] w-full max-w-4xl items-center justify-center">
@@ -371,18 +377,12 @@ export default function BuildStepPage() {
     integrationsQuery,
   );
 
-  const error =
-    integrationsQuery.error != null
-      ? userFacingError(
-          integrationsQuery.error,
-          "Couldn't load this workspace. Try again.",
-        )
-      : tokensQuery.error != null
-        ? userFacingError(
-            tokensQuery.error,
-            "Couldn't load this workspace. Try again.",
-          )
-        : null;
+  const tokensError = tokensQuery.error
+    ? userFacingError(tokensQuery.error, TOKENS_UNAVAILABLE)
+    : null;
+  const catalogError = integrationsQuery.error
+    ? userFacingError(integrationsQuery.error, APPS_CATALOG_UNAVAILABLE)
+    : null;
 
   const activeExemplar = getExemplar(session.activeExemplarId);
 
@@ -412,15 +412,14 @@ export default function BuildStepPage() {
       itemTestId={(id) => `build-nav-${id}`}
       listTestId="build-step-nav"
     >
-      {error ? (
+      {tokensError ? (
         <ErrorNotice
           className="mb-8"
-          message={error}
+          message={tokensError}
           onRetry={() => {
-            void integrationsQuery.refetch();
             void tokensQuery.refetch();
           }}
-          retrying={integrationsQuery.isFetching || tokensQuery.isFetching}
+          retrying={tokensQuery.isFetching}
         />
       ) : null}
 
@@ -442,6 +441,11 @@ export default function BuildStepPage() {
           step={currentStep}
           tokensReady={tokensReady}
           integrationsReady={integrationsReady}
+          catalogError={catalogError}
+          catalogRetrying={integrationsQuery.isFetching}
+          onRetryCatalog={() => {
+            void integrationsQuery.refetch();
+          }}
           integrations={snapshot.integrations}
           tokens={snapshot.tokens}
           activeExemplar={activeExemplar}
@@ -1146,6 +1150,9 @@ function BuildStepPanel({
   step,
   tokensReady,
   integrationsReady,
+  catalogError,
+  catalogRetrying,
+  onRetryCatalog,
   integrations,
   tokens,
   activeExemplar,
@@ -1168,6 +1175,9 @@ function BuildStepPanel({
   step: BuildStep;
   tokensReady: boolean;
   integrationsReady: boolean;
+  catalogError: string | null;
+  catalogRetrying: boolean;
+  onRetryCatalog: () => void;
   integrations: Integration[];
   tokens: APIToken[];
   activeExemplar: BuildExemplar;
@@ -1262,15 +1272,26 @@ function BuildStepPanel({
           exemplar={activeExemplar}
           integrations={integrations}
           catalogReady={integrationsReady}
+          catalogError={catalogError}
+          catalogRetrying={catalogRetrying}
+          onRetryCatalog={onRetryCatalog}
         />
       ) : null}
 
       {step.id === "try" ? (
-        <InvokeStepActions
-          exemplar={activeExemplar}
-          integrations={integrations}
-          installAgentId={selectedInstallAgent}
-        />
+        catalogError ? (
+          <ErrorNotice
+            message={catalogError}
+            retrying={catalogRetrying}
+            onRetry={onRetryCatalog}
+          />
+        ) : (
+          <InvokeStepActions
+            exemplar={activeExemplar}
+            integrations={integrations}
+            installAgentId={selectedInstallAgent}
+          />
+        )
       ) : null}
 
       {step.id !== "welcome" ? (
@@ -1936,10 +1957,16 @@ function ConnectStepActions({
   exemplar,
   integrations,
   catalogReady,
+  catalogError,
+  catalogRetrying,
+  onRetryCatalog,
 }: {
   exemplar: BuildExemplar;
   integrations: Integration[];
   catalogReady: boolean;
+  catalogError: string | null;
+  catalogRetrying: boolean;
+  onRetryCatalog: () => void;
 }) {
   const invalidateIntegrations = useInvalidateIntegrations();
   const [visibleMoreCount, setVisibleMoreCount] = useState(SETUP_APPS_PAGE_SIZE);
@@ -1953,6 +1980,16 @@ function ConnectStepActions({
   function selectCategory(next: string) {
     setCategoryFilter(next || SETUP_APPS_CATEGORY_ALL);
     setVisibleMoreCount(SETUP_APPS_PAGE_SIZE);
+  }
+
+  if (catalogError) {
+    return (
+      <ErrorNotice
+        message={catalogError}
+        retrying={catalogRetrying}
+        onRetry={onRetryCatalog}
+      />
+    );
   }
 
   if (!catalogReady) {

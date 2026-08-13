@@ -29,6 +29,10 @@ import {
   useIntegrationsQuery,
   useInvalidateTokens,
 } from "@/lib/queries";
+import {
+  APPS_CATALOG_UNAVAILABLE,
+  userFacingError,
+} from "@/lib/user-facing-error";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CheckboxTree } from "@/components/ui/checkbox-tree";
@@ -219,12 +223,9 @@ const TokenCreateForm = React.forwardRef<
     enabled: scopeMode === "select",
   });
   const integrations = integrationsQuery.data ?? null;
-  const integrationsError =
-    integrationsQuery.error instanceof Error
-      ? integrationsQuery.error.message
-      : integrationsQuery.error
-        ? "Failed to load apps"
-        : null;
+  const integrationsError = integrationsQuery.error
+    ? userFacingError(integrationsQuery.error, APPS_CATALOG_UNAVAILABLE)
+    : null;
 
   const now = useMemo(() => new Date(), []);
   const expirationOptions = useMemo(() => buildExpirationOptions(), []);
