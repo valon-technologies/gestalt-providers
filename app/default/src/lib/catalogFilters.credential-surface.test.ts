@@ -7,6 +7,7 @@ import {
   overviewConnectionOutcomeStatus,
   primaryConnectLabel,
 } from "./catalogFilters";
+import { isCatalogInstalled } from "./catalogBuckets";
 import { normalizeIntegrationStatus } from "./integrationStatus";
 import type { Integration } from "@/lib/api";
 
@@ -127,6 +128,28 @@ describe("appShowsCredentialSurface", () => {
         }),
       ),
     ).toBe(true);
+  });
+
+  test("shared MCP passthrough is not a Connected catalog install", () => {
+    const integration = stub({
+      name: "mcp-passthrough-svc",
+      status: "ready",
+      credentialState: "not_required",
+      connections: [
+        {
+          name: "MCP",
+          displayName: "MCP",
+          credentialMode: "none",
+          credentialState: "not_required",
+          status: "ready",
+          connected: false,
+          mcpPassthrough: true,
+        },
+      ],
+    });
+    expect(catalogInstallState(integration)).toBe("not_connected");
+    expect(isCatalogInstalled(integration)).toBe(false);
+    expect(normalizeIntegrationStatus(integration).connected).toBe(false);
   });
 
   test("hides Connection for not_required with only no-auth connection rows", () => {

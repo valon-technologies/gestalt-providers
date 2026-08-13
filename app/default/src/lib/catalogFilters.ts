@@ -53,7 +53,12 @@ export function catalogInstallState(
   const bucket = connectionSetupBucket(integration, context);
   if (bucket === "needs_connection") return "not_connected";
   if (bucket === "needs_attention") return "needs_attention";
-  return "connected";
+  // Ready-to-use is not product-connected. Mode-none and shared MCP
+  // passthrough stay in discovery until this identity has a chosen account.
+  if (normalizeIntegrationStatus(integration, context).connected) {
+    return "connected";
+  }
+  return "not_connected";
 }
 
 export type SurfaceFilter = "all" | "has_ui" | "no_ui" | "has_mcp";
@@ -334,11 +339,8 @@ export function catalogCardShowsConnectAction(
   connectLabel: "Connect" | "Reconnect" | null,
 ): boolean {
   if (installState === "needs_attention") return false;
-  return (
-    installState === "mount_only" ||
-    installState === "not_connected" ||
-    connectLabel !== null
-  );
+  // Add only when there is a connect action, not for every uninstalled card.
+  return installState === "mount_only" || connectLabel !== null;
 }
 
 export function primaryConnectLabel(
