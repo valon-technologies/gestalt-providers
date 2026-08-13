@@ -17,7 +17,7 @@ export type AppWorkspaceContextValue = {
   capabilities: AppWorkspaceCapabilities;
   showConnectionNav: boolean;
   registryOutlet?: AppAdminRegistryContextValue;
-  reloadIntegration: () => void;
+  reloadIntegration: () => Promise<void>;
 };
 
 const AppWorkspaceContext = createContext<AppWorkspaceContextValue | null>(null);

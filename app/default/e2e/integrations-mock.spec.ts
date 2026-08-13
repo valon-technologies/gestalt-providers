@@ -1,11 +1,16 @@
-import { test, expect, mockIntegrations, mockManualConnect, mockTokens, clickOpensOAuthPopup } from "./fixtures";
-import type { Page } from "@playwright/test";
+import { test, expect, mockIntegrations, mockManualConnect, mockTokens, clickOpensOAuthPopup, mockAppsDirectoryUnavailable } from "./fixtures";
+import type { Locator, Page } from "@playwright/test";
 import type { Integration } from "../src/lib/api";
 
 async function openAppConnection(page: Page, appName: string) {
   await page.goto(`/apps/${appName}/connection`);
-  await expect(page.getByTestId("app-admin-connection")).toBeVisible();
-  return page.getByTestId(`integration-connection-${appName}`);
+  const surface = page.getByTestId("app-admin-connection");
+  await expect(surface).toBeVisible();
+  return surface;
+}
+
+function connectionTokenField(panel: Locator) {
+  return panel.getByRole("textbox", { name: /API token|API key|Workspace token/i });
 }
 
 const OAUTH_INTEGRATION: Integration = {
@@ -100,6 +105,7 @@ const MCP_PASSTHROUGH_INTEGRATION: Integration = {
       status: "ready",
       healthState: "not_applicable",
       mcpPassthrough: true,
+      mode: "none",
     },
   ],
 };
@@ -149,6 +155,7 @@ const USER_CONNECTION_ACTIONS_INTEGRATION: Integration = {
       actions: ["add_instance", "reconnect", "disconnect"],
       authTypes: ["manual"],
       credentialFields: [{ name: "token", label: "Workspace Token" }],
+      connected: true,
       instances: [
         { name: "prod", connection: "workspace" },
         { name: "staging", connection: "workspace" },
@@ -253,6 +260,7 @@ function withConnectedConnection(
             credentialState: "connected",
             healthState: "not_checked",
             actions: ["add_instance", "disconnect"],
+            connected: true,
             instances: [{ name: instanceName, connection: connectionName }],
           }
         : connection,
@@ -323,15 +331,11 @@ test.describe("Integrations", () => {
 
     await page.goto("/apps");
 
-    const card = page
-      .getByTestId("plugin-grid")
-      .locator("div")
-      .filter({ has: page.getByText("SVG Service", { exact: true }) })
-      .first();
-    const icon = card.locator("svg[aria-hidden='true']").first();
-
-    await expect(icon).toBeVisible();
-    await expect(icon.locator("circle")).toHaveCount(1);
+    const mark = page.getByTestId("integration-card-svg-svc").getByTestId("app-mark");
+    await expect(mark.locator("img")).toHaveAttribute(
+      "src",
+      /\/api\/v1\/catalog\/apps\/svg-svc\/icon/,
+    );
   });
 
   test("sanitizes inline svg content and rewrites duplicate ids", async ({ authenticatedPage }) => {
@@ -343,45 +347,18 @@ test.describe("Integrations", () => {
     await expect(page.getByText("Unsafe SVG One")).toBeVisible();
     await expect(page.getByText("Unsafe SVG Two")).toBeVisible();
 
-    const summary = await page.evaluate(() => {
-      const grid = document.querySelector("[data-testid='plugin-grid']");
-      if (!grid) {
-        return null;
-      }
-
-      const iconRoots = grid.querySelectorAll(
-        "[data-testid^='integration-card-'] .size-14",
-      );
-      const ids = Array.from(iconRoots).flatMap((root) =>
-        Array.from(root.querySelectorAll("svg [id]"))
-          .map((element) => element.getAttribute("id"))
-          .filter((value): value is string => !!value),
-      );
-      const clipPaths = Array.from(iconRoots).flatMap((root) =>
-        Array.from(root.querySelectorAll("svg [clip-path]"))
-          .map((element) => element.getAttribute("clip-path"))
-          .filter((value): value is string => !!value),
-      );
-
-      return {
-        html: grid.innerHTML,
-        ids,
-        clipPaths,
-        iconCount: iconRoots.length,
-      };
-    });
-
-    expect(summary).not.toBeNull();
-    expect(summary!.iconCount).toBe(2);
-    expect(summary!.ids).toHaveLength(2);
-    expect(new Set(summary!.ids).size).toBe(summary!.ids.length);
-    expect(summary!.ids).not.toContain("clip-badge");
-    expect(summary!.clipPaths).toHaveLength(2);
-    expect(summary!.clipPaths.every((value) => value.startsWith("url(#provider-icon-"))).toBe(true);
-    expect(summary!.html).not.toContain("<script");
-    expect(summary!.html).not.toContain("foreignObject");
-    expect(summary!.html).not.toContain("onload=");
-    expect(summary!.html).not.toContain("https://example.com/evil.png");
+    const marks = page.getByTestId("plugin-grid").getByTestId("app-mark");
+    await expect(marks).toHaveCount(2);
+    await expect(marks.locator("img")).toHaveCount(2);
+    const html = await page.getByTestId("plugin-grid").innerHTML();
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain("foreignObject");
+    expect(html).not.toContain("onload=");
+    expect(html).not.toContain("https://example.com/evil.png");
+    const pwned = await page.evaluate(
+      () => (window as Window & { __iconPwned?: boolean }).__iconPwned,
+    );
+    expect(pwned).toBeUndefined();
   });
 
   test("shows empty state when no apps", async ({
@@ -404,21 +381,9 @@ test.describe("Integrations", () => {
   }) => {
     const page = authenticatedPage;
     let fail = true;
-    await page.route("**/api/v1/apps", async (route, request) => {
-      if (request.method() !== "GET") {
-        await route.fallback();
-        return;
-      }
-      if (fail) {
-        await route.fulfill({
-          status: 503,
-          contentType: "application/json",
-          body: JSON.stringify({ error: "Service Unavailable" }),
-        });
-        return;
-      }
-      await route.fulfill({ json: sampleIntegrations });
-    });
+    await mockAppsDirectoryUnavailable(page, () =>
+      fail ? null : sampleIntegrations,
+    );
     await mockTokens(page, []);
 
     await page.goto("/apps");
@@ -631,8 +596,8 @@ test.describe("Integrations", () => {
     await expect(page.getByRole("button", { name: "Add Manual Service" })).toBeVisible();
 
     const oauthPanel = await openAppConnection(page, "oauth-svc");
-    await expect(oauthPanel.getByText("default")).toBeVisible();
-    await expect(oauthPanel.getByRole("button", { name: "Add connection" })).toBeVisible();
+    await expect(oauthPanel.getByTestId("connection-account-default")).toBeVisible();
+    await expect(oauthPanel.getByRole("button", { name: "Add account" })).toBeVisible();
     await expect(oauthPanel.getByRole("button", { name: "Disconnect" })).toBeVisible();
 
     const manualPanel = await openAppConnection(page, "manual-svc");
@@ -668,10 +633,6 @@ test.describe("Integrations", () => {
     const page = authenticatedPage;
     let disconnected = false;
     let disconnectURL: URL | undefined;
-    let releaseCatalogRefetch: (() => void) | undefined;
-    const catalogRefetchReleased = new Promise<void>((resolve) => {
-      releaseCatalogRefetch = resolve;
-    });
 
     const oauthConnectionIntegration: Integration = {
       ...OAUTH_INTEGRATION,
@@ -680,45 +641,31 @@ test.describe("Integrations", () => {
     const connectedList = [withConnectedConnection(oauthConnectionIntegration, "oauth", "prod")];
     const disconnectedList = [oauthConnectionIntegration];
 
-    await mockIntegrations(page, connectedList, {
-      onDisconnect: (_name, url) => {
-        disconnected = true;
-        disconnectURL = url;
+    await mockIntegrations(page, () =>
+      disconnected ? disconnectedList : connectedList,
+      {
+        onDisconnect: (_name, url) => {
+          disconnected = true;
+          disconnectURL = url;
+        },
       },
-    });
-
-    await page.route("**/api/v1/apps", async (route, request) => {
-      if (request.method() === "GET") {
-        if (disconnected) {
-          await catalogRefetchReleased;
-          await route.fulfill({ json: disconnectedList });
-        } else {
-          await route.fulfill({ json: connectedList });
-        }
-      } else {
-        await route.fallback();
-      }
-    });
+    );
 
     const panel = await openAppConnection(page, "oauth-svc");
     await expect(panel.getByTestId("connection-account-prod")).toBeVisible();
     await panel.getByRole("button", { name: "Disconnect" }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Disconnect" }).click();
 
-    try {
-      await expect.poll(() => disconnected).toBe(true);
-      await expect(page.getByText("OAuth Service disconnected.")).toBeVisible();
-      await expect(panel.getByTestId("connection-account-prod")).toHaveCount(0);
-      await expect(
-        page.getByTestId("app-admin-connection").getByRole("button", { name: "Connect" }),
-      ).toBeVisible();
-      expect(disconnectURL?.searchParams.get("_instance")).toBe("prod");
-      expect(disconnectURL?.searchParams.get("_connection")).toBe("oauth");
-      expect(disconnectURL?.searchParams.has("instance")).toBe(false);
-      expect(disconnectURL?.searchParams.has("connection")).toBe(false);
-    } finally {
-      releaseCatalogRefetch?.();
-    }
+    await expect.poll(() => disconnected).toBe(true);
+    await expect(page.getByText("OAuth Service disconnected.")).toBeVisible();
+    await expect(panel.getByTestId("connection-account-prod")).toHaveCount(0);
+    await expect(
+      page.getByTestId("app-admin-connection").getByRole("button", { name: "Connect" }),
+    ).toBeVisible();
+    expect(disconnectURL?.searchParams.get("_instance")).toBe("prod");
+    expect(disconnectURL?.searchParams.get("_connection")).toBe("oauth");
+    expect(disconnectURL?.searchParams.has("instance")).toBe(false);
+    expect(disconnectURL?.searchParams.has("connection")).toBe(false);
   });
 
   test("manual auth submits credential and refreshes", async ({
@@ -731,7 +678,9 @@ test.describe("Integrations", () => {
     const disconnectedList: Integration[] = [MANUAL_INTEGRATION];
     const connectedList: Integration[] = [withConnectedConnection(MANUAL_INTEGRATION)];
 
-    await mockIntegrations(page, disconnectedList);
+    await mockIntegrations(page, () =>
+      connected ? connectedList : disconnectedList,
+    );
     await mockManualConnect(page, {
       onConnect: (_name, cred) => {
         connected = true;
@@ -739,18 +688,10 @@ test.describe("Integrations", () => {
       },
     });
 
-    await page.route("**/api/v1/apps", (route, request) => {
-      if (request.method() === "GET") {
-        route.fulfill({ json: connected ? connectedList : disconnectedList });
-      } else {
-        route.fallback();
-      }
-    });
-
     const panel = await openAppConnection(page, "manual-svc");
     await panel.getByRole("button", { name: "Connect" }).click();
-    await panel.getByLabel(/API token/i).fill("test-api-key-123");
-    await panel.getByRole("button", { name: "Submit" }).click();
+    await connectionTokenField(panel).fill("test-api-key-123");
+    await panel.getByRole("button", { name: "Connect" }).click();
     await expect.poll(() => connected).toBe(true);
     expect(receivedCredential).toBe("test-api-key-123");
   });
@@ -763,7 +704,7 @@ test.describe("Integrations", () => {
 
     const panel = await openAppConnection(page, "manual-svc");
     await panel.getByRole("button", { name: "Connect" }).click();
-    await expect(panel.getByLabel(/API token/i)).toBeVisible();
+    await expect(connectionTokenField(panel)).toBeVisible();
     await panel.getByRole("button", { name: "Cancel" }).click();
     await expect(panel.getByText("Not connected")).toHaveCount(0);
     await expect(panel.getByRole("button", { name: "Connect" })).toBeVisible();
@@ -834,7 +775,7 @@ test.describe("Integrations", () => {
     await expect(card.getByText("Not connected")).toHaveCount(0);
     const panel = await openAppConnection(page, "no-auth-svc");
 
-    await expect(panel.getByText("Webhook", { exact: true })).toBeVisible();
+    await expect(panel.getByTestId("connection-section-webhook")).toBeVisible();
     await expect(panel.getByText("No credentials required", { exact: true })).toHaveCount(0);
     await expect(panel.getByText("MCP passthrough", { exact: true })).toHaveCount(0);
     await expect(panel.getByRole("button", { name: "Connect" })).toBeVisible();
@@ -848,7 +789,7 @@ test.describe("Integrations", () => {
 
     const panel = await openAppConnection(page, "mcp-passthrough-svc");
 
-    await expect(panel.getByText("MCP", { exact: true })).toBeVisible();
+    await expect(panel.getByTestId("connection-section-MCP")).toBeVisible();
     await expect(panel.getByText("Uses a shared connection", { exact: true })).toBeVisible();
     await expect(panel.getByRole("button", { name: /connect/i })).toHaveCount(0);
   });
@@ -860,14 +801,17 @@ test.describe("Integrations", () => {
     await mockIntegrations(page, [USER_CONNECTION_ACTIONS_INTEGRATION]);
 
     await page.goto("/apps");
-    await expect(page.getByTestId("integration-card-user-actions-svc").getByLabel("Connected")).toBeVisible();
+    await expect(page.getByTestId("integration-card-user-actions-svc")).toBeVisible();
+    await expect(
+      page.getByTestId("integration-card-user-actions-svc").getByRole("alert"),
+    ).toContainText("Connected");
     const panel = await openAppConnection(page, "user-actions-svc");
 
-    await expect(panel.getByText("Workspace", { exact: true })).toBeVisible();
+    await expect(panel.getByTestId("connection-section-workspace")).toBeVisible();
     await expect(panel.getByText("User credentials connected")).toHaveCount(0);
     await expect(panel.getByText("prod", { exact: true })).toBeVisible();
     await expect(panel.getByText("staging", { exact: true })).toBeVisible();
-    await expect(panel.getByRole("button", { name: "Add connection" })).toBeVisible();
+    await expect(panel.getByRole("button", { name: "Add account" })).toBeVisible();
     await expect(panel.getByRole("button", { name: "Reconnect" })).toBeVisible();
     await expect(panel.getByRole("button", { name: "Disconnect" })).toHaveCount(2);
   });
@@ -950,12 +894,13 @@ test.describe("Integrations", () => {
     await mockIntegrations(page, [withConnectedConnection(MANUAL_INTEGRATION)]);
 
     const panel = await openAppConnection(page, "manual-svc");
-    await expect(panel.getByText("default")).toBeVisible();
-    await panel.getByRole("button", { name: "Add connection" }).click();
-    await expect(panel.getByLabel("Connection name")).toBeVisible();
-    await panel.getByLabel("Connection name").fill("second");
-    await panel.getByRole("button", { name: "Continue" }).click();
-    await expect(panel.getByLabel(/API token/i)).toBeVisible();
+    await expect(panel.getByTestId("connection-account-default")).toBeVisible();
+    await panel.getByRole("button", { name: "Add account" }).click();
+    const addAccount = page.getByRole("dialog", { name: "Add account" });
+    await expect(addAccount.getByLabel("Account label")).toBeVisible();
+    await addAccount.getByLabel("Account label").fill("second");
+    await addAccount.getByRole("button", { name: "Continue" }).click();
+    await expect(connectionTokenField(panel)).toBeVisible();
   });
 
   test("credential field description renders inline links", async ({ authenticatedPage }) => {

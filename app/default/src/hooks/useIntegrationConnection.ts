@@ -79,8 +79,8 @@ export function useIntegrationConnection({
   onFlowComplete,
 }: {
   integration: Integration;
-  onConnected?: () => void;
-  onDisconnected?: () => void;
+  onConnected?: () => void | Promise<void>;
+  onDisconnected?: () => void | Promise<void>;
   startOAuth?: StartOAuthFn;
   connectManual?: ConnectManualFn;
   disconnect?: DisconnectFn;
@@ -219,7 +219,7 @@ export function useIntegrationConnection({
       } else {
         onFlowComplete?.();
         toast.success(appIsConnectedCopy(label));
-        onConnected?.();
+        await onConnected?.();
       }
       return true;
     } catch (err) {
@@ -273,7 +273,7 @@ export function useIntegrationConnection({
     try {
       await selectInstance(integration.name, instance, connection);
       toast.success(`${label} account updated.`);
-      onConnected?.();
+      await onConnected?.();
       onFlowComplete?.();
     } catch (err) {
       setError(

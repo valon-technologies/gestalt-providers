@@ -34,12 +34,43 @@ type MockWorkflowRunsController = {
 
 export async function mockIntegrations(
   page: Page,
-  integrations: Integration[],
+  integrations: Integration[] | (() => Integration[]),
   opts?: { onDisconnect?: (name: string, url: URL) => void },
 ) {
+  const current = () =>
+    typeof integrations === "function" ? integrations() : integrations;
+  await page.route("**/api/v1/catalog/apps/*/icon", async (route, request) => {
+    if (request.method() !== "GET") {
+      await route.fallback();
+      return;
+    }
+    const url = new URL(request.url());
+    const parts = url.pathname.split("/");
+    const name = parts[parts.length - 2] || "";
+    const integration = current().find((item) => item.name === name);
+    await route.fulfill({
+      status: integration?.iconSvg ? 200 : 404,
+      contentType: "image/svg+xml; charset=utf-8",
+      body: integration?.iconSvg ?? "Not Found",
+    });
+  });
+  await page.route("**/api/v1/catalog/apps", (route: Route, request) => {
+    if (request.method() === "GET") {
+      route.fulfill({ json: catalogEntriesFromMock(current()) });
+    } else {
+      route.fallback();
+    }
+  });
+  await page.route("**/api/v1/me/app-connections", (route: Route, request) => {
+    if (request.method() === "GET") {
+      route.fulfill({ json: connectionOverlayFromMock(current()) });
+    } else {
+      route.fallback();
+    }
+  });
   await page.route("**/api/v1/apps", (route: Route, request) => {
     if (request.method() === "GET") {
-      route.fulfill({ json: integrations });
+      route.fulfill({ json: current() });
     } else {
       route.fallback();
     }
@@ -55,6 +86,106 @@ export async function mockIntegrations(
       route.fallback();
     }
   });
+}
+
+/** Replace directory mocks so a 503 can recover to `integrations`. */
+export async function mockAppsDirectoryUnavailable(
+  page: Page,
+  recover: () => Integration[] | null,
+) {
+  await page.unroute("**/api/v1/catalog/apps");
+  await page.unroute("**/api/v1/me/app-connections");
+  await page.unroute("**/api/v1/apps");
+
+  const fulfillOrFail = (route: Route, body: unknown) => {
+    const integrations = recover();
+    if (!integrations) {
+      route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Service Unavailable" }),
+      });
+      return;
+    }
+    route.fulfill({ json: body });
+  };
+
+  await page.route("**/api/v1/catalog/apps", (route: Route, request) => {
+    if (request.method() !== "GET") {
+      route.fallback();
+      return;
+    }
+    const integrations = recover();
+    fulfillOrFail(
+      route,
+      integrations ? catalogEntriesFromMock(integrations) : null,
+    );
+  });
+  await page.route("**/api/v1/me/app-connections", (route: Route, request) => {
+    if (request.method() !== "GET") {
+      route.fallback();
+      return;
+    }
+    const integrations = recover();
+    fulfillOrFail(
+      route,
+      integrations ? connectionOverlayFromMock(integrations) : null,
+    );
+  });
+  await page.route("**/api/v1/apps", (route: Route, request) => {
+    if (request.method() !== "GET") {
+      route.fallback();
+      return;
+    }
+    const integrations = recover();
+    fulfillOrFail(route, integrations ?? null);
+  });
+}
+
+function catalogEntriesFromMock(integrations: Integration[]) {
+  return integrations.map((integration) => ({
+    name: integration.name,
+    displayName: integration.displayName,
+    description: integration.description,
+    iconUrl: integration.iconSvg
+      ? `/api/v1/catalog/apps/${encodeURIComponent(integration.name)}/icon`
+      : integration.iconUrl,
+    mountedPath: integration.mountedPath,
+    managementPath: integration.managementPath,
+    prompts: integration.prompts,
+    connections: (integration.connections ?? []).map((connection) => ({
+      name: connection.name,
+      displayName: connection.displayName,
+      authTypes: connection.authTypes,
+      connectionParams: connection.connectionParams,
+      credentialFields: connection.credentialFields,
+      mode: connection.mode,
+      mcpPassthrough: connection.mcpPassthrough,
+    })),
+  }));
+}
+
+function connectionOverlayFromMock(integrations: Integration[]) {
+  return integrations.map((integration) => ({
+    name: integration.name,
+    status: integration.status,
+    credentialState: integration.credentialState,
+    healthState: integration.healthState,
+    actions: integration.actions,
+    connections: (integration.connections ?? []).map((connection) => ({
+      name: connection.name,
+      status: connection.status,
+      credentialState: connection.credentialState,
+      healthState: connection.healthState,
+      actions: connection.actions,
+      credentialMode: connection.credentialMode,
+      ownerKind: connection.ownerKind,
+      instances: connection.instances,
+      preferredInstance: connection.preferredInstance,
+      connected: connection.connected === true,
+      mcpPassthrough: connection.mcpPassthrough,
+    })),
+  }));
 }
 
 export async function mockIntegrationOperations(

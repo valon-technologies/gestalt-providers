@@ -100,6 +100,8 @@ export interface Integration {
   displayName?: string;
   description?: string;
   iconSvg?: string;
+  /** Catalog icon asset. Listing payloads use this instead of inlining SVG bytes. */
+  iconUrl?: string;
   mountedPath?: string;
   managementPath?: string;
   connections?: ConnectionDefInfo[];
@@ -1276,10 +1278,83 @@ export async function logout(): Promise<void> {
 }
 
 /**
- * Client abort for GET /api/v1/apps so the UI can leave loading and show
+ * Client abort for the apps directory so the UI can leave loading and show
  * retry instead of waiting for an upstream gateway failure.
  */
 export const APPS_CATALOG_TIMEOUT_MS = 12_000;
+
+export interface AppCatalogConnection {
+  name: string;
+  displayName?: string;
+  authTypes?: AuthType[];
+  connectionParams?: Record<string, ConnectionParamDef>;
+  credentialFields?: CredentialFieldDef[];
+  mode?: ConnectionMode;
+  /** Advertised shared/MCP connection — catalog schema, not live credential state. */
+  mcpPassthrough?: boolean;
+}
+
+export interface AppCatalogEntry {
+  name: string;
+  displayName?: string;
+  description?: string;
+  iconUrl?: string;
+  mountedPath?: string;
+  managementPath?: string;
+  connections?: AppCatalogConnection[];
+  prompts?: IntegrationPrompt[];
+}
+
+export interface AppConnectionOverlay {
+  name: string;
+  status?: IntegrationStatus;
+  credentialState?: CredentialState;
+  healthState?: HealthState;
+  actions?: IntegrationAction[];
+  credentialMode?: CredentialMode;
+  ownerKind?: OwnerKind;
+  instances?: InstanceInfo[];
+  preferredInstance?: string;
+  statusCode?: string;
+  statusReason?: string;
+  connected?: boolean;
+  mcpPassthrough?: boolean;
+}
+
+export interface AppConnectionStatus {
+  name: string;
+  status?: IntegrationStatus;
+  credentialState?: CredentialState;
+  healthState?: HealthState;
+  actions?: IntegrationAction[];
+  connections?: AppConnectionOverlay[];
+}
+
+export type AppsDirectory =
+  | { source: "catalog"; entries: AppCatalogEntry[] }
+  | {
+      source: "composed";
+      entries: AppCatalogEntry[];
+      integrations: Integration[];
+    };
+
+export async function getAppCatalog(
+  signal?: AbortSignal,
+): Promise<AppCatalogEntry[]> {
+  return fetchAPI<AppCatalogEntry[]>("/api/v1/catalog/apps", {
+    timeoutMs: APPS_CATALOG_TIMEOUT_MS,
+    signal,
+  });
+}
+
+export async function getAppConnections(
+  signal?: AbortSignal,
+): Promise<AppConnectionStatus[]> {
+  return fetchAPI<AppConnectionStatus[]>("/api/v1/me/app-connections", {
+    timeoutMs: APPS_CATALOG_TIMEOUT_MS,
+    signal,
+  });
+}
 
 export async function getIntegrations(
   signal?: AbortSignal,
@@ -1288,6 +1363,51 @@ export async function getIntegrations(
     timeoutMs: APPS_CATALOG_TIMEOUT_MS,
     signal,
   });
+}
+
+/**
+ * Cheap directory first. Older gestaltd that only has GET /api/v1/apps
+ * answers catalog with 404; fall back to the composed listing.
+ */
+export async function getAppsDirectory(
+  signal?: AbortSignal,
+): Promise<AppsDirectory> {
+  try {
+    const entries = await getAppCatalog(signal);
+    return { source: "catalog", entries };
+  } catch (error) {
+    if (!isAPIErrorStatus(error, 404)) {
+      throw error;
+    }
+    const integrations = await getIntegrations(signal);
+    return {
+      source: "composed",
+      entries: catalogEntriesFromIntegrations(integrations),
+      integrations,
+    };
+  }
+}
+
+function catalogEntriesFromIntegrations(
+  integrations: Integration[],
+): AppCatalogEntry[] {
+  return integrations.map((integration) => ({
+    name: integration.name,
+    displayName: integration.displayName,
+    description: integration.description,
+    iconUrl: integration.iconUrl,
+    mountedPath: integration.mountedPath,
+    managementPath: integration.managementPath,
+    prompts: integration.prompts,
+    connections: (integration.connections ?? []).map((connection) => ({
+      name: connection.name,
+      displayName: connection.displayName,
+      authTypes: connection.authTypes,
+      connectionParams: connection.connectionParams,
+      credentialFields: connection.credentialFields,
+      mode: connection.mode,
+    })),
+  }));
 }
 
 export async function getAppAdminRegistry(

@@ -14,6 +14,7 @@ import {
   useIntegrationsQuery,
   useInvalidateIntegrations,
   useWorkflowRunQuery,
+  workspaceIntegrationsPending,
 } from "@/lib/queries";
 import { Code } from "@/components/ui/code";
 import Container from "@/components/Container";
@@ -84,7 +85,10 @@ export default function AppWorkspaceLayout() {
   const invalidateIntegrations = useInvalidateIntegrations();
   const integration =
     integrationsQuery.data?.find((item) => item.name === app) ?? null;
-  const loading = integrationsQuery.isPending;
+  const loading = workspaceIntegrationsPending(
+    integrationsQuery.isPending,
+    integrationsQuery.overlayPending,
+  );
   const label = integration ? getIntegrationLabel(integration) : app;
 
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -168,7 +172,12 @@ export default function AppWorkspaceLayout() {
   const error =
     integrationsQuery.error
       ? userFacingError(integrationsQuery.error, "Unable to load this app. Try again.")
-      : !loading && integrationsQuery.data && !integration && !isAdminChromePath
+      : integrationsQuery.overlayError
+        ? userFacingError(
+            integrationsQuery.overlayError,
+            "Unable to load connection status. Try again.",
+          )
+        : !loading && integrationsQuery.data && !integration && !isAdminChromePath
         ? `App “${app}” was not found in this workspace.`
         : null;
 
@@ -240,9 +249,7 @@ export default function AppWorkspaceLayout() {
       capabilities,
       showConnectionNav,
       registryOutlet,
-      reloadIntegration: () => {
-        void invalidateIntegrations();
-      },
+      reloadIntegration: () => invalidateIntegrations(),
     }),
     [
       app,
@@ -419,6 +426,13 @@ export default function AppWorkspaceLayout() {
             <div className="space-y-8">
               {workspaceBreadcrumb}
               <ReplicaHoverExclusiveProvider>
+              {loading ? (
+                <p className="flex items-center gap-1.5 text-sm text-muted-foreground-soft">
+                  <SpinnerIcon className="size-4 motion-safe:animate-spin" aria-hidden />
+                  Loading app…
+                </p>
+              ) : (
+                <>
               {showRolloutBanner && registry?.rollout ? (
                 <Alert
                   variant="info"
@@ -494,6 +508,8 @@ export default function AppWorkspaceLayout() {
                 </div>
               ) : (
                 <Outlet />
+              )}
+                </>
               )}
               </ReplicaHoverExclusiveProvider>
             </div>

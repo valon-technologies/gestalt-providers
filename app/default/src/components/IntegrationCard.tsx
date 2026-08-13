@@ -115,8 +115,8 @@ export default function IntegrationCard({
   highlightQuery = "",
 }: {
   integration: Integration;
-  onConnected?: () => void;
-  onDisconnected?: () => void;
+  onConnected?: () => void | Promise<void>;
+  onDisconnected?: () => void | Promise<void>;
   startOAuth?: StartOAuthFn;
   connectManual?: ConnectManualFn;
   disconnect?: DisconnectFn;
@@ -386,6 +386,7 @@ export default function IntegrationCard({
         <div className={cn("flex min-w-0 items-start", compact ? "gap-3" : "gap-4")}>
           <IntegrationIcon
             iconSvg={integration.iconSvg}
+            iconUrl={integration.iconUrl}
             name={integration.name}
             displayName={integration.displayName}
             size={compact ? "md" : "xl"}

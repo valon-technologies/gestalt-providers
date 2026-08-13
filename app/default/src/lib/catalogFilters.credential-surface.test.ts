@@ -107,6 +107,28 @@ describe("appShowsCredentialSurface", () => {
     ).toBe(false);
   });
 
+  test("shows Connection when a connection is advertised MCP passthrough", () => {
+    expect(
+      appShowsCredentialSurface(
+        stub({
+          name: "mcp-passthrough-svc",
+          status: "ready",
+          credentialState: "not_required",
+          connections: [
+            {
+              name: "MCP",
+              displayName: "MCP",
+              credentialMode: "none",
+              credentialState: "not_required",
+              status: "ready",
+              mcpPassthrough: true,
+            },
+          ],
+        }),
+      ),
+    ).toBe(true);
+  });
+
   test("hides Connection for not_required with only no-auth connection rows", () => {
     expect(
       appShowsCredentialSurface(

@@ -9,6 +9,7 @@ import {
   enableSetupActivationPrompt,
   seedSetupSession,
   clickOpensOAuthPopup,
+  mockAppsDirectoryUnavailable,
 } from "./fixtures";
 import type { Page } from "@playwright/test";
 
@@ -1177,7 +1178,7 @@ test.describe("Setup page", () => {
     authenticatedPage: page,
   }) => {
     let catalogReleased = false;
-    await page.route("**/api/v1/apps", async (route, request) => {
+    await page.route("**/api/v1/catalog/apps", async (route, request) => {
       if (request.method() !== "GET") {
         await route.fallback();
         return;
@@ -1204,21 +1205,9 @@ test.describe("Setup page", () => {
     authenticatedPage: page,
   }) => {
     let fail = true;
-    await page.route("**/api/v1/apps", async (route, request) => {
-      if (request.method() !== "GET") {
-        await route.fallback();
-        return;
-      }
-      if (fail) {
-        await route.fulfill({
-          status: 503,
-          contentType: "application/json",
-          body: JSON.stringify({ error: "Service Unavailable" }),
-        });
-        return;
-      }
-      await route.fulfill({ json: catalogFixtures });
-    });
+    await mockAppsDirectoryUnavailable(page, () =>
+      fail ? null : catalogFixtures,
+    );
     await mockTokens(page, [defaultToken]);
     await seedSetupSession(page, {
       introSeen: true,
@@ -1247,22 +1236,10 @@ test.describe("Setup page", () => {
     authenticatedPage: page,
   }) => {
     let fail = true;
-    await page.route("**/api/v1/apps", async (route, request) => {
-      if (request.method() !== "GET") {
-        await route.fallback();
-        return;
-      }
-      if (fail) {
-        await route.fulfill({
-          status: 503,
-          contentType: "application/json",
-          body: JSON.stringify({ error: "Service Unavailable" }),
-        });
-        return;
-      }
-      await route.fulfill({ json: catalogFixtures });
-    });
-
+    await mockAppsDirectoryUnavailable(page, () =>
+      fail ? null : catalogFixtures,
+    );
+    await mockTokens(page, []);
     await seedSetupSession(page, {
       introSeen: true,
       installAgent: "cursor",

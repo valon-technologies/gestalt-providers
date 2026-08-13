@@ -4,6 +4,7 @@ import { APIError, APITimeoutError, type Integration } from "@/lib/api";
 import {
   appsCatalogQueryStatus,
   shouldRetryAppsCatalogQuery,
+  workspaceIntegrationsPending,
 } from "@/lib/queries/integrations";
 
 const cached: Integration[] = [{ name: "example-app", displayName: "Example App" }];
@@ -64,5 +65,13 @@ describe("shouldRetryAppsCatalogQuery", () => {
     const transient = new APIError(500, "Internal Server Error");
     expect(shouldRetryAppsCatalogQuery(0, transient)).toBe(true);
     expect(shouldRetryAppsCatalogQuery(1, transient)).toBe(false);
+  });
+});
+
+describe("workspaceIntegrationsPending", () => {
+  it("holds the app workspace until overlay status arrives", () => {
+    expect(workspaceIntegrationsPending(true, false)).toBe(true);
+    expect(workspaceIntegrationsPending(false, true)).toBe(true);
+    expect(workspaceIntegrationsPending(false, false)).toBe(false);
   });
 });

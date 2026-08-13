@@ -71,6 +71,7 @@ export default function AppListingDetail({
         <div className="flex min-w-0 items-start gap-3">
           <IntegrationIcon
             iconSvg={integration.iconSvg}
+            iconUrl={integration.iconUrl}
             name={integration.name}
             displayName={integration.displayName}
           />

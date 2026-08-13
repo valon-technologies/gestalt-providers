@@ -39,14 +39,22 @@ export const CONNECTION_CONNECTED_LABEL = "Connected" as const;
 /** Primary CTA to link another provider identity. */
 export const ADD_ACCOUNT_LABEL = "Add account" as const;
 
-export type ConnectionSurfaceMode = "connect" | "manage" | "none";
+export type ConnectionSurfaceMode = "connect" | "manage" | "shared" | "none";
 
 export function connectionSurfaceMode(
   status: NormalizedIntegrationStatus,
 ): ConnectionSurfaceMode {
+  const hasPassthrough = status.connections.some(
+    (connection) => connection.isMCPPassthrough,
+  );
+  const hasSubjectConnection = status.connections.some(
+    (connection) => !connection.isNoAuth,
+  );
+  if (hasPassthrough && !hasSubjectConnection) {
+    return "shared";
+  }
   if (status.credentialState === "not_required") {
-    const hasManageable = status.connections.some((connection) => !connection.isNoAuth);
-    if (!hasManageable) return "none";
+    if (!hasSubjectConnection) return "none";
   }
 
   const hasLinkedAccount = status.connections.some(
@@ -108,6 +116,13 @@ export function connectionSurfaceCopy(
           "Accounts linked to this app. Only one is in use at a time. Switch below, disconnect to revoke access, or add another account.",
         trustNote:
           "This workspace acts through the account marked In use.",
+      };
+    case "shared":
+      return {
+        title: CONNECTION_SURFACE_TITLE,
+        description:
+          "This app uses a shared connection. There is nothing to link for this identity.",
+        trustNote: null,
       };
   }
 }
@@ -267,6 +282,21 @@ export function humanizeConnectionName(
 
 /** Fallback label when an instance/account slug is `default`. */
 export const DEFAULT_ACCOUNT_LABEL = "Account" as const;
+
+/**
+ * Instance-scoped disconnect always names the account. The generic "Account"
+ * fallback is still an account, not an invitation to describe the whole app.
+ */
+export function disconnectConfirmAccountLabel(args: {
+  identityPrimary?: string | null;
+  instanceName?: string | null;
+}): string | null {
+  const identity = args.identityPrimary?.trim();
+  if (identity) return identity;
+  const instance = args.instanceName?.trim();
+  if (!instance) return null;
+  return humanizeConnectionName(instance, DEFAULT_ACCOUNT_LABEL);
+}
 
 /** Overview blurb when the app has a credential/connection surface. */
 export const CONNECTION_ACCESS_BLURB =

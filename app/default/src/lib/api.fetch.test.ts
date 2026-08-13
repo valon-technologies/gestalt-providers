@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  APIError,
   APITimeoutError,
   APPS_CATALOG_TIMEOUT_MS,
   fetchAPI,
+  getAppConnections,
+  getAppsDirectory,
   getIntegrations,
 } from "@/lib/api";
 
@@ -67,7 +70,7 @@ describe("fetchAPI timeout", () => {
 });
 
 describe("getIntegrations", () => {
-  it("aborts a hung catalog list instead of waiting forever", async () => {
+  it("aborts a hung composed list instead of waiting forever", async () => {
     vi.stubGlobal("fetch", hangingFetch());
     const realTimeout = AbortSignal.timeout.bind(AbortSignal);
     vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
@@ -76,5 +79,73 @@ describe("getIntegrations", () => {
     });
 
     await expect(getIntegrations()).rejects.toBeInstanceOf(APITimeoutError);
+  });
+});
+
+describe("getAppConnections", () => {
+  it("aborts a hung overlay instead of waiting forever", async () => {
+    vi.stubGlobal("fetch", hangingFetch());
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
+      expect(ms).toBe(APPS_CATALOG_TIMEOUT_MS);
+      return realTimeout(20);
+    });
+
+    await expect(getAppConnections()).rejects.toBeInstanceOf(APITimeoutError);
+  });
+});
+
+describe("getAppsDirectory", () => {
+  it("aborts a hung catalog instead of waiting forever", async () => {
+    vi.stubGlobal("fetch", hangingFetch());
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
+      expect(ms).toBe(APPS_CATALOG_TIMEOUT_MS);
+      return realTimeout(20);
+    });
+
+    await expect(getAppsDirectory()).rejects.toBeInstanceOf(APITimeoutError);
+  });
+
+  it("falls back to the composed listing when catalog is missing", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/api/v1/catalog/apps")) {
+        return new Response(JSON.stringify({ error: "not found" }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify([{ name: "slack", displayName: "Slack" }]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const directory = await getAppsDirectory();
+    expect(directory.source).toBe("composed");
+    if (directory.source !== "composed") {
+      return;
+    }
+    expect(directory.integrations).toEqual([
+      { name: "slack", displayName: "Slack" },
+    ]);
+    expect(directory.entries[0]?.name).toBe("slack");
+    expect(directory.entries[0]?.displayName).toBe("Slack");
+  });
+
+  it("does not fall back when the catalog is unavailable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        return new Response(JSON.stringify({ error: "Service Unavailable" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+
+    await expect(getAppsDirectory()).rejects.toBeInstanceOf(APIError);
   });
 });

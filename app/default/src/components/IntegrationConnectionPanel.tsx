@@ -35,6 +35,7 @@ import {
   accountRelationshipLabel,
   addAccountFormCopy,
   disconnectConfirmCopy,
+  disconnectConfirmAccountLabel,
   USE_ACCOUNT_LABEL,
   DEFAULT_ACCOUNT_LABEL,
   connectionPanelAttention,
@@ -591,20 +592,22 @@ export default function IntegrationConnectionPanel({
       ? null
       : renderConnectionActions(connection);
     const showSectionHeader =
-      !omitSectionHeader &&
+      (!omitSectionHeader ||
+        connection.isMCPPassthrough ||
+        normalizedStatus.connections.length > 1) &&
       (Boolean(statusBadge) ||
         Boolean(connectionActions) ||
         Boolean(description) ||
         connection.connected ||
-        // Keep a title when multiple connections need distinction.
+        connection.isMCPPassthrough ||
         normalizedStatus.connections.length > 1);
 
     return (
       <section
         key={connection.key}
         className="space-y-3"
-        aria-labelledby={omitSectionHeader ? undefined : titleId}
-        aria-label={omitSectionHeader ? connectionTitle : undefined}
+        aria-labelledby={showSectionHeader ? titleId : undefined}
+        aria-label={showSectionHeader ? undefined : connectionTitle}
         data-testid={`connection-section-${connection.key}`}
       >
         {showSectionHeader ? (
@@ -773,9 +776,6 @@ export default function IntegrationConnectionPanel({
     );
   }
 
-  const disconnectAccountLabel = disconnectTarget.instance
-    ? humanizeConnectionName(disconnectTarget.instance, DEFAULT_ACCOUNT_LABEL)
-    : null;
   const disconnectInstance = disconnectTarget.instance
     ? normalizedStatus.connections
         .flatMap((connection) => connection.instances)
@@ -784,11 +784,10 @@ export default function IntegrationConnectionPanel({
   const disconnectIdentityPrimary = disconnectInstance
     ? accountIdentityLines(disconnectInstance.identity).primary?.value
     : null;
-  const disconnectConfirmLabel =
-    disconnectIdentityPrimary ||
-    (disconnectAccountLabel && disconnectAccountLabel !== DEFAULT_ACCOUNT_LABEL
-      ? disconnectAccountLabel
-      : null);
+  const disconnectConfirmLabel = disconnectConfirmAccountLabel({
+    identityPrimary: disconnectIdentityPrimary,
+    instanceName: disconnectTarget.instance,
+  });
   const disconnectConfirm = disconnectConfirmCopy({
     displayName,
     accountLabel: disconnectConfirmLabel,
@@ -978,7 +977,10 @@ export default function IntegrationConnectionPanel({
             )}
 
             {error && !disconnectOpen && !addAccountOpen ? (
-              <p className="mt-3 text-sm text-destructive">{error}</p>
+              <Alert variant="destructive">
+                <CircleAlert />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
             ) : null}
 
             <div className={showHeader ? "mt-5 space-y-3" : "space-y-3"}>
@@ -1093,7 +1095,12 @@ function ConnectionParamsForm({
           />
         </div>
       ))}
-      {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
+      {error ? (
+        <Alert variant="destructive" className="mt-3">
+          <CircleAlert />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
       <div className="mt-6 flex gap-3">
         <Button
           type="button"
@@ -1183,7 +1190,12 @@ function TokenForm({
           />
         </div>
       ))}
-      {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
+      {error ? (
+        <Alert variant="destructive" className="mt-3">
+          <CircleAlert />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
       <div className="mt-6 flex gap-3">
         <Button
           type="button"

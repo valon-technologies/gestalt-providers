@@ -110,6 +110,7 @@ export default function AppWorkspaceOverviewPage() {
       <div className="flex flex-col gap-4">
         <IntegrationIcon
           iconSvg={integration.iconSvg}
+          iconUrl={integration.iconUrl}
           name={integration.name}
           displayName={integration.displayName}
           size="lg"
