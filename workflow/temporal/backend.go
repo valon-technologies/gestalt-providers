@@ -53,6 +53,9 @@ type temporalBackend struct {
 
 	promoteOnce sync.Once
 	promoteErr  error
+
+	// Caps in-flight CountWorkflow RPCs for this backend (not during retry wait).
+	countWorkflowSlots chan struct{}
 }
 
 type workflowRunStartSnapshot struct {
@@ -70,12 +73,13 @@ func newTemporalBackend(providerName string, cfg config, tc client.Client, execu
 		executor = gestaltworkflow.New(gestaltworkflow.Config{})
 	}
 	return &temporalBackend{
-		providerName: strings.TrimSpace(providerName),
-		cfg:          cfg,
-		client:       tc,
-		stepExecutor: executor,
-		state:        state,
-		newWorker:    defaultTemporalWorkerFactory,
+		providerName:       strings.TrimSpace(providerName),
+		cfg:                cfg,
+		client:             tc,
+		stepExecutor:       executor,
+		state:              state,
+		newWorker:          defaultTemporalWorkerFactory,
+		countWorkflowSlots: make(chan struct{}, countWorkflowConcurrency),
 	}
 }
 
@@ -402,16 +406,30 @@ func (b *temporalBackend) attachListRunAggregates(ctx context.Context, req *gest
 
 const countWorkflowConcurrency = 4
 
-var countWorkflowGate = make(chan struct{}, countWorkflowConcurrency)
+func (b *temporalBackend) acquireCountSlot(ctx context.Context) error {
+	select {
+	case b.countWorkflowSlots <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (b *temporalBackend) releaseCountSlot() {
+	<-b.countWorkflowSlots
+}
+
+func (b *temporalBackend) countWorkflowOnce(ctx context.Context, query string) (*workflowservicepb.CountWorkflowExecutionsResponse, error) {
+	if err := b.acquireCountSlot(ctx); err != nil {
+		return nil, err
+	}
+	defer b.releaseCountSlot()
+	return b.client.CountWorkflow(ctx, &workflowservicepb.CountWorkflowExecutionsRequest{
+		Query: query,
+	})
+}
 
 func (b *temporalBackend) countWorkflows(ctx context.Context, query string) (int64, error) {
-	select {
-	case countWorkflowGate <- struct{}{}:
-		defer func() { <-countWorkflowGate }()
-	case <-ctx.Done():
-		return 0, ctx.Err()
-	}
-
 	var last error
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
@@ -423,9 +441,7 @@ func (b *temporalBackend) countWorkflows(ctx context.Context, query string) (int
 			case <-timer.C:
 			}
 		}
-		resp, err := b.client.CountWorkflow(ctx, &workflowservicepb.CountWorkflowExecutionsRequest{
-			Query: query,
-		})
+		resp, err := b.countWorkflowOnce(ctx, query)
 		if err == nil {
 			return resp.GetCount(), nil
 		}
@@ -462,7 +478,6 @@ func (b *temporalBackend) countWorkflowsByStatus(ctx context.Context, req *gesta
 	base := &gestalt.ListWorkflowProviderRunsRequest{}
 	if req != nil {
 		base.TargetApp = req.TargetApp
-		base.DefinitionID = req.DefinitionID
 		// Preserve KnownApps so histogram ownership matches list/total filters
 		// once visibility can express definition-owner disambiguation.
 		base.KnownApps = append([]string(nil), req.KnownApps...)

@@ -91,6 +91,9 @@ Metadata-only reads do not start the Temporal worker.
     lists so grouped Runs does not stampede CountWorkflow
   - either aggregate is omitted when its count RPC fails ("unknown", not zero);
     continuation pages omit both so paging stays a single ListWorkflow call
+  - CountWorkflow retries `ResourceExhausted` and `Unavailable` up to 3 attempts;
+    each backend caps in-flight count RPCs at 4 and releases the slot before
+    retry wait so backoff does not occupy the limiter
 - IndexedDB stores workflow definitions and request idempotency records only;
   Temporal owns run listing, current run state, schedule cursors, and
   workflow-key ownership
