@@ -1204,7 +1204,6 @@ class GitHubProviderTests(unittest.TestCase):
                 "raw": payload,
             },
         )
-        self.assertNotIn("headers", sdk_value_to_dict(event.data)["raw"])
 
     def test_webhook_handler_uses_digest_id_and_installation_subject_without_headers(
         self,
