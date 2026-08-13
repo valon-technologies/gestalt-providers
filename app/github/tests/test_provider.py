@@ -1120,10 +1120,6 @@ class GitHubProviderTests(unittest.TestCase):
     def test_webhook_handler_delivers_canonical_workflow_event(self) -> None:
         workflow_client = FakeWorkflowClient()
         payload = {
-            "headers": {
-                "X-GitHub-Event": "pull_request",
-                "X-GitHub-Delivery": "delivery-123",
-            },
             "action": "opened",
             "installation": {"id": 99.0},
             "repository": {
@@ -1148,7 +1144,19 @@ class GitHubProviderTests(unittest.TestCase):
             return_value=workflow_client,
             create=True,
         ):
-            result = provider_module.github_events_handle(payload, gestalt.Request())
+            result = provider_module.github_events_handle(
+                payload,
+                gestalt.Request(
+                    workflow={
+                        "http": {
+                            "headers": {
+                                "X-GitHub-Event": ["pull_request"],
+                                "X-GitHub-Delivery": ["delivery-123"],
+                            }
+                        }
+                    }
+                ),
+            )
 
         self.assertEqual(
             operation_body(result),
@@ -1196,6 +1204,7 @@ class GitHubProviderTests(unittest.TestCase):
                 "raw": payload,
             },
         )
+        self.assertNotIn("headers", sdk_value_to_dict(event.data)["raw"])
 
     def test_webhook_handler_uses_digest_id_and_installation_subject_without_headers(
         self,
