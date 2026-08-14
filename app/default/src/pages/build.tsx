@@ -128,7 +128,9 @@ import {
   buildMcpCredentialReady,
   buildStepDescription,
   buildStepTitle,
+  buildWorkspaceSnapshotFromSession,
   canNavigateToBuildStep,
+  catalogLoadStateFromQuery,
   companionAppLabel,
   DEFAULT_BUILD_TOKEN_NAME,
   firstIncompleteStepId,
@@ -170,20 +172,14 @@ function buildSnapshot(
   session: ReturnType<typeof useBuildSession>,
   integrations: Integration[],
   tokens: APIToken[],
+  catalogQuery: { isPending: boolean; isError: boolean },
 ): BuildWorkspaceSnapshot {
-  return {
+  return buildWorkspaceSnapshotFromSession(
+    session,
     integrations,
     tokens,
-    activeExemplarId: session.activeExemplarId,
-    mcpInstalled: session.mcpInstalled,
-    apiToken: session.apiToken,
-    apiTokenGrantId: session.apiTokenGrantId,
-    tokenName: session.tokenName,
-    selectedTokenId: session.selectedTokenId,
-    installAgentId: session.selectedInstallAgent,
-    welcomeSeen: session.welcomeSeen,
-    trySeen: session.trySeen,
-  };
+    catalogLoadStateFromQuery(catalogQuery),
+  );
 }
 
 /** `/setup` → overview when complete, else first incomplete step. */
@@ -213,6 +209,7 @@ export function BuildIndexRedirect() {
     session,
     integrationsQuery.data ?? [],
     tokensQuery.data ?? [],
+    integrationsQuery,
   );
 
   if (isBuildComplete(snapshot)) {
@@ -270,7 +267,7 @@ function SetupPageChrome({
   children: ReactNode;
 }) {
   return (
-    <Container className="pb-12 pt-16">
+    <Container as="main" className="pb-12 pt-16">
       <div className={PAGE_LAYOUT_READING_COLUMN_CLASS}>
         <Stepper
           value={value}
@@ -350,6 +347,9 @@ export default function BuildStepPage() {
     ? buildStepTitle(currentStep, session.selectedInstallAgent)
     : "Setup";
   useDocumentTitle(currentStep ? `${stepTitle} · Setup` : "Setup");
+  useEffect(() => {
+    if (currentStep?.id === "try") session.markTrySeen();
+  }, [currentStep?.id, session.markTrySeen]);
 
   if (legacyConnect) {
     return (
@@ -368,6 +368,7 @@ export default function BuildStepPage() {
     session,
     integrationsQuery.data ?? [],
     tokensQuery.data ?? [],
+    integrationsQuery,
   );
 
   const error =
@@ -384,10 +385,6 @@ export default function BuildStepPage() {
         : null;
 
   const activeExemplar = getExemplar(session.activeExemplarId);
-
-  useEffect(() => {
-    if (currentStep?.id === "try") session.markTrySeen();
-  }, [currentStep?.id, session.markTrySeen]);
 
   function goToStep(id: BuildStepId) {
     void navigate({ to: "/setup/$stepId", params: { stepId: id } });
@@ -428,16 +425,18 @@ export default function BuildStepPage() {
       ) : null}
 
       <div className="space-y-8">
-        <PageHeader className={cn(stepId === "welcome" && "hidden")}>
-          <PageHeaderContent size="md">
-            <PageHeaderTitle>
-              {buildStepTitle(currentStep, session.selectedInstallAgent)}
-            </PageHeaderTitle>
-            <PageHeaderDescription>
-              {buildStepDescription(currentStep, session.selectedInstallAgent)}
-            </PageHeaderDescription>
-          </PageHeaderContent>
-        </PageHeader>
+        {stepId !== "welcome" ? (
+          <PageHeader>
+            <PageHeaderContent size="md">
+              <PageHeaderTitle>
+                {buildStepTitle(currentStep, session.selectedInstallAgent)}
+              </PageHeaderTitle>
+              <PageHeaderDescription>
+                {buildStepDescription(currentStep, session.selectedInstallAgent)}
+              </PageHeaderDescription>
+            </PageHeaderContent>
+          </PageHeader>
+        ) : null}
 
         <BuildStepPanel
           step={currentStep}

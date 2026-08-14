@@ -7,7 +7,9 @@ import {
   mockPersonalTokenCreate,
   mockTokens,
   enableSetupActivationPrompt,
+  seedSetupSession,
 } from "./fixtures";
+import type { Page } from "@playwright/test";
 
 const catalogFixtures = [
   {
@@ -164,6 +166,13 @@ function withConnectedConnection<T extends { name: string }>(item: T) {
   };
 }
 
+async function expectSetupStepper(page: Page) {
+  const stepper = page.locator('[data-slot="stepper"]');
+  await expect(stepper).toHaveAttribute("data-orientation", "horizontal");
+  await expect(stepper).toHaveAttribute("data-completed-chrome", "outcome");
+  await expect(stepper).toHaveAttribute("data-size", "default");
+}
+
 test.describe("Setup page", () => {
   test.beforeEach(async ({ authenticatedPage }) => {
     await mockAuthInfo(authenticatedPage, {
@@ -190,7 +199,9 @@ test.describe("Setup page", () => {
       page.locator('[data-slot="page-header"] [data-slot="eyebrow"]'),
     ).toHaveCount(0);
     await expect(
-      page.locator('[data-slot="page-header-content"]'),
+      page
+        .getByTestId("build-welcome")
+        .locator('[data-slot="page-header-content"]'),
     ).toHaveAttribute("data-size", "md");
 
     await expect(page.getByTestId("build-welcome")).toBeVisible();
@@ -203,18 +214,7 @@ test.describe("Setup page", () => {
       "data-orientation",
       "horizontal",
     );
-    await expect(page.locator('[data-slot="stepper"]')).toHaveAttribute(
-      "data-completed-variant",
-      "success",
-    );
-    await expect(page.locator('[data-slot="stepper"]')).toHaveAttribute(
-      "data-size",
-      "sm",
-    );
-    await expect(page.locator('[data-slot="stepper"]')).toHaveAttribute(
-      "data-connector-variant",
-      "primary",
-    );
+    await expectSetupStepper(page);
     await expect(page.getByTestId("build-nav-assistant")).toBeVisible();
     await expect(page.getByTestId("build-nav-token")).toBeVisible();
     await expect(page.getByTestId("build-nav-install")).toBeVisible();
@@ -277,19 +277,24 @@ test.describe("Setup page", () => {
     );
   });
 
+  test("resume after welcome opens assistant when none is chosen", async ({
+    authenticatedPage: page,
+  }) => {
+    await seedSetupSession(page, { introSeen: true });
+    await page.goto("/setup");
+    await expect(page).toHaveURL(/\/setup\/assistant$/);
+    await expect(page.getByTestId("build-install-radio")).toBeVisible();
+    await expect(page.getByTestId("build-step-next")).toBeDisabled();
+  });
+
   test("token and install are separate steps", async ({
     authenticatedPage: page,
   }) => {
     await mockTokens(page, [defaultToken]);
-    await page.addInitScript(() => {
-      sessionStorage.setItem("gestalt.build.introSeen", "1");
-      sessionStorage.setItem("gestalt.build.installAgent", "cursor");
-      sessionStorage.setItem("gestalt.build.selectedTokenId", "tok_123");
-      sessionStorage.setItem("gestalt.build.apiTokenGrantId", "tok_123");
-      sessionStorage.setItem(
-        "gestalt.build.apiToken",
-        "gst_api_test_token_for_install",
-      );
+    await seedSetupSession(page, {
+      introSeen: true,
+      installAgent: "cursor",
+      selectedTokenId: "tok_123",
     });
 
     await page.goto("/setup");
@@ -313,7 +318,7 @@ test.describe("Setup page", () => {
     await expect(page.getByTestId("build-add-to-cursor")).toHaveText(
       "Add in Cursor",
     );
-    await page.getByRole("radio", { name: "Paste the config yourself" }).click();
+    await page.getByText("Paste the config yourself").click();
     await expect(page.getByText(".cursor/mcp.json")).toBeVisible();
     await expect(page.getByRole("link", { name: "setup notes" })).toBeVisible();
 
@@ -329,9 +334,9 @@ test.describe("Setup page", () => {
     authenticatedPage: page,
   }) => {
     await mockTokens(page, [defaultToken]);
-    await page.addInitScript(() => {
-      sessionStorage.setItem("gestalt.build.introSeen", "1");
-      sessionStorage.setItem("gestalt.build.installAgent", "cursor");
+    await seedSetupSession(page, {
+      introSeen: true,
+      installAgent: "cursor",
     });
 
     await page.goto("/setup/connect");
@@ -343,14 +348,9 @@ test.describe("Setup page", () => {
     authenticatedPage: page,
   }) => {
     await mockTokens(page, [defaultToken]);
-    await page.addInitScript(() => {
-      sessionStorage.setItem("gestalt.build.introSeen", "1");
-      sessionStorage.setItem("gestalt.build.selectedTokenId", "tok_123");
-      sessionStorage.setItem("gestalt.build.apiTokenGrantId", "tok_123");
-      sessionStorage.setItem(
-        "gestalt.build.apiToken",
-        "gst_api_test_token_for_install",
-      );
+    await seedSetupSession(page, {
+      introSeen: true,
+      selectedTokenId: "tok_123",
     });
 
     await page.goto("/setup/assistant");
@@ -376,9 +376,9 @@ test.describe("Setup page", () => {
   test("step pager advances from token create to install", async ({
     authenticatedPage: page,
   }) => {
-    await page.addInitScript(() => {
-      sessionStorage.setItem("gestalt.build.introSeen", "1");
-      sessionStorage.setItem("gestalt.build.installAgent", "cursor");
+    await seedSetupSession(page, {
+      introSeen: true,
+      installAgent: "cursor",
     });
 
     const tokens = await mockTokens(page, []);
@@ -441,9 +441,9 @@ test.describe("Setup page", () => {
   test("creating a token selects it under Use existing when the server list omits it", async ({
     authenticatedPage: page,
   }) => {
-    await page.addInitScript(() => {
-      sessionStorage.setItem("gestalt.build.introSeen", "1");
-      sessionStorage.setItem("gestalt.build.installAgent", "cursor");
+    await seedSetupSession(page, {
+      introSeen: true,
+      installAgent: "cursor",
     });
 
     const hello = {
@@ -497,12 +497,12 @@ test.describe("Setup page", () => {
     authenticatedPage: page,
   }) => {
     await mockTokens(page, [defaultToken]);
-    await page.addInitScript(() => {
-      sessionStorage.setItem("gestalt.build.introSeen", "1");
-      sessionStorage.setItem("gestalt.build.selectedTokenId", "tok_123");
-      sessionStorage.setItem("gestalt.build.mcpInstalled", "1");
-      sessionStorage.setItem("gestalt.build.installAgent", "claude");
-      sessionStorage.setItem("gestalt.build.activeExemplarId", "oncall");
+    await seedSetupSession(page, {
+      introSeen: true,
+      selectedTokenId: "tok_123",
+      mcpInstalled: true,
+      installAgent: "claude",
+      activeExemplarId: "oncall",
     });
 
     await page.goto("/setup");
@@ -532,7 +532,7 @@ test.describe("Setup page", () => {
     await expect(page.getByTestId("build-connect-app-ashby")).toBeVisible();
     await expect(page.getByTestId("build-connect-app-gmail")).toBeVisible();
     await expect(page.getByTestId("build-connect-app-zendesk")).toHaveCount(0);
-    await expect(page.getByTestId("build-see-more-apps")).toHaveText(
+    await expect(page.getByTestId("build-see-more-apps")).toContainText(
       "See Zendesk",
     );
     await expect(page.getByTestId("build-connect-app-oncall")).toHaveCount(0);
@@ -557,12 +557,42 @@ test.describe("Setup page", () => {
     await expect(
       page.getByRole("heading", { name: "More apps" }),
     ).toBeVisible();
-    await expect(page.getByTestId("build-see-more-apps")).toHaveText(
+    await expect(page.getByTestId("build-see-more-apps")).toContainText(
       "See Zendesk",
     );
     await page.getByTestId("build-see-more-apps").click();
     await expect(page.getByTestId("build-connect-app-zendesk")).toBeVisible();
     await expect(page.getByTestId("build-see-more-apps")).toHaveCount(0);
+  });
+
+  test("failed catalog does not skip the apps step", async ({
+    authenticatedPage: page,
+  }) => {
+    await mockTokens(page, [defaultToken]);
+    await page.route("**/api/v1/apps", async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          status: 500,
+          json: { error: "catalog unavailable" },
+        });
+        return;
+      }
+      await route.fallback();
+    });
+    await seedSetupSession(page, {
+      introSeen: true,
+      installAgent: "cursor",
+      selectedTokenId: "tok_123",
+      mcpInstalled: true,
+    });
+
+    await page.goto("/setup");
+
+    await expect(page).toHaveURL(/\/setup\/apps$/);
+    await expect(page.getByTestId("error-notice")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Connect apps" }),
+    ).toBeVisible();
   });
 
   test("single-option connect starts OAuth; multiple options open the chooser", async ({
@@ -617,12 +647,12 @@ test.describe("Setup page", () => {
         json: { url: "about:blank", state: "state-123" },
       });
     });
-    await page.addInitScript(() => {
-      sessionStorage.setItem("gestalt.build.introSeen", "1");
-      sessionStorage.setItem("gestalt.build.selectedTokenId", "tok_123");
-      sessionStorage.setItem("gestalt.build.mcpInstalled", "1");
-      sessionStorage.setItem("gestalt.build.installAgent", "claude");
-      sessionStorage.setItem("gestalt.build.activeExemplarId", "oncall");
+    await seedSetupSession(page, {
+      introSeen: true,
+      selectedTokenId: "tok_123",
+      mcpInstalled: true,
+      installAgent: "claude",
+      activeExemplarId: "oncall",
     });
 
     await page.goto("/setup/apps");
@@ -654,12 +684,12 @@ test.describe("Setup page", () => {
     authenticatedPage: page,
   }) => {
     await mockTokens(page, [defaultToken]);
-    await page.addInitScript(() => {
-      sessionStorage.setItem("gestalt.build.introSeen", "1");
-      sessionStorage.setItem("gestalt.build.selectedTokenId", "tok_123");
-      sessionStorage.setItem("gestalt.build.mcpInstalled", "1");
-      sessionStorage.setItem("gestalt.build.installAgent", "claude");
-      sessionStorage.setItem("gestalt.build.activeExemplarId", "oncall");
+    await seedSetupSession(page, {
+      introSeen: true,
+      selectedTokenId: "tok_123",
+      mcpInstalled: true,
+      installAgent: "claude",
+      activeExemplarId: "oncall",
     });
 
     await page.goto("/setup/try");
@@ -676,12 +706,12 @@ test.describe("Setup page", () => {
     authenticatedPage: page,
   }) => {
     await mockTokens(page, [defaultToken]);
-    await page.addInitScript(() => {
-      sessionStorage.setItem("gestalt.build.introSeen", "1");
-      sessionStorage.setItem("gestalt.build.selectedTokenId", "tok_123");
-      sessionStorage.setItem("gestalt.build.mcpInstalled", "1");
-      sessionStorage.setItem("gestalt.build.installAgent", "codex");
-      sessionStorage.setItem("gestalt.build.activeExemplarId", "oncall");
+    await seedSetupSession(page, {
+      introSeen: true,
+      selectedTokenId: "tok_123",
+      mcpInstalled: true,
+      installAgent: "codex",
+      activeExemplarId: "oncall",
     });
 
     await page.goto("/setup/try");
@@ -717,15 +747,12 @@ test.describe("Setup page", () => {
         },
       ],
     });
-    await page.addInitScript(() => {
-      sessionStorage.setItem("gestalt.build.introSeen", "1");
-      sessionStorage.setItem("gestalt.build.selectedTokenId", "tok_123");
-      sessionStorage.setItem("gestalt.build.mcpInstalled", "1");
-      sessionStorage.setItem("gestalt.build.installAgent", "cursor");
-      sessionStorage.setItem(
-        "gestalt.build.activeExemplarId",
-        "aiSpendTracker",
-      );
+    await seedSetupSession(page, {
+      introSeen: true,
+      selectedTokenId: "tok_123",
+      mcpInstalled: true,
+      installAgent: "cursor",
+      activeExemplarId: "aiSpendTracker",
     });
 
     await page.goto("/setup/try");
@@ -764,9 +791,9 @@ test.describe("Setup page", () => {
         createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
       },
     ]);
-    await page.addInitScript(() => {
-      sessionStorage.setItem("gestalt.build.introSeen", "1");
-      sessionStorage.setItem("gestalt.build.installAgent", "cursor");
+    await seedSetupSession(page, {
+      introSeen: true,
+      installAgent: "cursor",
     });
 
     await page.goto("/setup/token");
@@ -797,12 +824,13 @@ test.describe("Setup page", () => {
         createdAt: "2026-04-13T00:00:00Z",
       },
     ]);
-    await page.addInitScript((id) => {
-      sessionStorage.setItem("gestalt.build.introSeen", "1");
-      sessionStorage.setItem("gestalt.build.installAgent", "cursor");
-      sessionStorage.setItem("gestalt.build.selectedTokenId", id);
-      sessionStorage.setItem("gestalt.build.tokenName", id);
-    }, grantId);
+    await seedSetupSession(page, {
+      introSeen: true,
+      installAgent: "cursor",
+      selectedTokenId: grantId,
+      tokenName: grantId,
+      bindCredential: false,
+    });
 
     await page.goto("/setup/token");
     await page.locator("label").filter({ hasText: "Create new token" }).click();
@@ -850,18 +878,13 @@ test.describe("Setup page", () => {
     authenticatedPage: page,
   }) => {
     await mockTokens(page, [defaultToken]);
-    await page.addInitScript(() => {
-      sessionStorage.setItem("gestalt.build.introSeen", "1");
-      sessionStorage.setItem("gestalt.build.installAgent", "cursor");
-      sessionStorage.setItem("gestalt.build.mcpInstalled", "1");
-      sessionStorage.setItem("gestalt.build.selectedTokenId", "tok_123");
-      sessionStorage.setItem("gestalt.build.apiTokenGrantId", "tok_123");
-      sessionStorage.setItem(
-        "gestalt.build.apiToken",
-        "gst_api_test_token_for_install",
-      );
-      sessionStorage.setItem("gestalt.build.activeExemplarId", "aiSpendTracker");
-      sessionStorage.setItem("gestalt.build.trySeen", "1");
+    await seedSetupSession(page, {
+      introSeen: true,
+      installAgent: "cursor",
+      mcpInstalled: true,
+      selectedTokenId: "tok_123",
+      activeExemplarId: "aiSpendTracker",
+      trySeen: true,
     });
     await mockIntegrations(
       page,
@@ -875,20 +898,7 @@ test.describe("Setup page", () => {
     await expect(
       page.getByRole("heading", { name: "You're all set" }),
     ).toBeVisible();
-    await expect(
-      page.locator('[data-slot="stepper"]'),
-    ).toHaveAttribute("data-orientation", "horizontal");
-    await expect(
-      page.locator('[data-slot="stepper"]'),
-    ).toHaveAttribute("data-completed-variant", "success");
-    await expect(page.locator('[data-slot="stepper"]')).toHaveAttribute(
-      "data-size",
-      "sm",
-    );
-    await expect(page.locator('[data-slot="stepper"]')).toHaveAttribute(
-      "data-connector-variant",
-      "primary",
-    );
+    await expectSetupStepper(page);
     await expect(page.getByTestId("build-overview-welcome")).toBeVisible();
     await expect(page.getByTestId("build-overview-try")).toBeVisible();
     await expect(page.getByRole("link", { name: /Run setup again/ })).toHaveAttribute(

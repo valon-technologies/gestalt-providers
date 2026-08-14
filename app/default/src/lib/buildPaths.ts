@@ -54,9 +54,17 @@ export type BuildExemplar = {
   relatedAppIds: readonly string[];
 };
 
+/** Outcome of loading the workspace app catalog. Empty `integrations` is not enough. */
+export type CatalogLoadState = "pending" | "ready" | "failed";
+
 export interface BuildWorkspaceSnapshot {
   integrations: Integration[];
   tokens: APIToken[];
+  /**
+   * Whether {@link integrations} is a successful catalog load.
+   * Pending and failed loads must not be treated as “nothing to connect.”
+   */
+  catalogLoadState: CatalogLoadState;
   activeExemplarId: BuildExemplarId;
   mcpInstalled: boolean;
   apiToken: string;
@@ -211,8 +219,7 @@ export const BUILD_STEPS: BuildStep[] = [
       "Pick the apps your assistant can use. Connect at least one to continue.",
     ctaLabel: "Continue",
     to: `${SETUP_PATH}/apps`,
-    isComplete: (snapshot) =>
-      setupAppsConnected(snapshot) || !setupAppsHasConnectable(snapshot),
+    isComplete: (snapshot) => setupAppsStepComplete(snapshot),
   },
   {
     id: "try",
@@ -386,6 +393,77 @@ export function setupAppsHasConnectable(
       return state === "not_connected" || state === "needs_attention";
     },
   );
+}
+
+/**
+ * Connect apps is done when at least one data-source app is connected, or
+ * after a successful catalog load that has nothing left to connect.
+ * Pending and failed loads stay incomplete even if the list is empty.
+ */
+export function setupAppsStepComplete(
+  snapshot: Pick<BuildWorkspaceSnapshot, "integrations" | "catalogLoadState">,
+): boolean {
+  if (setupAppsConnected(snapshot)) return true;
+  return (
+    snapshot.catalogLoadState === "ready" &&
+    !setupAppsHasConnectable(snapshot)
+  );
+}
+
+/** Map a catalog query onto {@link CatalogLoadState}. */
+export function catalogLoadStateFromQuery(query: {
+  isPending: boolean;
+  isError: boolean;
+}): CatalogLoadState {
+  if (query.isPending) return "pending";
+  if (query.isError) return "failed";
+  return "ready";
+}
+
+/**
+ * Session plaintext is valid only while it is bound to the current grant
+ * selection. Empty bound ids never match, so stale secrets are dropped.
+ */
+export function sessionApiTokenBoundToSelection(
+  boundGrantId: string,
+  selectedId: string,
+): boolean {
+  const bound = boundGrantId.trim();
+  const selected = selectedId.trim();
+  return bound.length > 0 && bound === selected && isSetupTokenGrantId(selected);
+}
+
+/** Assemble the Setup snapshot from session + catalog/token queries. */
+export function buildWorkspaceSnapshotFromSession(
+  session: {
+    activeExemplarId: BuildExemplarId;
+    mcpInstalled: boolean;
+    apiToken: string;
+    apiTokenGrantId: string;
+    tokenName: string;
+    selectedTokenId: string;
+    selectedInstallAgent: string;
+    welcomeSeen: boolean;
+    trySeen: boolean;
+  },
+  integrations: Integration[],
+  tokens: APIToken[],
+  catalogLoadState: CatalogLoadState,
+): BuildWorkspaceSnapshot {
+  return {
+    integrations,
+    tokens,
+    catalogLoadState,
+    activeExemplarId: session.activeExemplarId,
+    mcpInstalled: session.mcpInstalled,
+    apiToken: session.apiToken,
+    apiTokenGrantId: session.apiTokenGrantId,
+    tokenName: session.tokenName,
+    selectedTokenId: session.selectedTokenId,
+    installAgentId: session.selectedInstallAgent,
+    welcomeSeen: session.welcomeSeen,
+    trySeen: session.trySeen,
+  };
 }
 
 export function isBuildComplete(snapshot: BuildWorkspaceSnapshot): boolean {

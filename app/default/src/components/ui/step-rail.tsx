@@ -96,6 +96,13 @@ export function readStepRailTimingMs(node: HTMLElement | null): {
   settleMs: number;
 } {
   if (!node) return { durationMs: 0, settleMs: 0 };
+  if (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  ) {
+    return { durationMs: 0, settleMs: 0 };
+  }
   const style = getComputedStyle(node);
   const read = (name: string) => {
     const v = style.getPropertyValue(name).trim();
@@ -197,7 +204,7 @@ export function stepRailFromActiveIndex(transition: StepRailTransition): number 
  * -------------------------------------------------------------------------- */
 
 export const stepRailIndicatorVariants = cva(
-  "relative z-10 flex shrink-0 items-center justify-center rounded-full border leading-none transition-[color,background-color,border-color] duration-hover-out ease-out-quart",
+  "relative z-10 flex shrink-0 items-center justify-center rounded-full border leading-none transition-[color,background-color,border-color] duration-hover-out ease-out-quart motion-reduce:transition-none",
   {
     variants: {
       size: {
@@ -482,7 +489,7 @@ export const stepRailSeparatorTrackVariants = cva(
 
 export const stepRailSeparatorFillVariants = cva(
   [
-    "size-full transition-[clip-path] ease-out-quart",
+    "size-full transition-[clip-path] ease-out-quart motion-reduce:transition-none motion-reduce:delay-0",
     "duration-[var(--step-rail-duration,var(--motion-move))]",
     "delay-[calc(var(--step-rail-line-stagger,0)*var(--step-rail-duration,0ms))]",
   ].join(" "),

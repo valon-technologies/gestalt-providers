@@ -355,10 +355,14 @@ export default function IntegrationCard({
       )}
       onClick={useCardClickActivate ? handleCardClick : undefined}
       onKeyDown={useCardClickActivate ? handleCardKeyDown : undefined}
-      role={useCardClickActivate ? "link" : undefined}
-      tabIndex={useCardClickActivate ? 0 : undefined}
+      role={
+        useCardClickActivate && !showAddButton ? "link" : undefined
+      }
+      tabIndex={
+        useCardClickActivate && !showAddButton ? 0 : undefined
+      }
       aria-label={
-        useCardClickActivate ? `Open ${label}` : undefined
+        useCardClickActivate && !showAddButton ? `Open ${label}` : undefined
       }
       aria-busy={connection.loading || undefined}
     >

@@ -75,12 +75,13 @@ import {
   useTokensQuery,
 } from "@/lib/queries";
 import {
+  buildWorkspaceSnapshotFromSession,
+  catalogLoadStateFromQuery,
   isActivationDue,
   isBuildComplete,
   readResumeBannerDismissed,
   readSetupSkipped,
   writeResumeBannerDismissed,
-  type BuildWorkspaceSnapshot,
 } from "@/lib/buildPaths";
 
 function resolveConnectedAppLabel(
@@ -306,23 +307,29 @@ export default function AppsCatalogPageClient() {
     [activate],
   );
 
-  const setupSnapshot: BuildWorkspaceSnapshot = useMemo(
-    () => ({
-      integrations,
-      tokens,
-      activeExemplarId: session.activeExemplarId,
-      mcpInstalled: session.mcpInstalled,
-      apiToken: session.apiToken,
-      apiTokenGrantId: session.apiTokenGrantId,
-      tokenName: session.tokenName,
-      selectedTokenId: session.selectedTokenId,
-      installAgentId: session.selectedInstallAgent,
-      welcomeSeen: session.welcomeSeen,
-      trySeen: session.trySeen,
-    }),
+  const catalogLoadState = catalogLoadStateFromQuery(integrationsQuery);
+  const setupSnapshot = useMemo(
+    () =>
+      buildWorkspaceSnapshotFromSession(
+        {
+          activeExemplarId: session.activeExemplarId,
+          mcpInstalled: session.mcpInstalled,
+          apiToken: session.apiToken,
+          apiTokenGrantId: session.apiTokenGrantId,
+          tokenName: session.tokenName,
+          selectedTokenId: session.selectedTokenId,
+          selectedInstallAgent: session.selectedInstallAgent,
+          welcomeSeen: session.welcomeSeen,
+          trySeen: session.trySeen,
+        },
+        integrations,
+        tokens,
+        catalogLoadState,
+      ),
     [
       integrations,
       tokens,
+      catalogLoadState,
       session.activeExemplarId,
       session.mcpInstalled,
       session.apiToken,

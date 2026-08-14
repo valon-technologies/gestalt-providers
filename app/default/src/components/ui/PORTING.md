@@ -276,7 +276,10 @@ with `activationMode="jump"` and `size="default"`. Completed checks default to
 `completedChrome="outcome"` (green fill, white check, ink connectors).
 Pass `completedChrome="accent"` for gold. TimelineSteps keeps gold via
 `stepRailCompletedChromeAccentClassName`. Do not restyle Stepper chrome at the
-call site (layout-only wrappers OK).
+call site (layout-only wrappers OK). Rail fill stagger and indicator chrome
+delay honor `prefers-reduced-motion` (`motion-reduce:transition-none
+motion-reduce:delay-0`; `readStepRailTimingMs` returns 0). Keep that mapping
+on revendors.
 
 ## Pagination
 

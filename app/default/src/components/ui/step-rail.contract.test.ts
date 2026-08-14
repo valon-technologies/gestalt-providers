@@ -270,4 +270,13 @@ describe("step-rail timeline semantics", () => {
       /glyph:\s*"none",\s*size:\s*"xs",\s*class:.*"\[&>svg\]:size-3\.5"/s,
     );
   });
+
+  test("line fill and indicator chrome honor prefers-reduced-motion", () => {
+    expect(SOURCE).toContain(
+      "motion-reduce:transition-none motion-reduce:delay-0",
+    );
+    expect(SOURCE).toContain(
+      'window.matchMedia("(prefers-reduced-motion: reduce)")',
+    );
+  });
 });

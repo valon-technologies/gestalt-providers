@@ -23,6 +23,10 @@ describe("IntegrationCard navigation contract", () => {
     expect(SOURCE).toContain('from "@/lib/row-link"');
     expect(SOURCE).toContain("density === \"compact\"");
     expect(SOURCE).toContain('compact ? "Connect" : "Add"');
+    expect(SOURCE).toContain(
+      'useCardClickActivate && !showAddButton ? "link"',
+    );
+    expect(SOURCE).not.toContain('showAddButton ? "button" : "link"');
     expect(SOURCE).toContain("connectEntryPlan");
     expect(SOURCE).toContain("catalogCardDescription");
     expect(SOURCE).toContain("mt-0.5 line-clamp-1 text-xs");

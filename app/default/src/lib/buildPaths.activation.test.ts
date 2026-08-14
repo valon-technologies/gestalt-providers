@@ -8,14 +8,17 @@ import {
   buildInstallStepTitle,
   buildStepDescription,
   buildStepTitle,
+  catalogLoadStateFromQuery,
   firstIncompleteStepId,
   isActivationDue,
   isBuildComplete,
   isSetupDataSourceApp,
   isSetupTokenGrantId,
   isWorkspaceWarm,
+  sessionApiTokenBoundToSelection,
   setupAppsConnected,
   setupAppsHasConnectable,
+  setupAppsStepComplete,
   setupDataSourceIntegrations,
   tokensIncludingSessionGrant,
   type BuildWorkspaceSnapshot,
@@ -53,20 +56,20 @@ const disconnectedIntegration: Integration = {
 };
 
 const mountOnlyIntegration: Integration = {
-  name: "oncall",
-  displayName: "Oncall",
-  description: "Oncall",
-  mountedPath: "/oncall",
+  name: "example-native",
+  displayName: "Example native",
+  description: "Example native",
+  mountedPath: "/example-native",
   credentialState: "not_required",
   status: "ready",
   connections: [],
 };
 
 const noAuthIntegration: Integration = {
-  name: "g-issues",
-  displayName: "Issues",
-  description: "Issues",
-  mountedPath: "/g-issues",
+  name: "example-public",
+  displayName: "Example public",
+  description: "Example public",
+  mountedPath: "/example-public",
   credentialState: "not_required",
   status: "ready",
   connections: [
@@ -150,6 +153,7 @@ function completeSnapshot(
   return {
     integrations: [connectedIntegration],
     tokens: [token],
+    catalogLoadState: "ready",
     activeExemplarId: "aiSpendTracker",
     mcpInstalled: true,
     apiToken: "gst_x",
@@ -213,6 +217,31 @@ describe("isBuildComplete", () => {
       ),
     ).toBe(false);
   });
+
+  test("is incomplete until an assistant is chosen", () => {
+    expect(isBuildComplete(completeSnapshot({ installAgentId: "" }))).toBe(
+      false,
+    );
+  });
+
+  test("is incomplete when the catalog has not loaded, even if the list is empty", () => {
+    expect(
+      isBuildComplete(
+        completeSnapshot({
+          integrations: [],
+          catalogLoadState: "pending",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isBuildComplete(
+        completeSnapshot({
+          integrations: [],
+          catalogLoadState: "failed",
+        }),
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("firstIncompleteStepId", () => {
@@ -220,6 +249,20 @@ describe("firstIncompleteStepId", () => {
     expect(firstIncompleteStepId(completeSnapshot({ welcomeSeen: false }))).toBe(
       "welcome",
     );
+  });
+
+  test("stops at assistant until an assistant is chosen", () => {
+    expect(
+      firstIncompleteStepId(
+        completeSnapshot({
+          installAgentId: "",
+          selectedTokenId: "",
+          apiToken: "",
+          apiTokenGrantId: "",
+          mcpInstalled: false,
+        }),
+      ),
+    ).toBe("assistant");
   });
 
   test("stops at token until a token is chosen", () => {
@@ -246,6 +289,18 @@ describe("firstIncompleteStepId", () => {
       firstIncompleteStepId(
         completeSnapshot({
           integrations: [disconnectedIntegration],
+          trySeen: false,
+        }),
+      ),
+    ).toBe("apps");
+  });
+
+  test("stops at apps when the catalog failed to load", () => {
+    expect(
+      firstIncompleteStepId(
+        completeSnapshot({
+          integrations: [],
+          catalogLoadState: "failed",
           trySeen: false,
         }),
       ),
@@ -324,6 +379,42 @@ describe("setup data-source apps", () => {
       }),
     ).toBe(true);
   });
+
+  test("does not complete Connect apps until a successful catalog load", () => {
+    expect(
+      setupAppsStepComplete({
+        integrations: [],
+        catalogLoadState: "pending",
+      }),
+    ).toBe(false);
+    expect(
+      setupAppsStepComplete({
+        integrations: [],
+        catalogLoadState: "failed",
+      }),
+    ).toBe(false);
+    expect(
+      setupAppsStepComplete({
+        integrations: [],
+        catalogLoadState: "ready",
+      }),
+    ).toBe(true);
+    expect(
+      setupAppsStepComplete({
+        integrations: [connectedIntegration],
+        catalogLoadState: "failed",
+      }),
+    ).toBe(true);
+    expect(catalogLoadStateFromQuery({ isPending: true, isError: false })).toBe(
+      "pending",
+    );
+    expect(catalogLoadStateFromQuery({ isPending: false, isError: true })).toBe(
+      "failed",
+    );
+    expect(catalogLoadStateFromQuery({ isPending: false, isError: false })).toBe(
+      "ready",
+    );
+  });
 });
 
 describe("buildAuthorizeSelectionReady", () => {
@@ -355,6 +446,20 @@ describe("buildAuthorizeSelectionReady", () => {
         selectedTokenId: "tok_1",
       }),
     ).toBe(false);
+  });
+});
+
+describe("sessionApiTokenBoundToSelection", () => {
+  test("keeps plaintext only when it is bound to the selected grant", () => {
+    expect(sessionApiTokenBoundToSelection("tok_1", "tok_1")).toBe(true);
+    expect(sessionApiTokenBoundToSelection("tok_1", "tok_2")).toBe(false);
+    expect(sessionApiTokenBoundToSelection("tok_1", "new")).toBe(false);
+  });
+
+  test("never treats an unbound secret as matching a selection", () => {
+    expect(sessionApiTokenBoundToSelection("", "tok_1")).toBe(false);
+    expect(sessionApiTokenBoundToSelection("", "new")).toBe(false);
+    expect(sessionApiTokenBoundToSelection("  ", "  ")).toBe(false);
   });
 });
 

@@ -582,6 +582,82 @@ export async function enableSetupActivationPrompt(page: Page) {
   );
 }
 
+const SETUP_SESSION_API_TOKEN = "gst_api_test_token_for_install";
+
+export type SetupSessionSeed = {
+  introSeen?: boolean;
+  installAgent?: string;
+  selectedTokenId?: string;
+  apiToken?: string;
+  apiTokenGrantId?: string;
+  /**
+   * Bind plaintext to `selectedTokenId`. Defaults to true when a grant id is
+   * set, so resume fixtures satisfy the token-step credential contract.
+   */
+  bindCredential?: boolean;
+  mcpInstalled?: boolean;
+  activeExemplarId?: string;
+  trySeen?: boolean;
+  tokenName?: string;
+};
+
+/** Seed Setup sessionStorage so later steps can resume past earlier gates. */
+export async function seedSetupSession(page: Page, seed: SetupSessionSeed) {
+  await page.addInitScript(
+    (s: SetupSessionSeed & { defaultToken: string }) => {
+      if (s.introSeen) {
+        sessionStorage.setItem("gestalt.build.introSeen", "1");
+      }
+      if (s.installAgent) {
+        sessionStorage.setItem("gestalt.build.installAgent", s.installAgent);
+      }
+      if (s.selectedTokenId) {
+        sessionStorage.setItem(
+          "gestalt.build.selectedTokenId",
+          s.selectedTokenId,
+        );
+      }
+      const bind = s.bindCredential ?? Boolean(s.selectedTokenId);
+      if (bind && s.selectedTokenId) {
+        sessionStorage.setItem(
+          "gestalt.build.apiTokenGrantId",
+          s.apiTokenGrantId ?? s.selectedTokenId,
+        );
+        sessionStorage.setItem(
+          "gestalt.build.apiToken",
+          s.apiToken ?? s.defaultToken,
+        );
+      } else {
+        if (s.apiTokenGrantId) {
+          sessionStorage.setItem(
+            "gestalt.build.apiTokenGrantId",
+            s.apiTokenGrantId,
+          );
+        }
+        if (s.apiToken) {
+          sessionStorage.setItem("gestalt.build.apiToken", s.apiToken);
+        }
+      }
+      if (s.mcpInstalled) {
+        sessionStorage.setItem("gestalt.build.mcpInstalled", "1");
+      }
+      if (s.activeExemplarId) {
+        sessionStorage.setItem(
+          "gestalt.build.activeExemplarId",
+          s.activeExemplarId,
+        );
+      }
+      if (s.trySeen) {
+        sessionStorage.setItem("gestalt.build.trySeen", "1");
+      }
+      if (s.tokenName) {
+        sessionStorage.setItem("gestalt.build.tokenName", s.tokenName);
+      }
+    },
+    { ...seed, defaultToken: SETUP_SESSION_API_TOKEN },
+  );
+}
+
 export const test = base.extend<CustomFixtures>({
   page: async ({ page }, use) => {
     await page.addInitScript(

@@ -9,6 +9,7 @@ import {
   readStoredSelectedTokenId,
   readStoredTokenName,
   readStoredInstallAgent,
+  sessionApiTokenBoundToSelection,
   writeActiveExemplarId,
   writeIntroSeenFlag,
   writeMcpInstalledFlag,
@@ -75,13 +76,16 @@ export function useBuildSession(): BuildSession {
   }, []);
 
   const clearApiTokenUnlessGrant = useCallback((grantId: string) => {
-    const bound = readStoredApiTokenGrantId();
-    if (bound && bound !== grantId) {
-      writeStoredApiToken("");
-      writeStoredApiTokenGrantId("");
-      setApiTokenState("");
-      setApiTokenGrantIdState("");
+    if (sessionApiTokenBoundToSelection(readStoredApiTokenGrantId(), grantId)) {
+      return;
     }
+    if (!readStoredApiToken() && !readStoredApiTokenGrantId()) {
+      return;
+    }
+    writeStoredApiToken("");
+    writeStoredApiTokenGrantId("");
+    setApiTokenState("");
+    setApiTokenGrantIdState("");
   }, []);
 
   const setTokenName = useCallback((name: string) => {
