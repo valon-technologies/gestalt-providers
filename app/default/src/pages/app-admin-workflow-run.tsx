@@ -247,7 +247,7 @@ export default function AppAdminWorkflowRunPage() {
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-sm font-medium text-foreground">
-                        {event.type || "event"}
+                        {event.type || "Unknown event"}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {formatDate(event.createdAt)}
@@ -255,7 +255,7 @@ export default function AppAdminWorkflowRunPage() {
                     </div>
                     {event.stepId ? (
                       <p className="mt-1 font-mono text-xs text-muted-foreground">
-                        step {event.stepId}
+                        Step {event.stepId}
                       </p>
                     ) : null}
                     {hasJSONValue(event.data) ? (

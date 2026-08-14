@@ -366,8 +366,7 @@ test.describe("App admin workflows", () => {
     ).toHaveCount(0);
 
     await page.goto(`/apps/${SLACK_APP}/admin/workflows/definitions`);
-    await expect(page).toHaveURL(/\/admin\/workflows(?:\?group=definition)?$/);
-    await page.goto(`/apps/${SLACK_APP}/admin/workflows?group=definition`);
+    await expect(page).toHaveURL(/\/admin\/workflows\?group=definition/);
     await expect(
       page.getByTestId("app-workflow-run-group-header-app_slack_notify"),
     ).toBeVisible();
@@ -472,8 +471,7 @@ test.describe("App admin workflows", () => {
     ]);
 
     await page.goto(`/apps/${SLACK_APP}/admin/workflows/definitions`);
-    await expect(page).toHaveURL(/\/admin\/workflows(?:\?group=definition)?$/);
-    await page.goto(`/apps/${SLACK_APP}/admin/workflows?group=definition`);
+    await expect(page).toHaveURL(/\/admin\/workflows\?group=definition/);
     await expect(
       page.getByTestId("app-workflow-run-group-header-app_slack_notify"),
     ).toBeVisible();

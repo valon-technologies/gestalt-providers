@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Calendar, ChevronRight, Timer } from "lucide-react";
 import type { WorkflowRun } from "@/lib/api";
@@ -110,19 +110,64 @@ export function WorkflowGroupedDefinitionRunsList({
   activityDefinitionIds,
   status,
   listQuery,
+  onClearFilters,
 }: {
   appName: string;
   definitionIds: readonly string[];
-  activityDefinitionIds?: readonly string[];
+  activityDefinitionIds: readonly string[];
   status?: string;
   listQuery: WorkflowRunsListQuery;
+  onClearFilters: () => void;
 }) {
+  const filtersActive = workflowRunsListQueryIsActive(listQuery);
   const activityIds = useMemo(
-    () => new Set(activityDefinitionIds?.map((id) => id.trim()).filter(Boolean)),
+    () => new Set(activityDefinitionIds.map((id) => id.trim()).filter(Boolean)),
     [activityDefinitionIds],
   );
+  const [omittedIds, setOmittedIds] = useState<Set<string>>(() => new Set());
+  const definitionKey = definitionIds.join("\0");
+  const filterKey = `${listQuery.q}\0${listQuery.statuses.join(",")}\0${listQuery.definitionId ?? ""}`;
+
+  useEffect(() => {
+    setOmittedIds(new Set());
+  }, [definitionKey, filterKey]);
+
+  const reportOmitted = useCallback((id: string, omitted: boolean) => {
+    setOmittedIds((prev) => {
+      const has = prev.has(id);
+      if (omitted === has) return prev;
+      const next = new Set(prev);
+      if (omitted) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const allOmitted =
+    filtersActive &&
+    definitionIds.length > 0 &&
+    definitionIds.every((id) => omittedIds.has(id));
+
   return (
     <SearchHighlightProvider query={listQuery.q}>
+      {allOmitted ? (
+        <div
+          className="flex flex-col items-start gap-3"
+          data-testid="app-workflows-filtered-empty"
+        >
+          <p className="text-sm text-muted-foreground">
+            No workflow runs match the current filters.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onClearFilters}
+          >
+            Clear filters
+          </Button>
+        </div>
+      ) : null}
       <div data-testid="app-workflow-run-list-grouped">
         {definitionIds.map((definitionId) => (
           <WorkflowDefinitionRunsSection
@@ -135,6 +180,9 @@ export function WorkflowGroupedDefinitionRunsList({
             }
             status={status}
             listQuery={listQuery}
+            filtersActive={filtersActive}
+            onClearFilters={onClearFilters}
+            onOmittedChange={reportOmitted}
           />
         ))}
       </div>
@@ -177,12 +225,18 @@ function WorkflowDefinitionRunsSection({
   defaultOpen,
   status,
   listQuery,
+  filtersActive,
+  onClearFilters,
+  onOmittedChange,
 }: {
   appName: string;
   definitionId: string;
   defaultOpen: boolean;
   status?: string;
   listQuery: WorkflowRunsListQuery;
+  filtersActive: boolean;
+  onClearFilters: () => void;
+  onOmittedChange: (id: string, omitted: boolean) => void;
 }) {
   const [groupOpen, setGroupOpen] = useWorkflowDefinitionGroupOpen(
     appName,
@@ -193,6 +247,7 @@ function WorkflowDefinitionRunsSection({
     status,
     definitionId,
     pageSize: GROUPED_RUNS_PAGE_SIZE,
+    enabled: groupOpen || filtersActive,
   });
   const runs = useMemo(
     () => runsQuery.data?.pages.flatMap((page) => page.runs) ?? [],
@@ -213,22 +268,25 @@ function WorkflowDefinitionRunsSection({
     () => pickWorkflowRunListAggregates(runsQuery.data?.pages ?? []),
     [runsQuery.data?.pages],
   );
-  const loading = runsQuery.isPending;
+  const loading = runsQuery.isLoading;
   const loadingMore = runsQuery.isFetchingNextPage;
   const hasMoreRuns = workflowListHasMorePages({
     hasNextPage: Boolean(runsQuery.hasNextPage),
     loadedCount: runs.length,
     totalCount: aggregates.totalCount,
   });
-  const runCountLabel = workflowDefinitionRunCountLabel({
-    loading,
-    loadedCount: filteredRuns.length,
-    totalCount: workflowVisibleRunTotalCount(
-      listQuery,
-      aggregates.totalCount,
-    ),
-    hasMore: hasMoreRuns,
-  });
+  const runCountLabel =
+    !runsQuery.isFetched && !groupOpen
+      ? ""
+      : workflowDefinitionRunCountLabel({
+          loading: groupOpen && loading,
+          loadedCount: filteredRuns.length,
+          totalCount: workflowVisibleRunTotalCount(
+            listQuery,
+            aggregates.totalCount,
+          ),
+          hasMore: hasMoreRuns,
+        });
   const toggleLabel = `Toggle runs for ${definitionId}`;
   const groupStatus = rollupWorkflowRunGroupHeaderStatus({
     clientOnlyFilters: workflowRunsListQueryUsesClientOnlyFilters({
@@ -250,6 +308,24 @@ function WorkflowDefinitionRunsSection({
     : null;
   const filteredEmpty = filteredRuns.length === 0;
   const hasListFilters = workflowRunsListQueryIsActive(listQuery);
+  const omit =
+    filtersActive &&
+    !loading &&
+    !runsError &&
+    filteredEmpty &&
+    !hasMoreRuns;
+
+  useEffect(() => {
+    onOmittedChange(definitionId, omit);
+  }, [definitionId, omit, onOmittedChange]);
+
+  useEffect(() => {
+    if (filtersActive && !filteredEmpty && !groupOpen) {
+      setGroupOpen(true);
+    }
+  }, [filtersActive, filteredEmpty, groupOpen, setGroupOpen]);
+
+  if (omit) return null;
 
   return (
     <section
@@ -279,7 +355,7 @@ function WorkflowDefinitionRunsSection({
               aria-label={toggleLabel}
               className="size-control-sm w-control-sm max-w-control-sm justify-center gap-0 p-0 [&[data-state=open]>svg]:rotate-90"
             >
-              <ChevronRight className="size-4 text-muted-foreground transition-transform duration-hover-out ease-out-quart" />
+              <ChevronRight className="size-4 text-muted-foreground transition-transform duration-hover-out ease-out-quart motion-reduce:transition-none" />
             </CollapsibleTrigger>
           </Button>
 
@@ -330,13 +406,25 @@ function WorkflowDefinitionRunsSection({
                 retrying={runsQuery.isFetching && !runsQuery.isPending}
               />
             ) : filteredEmpty ? (
-              <p className="text-sm text-muted-foreground">
-                {hasMoreRuns
-                  ? "No matching runs in the loaded page. Load more runs, or clear filters."
-                  : hasListFilters
-                    ? "No runs for this definition match the current filters."
-                    : "No runs for this definition yet."}
-              </p>
+              <div className="flex flex-col items-start gap-3">
+                <p className="text-sm text-muted-foreground">
+                  {hasMoreRuns
+                    ? "No matching runs loaded so far. Load more runs, or clear filters."
+                    : hasListFilters
+                      ? "No runs for this definition match the current filters."
+                      : "No runs for this definition yet."}
+                </p>
+                {hasListFilters ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={onClearFilters}
+                  >
+                    Clear filters
+                  </Button>
+                ) : null}
+              </div>
             ) : (
               <Card variant="outline" className="overflow-hidden">
                 <ItemGroup aria-label={`Runs for ${definitionId}`}>
@@ -413,6 +501,9 @@ function WorkflowGhaRunRow({
             to="/apps/$app/admin/workflows/runs/$runId"
             params={{ app: appName, runId: workflowRunPathId(run.id) }}
             data-row-link=""
+            aria-label={
+              showDefinitionTitle ? `${title}, run ${runIdLabel}` : runIdLabel
+            }
             className={cn(
               "min-w-0 truncate font-medium text-foreground no-underline",
               "after:absolute after:inset-0 after:z-[1] after:rounded-[inherit] after:content-['']",

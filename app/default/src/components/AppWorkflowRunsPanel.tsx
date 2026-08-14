@@ -240,6 +240,7 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
                 activityDefinitionIds={runDefinitionIds}
                 status={serverStatus}
                 listQuery={listQuery}
+                onClearFilters={clearListQuery}
               />
             ) : definitionsQuery.isPending || runsQuery.isPending ? (
               <p className="text-sm text-muted-foreground/70">

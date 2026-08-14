@@ -134,7 +134,7 @@ export default function AppAdminWorkflowDefinitionPage() {
     : setPausedMutation.error
       ? userFacingError(
           setPausedMutation.error,
-          "Unable to update pause state. Try again.",
+          "Unable to pause or resume this definition. Try again.",
         )
       : setActivationPausedMutation.error
         ? userFacingError(
