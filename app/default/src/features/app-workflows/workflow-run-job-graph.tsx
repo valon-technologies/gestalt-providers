@@ -142,7 +142,7 @@ function GraphTreeItemLabel({
             jobId: data.jobId,
             stepId: data.stepId,
           }}
-          className="flex min-w-0 flex-1 items-center gap-1.5"
+          className="flex min-h-6 min-w-0 flex-1 items-center gap-1.5"
           data-testid={`workflow-step-${data.stepId}`}
           data-row-link=""
         >

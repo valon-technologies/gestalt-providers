@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Calendar, ChevronRight, Timer } from "lucide-react";
 import type { WorkflowRun } from "@/lib/api";
@@ -53,7 +53,6 @@ import {
 } from "./workflow-format";
 import { rollupWorkflowRunGroupHeaderStatus, shouldExpandGroupForVisibleMatches } from "./workflow-runs-group";
 import { useWorkflowDefinitionGroupOpen } from "./workflow-runs-group-disclosure";
-import { useStickyStuck } from "./workflow-runs-sticky-stuck";
 import {
   applyWorkflowRunsListQuery,
   workflowDefinitionRunCountLabel,
@@ -300,8 +299,6 @@ function WorkflowDefinitionRunsSection({
     statusCounts: aggregates.statusCounts,
   });
   const headingId = `workflow-run-group-${definitionId}`;
-  const headerRef = useRef<HTMLDivElement>(null);
-  const headerStuck = useStickyStuck(headerRef, groupOpen);
   const runsError = runsQuery.error
     ? userFacingError(
         runsQuery.error,
@@ -347,9 +344,7 @@ function WorkflowDefinitionRunsSection({
       >
         {/* Sticky flush under app chrome so a long group keeps its definition. */}
         <div
-          ref={headerRef}
-          className="sticky top-[calc(var(--page-layout-mobile-nav-top)+var(--page-layout-mobile-nav-height))] z-20 isolate flex items-center gap-1 border-b border-transparent bg-background pt-6 pb-4 data-[stuck=true]:border-border lg:top-[var(--app-sticky-chrome-height)]"
-          data-stuck={headerStuck ? "true" : undefined}
+          className="sticky top-[calc(var(--page-layout-mobile-nav-top)+var(--page-layout-mobile-nav-height))] z-20 isolate flex items-center gap-1 border-b border-border bg-background pt-6 pb-4 lg:top-[var(--app-sticky-chrome-height)]"
           data-testid={`app-workflow-run-group-header-${definitionId}`}
         >
           <Button
@@ -402,7 +397,7 @@ function WorkflowDefinitionRunsSection({
           {/* pb-6 above the rule matches the next header's pt-6. */}
           <div className="space-y-2 border-b border-border pb-6 pl-[calc(var(--size-control-sm)+0.25rem)]">
             {loading ? (
-              <p className="text-sm text-muted-foreground/70">
+              <p className="text-sm text-muted-foreground">
                 Loading runs…
               </p>
             ) : runsError ? (
@@ -510,7 +505,9 @@ function WorkflowGhaRunRow({
             params={{ app: appName, runId: workflowRunPathId(run.id) }}
             data-row-link=""
             aria-label={
-              showDefinitionTitle ? `${title}, run ${runIdLabel}` : runIdLabel
+              showDefinitionTitle
+                ? `Open ${title} run ${runIdLabel}`
+                : `Open workflow run ${runIdLabel}`
             }
             className={cn(
               "min-w-0 truncate font-medium text-foreground no-underline",

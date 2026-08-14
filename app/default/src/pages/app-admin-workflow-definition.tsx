@@ -175,14 +175,18 @@ export default function AppAdminWorkflowDefinitionPage() {
 
   async function handleStartRun() {
     if (!definition || mutating) return;
-    const run = await startRunMutation.mutateAsync({
-      definitionId: definition.id,
-      definition,
-    });
-    await navigate({
-      to: "/apps/$app/admin/workflows/runs/$runId",
-      params: { app, runId: workflowRunPathId(run.id) },
-    });
+    try {
+      const run = await startRunMutation.mutateAsync({
+        definitionId: definition.id,
+        definition,
+      });
+      await navigate({
+        to: "/apps/$app/admin/workflows/runs/$runId",
+        params: { app, runId: workflowRunPathId(run.id) },
+      });
+    } catch {
+      // Surface the mutation or navigation failure in the page state.
+    }
   }
 
   function handleToggleDefinitionPaused() {
@@ -206,15 +210,20 @@ export default function AppAdminWorkflowDefinitionPage() {
 
   async function handleDeleteDefinition() {
     if (!definition || mutating) return;
-    await deleteMutation.mutateAsync({
-      definitionId: definition.id,
-      provider: definition.provider,
-    });
-    setDeleteDialogOpen(false);
-    await navigate({
-      to: "/apps/$app/admin/workflows",
-      params: { app },
-    });
+    try {
+      await deleteMutation.mutateAsync({
+        definitionId: definition.id,
+        provider: definition.provider,
+      });
+      setDeleteDialogOpen(false);
+      await navigate({
+        to: "/apps/$app/admin/workflows",
+        params: { app },
+      });
+    } catch {
+      // Close the dialog so the page-level error state remains visible.
+      setDeleteDialogOpen(false);
+    }
   }
 
   return (

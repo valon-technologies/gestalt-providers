@@ -287,7 +287,7 @@ export function WorkflowRunsFilters({
                       setDefinitionOpen(false);
                     }}
                   >
-                    Clear definition
+                    Clear definition filter
                   </Button>
                 </div>
               ) : null}

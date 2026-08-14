@@ -118,7 +118,7 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
   const definitionsError = definitionsQuery.error
     ? userFacingError(
         definitionsQuery.error,
-        "Couldn't load workflow runs. Try again.",
+        "Couldn't load workflow definitions. Try again.",
       )
     : null;
   const catalogError = runsError ?? definitionsError;
@@ -271,7 +271,6 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
           ) : (
             <RunsList
               runs={filteredRuns}
-              totalRuns={runs.length}
               hasFilters={hasFilters}
               appName={appName}
               highlightQuery={listQuery.q}
@@ -317,7 +316,7 @@ function EmptyRunsState({ appName }: { appName: string }) {
         <li>
           <Link asChild>
             <RouterLink to="/apps/$app/operations" params={{ app: appName }}>
-              View operations
+              View the operations
             </RouterLink>
           </Link>{" "}
           this app can run
@@ -329,7 +328,6 @@ function EmptyRunsState({ appName }: { appName: string }) {
 
 function RunsList({
   runs,
-  totalRuns,
   hasFilters,
   appName,
   highlightQuery,
@@ -339,7 +337,6 @@ function RunsList({
   onLoadMore,
 }: {
   runs: WorkflowRun[];
-  totalRuns: number;
   hasFilters: boolean;
   appName: string;
   highlightQuery: string;
@@ -349,7 +346,7 @@ function RunsList({
   onLoadMore: () => void;
 }) {
   if (runs.length === 0) {
-    if (totalRuns > 0 && hasFilters) {
+    if (hasFilters) {
       return (
         <div
           className="flex flex-col items-start gap-3"

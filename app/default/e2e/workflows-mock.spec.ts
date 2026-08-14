@@ -218,12 +218,12 @@ test.describe("App admin workflows", () => {
 
     await openSlackWorkflows(page);
 
-    await expect(page.getByTestId("app-admin-nav-workflows")).toHaveClass(/font-medium/);
+    await expect(page.getByTestId("app-apps-nav-workflows")).toHaveClass(/font-medium/);
     await expect(
       page.getByRole("link", { name: /datadog\.monitors\.get \(\+2\)/i }),
     ).toBeVisible();
     await expect(
-      page.getByLabel("All workflow runs").getByText("incident_triage"),
+      page.getByTestId("app-workflow-run-run_123"),
     ).toBeVisible();
     await expect(
       page.getByLabel("All workflow runs").getByText("event:datadog_alert"),
@@ -301,7 +301,9 @@ test.describe("App admin workflows", () => {
         "This run can't be canceled because it already started. Refresh to see the latest status.",
       ),
     ).toBeVisible();
-    await expect(page.getByText("run_pending")).toBeVisible();
+    await expect(
+      page.getByLabel("Workflow run").getByText("run_pending"),
+    ).toBeVisible();
     await expect(page.getByRole("button", { name: "Cancel run" })).toBeVisible();
   });
 

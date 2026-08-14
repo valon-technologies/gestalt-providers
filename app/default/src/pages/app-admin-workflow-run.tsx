@@ -52,10 +52,14 @@ export default function AppAdminWorkflowRunPage() {
   const { app, runId: routeRunId } = useParams({
     from: "/apps/$app/admin/workflows/runs/$runId",
   });
-  const { publicRunId, listRun, pathRunId } = useResolvedWorkflowRunRoute(
-    app,
-    routeRunId,
-  );
+  const {
+    publicRunId,
+    listRun,
+    pathRunId,
+    discoveryPending,
+    discoveryError,
+    retryDiscovery,
+  } = useResolvedWorkflowRunRoute(app, routeRunId);
 
   const detailQuery = useWorkflowRunQuery(app, publicRunId, listRun);
   const eventsQuery = useWorkflowRunEventsQuery(app, publicRunId, listRun);
@@ -82,6 +86,11 @@ export default function AppAdminWorkflowRunPage() {
         "Unable to load this workflow run. Try again.",
       )
     : null;
+  const pageError = !run && discoveryError ? discoveryError : detailError;
+  const retryPage = discoveryError ? retryDiscovery : refresh;
+  const retryingPage = discoveryError
+    ? discoveryPending
+    : detailQuery.isFetching;
   const actionError = cancelMutation.error
     ? userFacingError(
         cancelMutation.error,
@@ -167,15 +176,17 @@ export default function AppAdminWorkflowRunPage() {
         </CopyableCode>
       </div>
 
-      {!run && detailLoading ? (
-        <p className="text-sm text-muted-foreground/70">Loading workflow run…</p>
+      {!run && discoveryPending ? (
+        <p className="text-sm text-muted-foreground">
+          Finding this workflow run…
+        </p>
       ) : null}
 
-      {detailError ? (
+      {pageError ? (
         <ErrorNotice
-          message={detailError}
-          onRetry={refresh}
-          retrying={detailQuery.isFetching}
+          message={pageError}
+          onRetry={retryPage}
+          retrying={retryingPage}
         />
       ) : null}
 
@@ -193,7 +204,7 @@ export default function AppAdminWorkflowRunPage() {
           ) : null}
 
           {detailLoading ? (
-            <p className="text-sm text-muted-foreground/70">Loading details…</p>
+            <p className="text-sm text-muted-foreground">Loading details…</p>
           ) : null}
 
           <WorkflowRunJobGraph
@@ -213,6 +224,36 @@ export default function AppAdminWorkflowRunPage() {
             durationMs={graph.durationMs}
           />
 
+          {fetchDedicatedOutput && !hasJSONValue(displayOutput) ? (
+            <section className="space-y-3" aria-label="Run output">
+              <SectionHeader>
+                <SectionHeaderContent size="sm">
+                  <SectionHeaderTitle as="h3">Output</SectionHeaderTitle>
+                </SectionHeaderContent>
+              </SectionHeader>
+              {outputQuery.isPending ? (
+                <p className="text-sm text-muted-foreground">
+                  Loading workflow output…
+                </p>
+              ) : outputQuery.error ? (
+                <ErrorNotice
+                  message={userFacingError(
+                    outputQuery.error,
+                    "Couldn't load workflow output. Try again.",
+                  )}
+                  onRetry={() => {
+                    void outputQuery.refetch();
+                  }}
+                  retrying={outputQuery.isFetching}
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No output was returned for this run.
+                </p>
+              )}
+            </section>
+          ) : null}
+
           <section className="space-y-3" aria-label="Run events">
             <SectionHeader>
               <SectionHeaderContent size="sm">
@@ -220,7 +261,7 @@ export default function AppAdminWorkflowRunPage() {
               </SectionHeaderContent>
             </SectionHeader>
             {eventsQuery.isPending ? (
-              <p className="text-sm text-muted-foreground/70">
+              <p className="text-sm text-muted-foreground">
                 Loading run events…
               </p>
             ) : eventsQuery.error ? (
@@ -235,7 +276,7 @@ export default function AppAdminWorkflowRunPage() {
                 retrying={eventsQuery.isFetching && !eventsQuery.isPending}
               />
             ) : events.length === 0 ? (
-              <p className="text-sm text-muted-foreground/70">
+              <p className="text-sm text-muted-foreground">
                 No events recorded for this run yet.
               </p>
             ) : (

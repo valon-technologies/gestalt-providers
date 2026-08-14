@@ -4,6 +4,7 @@ import {
   useWorkflowRunSummaries,
   useWorkflowRunsQuery,
 } from "@/lib/queries";
+import { userFacingError } from "@/lib/user-facing-error";
 import {
   decodeTemporalRunHandle,
   rememberWorkflowRunPublicId,
@@ -153,5 +154,20 @@ export function useResolvedWorkflowRunRoute(app: string, routeRunId: string) {
     publicRunId,
     listRun: listRun ?? undefined,
     pathRunId: publicRunId ? workflowRunPathId(publicRunId) : routeRunId,
+    discoveryPending:
+      needsDiscovery &&
+      (discovery.isPending ||
+        discovery.isFetching ||
+        discovery.isFetchingNextPage),
+    discoveryError:
+      needsDiscovery && discovery.error
+        ? userFacingError(
+            discovery.error,
+            "Couldn't find this workflow run. Try again.",
+          )
+        : null,
+    retryDiscovery: () => {
+      void discovery.refetch();
+    },
   };
 }
