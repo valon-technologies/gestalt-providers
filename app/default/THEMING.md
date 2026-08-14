@@ -253,5 +253,3 @@ empty stub, and tenant themes arrive at serve time via `theme.css`.
   `public/fonts/OFL-*.txt`; same branding as gestalt/docs). Commercially
   licensed fonts may not live in this public repo — tenant themes deliver
   them via `@font-face` against `/theme/fonts/…` (`theme.assetsDir`).
-- The admin shell (`public/admin/`) embeds its own copy of `theme.css` and
-  its own font pipeline; it must be re-themed separately.

@@ -130,6 +130,9 @@ export default defineConfig(({ mode }) => {
         ? undefined
         : {
             "/api": nativeApiProxy(backendOrigin),
+            // Admin JSON APIs live under /admin/api, not /api. Do not proxy
+            // `/admin` itself: that is this SPA.
+            "/admin/api": nativeApiProxy(backendOrigin),
             "/theme.css": nativeApiProxy(backendOrigin),
             "/theme/": nativeApiProxy(backendOrigin),
           },

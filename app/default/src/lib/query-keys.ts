@@ -20,6 +20,19 @@ export const queryKeys = {
     history: (app: string) => ["app-admin", app, "history"] as const,
     members: (app: string) => ["app-admin", app, "members"] as const,
     identities: (app: string) => ["app-admin", app, "identities"] as const,
+    metrics: (app: string) => ["app-admin", app, "metrics"] as const,
+  },
+  admin: {
+    root: ["admin"] as const,
+    access: () => ["admin", "access"] as const,
+    platformAdmins: () => ["admin", "platform-admins"] as const,
+    metrics: () => ["admin", "metrics"] as const,
+    versions: () => ["admin", "versions"] as const,
+    version: (app: string) => ["admin", "versions", app] as const,
+  },
+  authorization: {
+    root: ["authorization"] as const,
+    resourceTypes: () => ["authorization", "resource-types"] as const,
   },
   workflows: {
     root: ["workflows"] as const,

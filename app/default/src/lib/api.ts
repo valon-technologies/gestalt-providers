@@ -1,3 +1,4 @@
+import { isAdminMetricsScrapeText } from "./admin-metrics-response";
 import { clearSession } from "./auth";
 import { HTTP_UNAUTHORIZED } from "./constants";
 import { serverLoginURL } from "./authReturn";
@@ -977,7 +978,8 @@ export async function getAuthSession(): Promise<AuthSession> {
 }
 
 /**
- * App authorization member row — human/group grants on an app.
+ * App authorization member row from GET /api/v1/apps/{app}/admin/members.
+ * Humans are subject_id; groups are subject_set (e.g. group:eng#member).
  * Service-account grants live on AppAdminIdentity.
  */
 export interface AppAuthorizationMember {
@@ -990,6 +992,127 @@ export interface AppAuthorizationMember {
   selectorKind?: string;
   selectorValue?: string;
   subjectId?: string;
+}
+
+export interface AdminPlatformAdminsResponse {
+  resource: AuthorizationResource;
+  role: string;
+  members: AppAuthorizationMember[];
+}
+
+export interface AppAdminOperationMetric {
+  operation: string;
+  requests: number;
+  errors: number;
+  durationSecondsSum: number;
+  durationSecondsCount: number;
+}
+
+export interface AppAdminMetricsResponse {
+  app: string;
+  available: boolean;
+  requests: number;
+  errors: number;
+  durationSecondsSum: number;
+  durationSecondsCount: number;
+  operations: AppAdminOperationMetric[];
+}
+
+export interface AdminFleetState {
+  state: string;
+  sourceVersion?: string;
+  desiredVersion?: string;
+  minimumHealthyInstances: number;
+  liveInstances: number;
+  runningDesiredVersion: number;
+  mismatched: number;
+  errors: number;
+  heartbeatTtlSeconds: number;
+  evaluatedAt: string;
+}
+
+export interface AdminFleetReplica {
+  instanceId: string;
+  sourceVersion: string;
+  currentSource: boolean;
+  sourceStatus: "current" | "superseded" | "unavailable";
+  fresh: boolean;
+  startedAt?: string;
+  heartbeatAt: string;
+  heartbeatAgeSeconds: number;
+  appObservation: {
+    state: "running" | "starting" | "not_running" | "error" | "unknown";
+    desiredVersion?: string;
+    runningVersion?: string;
+    observedAt?: string;
+    lastError?: string;
+  };
+}
+
+export interface AdminRegistryAppSummary {
+  app: string;
+  registry: string;
+  desiredVersion?: string;
+  rollout?: {
+    version: string;
+    state: string;
+    targetSourceVersion?: string;
+    createdAt: string;
+    enrollmentEndsAt: string;
+    deadline: string;
+    completedAt?: string;
+    failedAt?: string;
+  };
+  cohort?: {
+    acknowledged: number;
+    materialized: number;
+    restarted: number;
+    failed: number;
+  };
+  fleetState: AdminFleetState;
+}
+
+export interface AdminRegistryAppDetail extends AdminRegistryAppSummary {
+  knownVersions: Array<{
+    version: string;
+    installedAt?: string;
+    installedBy?: string;
+  }>;
+  latestPublished?: {
+    version: string;
+    publishedAt: string;
+  };
+  freshReplicas: AdminFleetReplica[];
+  staleReplicas: AdminFleetReplica[];
+}
+
+export interface AuthorizationResource {
+  type: string;
+  id: string;
+}
+
+export interface AuthorizationSubject {
+  type: string;
+  id: string;
+}
+
+export interface AuthorizationRelationshipTarget {
+  subject?: AuthorizationSubject;
+  subjectSet?: {
+    resource: AuthorizationResource;
+    relation: string;
+  };
+}
+
+export interface AuthorizationRelationshipTuple {
+  resource: AuthorizationResource;
+  relation: string;
+  target: AuthorizationRelationshipTarget;
+}
+
+export interface AuthorizationResourceType {
+  name: string;
+  defaultRole?: string;
 }
 
 /**
@@ -1007,8 +1130,8 @@ export interface AppAdminIdentity {
 }
 
 /**
- * List humans (and selectors) with access to an app.
- * Requires admin authorization for the app; callers should handle 403.
+ * List humans and groups with access to an app.
+ * Requires app admin; callers should handle 403.
  */
 export async function getAppAuthorizationMembers(
   appName: string,
@@ -1032,6 +1155,56 @@ export async function getAppAdminIdentities(
   >(`/api/v1/apps/${encodeURIComponent(appName)}/admin/identities`);
   if (Array.isArray(response)) return response;
   return response.identities ?? [];
+}
+
+export async function listAuthorizationResourceTypes(): Promise<
+  AuthorizationResourceType[]
+> {
+  const types: AuthorizationResourceType[] = [];
+  let pageToken = "";
+  for (;;) {
+    const query = new URLSearchParams({ pageSize: "100" });
+    if (pageToken) query.set("pageToken", pageToken);
+    const response = await fetchAPI<{
+      resourceTypes?: Array<{ name?: string; defaultRole?: string; default_role?: string }>;
+      resource_types?: Array<{ name?: string; defaultRole?: string; default_role?: string }>;
+      nextPageToken?: string;
+      next_page_token?: string;
+    }>(`/api/v2/authorization/models/active/resource-types?${query}`);
+    const raw = response.resourceTypes ?? response.resource_types ?? [];
+    for (const item of raw) {
+      if (!item.name) continue;
+      types.push({
+        name: item.name,
+        defaultRole: item.defaultRole ?? item.default_role,
+      });
+    }
+    pageToken =
+      response.nextPageToken?.trim() ||
+      response.next_page_token?.trim() ||
+      "";
+    if (!pageToken) return types;
+  }
+}
+
+export async function addAuthorizationRelationship(
+  tuple: AuthorizationRelationshipTuple,
+): Promise<void> {
+  await fetchAPI("/api/v2/authorization/relationships", {
+    method: "POST",
+    body: JSON.stringify({
+      relationship: { tuple },
+    }),
+  });
+}
+
+export async function deleteAuthorizationRelationship(
+  tuple: AuthorizationRelationshipTuple,
+): Promise<void> {
+  await fetchAPI("/api/v2/authorization/relationships:delete", {
+    method: "POST",
+    body: JSON.stringify({ relationshipTuple: tuple }),
+  });
 }
 
 export async function logout(): Promise<void> {
@@ -1087,6 +1260,81 @@ export async function getAppAdminRegistryHistory(
   return fetchAPI<AppAdminRegistryHistoryResponse>(
     `/api/v1/apps/${encodeURIComponent(app)}/admin/registry/history${query ? `?${query}` : ""}`,
   );
+}
+
+export async function getAppAdminMetrics(
+  app: string,
+): Promise<AppAdminMetricsResponse> {
+  const response = await fetchAPI<AppAdminMetricsResponse>(
+    `/api/v1/apps/${encodeURIComponent(app)}/admin/metrics`,
+  );
+  return {
+    ...response,
+    operations: response.operations ?? [],
+  };
+}
+
+export async function getAdminPlatformAdmins(): Promise<AdminPlatformAdminsResponse> {
+  const response = await fetchAPI<
+    AdminPlatformAdminsResponse & { members?: AppAuthorizationMember[] }
+  >("/admin/api/v1/platform-admins");
+  return {
+    resource: response.resource,
+    role: response.role,
+    members: response.members ?? [],
+  };
+}
+
+export async function listAdminRegistryApps(): Promise<AdminRegistryAppSummary[]> {
+  return fetchAPI<AdminRegistryAppSummary[]>("/admin/api/v1/registry-apps");
+}
+
+export async function getAdminRegistryApp(
+  app: string,
+): Promise<AdminRegistryAppDetail> {
+  const detail = await fetchAPI<AdminRegistryAppDetail>(
+    `/admin/api/v1/registry-apps/${encodeURIComponent(app)}`,
+  );
+  return {
+    ...detail,
+    knownVersions: detail.knownVersions ?? [],
+    freshReplicas: detail.freshReplicas ?? [],
+    staleReplicas: detail.staleReplicas ?? [],
+  };
+}
+
+export async function getAdminMetricsText(): Promise<string> {
+  const res = await fetch(resolveAPIPath("/admin/api/v1/metrics"), {
+    credentials: "include",
+    cache: "no-store",
+    headers: { Accept: "text/plain" },
+  });
+  if (res.status === HTTP_UNAUTHORIZED) {
+    redirectToLogin();
+    throw new APIError(HTTP_UNAUTHORIZED, "Session expired");
+  }
+  if (!res.ok) {
+    const body = await res.text();
+    let message =
+      res.status === 503
+        ? "Prometheus metrics are unavailable."
+        : "Couldn't load metrics.";
+    try {
+      const parsed = JSON.parse(body) as { error?: unknown };
+      if (typeof parsed.error === "string" && parsed.error.trim()) {
+        message = parsed.error;
+      }
+    } catch {
+      /* keep fallback */
+    }
+    throw new APIError(res.status, message);
+  }
+  const body = await res.text();
+  const contentType = res.headers.get("content-type") || "";
+  if (!isAdminMetricsScrapeText(contentType, body)) {
+    throw new APIError(503, "Metrics are unavailable on this server.");
+  }
+  return body;
 }
 
 export async function getIntegrationOperations(

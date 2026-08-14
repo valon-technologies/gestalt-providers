@@ -18,6 +18,7 @@ import {
   SectionHeaderTitle,
 } from "@/components/ui/section-header";
 import { SpinnerIcon } from "@/components/icons";
+import { APP_ACCESS_NAV_LABEL } from "@/features/admin-access/admin-access-copy";
 import { useAppWorkspace } from "@/features/app-workspace/app-workspace-context";
 import {
   rolesForMembers,
@@ -28,7 +29,12 @@ import {
   SERVICE_ACCOUNTS_ROUTE,
 } from "@/features/app-workspace/app-agent-identity-presentation";
 import { partitionAppMembers } from "@/features/app-workspace/app-workspace-shared";
-import { useAppAuthorizationMembersQuery } from "@/lib/queries";
+import { sessionDisplayLabel } from "@/lib/auth";
+import {
+  useAppAuthorizationMembersQuery,
+  useAuthSessionQuery,
+  useGestaltAdminQuery,
+} from "@/lib/queries";
 import { Link as RouterLink } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
@@ -38,7 +44,12 @@ function membersLoadErrorMessage(_error: unknown): string {
 
 export default function AppAdminMembersPage() {
   const { app } = useAppWorkspace();
+  const sessionQuery = useAuthSessionQuery();
   const membersQuery = useAppAuthorizationMembersQuery(app);
+  const gestaltAdminQuery = useGestaltAdminQuery({
+    enabled: Boolean(sessionDisplayLabel(sessionQuery.data ?? null)),
+  });
+  const showWhoCanUseLink = gestaltAdminQuery.data === true;
   const members = membersQuery.data ?? [];
   const membersLoading = membersQuery.isPending;
   const membersForbidden =
@@ -70,17 +81,34 @@ export default function AppAdminMembersPage() {
         <PageHeaderContent size="md">
           <PageHeaderTitle>Members</PageHeaderTitle>
           <PageHeaderDescription>
-            People and groups with an authorization grant on this app. This
-            roster is read-only — use{" "}
-            <Link asChild>
-              <RouterLink
-                to={AUTHORIZATION_DOCS_PATH}
-                hash={AUTHORIZATION_DOCS_GRANT_HASH}
-              >
-                How to grant access
-              </RouterLink>
-            </Link>{" "}
-            to add or change access. Service accounts appear under{" "}
+            People and groups who can use this app. This roster is read-only.
+            {showWhoCanUseLink ? (
+              <>
+                {" "}
+                Use{" "}
+                <Link asChild>
+                  <RouterLink to="/admin/apps/$app" params={{ app }}>
+                    {APP_ACCESS_NAV_LABEL}
+                  </RouterLink>
+                </Link>{" "}
+                to add or change who can use this app.
+              </>
+            ) : (
+              <>
+                {" "}
+                See{" "}
+                <Link asChild>
+                  <RouterLink
+                    to={AUTHORIZATION_DOCS_PATH}
+                    hash={AUTHORIZATION_DOCS_GRANT_HASH}
+                  >
+                    How to grant access
+                  </RouterLink>
+                </Link>{" "}
+                or ask a Gestalt admin.
+              </>
+            )}{" "}
+            Service accounts appear under{" "}
             <Link asChild>
               <RouterLink to={SERVICE_ACCOUNTS_ROUTE} params={{ app }}>
                 {SERVICE_ACCOUNTS_COPY.navLabel}
@@ -93,7 +121,10 @@ export default function AppAdminMembersPage() {
 
       {membersLoading ? (
         <p className="mt-5 flex items-center gap-1.5 text-sm text-muted-foreground">
-          <SpinnerIcon className="size-4 animate-spin" aria-hidden />
+          <SpinnerIcon
+            className="size-4 motion-safe:animate-spin motion-reduce:animate-none"
+            aria-hidden
+          />
           Loading members…
         </p>
       ) : null}
@@ -138,7 +169,7 @@ export default function AppAdminMembersPage() {
             </SectionHeader>
             {peopleMembers.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No people have been granted access yet.
+                No people can use this app yet.
               </p>
             ) : (
               <MemberAccess

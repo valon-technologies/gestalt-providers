@@ -76,7 +76,7 @@ export default function SettingsLayout() {
     // PageLayout renders the <main>, so the Container stays a plain wrapper.
     // List owns one API-tokens page header; nested create uses breadcrumbs so
     // the content column can own the task h1.
-    <Container className="py-12">
+    <Container>
       <PageLayout
         tracks="compact"
         header={

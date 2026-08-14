@@ -42,6 +42,8 @@ import {
   adminSurfaceForPathname,
   APP_ADMIN_NAV,
   APP_USER_NAV,
+  isAppAdminChromePath,
+  isAppMetricsPath,
   isAppVersionsAdminPath,
   workflowAdminBreadcrumbTrail,
   workspaceDocumentTitle,
@@ -85,10 +87,11 @@ export default function AppWorkspaceLayout() {
     workspaceDocumentTitle(label, workspaceLocation, { pathname, app }),
   );
 
-  const isAdminPath = pathname.includes(`/apps/${app}/admin`);
   const isVersionsPath =
     pathname === `/apps/${app}/versions` ||
     pathname.startsWith(`/apps/${app}/versions/`);
+  const isMetricsPath = isAppMetricsPath(pathname, app);
+  const isAdminChromePath = isAppAdminChromePath(pathname, app);
   const canManageRegistry = Boolean(integration && canManageApp(integration));
   const registryQuery = useAppAdminRegistryQuery(app);
   const membersQuery = useAppAuthorizationMembersQuery(app);
@@ -122,7 +125,7 @@ export default function AppWorkspaceLayout() {
   const error =
     integrationsQuery.error
       ? userFacingError(integrationsQuery.error, "Unable to load this app. Try again.")
-      : !loading && integrationsQuery.data && !integration && !isAdminPath && !isVersionsPath
+      : !loading && integrationsQuery.data && !integration && !isAdminChromePath
         ? `App “${app}” was not found in this workspace.`
         : null;
 
@@ -226,7 +229,7 @@ export default function AppWorkspaceLayout() {
     : false;
 
   const requiredAdminSurface =
-    isAdminPath || isVersionsPath
+    isAdminChromePath
       ? adminSurfaceForPathname(pathname, app)
       : null;
   const adminSurfaceReady =
@@ -328,8 +331,8 @@ export default function AppWorkspaceLayout() {
   );
   const content = (
     <AppWorkspaceProvider value={workspaceValue}>
-      <Container className="pb-12">
-        {(integration || isAdminPath || isVersionsPath) ? (
+      <Container>
+        {(integration || isAdminChromePath) ? (
           <PageLayout
             tracks="compact"
             pane={
@@ -350,7 +353,7 @@ export default function AppWorkspaceLayout() {
               />
             }
           >
-            <div className="mt-6 space-y-8">
+            <div className="space-y-8">
               {workspaceBreadcrumb}
               <ReplicaHoverExclusiveProvider>
               {showRolloutBanner && registry?.rollout ? (
@@ -372,7 +375,13 @@ export default function AppWorkspaceLayout() {
               {adminSurfaceLoading ? (
                 <section
                   aria-busy="true"
-                  aria-label={isVersionsPath ? "Versions" : "App admin"}
+                  aria-label={
+                    isVersionsPath
+                      ? "Versions"
+                      : isMetricsPath
+                        ? "Metrics"
+                        : "App admin"
+                  }
                   data-testid="app-admin-surface-loading"
                 >
                   {isVersionsPath ? (
@@ -427,7 +436,7 @@ export default function AppWorkspaceLayout() {
             </div>
           </PageLayout>
         ) : (
-          <div className="pt-12">
+          <>
             <div className="mb-6">
               <Breadcrumb>
                 <BreadcrumbList>
@@ -461,7 +470,7 @@ export default function AppWorkspaceLayout() {
                 </p>
               </div>
             ) : null}
-          </div>
+          </>
         )}
       </Container>
     </AppWorkspaceProvider>

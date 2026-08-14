@@ -1,126 +1,116 @@
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ * Registry `table-status-indicator`. Thin `variant`
+ * adapter over `OutcomeStatusIndicator`.
  */
 
-import * as React from "react";
-import { cva, type VariantProps } from "class-variance-authority";
 import {
-  Check,
-  Circle,
-  CircleAlert,
-  Info,
-  type LucideIcon,
-  X,
-} from "lucide-react";
+  OutcomeStatusIndicator,
+  outcomeStatusIndicatorBadgeVariant,
+  outcomeStatusIndicatorVariants,
+  type OutcomeStatus,
+  type OutcomeStatusIndicatorProps,
+  type OutcomeStatusIndicatorSize,
+} from "@/components/ui/outcome-status-indicator";
 
-import { cn } from "@/lib/cn";
+/**
+ * Table-row `variant` adapter over `OutcomeStatusIndicator`.
+ * Prefer `OutcomeStatusIndicator` for new table gutters (`status` + `iconOnly`).
+ *
+ * Kept for the published `variant` API (`danger` / `info` / `default`) used by
+ * existing severity columns.
+ *
+ * Root identity is table vocabulary: `data-slot="table-status-indicator"` and
+ * `data-variant`. The primitive's `data-status` is stripped (`undefined`) so
+ * table roots do not leak outcome vocabulary. Run overrides `data-status`
+ * instead because its public prop is also `status`.
+ *
+ * `iconOnly` gutters default to `sm` — compact supporting chrome beside the
+ * status column, not a second hero glyph.
+ */
+export type TableStatusIndicatorVariant =
+  | "default"
+  | "success"
+  | "danger"
+  | "warning"
+  | "info";
 
-// Carbon-style icon shell — fill/ink must match Badge status variants in this bundle
-// (`badge.tsx` uses --badge-* surfaces so legacy gestalt-shell --success overrides
-// do not recolor chips). Registry upstream uses bg-success; gp maps badge parity here.
-const tableStatusIndicatorVariants = cva(
-  "inline-flex shrink-0 items-center justify-center [&>svg]:pointer-events-none [&>svg]:size-3",
-  {
-    variants: {
-      variant: {
-        default: "size-5 rounded-full bg-foreground/[0.06] text-foreground/80",
-        success:
-          "size-5 rounded-full bg-badge-success text-badge-success-foreground",
-        danger:
-          "size-5 rounded-full bg-badge-destructive text-badge-destructive-foreground",
-        warning:
-          "size-5 rounded-full bg-badge-warning text-badge-warning-foreground",
-        info: "size-5 rounded-full bg-badge-info text-badge-info-foreground",
-      },
-    },
-    defaultVariants: {
-      variant: "default",
-    },
-  },
-);
+export type TableStatusIndicatorSize = OutcomeStatusIndicatorSize;
 
-const VARIANT_META: Record<
-  NonNullable<VariantProps<typeof tableStatusIndicatorVariants>["variant"]>,
-  { icon: LucideIcon; defaultLabel: string }
-> = {
-  default: { icon: Circle, defaultLabel: "Normal" },
-  success: { icon: Check, defaultLabel: "Succeeded" },
-  danger: { icon: X, defaultLabel: "Failed" },
-  warning: { icon: CircleAlert, defaultLabel: "Caution" },
-  info: { icon: Info, defaultLabel: "Information" },
+const VARIANT_TO_OUTCOME: Record<TableStatusIndicatorVariant, OutcomeStatus> = {
+  default: "unknown",
+  success: "success",
+  danger: "failure",
+  warning: "warning",
+  info: "info",
 };
 
-export type TableStatusIndicatorVariant = NonNullable<
-  VariantProps<typeof tableStatusIndicatorVariants>["variant"]
->;
+const VARIANT_DEFAULT_LABEL: Record<TableStatusIndicatorVariant, string> = {
+  default: "Normal",
+  success: "Succeeded",
+  danger: "Failed",
+  warning: "Caution",
+  info: "Information",
+};
+
+export function tableVariantToOutcome(
+  variant: TableStatusIndicatorVariant,
+): OutcomeStatus {
+  return VARIANT_TO_OUTCOME[variant];
+}
+
+/** Prefer `outcomeStatusIndicatorVariants` + `tableVariantToOutcome` for new code. */
+function tableStatusIndicatorVariants({
+  variant,
+  size,
+  className,
+}: {
+  variant?: TableStatusIndicatorVariant | null;
+  size?: TableStatusIndicatorSize | null;
+  className?: string;
+} = {}) {
+  return outcomeStatusIndicatorVariants({
+    status: variant ? tableVariantToOutcome(variant) : undefined,
+    size: size ?? undefined,
+    className,
+  });
+}
 
 export function tableStatusIndicatorBadgeVariant(
   variant: TableStatusIndicatorVariant,
-): "success" | "warning" | "destructive" | "info" | "secondary" {
-  switch (variant) {
-    case "success":
-      return "success";
-    case "warning":
-      return "warning";
-    case "danger":
-      return "destructive";
-    case "info":
-      return "info";
-    case "default":
-      return "secondary";
-  }
+): ReturnType<typeof outcomeStatusIndicatorBadgeVariant> {
+  return outcomeStatusIndicatorBadgeVariant(tableVariantToOutcome(variant));
 }
 
-export type TableStatusIndicatorProps = React.HTMLAttributes<HTMLSpanElement> &
-  VariantProps<typeof tableStatusIndicatorVariants> & {
-    label?: string;
-    iconOnly?: boolean;
-  };
+export type TableStatusIndicatorProps = Omit<
+  OutcomeStatusIndicatorProps,
+  "status"
+> & {
+  variant?: TableStatusIndicatorVariant;
+};
 
 function TableStatusIndicator({
-  className,
   variant = "default",
   label,
   iconOnly = false,
+  size,
   ...props
 }: TableStatusIndicatorProps) {
   const resolved = variant ?? "default";
-  const { icon: Icon, defaultLabel } = VARIANT_META[resolved];
-  const visibleLabel = iconOnly
-    ? undefined
-    : label !== undefined
-      ? label
-      : defaultLabel;
-  const ariaLabel = iconOnly
-    ? label?.length
-      ? label
-      : defaultLabel
-    : undefined;
+  const customLabel = label != null && label.length > 0 ? label : undefined;
+  const resolvedSize = size ?? (iconOnly ? "sm" : undefined);
 
   return (
-    <span
+    <OutcomeStatusIndicator
+      {...props}
+      status={tableVariantToOutcome(resolved)}
+      label={customLabel ?? VARIANT_DEFAULT_LABEL[resolved]}
+      iconOnly={iconOnly}
+      size={resolvedSize}
       data-slot="table-status-indicator"
       data-variant={resolved}
-      data-testid="table-status-indicator"
-      role={iconOnly ? "img" : undefined}
-      aria-label={iconOnly ? ariaLabel : undefined}
-      className={cn(
-        "inline-flex items-center gap-2",
-        iconOnly && "justify-center",
-        className,
-      )}
-      {...props}
-    >
-      <span
-        className={tableStatusIndicatorVariants({ variant: resolved })}
-        aria-hidden
-      >
-        <Icon strokeWidth={2.5} aria-hidden />
-      </span>
-      {visibleLabel ? (
-        <span className="text-sm text-foreground">{visibleLabel}</span>
-      ) : null}
-    </span>
+      data-status={undefined}
+    />
   );
 }
 

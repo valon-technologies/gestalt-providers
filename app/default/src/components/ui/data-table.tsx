@@ -41,8 +41,8 @@ export const DATA_TABLE_REGISTRY_PRIMARY_LINE_CLASS =
 export const DATA_TABLE_REGISTRY_SECONDARY_LINE_CLASS =
   "text-xs leading-4 text-muted-foreground";
 
-/** Status icon gutter — px-3 + size-5 indicator + px-3 (12px + 20px + 12px). */
-export const DATA_TABLE_REGISTRY_SEVERITY_GUTTER_CLASS = "w-11 px-3";
+/** Status icon gutter — shrink-wrap + tight trailing gap to the title. */
+export const DATA_TABLE_REGISTRY_SEVERITY_GUTTER_CLASS = "w-px pr-1.5";
 
 export function DataTableRegistryPrimaryLine({
   className,
@@ -283,6 +283,7 @@ export function DataTableView<TData>({
                           : undefined
                       }
                       className={cn(
+                        "align-top",
                         cell.column.columnDef.meta?.severityGutter &&
                           DATA_TABLE_REGISTRY_SEVERITY_GUTTER_CLASS,
                         cell.column.columnDef.meta?.className,
@@ -320,7 +321,7 @@ declare module "@tanstack/react-table" {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   interface ColumnMeta<TData, TValue> {
     align?: "start" | "center" | "end";
-    /** Registry status-icon gutter — applies shared width/padding; cells stay baseline-aligned. */
+    /** Registry status-icon gutter — applies shared width/padding; body cells align to the first line. */
     severityGutter?: boolean;
     /** `TableCell` classes — body alignment (e.g. `align-top`) stays off headers. */
     className?: string;

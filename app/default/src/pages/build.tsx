@@ -194,7 +194,7 @@ export function BuildIndexRedirect() {
 
   if (!tokensReady || !integrationsReady) {
     return (
-      <Container as="main" className="py-12">
+      <Container as="main">
         <div className="mx-auto flex min-h-[50vh] w-full max-w-4xl items-center justify-center">
           <p className="flex items-center gap-2 text-sm text-faint">
             <SpinnerIcon className="size-3.5 animate-spin" aria-hidden />
@@ -267,7 +267,7 @@ function SetupPageChrome({
   children: ReactNode;
 }) {
   return (
-    <Container as="main" className="pb-12 pt-16">
+    <Container as="main">
       <div className={PAGE_LAYOUT_READING_COLUMN_CLASS}>
         <Stepper
           value={value}
@@ -2132,4 +2132,3 @@ function ConnectStepActions({
     </div>
   );
 }
-

@@ -195,6 +195,7 @@
   --status-indicator-success: oklch(62% 0.19 145);
   --status-indicator-warning: oklch(75% 0.16 75);
   --status-indicator-danger: oklch(60% 0.22 25);
+  --status-indicator-info: oklch(58% 0.14 248);
   --status-indicator-muted: oklch(62% 0.015 260);
 
   /* ── Registry UI extensions ──────────────────────────────────────────── */
@@ -405,6 +406,7 @@
   --status-indicator-success: oklch(70% 0.18 145);
   --status-indicator-warning: oklch(78% 0.15 80);
   --status-indicator-danger: oklch(68% 0.18 25);
+  --status-indicator-info: oklch(65% 0.13 248);
   --status-indicator-muted: oklch(55% 0.015 260);
 
   --alpha-dark: var(--foreground);

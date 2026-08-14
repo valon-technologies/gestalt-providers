@@ -26,13 +26,22 @@ import AppWorkspaceLayout from "@/pages/app-workspace-layout";
 import AppWorkspaceConnectionPage from "@/pages/app-workspace/connection";
 import AppWorkspaceOperationsPage from "@/pages/app-workspace/operations";
 import AppWorkspaceOverviewPage from "@/pages/app-workspace/overview";
-import AppAdminServiceAccountsPage from "@/pages/app-workspace/admin/service-accounts";
 import AppAdminMembersPage from "@/pages/app-workspace/admin/members";
+import AppAdminMetricsPage from "@/pages/app-workspace/admin/metrics";
+import AppAdminServiceAccountsPage from "@/pages/app-workspace/admin/service-accounts";
+import AdminPage from "@/pages/admin";
+import AdminAppPage from "@/pages/admin-app";
+import AdminMetricsPage from "@/pages/admin-metrics";
+import AdminPlatformAdminsPage from "@/pages/admin-platform-admins";
+import AdminVersionDetailPage from "@/pages/admin-version";
+import AdminVersionsPage from "@/pages/admin-versions";
 import AppsPage from "@/pages/apps";
 import BuildPage, { BuildIndexRedirect } from "@/pages/build";
 import SettingsPage from "@/pages/settings";
 import SettingsTokenCreate from "@/components/SettingsTokenCreate";
 import SettingsTokensSection from "@/components/SettingsTokensSection";
+import { canAccessAdminRoute, hasGrantedGestaltAdminAccess } from "@/features/admin-access/admin-access-gate";
+import { AdminLayout } from "@/features/admin-access/admin-layout";
 import { appBasepath } from "@/lib/mount";
 import { rootRoute } from "./routes/__root";
 
@@ -112,6 +121,79 @@ const appsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/apps",
   component: AppsPage,
+});
+
+/** Unified Admin for Gestalt admins. */
+const adminLayoutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin",
+  beforeLoad: () => {
+    // Sibling Admin nav must not wait on another app-registries round trip.
+    // An async beforeLoad keeps Outlet on the previous page while the URL (and
+    // a location-based rail) already moved.
+    if (hasGrantedGestaltAdminAccess()) return;
+    return canAccessAdminRoute().then((allowed) => {
+      if (!allowed) {
+        throw redirect({ to: "/apps" });
+      }
+    });
+  },
+  component: AdminLayout,
+});
+
+const adminIndexRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: "/",
+  component: AdminPage,
+});
+
+const adminAppRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: "/apps/$app",
+  component: AdminAppPage,
+});
+
+const adminPlatformAdminsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: "/platform-admins",
+  component: AdminPlatformAdminsPage,
+});
+
+const adminVersionsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: "/versions",
+  component: AdminVersionsPage,
+});
+
+const adminVersionDetailRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: "/versions/$app",
+  component: AdminVersionDetailPage,
+});
+
+const adminMetricsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: "/metrics",
+  component: AdminMetricsPage,
+});
+
+const adminRegistryRedirectRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: "/registry",
+  beforeLoad: () => {
+    throw redirect({ to: "/admin/versions" });
+  },
+});
+
+const adminRegistryAppRedirectRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: "/registry/$app",
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: "/admin/versions/$app",
+      params: { app: params.app },
+    });
+  },
 });
 
 const setupIndexRoute = createRoute({
@@ -199,6 +281,12 @@ const appVersionsRoute = createRoute({
   getParentRoute: () => appWorkspaceLayoutRoute,
   path: "/versions",
   component: AppAdminSnapshotsPage,
+});
+
+const appMetricsRoute = createRoute({
+  getParentRoute: () => appWorkspaceLayoutRoute,
+  path: "/metrics",
+  component: AppAdminMetricsPage,
 });
 
 const appAdminIndexRoute = createRoute({
@@ -462,11 +550,22 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   agentsRoute,
   appsRoute,
+  adminLayoutRoute.addChildren([
+    adminIndexRoute,
+    adminAppRoute,
+    adminPlatformAdminsRoute,
+    adminVersionsRoute,
+    adminVersionDetailRoute,
+    adminMetricsRoute,
+    adminRegistryRedirectRoute,
+    adminRegistryAppRedirectRoute,
+  ]),
   appWorkspaceLayoutRoute.addChildren([
     appOverviewRoute,
     appConnectionRoute,
     appOperationsRoute,
     appVersionsRoute,
+    appMetricsRoute,
     appAdminIndexRoute,
     appAdminSnapshotsRoute,
     appAdminHistoryRoute,

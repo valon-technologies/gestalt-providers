@@ -69,10 +69,10 @@ describe("page-layout anchor offset ownership", () => {
   test("docs, apps, and setup share the same content top seam", () => {
     expect(CONTENT_TOP).toContain('PAGE_LAYOUT_CONTENT_TOP_GAP = "4rem"');
     expect(DOCS_SHELL).toContain("pageLayoutContentTopStyle");
-    expect(DOCS_SHELL).toContain("pt-16");
+    expect(DOCS_SHELL).toContain("<Container>");
     expect(CATALOG).toContain("pageLayoutContentTopStyle");
-    expect(CATALOG).toContain("pt-16");
-    expect(SETUP).toContain("pt-16");
+    expect(CATALOG).toContain("<Container>");
+    expect(SETUP).toContain('<Container as="main">');
   });
 
   test("docs and setup share the same reading column measure", () => {

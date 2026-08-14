@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  adminSurfaceForPathname,
+  APP_ADMIN_NAV,
   workspaceDocumentTitle,
   workflowAdminPageLabel,
   workspaceLocationForPathname,
@@ -48,6 +50,22 @@ describe("workspaceLocationForPathname", () => {
       label: "Versions",
       isOverview: false,
     });
+  });
+
+  it("resolves per-app Metrics for app admins", () => {
+    expect(
+      workspaceLocationForPathname("/apps/slack/metrics", "slack"),
+    ).toMatchObject({
+      id: "metrics",
+      label: "Metrics",
+      isOverview: false,
+    });
+    expect(adminSurfaceForPathname("/apps/slack/metrics", "slack")).toBe(
+      "authorization",
+    );
+    expect(
+      APP_ADMIN_NAV.find((item) => item.id === "metrics")?.requires,
+    ).toBe("authorization");
   });
 
   it("resolves user surfaces", () => {

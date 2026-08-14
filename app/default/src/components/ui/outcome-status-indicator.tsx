@@ -1,7 +1,7 @@
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
- * Registry `outcome-status-indicator` (toolshed#4181). Map Registry mid-dark
- * ramp fills onto `--status-indicator-*`. Failure Badge pairing stays
+ * Registry `outcome-status-indicator` (toolshed#4181, #4289). Map Registry
+ * mid-dark ramp fills onto `--status-indicator-*`. Failure Badge pairing stays
  * `destructive` here (Registry uses `error`; this Badge has no `error`
  * variant yet).
  */
@@ -13,6 +13,7 @@ import {
   Circle,
   CircleAlert,
   CircleDashed,
+  Info,
   Loader2,
   Minus,
   SkipForward,
@@ -27,13 +28,13 @@ import { cn } from "@/lib/cn";
  * Domain-neutral — not CI/run-specific. Workflow UIs use `RunStatusIndicator`
  * as a thin vocabulary adapter over this primitive.
  *
- * Distinct from uptime `StatusIndicator` dots and from table-row
- * `TableStatusIndicator` (soft Badge washes).
+ * Distinct from uptime `StatusIndicator` dots. Table-row gutters use this
+ * primitive (`iconOnly`); `TableStatusIndicator` is a `variant` adapter over it.
  *
- * Chromatic outcomes use mid-dark ramp fills + white symbols so thin strokes
- * stay legible and meet non-text contrast. Do not reuse `*-solid` /
- * `*-solid-foreground` here — those pairs are dark ink on `*-400` for
- * badges/meters, not Actions-style light-on-fill glyphs.
+ * Chromatic outcomes use mid-dark status-indicator fills + white symbols so
+ * thin strokes stay legible and meet non-text contrast. Do not reuse
+ * `*-solid` / `*-solid-foreground` here — those pairs are dark ink on lighter
+ * fills for badges/meters, not Actions-style light-on-fill glyphs.
  */
 const outcomeStatusIndicatorVariants = cva(
   "inline-flex shrink-0 items-center justify-center rounded-full [&>svg]:pointer-events-none",
@@ -43,6 +44,7 @@ const outcomeStatusIndicatorVariants = cva(
         success: "bg-status-indicator-success text-white",
         failure: "bg-status-indicator-danger text-white",
         warning: "bg-status-indicator-warning text-white",
+        info: "bg-status-indicator-info text-white",
         in_progress: "bg-status-indicator-warning text-white",
         canceled: "bg-muted-foreground text-background",
         skipped: "bg-muted-foreground/70 text-background",
@@ -69,6 +71,7 @@ const STATUS_META: Record<
   success: { icon: Check, defaultLabel: "Success" },
   failure: { icon: X, defaultLabel: "Failed" },
   warning: { icon: CircleAlert, defaultLabel: "Warning" },
+  info: { icon: Info, defaultLabel: "Information" },
   in_progress: { icon: Loader2, defaultLabel: "In progress", spin: true },
   canceled: { icon: Minus, defaultLabel: "Canceled" },
   skipped: { icon: SkipForward, defaultLabel: "Skipped" },
@@ -90,7 +93,7 @@ export type OutcomeStatusIndicatorSize = NonNullable<
  */
 export function outcomeStatusIndicatorBadgeVariant(
   status: OutcomeStatus,
-): "success" | "warning" | "destructive" | "secondary" | "muted" {
+): "success" | "warning" | "destructive" | "info" | "secondary" | "muted" {
   switch (status) {
     case "success":
       return "success";
@@ -99,6 +102,8 @@ export function outcomeStatusIndicatorBadgeVariant(
     case "warning":
     case "in_progress":
       return "warning";
+    case "info":
+      return "info";
     case "pending":
       return "secondary";
     case "canceled":

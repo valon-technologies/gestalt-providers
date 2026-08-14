@@ -39,4 +39,11 @@ describe("Nav AppTopBar composition", () => {
     expect(NAV).toContain('{ href: SETUP_PATH, label: "Setup" }');
     expect(NAV).not.toContain('label: "Docs"');
   });
+
+  test("gates Admin nav on Gestalt admin probe", () => {
+    expect(NAV).toContain("canShowAdminNav");
+    expect(NAV).toContain("useGestaltAdminQuery");
+    expect(NAV).toContain("ADMIN_PATH");
+    expect(NAV).toContain('label: "Admin"');
+  });
 });

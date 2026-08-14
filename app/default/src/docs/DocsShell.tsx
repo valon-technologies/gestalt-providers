@@ -103,7 +103,7 @@ export default function DocsShell({
   );
 
   return (
-    <Container className="pb-16 pt-16">
+    <Container>
       {/*
         Scope chrome CSS vars here (Container does not forward `style`; PageLayout
         does not forward `ref`). Sticky rails + scroll-mt inherit; scroll-spy
