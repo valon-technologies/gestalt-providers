@@ -109,6 +109,11 @@ export interface Integration {
   actions?: IntegrationAction[];
   /** Curated prompts projected from the root app's deployment config. */
   prompts?: IntegrationPrompt[];
+  /**
+   * Browseable source tree for this app (http(s) URL). Distinct from
+   * per-version `sourceUrl`, which points at a published commit.
+   */
+  sourceTreeUrl?: string;
 }
 
 export interface IntegrationPrompt {

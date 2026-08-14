@@ -11,6 +11,10 @@ import {
   primaryConnectLabel,
 } from "@/lib/catalogFilters";
 import { getAppPromptExamples } from "@/lib/appPromptExamples";
+import {
+  formatAppSourceLabel,
+  resolveAppSourceHref,
+} from "@/lib/appSource";
 import { normalizeIntegrationStatus } from "@/lib/integrationStatus";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import { resolveMountedAppHref } from "@/lib/mount";
@@ -95,6 +99,8 @@ export default function AppWorkspaceOverviewPage() {
     hasCredentialSurface && connectLabel === null && status.connected;
   const mountedPath = integration.mountedPath?.trim();
   const openHref = mountedPath ? resolveMountedAppHref(mountedPath) : null;
+  const sourceHref = resolveAppSourceHref(integration.sourceTreeUrl);
+  const sourceLabel = sourceHref ? formatAppSourceLabel(sourceHref) : "";
   const showOperations = operationCount > 0 || surfaces.hasMcp;
   const sectionAfterPromptClass =
     promptExamples.length > 0 ? "pt-8" : overviewSectionClass;
@@ -313,6 +319,24 @@ export default function AppWorkspaceOverviewPage() {
               </dt>
               <dd className="mt-1 font-mono text-sm text-foreground break-all">
                 {openHref}
+              </dd>
+            </div>
+          ) : null}
+          {sourceHref ? (
+            <div className="sm:col-span-2">
+              <dt className="text-xs font-medium text-muted-foreground">
+                App folder
+              </dt>
+              <dd className="mt-1 text-sm">
+                <UiLink
+                  href={sourceHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-testid="overview-app-source"
+                  aria-label={`${sourceLabel}, opens in a new tab`}
+                >
+                  {sourceLabel}
+                </UiLink>
               </dd>
             </div>
           ) : null}

@@ -378,6 +378,36 @@ test.describe("Integrations", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: "Mounted UI Service" }),
     ).toBeVisible();
+    await expect(page.getByTestId("overview-app-source")).toHaveCount(0);
+  });
+
+  test("overview details link to app source when sourceTreeUrl is present", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, [
+      {
+        ...MOUNTED_UI_INTEGRATION,
+        sourceTreeUrl:
+          "https://github.com/example-org/example-app/tree/main/apps/mounted-ui",
+      },
+    ]);
+    await mockTokens(page, []);
+
+    await page.goto("/apps/mounted-ui-svc");
+
+    const source = page.getByTestId("overview-app-source");
+    await expect(page.getByText("App folder")).toBeVisible();
+    await expect(source).toBeVisible();
+    await expect(source).toHaveAttribute(
+      "href",
+      "https://github.com/example-org/example-app/tree/main/apps/mounted-ui",
+    );
+    await expect(source).toHaveText("example-org/example-app/apps/mounted-ui");
+    await expect(source).toHaveAttribute(
+      "aria-label",
+      "example-org/example-app/apps/mounted-ui, opens in a new tab",
+    );
   });
 
   test("open app button launches mounted ui", async ({ authenticatedPage }) => {
