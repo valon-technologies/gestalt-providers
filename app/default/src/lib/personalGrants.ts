@@ -11,6 +11,8 @@ export interface ListIdentityGrantsWire {
 }
 
 export interface IdentityGrantWire {
+  /** Optional display name when the grant API returns one. */
+  name?: string;
   scopes?: IdentityGrantScopeWire[];
   createdAt?: number;
   expiresAt?: number;
@@ -67,9 +69,10 @@ export function identityGrantToAPIToken(
   grant: IdentityGrantWire,
 ): APIToken {
   const scopeDetails = grantScopesToTokenScopeDetails(grant.scopes);
+  const name = grant.name?.trim();
   return {
     id: grantId,
-    // v2 grants do not return a display name; keep id as the only label.
+    ...(name && name !== grantId ? { name } : {}),
     scopes: grantScopesToTokenScopes(grant.scopes),
     scopeDetails,
     createdAt:
@@ -84,7 +87,9 @@ export function apiTokenToIdentityGrantWire(token: APIToken): IdentityGrantWire 
     scope: entry.scope,
     resource: entry.resources ?? [],
   }));
+  const name = token.name?.trim();
   return {
+    ...(name ? { name } : {}),
     scopes:
       fromDetails ??
       (token.scopes ?? []).map((scope) => ({ scope, resource: [] })),

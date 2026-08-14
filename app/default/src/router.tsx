@@ -114,16 +114,35 @@ const appsRoute = createRoute({
   component: AppsPage,
 });
 
+const setupIndexRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/setup",
+  component: BuildIndexRedirect,
+});
+
+const setupStepRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/setup/$stepId",
+  component: BuildPage,
+});
+
 const buildIndexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/build",
-  component: BuildIndexRedirect,
+  beforeLoad: () => {
+    throw redirect({ to: "/setup" });
+  },
 });
 
 const buildStepRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/build/$stepId",
-  component: BuildPage,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: "/setup/$stepId",
+      params: { stepId: params.stepId },
+    });
+  },
 });
 
 const appWorkspaceLayoutRoute = createRoute({
@@ -460,6 +479,8 @@ const routeTree = rootRoute.addChildren([
     appAdminServiceAccountsRoute,
     appAdminAgentIdentitiesRedirectRoute,
   ]),
+  setupIndexRoute,
+  setupStepRoute,
   buildIndexRoute,
   buildStepRoute,
   settingsRoute.addChildren([

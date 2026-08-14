@@ -163,6 +163,7 @@ test.describe("Navigation", () => {
   test("nav links work", async ({ authenticatedPage: page }) => {
     await page.goto("/apps");
     await page.getByRole("button", { name: "Open user menu" }).click();
+    await expect(page.getByRole("menuitem", { name: "Setup guide" })).toBeVisible();
     await expect(page.getByRole("menuitem", { name: "Docs" })).toBeVisible();
     await page.getByRole("menuitem", { name: "Settings" }).click();
     await expect(page).toHaveURL(/\/settings/);
@@ -195,5 +196,14 @@ test.describe("Navigation", () => {
     await page.getByRole("link", { name: "Apps", exact: true }).click();
     await expect(page).toHaveURL(/\/apps/);
     await expect(page.getByRole("heading", { name: "Apps" })).toBeVisible();
+  });
+
+  test("setup nav link opens setup journey", async ({ authenticatedPage: page }) => {
+    await page.addInitScript(() => {
+      sessionStorage.setItem("gestalt.build.introSeen", "1");
+    });
+    await page.goto("/apps");
+    await page.getByRole("link", { name: "Setup", exact: true }).click();
+    await expect(page).toHaveURL(/\/setup/);
   });
 });

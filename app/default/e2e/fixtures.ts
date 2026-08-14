@@ -407,12 +407,18 @@ export async function mockPersonalTokenCreate(
     expiresAt?: string;
     status?: number;
   }>,
+  options?: { listCreated?: boolean },
 ) {
   await page.route("**/api/v1/tokens", async (route: Route, request) => {
     if (request.method() === "POST") {
       const body = request.postDataJSON() as CreatePersonalTokenBody;
       const result = await handler(body);
-      tokens.setTokens([result.token]);
+      if (options?.listCreated !== false) {
+        const rest = tokens
+          .getTokens()
+          .filter((token) => token.id !== result.token.id);
+        tokens.setTokens([result.token, ...rest]);
+      }
       await route.fulfill({
         status: result.status ?? 201,
         json: {
@@ -548,7 +554,128 @@ type CustomFixtures = {
   authenticatedPage: Page;
 };
 
+/**
+ * Catalog and chrome tests represent a user already in the workspace.
+ * Net-new auto-entry is opt-in via {@link enableSetupActivationPrompt}.
+ * Keep in sync with SETUP_SKIPPED_STORAGE_KEY and
+ * SETUP_RESUME_BANNER_DISMISSED_KEY in src/lib/buildPaths.ts.
+ */
+const SETUP_SKIPPED_STORAGE_KEY = "gestalt.setup.skipped";
+const SETUP_RESUME_BANNER_DISMISSED_KEY = "gestalt.setup.resumeBannerDismissed";
+const SETUP_E2E_FORCE_ACTIVATION_KEY = "gestalt.e2e.forceActivation";
+
+export async function enableSetupActivationPrompt(page: Page) {
+  await page.addInitScript(
+    ({ skipKey, bannerKey, forceKey }) => {
+      window.sessionStorage.setItem(forceKey, "1");
+      if (!window.sessionStorage.getItem(`${forceKey}:armed`)) {
+        window.sessionStorage.setItem(`${forceKey}:armed`, "1");
+        window.localStorage.removeItem(skipKey);
+        window.localStorage.removeItem(bannerKey);
+      }
+    },
+    {
+      skipKey: SETUP_SKIPPED_STORAGE_KEY,
+      bannerKey: SETUP_RESUME_BANNER_DISMISSED_KEY,
+      forceKey: SETUP_E2E_FORCE_ACTIVATION_KEY,
+    },
+  );
+}
+
+const SETUP_SESSION_API_TOKEN = "gst_api_test_token_for_install";
+
+export type SetupSessionSeed = {
+  introSeen?: boolean;
+  installAgent?: string;
+  selectedTokenId?: string;
+  apiToken?: string;
+  apiTokenGrantId?: string;
+  /**
+   * Bind plaintext to `selectedTokenId`. Defaults to true when a grant id is
+   * set, so resume fixtures satisfy the token-step credential contract.
+   */
+  bindCredential?: boolean;
+  mcpInstalled?: boolean;
+  activeExemplarId?: string;
+  trySeen?: boolean;
+  tokenName?: string;
+};
+
+/** Seed Setup sessionStorage so later steps can resume past earlier gates. */
+export async function seedSetupSession(page: Page, seed: SetupSessionSeed) {
+  await page.addInitScript(
+    (s: SetupSessionSeed & { defaultToken: string }) => {
+      if (s.introSeen) {
+        sessionStorage.setItem("gestalt.build.introSeen", "1");
+      }
+      if (s.installAgent) {
+        sessionStorage.setItem("gestalt.build.installAgent", s.installAgent);
+      }
+      if (s.selectedTokenId) {
+        sessionStorage.setItem(
+          "gestalt.build.selectedTokenId",
+          s.selectedTokenId,
+        );
+      }
+      const bind = s.bindCredential ?? Boolean(s.selectedTokenId);
+      if (bind && s.selectedTokenId) {
+        sessionStorage.setItem(
+          "gestalt.build.apiTokenGrantId",
+          s.apiTokenGrantId ?? s.selectedTokenId,
+        );
+        sessionStorage.setItem(
+          "gestalt.build.apiToken",
+          s.apiToken ?? s.defaultToken,
+        );
+      } else {
+        if (s.apiTokenGrantId) {
+          sessionStorage.setItem(
+            "gestalt.build.apiTokenGrantId",
+            s.apiTokenGrantId,
+          );
+        }
+        if (s.apiToken) {
+          sessionStorage.setItem("gestalt.build.apiToken", s.apiToken);
+        }
+      }
+      if (s.mcpInstalled) {
+        sessionStorage.setItem("gestalt.build.mcpInstalled", "1");
+      }
+      if (s.activeExemplarId) {
+        sessionStorage.setItem(
+          "gestalt.build.activeExemplarId",
+          s.activeExemplarId,
+        );
+      }
+      if (s.trySeen) {
+        sessionStorage.setItem("gestalt.build.trySeen", "1");
+      }
+      if (s.tokenName) {
+        sessionStorage.setItem("gestalt.build.tokenName", s.tokenName);
+      }
+    },
+    { ...seed, defaultToken: SETUP_SESSION_API_TOKEN },
+  );
+}
+
 export const test = base.extend<CustomFixtures>({
+  page: async ({ page }, use) => {
+    await page.addInitScript(
+      ({ skipKey, bannerKey, forceKey }) => {
+        if (window.sessionStorage.getItem(forceKey) === "1") {
+          return;
+        }
+        window.localStorage.setItem(skipKey, "1");
+        window.localStorage.setItem(bannerKey, "1");
+      },
+      {
+        skipKey: SETUP_SKIPPED_STORAGE_KEY,
+        bannerKey: SETUP_RESUME_BANNER_DISMISSED_KEY,
+        forceKey: SETUP_E2E_FORCE_ACTIVATION_KEY,
+      },
+    );
+    await use(page);
+  },
   authenticatedPage: async ({ page }, runAuthenticatedPage) => {
     await page.addInitScript(() => {
       localStorage.setItem(

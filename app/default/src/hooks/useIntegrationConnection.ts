@@ -13,11 +13,6 @@ import { getIntegrationLabel } from "@/lib/integrationSearch";
 import type { Integration } from "@/lib/api";
 import { userFacingError } from "@/lib/user-facing-error";
 
-type ConnectionTarget = {
-  instance?: string;
-  connection?: string;
-};
-
 type PendingSelection = {
   action: string;
   pendingToken: string;
@@ -86,9 +81,6 @@ export function useIntegrationConnection({
   const [selectingInstance, setSelectingInstance] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [pendingOAuthTarget, setPendingOAuthTarget] = useState<ConnectionTarget>(
-    {},
-  );
   const [pendingSelection, setPendingSelection] =
     useState<PendingSelection | null>(null);
   const pendingSelectionFormRef = useRef<HTMLFormElement>(null);
@@ -98,10 +90,11 @@ export function useIntegrationConnection({
     pendingSelectionFormRef.current?.submit();
   }, [pendingSelection]);
 
-  async function beginOAuth(
+  async function handleStartOAuth(
+    instance?: string,
+    connection?: string,
     connectionParams?: Record<string, string>,
-    target: ConnectionTarget = pendingOAuthTarget,
-  ) {
+  ): Promise<boolean> {
     setLoading(true);
     setError(null);
     try {
@@ -109,27 +102,19 @@ export function useIntegrationConnection({
         integration.name,
         undefined,
         connectionParams,
-        target.instance,
-        target.connection,
+        instance,
+        connection,
         returnPath,
       );
       window.location.href = url;
+      return true;
     } catch (err) {
       setError(
         userFacingError(err, "Couldn't start sign-in. Try again.", "sign_in"),
       );
       setLoading(false);
+      return false;
     }
-  }
-
-  async function handleStartOAuth(
-    instance?: string,
-    connection?: string,
-    connectionParams?: Record<string, string>,
-  ) {
-    const target = { instance, connection };
-    setPendingOAuthTarget(target);
-    await beginOAuth(connectionParams, target);
   }
 
   async function handleSubmitToken(

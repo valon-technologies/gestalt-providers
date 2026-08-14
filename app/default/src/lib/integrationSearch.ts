@@ -8,6 +8,22 @@ export function getIntegrationLabel(integration: Integration): string {
   return integration.displayName || integration.name;
 }
 
+/**
+ * Catalog card subtitle. Omits empty copy and descriptions that only
+ * repeat the app name.
+ */
+export function catalogCardDescription(integration: Integration): string | null {
+  const description = integration.description?.trim() ?? "";
+  if (!description) return null;
+  if (
+    description.toLocaleLowerCase() ===
+    getIntegrationLabel(integration).toLocaleLowerCase()
+  ) {
+    return null;
+  }
+  return description;
+}
+
 function getSearchableFields(integration: Integration): string[] {
   return [
     integration.name,

@@ -92,7 +92,7 @@ interface TokenCreateFormProps {
   showSubmit?: boolean;
   /** Settings stacks labels; Build authorize uses inline label + control rows. */
   fieldOrientation?: "vertical" | "horizontal";
-  /** When false, skip the post-create plaintext copy block (Build advances on Next). */
+  /** When false, skip the post-create plaintext copy block. */
   showPlaintextResult?: boolean;
   /**
    * Alert under the one-time secret. Defaults to settings-native one-time
@@ -661,10 +661,10 @@ const TokenCreateForm = React.forwardRef<
                 {showSubmit ? (
                   <Button
                     type="submit"
-                    disabled={creating}
+                    loading={creating}
                     className="w-auto shrink-0"
                   >
-                    {creating ? "Creating…" : "Create token"}
+                    Create token
                   </Button>
                 ) : null}
               </div>

@@ -9,12 +9,16 @@ import { cn } from "@/lib/cn";
 import {
   StepRailIndicator,
   StepRailSeparator,
+  stepRailCompletedChromeAccentClassName,
   stepRailRootClassName,
   stepRailSizeVar,
-  timelineConnectorLineState,
-  timelineItemStatusToRailState,
+  stepRailTimelineRootClassName,
   type StepRailSize,
 } from "@/components/ui/step-rail";
+import {
+  timelineConnectorLineState,
+  timelineItemStatusToRailState,
+} from "@/components/ui/timeline-steps-status";
 
 /* -----------------------------------------------------------------------------
  * Timeline (root container)
@@ -95,9 +99,15 @@ function timelineStepsTextScale(size: TimelineStepsSize): string {
 }
 
 const timelineStepsVariants = cva(
-  ["flex", stepRailRootClassName, "[--step-rail-trigger-pad:0px]", "[--timeline-rail-lane-size:var(--step-rail-indicator-size)]"].join(
-    " ",
-  ), {
+  [
+    "flex",
+    stepRailRootClassName,
+    stepRailCompletedChromeAccentClassName,
+    stepRailTimelineRootClassName,
+    "[--step-rail-trigger-pad:0px]",
+    "[--timeline-rail-lane-size:var(--step-rail-indicator-size)]",
+  ].join(" "),
+  {
   variants: {
     orientation: {
       vertical: "flex-col",

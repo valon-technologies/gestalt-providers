@@ -21,6 +21,14 @@ const CATALOG = readFileSync(
   join(HERE, "../components/AppsCatalogPageClient.tsx"),
   "utf8",
 );
+const SETUP = readFileSync(
+  join(HERE, "../pages/build.tsx"),
+  "utf8",
+);
+const CONTENT_TOP = readFileSync(
+  join(HERE, "page-layout-content-top.ts"),
+  "utf8",
+);
 
 describe("page-layout anchor offset ownership", () => {
   test("exports a single probe + live hook for scroll-spy consumers", () => {
@@ -42,7 +50,8 @@ describe("page-layout anchor offset ownership", () => {
     expect(HELPER).toContain("scope ?? document.documentElement");
     expect(DOCS_SHELL).toContain("pageLayoutRef");
     expect(DOCS_SHELL).toContain("usePageLayoutAnchorOffsetPx(");
-    expect(DOCS_SHELL).toContain("pageLayoutRef");
+    expect(CATALOG).toContain("pageLayoutRef");
+    expect(CATALOG).toContain("usePageLayoutAnchorOffsetPx(");
   });
 
   test("docs hash scroll targets the switcher that owns the hash", () => {
@@ -55,5 +64,22 @@ describe("page-layout anchor offset ownership", () => {
     expect(DOCS_CONTENT).toContain("navigate({ to: pathname, hash: id, replace: true })");
     expect(DOCS_CONTENT).not.toContain("history.replaceState");
     expect(DOCS_SHELL).not.toContain("history.replaceState");
+  });
+
+  test("docs, apps, and setup share the same content top seam", () => {
+    expect(CONTENT_TOP).toContain('PAGE_LAYOUT_CONTENT_TOP_GAP = "4rem"');
+    expect(DOCS_SHELL).toContain("pageLayoutContentTopStyle");
+    expect(DOCS_SHELL).toContain("pt-16");
+    expect(CATALOG).toContain("pageLayoutContentTopStyle");
+    expect(CATALOG).toContain("pt-16");
+    expect(SETUP).toContain("pt-16");
+  });
+
+  test("docs and setup share the same reading column measure", () => {
+    expect(CONTENT_TOP).toContain("max-w-[65ch]");
+    expect(DOCS_SHELL).toContain("PAGE_LAYOUT_READING_COLUMN_CLASS");
+    expect(SETUP).toContain("PAGE_LAYOUT_READING_COLUMN_CLASS");
+    expect(SETUP).not.toContain("max-w-5xl");
+    expect(DOCS_SHELL).not.toContain('max-w-[65ch]"');
   });
 });

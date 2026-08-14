@@ -2,11 +2,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import {
-  AuthType,
   ConnectionParamDef,
   CredentialFieldDef,
   Integration,
 } from "@/lib/api";
+import {
+  authActionStart,
+  buildAuthActions,
+  hasConnectionParams,
+  seedPendingAuthAction,
+  type ConnectionAuthAction,
+} from "@/lib/connectionAuthActions";
 import { CircleAlert } from "lucide-react";
 import { INPUT_CLASSES } from "@/lib/constants";
 import {
@@ -27,7 +33,6 @@ import {
   accountRelationshipLabel,
   addAccountFormCopy,
   disconnectConfirmCopy,
-  ADD_ACCOUNT_LABEL,
   USE_ACCOUNT_LABEL,
   DEFAULT_ACCOUNT_LABEL,
   connectionPanelAttention,
@@ -91,24 +96,12 @@ export type ConnectionPanelView =
   | "instance"
   | "token"
   | "oauth_params";
-type ActionKind = "connect" | "add_instance" | "reconnect" | "select_instance";
 type ConnectionTarget = {
   instance?: string;
   connection?: string;
 };
 
-type AuthAction = {
-  key: string;
-  kind: ActionKind;
-  authType: AuthType;
-  connectionKey: string;
-  connection?: string;
-  label: string;
-  variant?: "default" | "secondary";
-  requiresInstanceName: boolean;
-};
-
-type PendingAuthAction = AuthAction & {
+type PendingAuthAction = ConnectionAuthAction & {
   instance?: string;
 };
 
@@ -169,92 +162,6 @@ function shouldShowConnectionStatusText(connection: NormalizedConnection): boole
   return connection.status !== "needs_user_connection";
 }
 
-function normalizeActionKinds(connection: NormalizedConnection): ActionKind[] {
-  const kinds: ActionKind[] = [];
-  if (connection.canConnect) kinds.push("connect");
-  if (connection.canAddInstance) kinds.push("add_instance");
-  if (connection.canReconnect) kinds.push("reconnect");
-  return kinds;
-}
-
-function buildAuthActionLabel(
-  connection: NormalizedConnection,
-  kind: ActionKind,
-  authType: AuthType,
-  showConnectionNames: boolean,
-): string {
-  const dualAuth =
-    connection.authTypes.includes("oauth") &&
-    connection.authTypes.includes("manual");
-  const name = connection.label;
-
-  if (kind === "add_instance") {
-    return showConnectionNames ? `Add ${name} account` : ADD_ACCOUNT_LABEL;
-  }
-
-  if (kind === "reconnect") {
-    if (authType === "manual" && dualAuth) {
-      return showConnectionNames
-        ? `Reconnect ${name} with API token`
-        : "Reconnect with API token";
-    }
-    return showConnectionNames ? `Reconnect ${name}` : "Reconnect";
-  }
-
-  if (kind === "select_instance") {
-    return showConnectionNames ? `Select ${name} connection` : "Select connection";
-  }
-
-  if (authType === "manual") {
-    if (dualAuth) {
-      return showConnectionNames ? `Use API token for ${name}` : "Use API token";
-    }
-    return showConnectionNames ? `Connect with ${name}` : "Connect";
-  }
-
-  return showConnectionNames
-    ? `Connect with ${name}`
-    : dualAuth
-      ? "Connect with OAuth"
-      : "Connect";
-}
-
-function buildAuthActions(connections: NormalizedConnection[]): AuthAction[] {
-  const actionableConnections = connections.filter(
-    (connection) =>
-      connection.isSubjectOwned && normalizeActionKinds(connection).length > 0,
-  );
-  const showConnectionNames = actionableConnections.length > 1;
-  const actions: AuthAction[] = [];
-
-  for (const connection of actionableConnections) {
-    for (const kind of normalizeActionKinds(connection)) {
-      for (const authType of connection.authTypes) {
-        actions.push({
-          key: `${connection.key}:${kind}:${authType}`,
-          kind,
-          authType,
-          connectionKey: connection.key,
-          connection: connection.connection,
-          label: buildAuthActionLabel(
-            connection,
-            kind,
-            authType,
-            showConnectionNames,
-          ),
-          variant:
-            authType === "manual" && connection.authTypes.includes("oauth")
-              ? "secondary"
-              : "default",
-          requiresInstanceName: kind === "add_instance",
-        });
-      }
-    }
-  }
-
-  return actions;
-}
-
 function connectionActionCopy(
   connection: NormalizedConnection,
   context: ConnectionContext,
@@ -268,7 +175,7 @@ function connectionActionCopy(
   return "Ask an admin to configure deployment-managed credentials.";
 }
 
-function isPendingAction(action: AuthAction, pendingAction?: PendingAuthAction) {
+function isPendingAction(action: ConnectionAuthAction, pendingAction?: PendingAuthAction) {
   return (
     pendingAction?.kind === action.kind &&
     pendingAction?.authType === action.authType &&
@@ -306,12 +213,6 @@ function removeAppDisconnectTarget(
   return null;
 }
 
-function hasConnectionParams(
-  connectionParams: Record<string, ConnectionParamDef> | undefined,
-): boolean {
-  return Boolean(connectionParams && Object.keys(connectionParams).length > 0);
-}
-
 const inputClasses = `mt-1.5 w-full ${INPUT_CLASSES}`;
 
 export default function IntegrationConnectionPanel({
@@ -343,7 +244,9 @@ export default function IntegrationConnectionPanel({
     initialView === "disconnect" ? "default" : initialView,
   );
   const [disconnectTarget, setDisconnectTarget] = useState<ConnectionTarget>({});
-  const [pendingAction, setPendingAction] = useState<PendingAuthAction | undefined>();
+  const [pendingAction, setPendingAction] = useState<PendingAuthAction | undefined>(
+    () => seedPendingAuthAction(integration, connectionContext, initialView),
+  );
   const [settingsOpen, setSettingsOpen] = useState(true);
   const isDialog = variant === "dialog";
 
@@ -385,6 +288,9 @@ export default function IntegrationConnectionPanel({
     }
     disconnectSeededRef.current = false;
     setView(initialView);
+    setPendingAction(
+      seedPendingAuthAction(integration, connectionContext, initialView),
+    );
   }, [
     initialView,
     destructiveActionLabel,
@@ -407,22 +313,14 @@ export default function IntegrationConnectionPanel({
     : undefined;
   const pendingConnectionParams = pendingConnection?.connectionParams;
 
-  function startAuthAction(action: AuthAction) {
+  function startAuthAction(action: ConnectionAuthAction) {
     setPendingAction(action);
-    if (action.requiresInstanceName) {
-      setView("instance");
-    } else if (action.authType === "manual") {
-      setView("token");
-    } else {
-      const connection = normalizedStatus.connections.find(
-        (item) => item.key === action.connectionKey,
-      );
-      if (hasConnectionParams(connection?.connectionParams)) {
-        setView("oauth_params");
-      } else {
-        onStartOAuth(undefined, action.connection);
-      }
+    const start = authActionStart(action, normalizedStatus.connections);
+    if (start.kind === "form") {
+      setView(start.view);
+      return;
     }
+    onStartOAuth(start.instance, start.connection);
   }
 
   const headerActionSignature = [

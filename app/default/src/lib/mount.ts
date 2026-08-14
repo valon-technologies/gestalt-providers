@@ -68,7 +68,7 @@ export function resolveMountedAppHref(mountedPath: string): string {
   if (!trimmed) return trimmed;
   const path = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
 
-  const configured = import.meta.env.VITE_GESTALT_PUBLIC_ORIGIN?.trim();
+  const configured = import.meta.env?.VITE_GESTALT_PUBLIC_ORIGIN?.trim();
   const publicOrigin = configured?.replace(/\/+$/, "");
   if (publicOrigin) {
     return `${publicOrigin}${path}`;

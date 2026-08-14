@@ -3,14 +3,17 @@ import {
   readActiveExemplarId,
   readIntroSeenFlag,
   readMcpInstalledFlag,
+  readTrySeenFlag,
   readStoredApiToken,
   readStoredApiTokenGrantId,
   readStoredSelectedTokenId,
   readStoredTokenName,
   readStoredInstallAgent,
+  sessionApiTokenBoundToSelection,
   writeActiveExemplarId,
   writeIntroSeenFlag,
   writeMcpInstalledFlag,
+  writeTrySeenFlag,
   writeStoredApiToken,
   writeStoredApiTokenGrantId,
   writeStoredSelectedTokenId,
@@ -34,11 +37,13 @@ export type BuildSession = {
   markMcpInstalled: () => void;
   activeExemplarId: BuildExemplarId;
   setActiveExemplarId: (id: BuildExemplarId) => void;
-  introSeen: boolean;
-  markIntroSeen: () => void;
+  welcomeSeen: boolean;
+  markWelcomeSeen: () => void;
+  trySeen: boolean;
+  markTrySeen: () => void;
 };
 
-/** Client session for the Build journey — survives step navigation via sessionStorage. */
+/** Client session for the Setup journey — survives step navigation via sessionStorage. */
 export function useBuildSession(): BuildSession {
   const [apiToken, setApiTokenState] = useState(readStoredApiToken);
   const [apiTokenGrantId, setApiTokenGrantIdState] = useState(
@@ -54,7 +59,8 @@ export function useBuildSession(): BuildSession {
   const [mcpInstalled, setMcpInstalled] = useState(readMcpInstalledFlag);
   const [activeExemplarId, setActiveExemplarIdState] =
     useState(readActiveExemplarId);
-  const [introSeen, setIntroSeen] = useState(readIntroSeenFlag);
+  const [welcomeSeen, setWelcomeSeen] = useState(readIntroSeenFlag);
+  const [trySeen, setTrySeen] = useState(readTrySeenFlag);
 
   const setApiToken = useCallback((token: string, grantId?: string) => {
     const trimmed = token.trim();
@@ -70,13 +76,16 @@ export function useBuildSession(): BuildSession {
   }, []);
 
   const clearApiTokenUnlessGrant = useCallback((grantId: string) => {
-    const bound = readStoredApiTokenGrantId();
-    if (bound && bound !== grantId) {
-      writeStoredApiToken("");
-      writeStoredApiTokenGrantId("");
-      setApiTokenState("");
-      setApiTokenGrantIdState("");
+    if (sessionApiTokenBoundToSelection(readStoredApiTokenGrantId(), grantId)) {
+      return;
     }
+    if (!readStoredApiToken() && !readStoredApiTokenGrantId()) {
+      return;
+    }
+    writeStoredApiToken("");
+    writeStoredApiTokenGrantId("");
+    setApiTokenState("");
+    setApiTokenGrantIdState("");
   }, []);
 
   const setTokenName = useCallback((name: string) => {
@@ -105,9 +114,14 @@ export function useBuildSession(): BuildSession {
     setActiveExemplarIdState(id);
   }, []);
 
-  const markIntroSeen = useCallback(() => {
+  const markWelcomeSeen = useCallback(() => {
     writeIntroSeenFlag(true);
-    setIntroSeen(true);
+    setWelcomeSeen(true);
+  }, []);
+
+  const markTrySeen = useCallback(() => {
+    writeTrySeenFlag(true);
+    setTrySeen(true);
   }, []);
 
   return {
@@ -124,7 +138,9 @@ export function useBuildSession(): BuildSession {
     markMcpInstalled,
     activeExemplarId,
     setActiveExemplarId,
-    introSeen,
-    markIntroSeen,
+    welcomeSeen,
+    markWelcomeSeen,
+    trySeen,
+    markTrySeen,
   };
 }

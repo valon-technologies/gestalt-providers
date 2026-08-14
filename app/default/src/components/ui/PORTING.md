@@ -229,12 +229,12 @@ tones use `--*-ink` canvas status tokens (bridged in `shared/theme.css` +
 ## StepPager
 
 Registry `step-pager` is vendored here. Previous/next
-destination cards for docs journey edges and Build wizard steps. Compose
+destination cards for docs journey edges and Setup wizard steps. Compose
 `StepPager` + `StepPagerPrevious` / `StepPagerNext` (+ `StepPagerStartSpacer`
 when there is no previous). Use `asChild` for `<button>` or router `Link`.
-Surfaces: `solid` (default) / `outline` / `ghost`. Not `Pagination` (dataset
-paging) and not `Stepper` (in-flow process rail). Strip `"use client"`; prefer
-`@/lib/cn`. Hairline is semantic `border-border`.
+Surfaces: `solid` (default) / `outline` / `ghost`. Setup uses `variant="ghost"`.
+Not `Pagination` (dataset paging) and not `Stepper` (in-flow process rail).
+Strip `"use client"`; prefer `@/lib/cn`. Hairline is semantic `border-border`.
 
 ## Tabs
 
@@ -265,11 +265,21 @@ vendored `tabs`.
 ## Stepper
 
 Registry `stepper` is vendored as `ui/stepper.tsx` (process navigation with
-checks + connectors). Depends on `lib/list-item-interaction.ts` and
-`selection-check`. Theme bridges include `--accent-fill-hover` /
-`--accent-fill-pressed` for soft-selected hover (selectable-rows). Build page
-uses controlled `activationMode="jump"` — do not restyle Stepper chrome at the
-call site (layout-only wrappers OK).
+checks + connectors). Shared rail chrome lives in `ui/step-rail.tsx`. Depends on
+`lib/list-item-interaction.ts` and `selection-check`. Theme bridges include
+`--accent-fill-hover` / `--accent-fill-pressed` for soft-selected hover
+(selectable-rows). Registry `completedChrome="outcome"` uses `--color-green-500`;
+map that onto live `--status-indicator-success` (same OSI recipe). Do not copy
+the Registry green ramp, and do not `var(--color-green-500)` here (`@theme inline
+reference` does not emit that name). Setup uses a controlled horizontal Stepper
+with `activationMode="jump"` and `size="default"`. Completed checks default to
+`completedChrome="outcome"` (green fill, white check, ink connectors).
+Pass `completedChrome="accent"` for gold. TimelineSteps keeps gold via
+`stepRailCompletedChromeAccentClassName`. Do not restyle Stepper chrome at the
+call site (layout-only wrappers OK). Rail fill stagger and indicator chrome
+delay honor `prefers-reduced-motion` (`motion-reduce:transition-none
+motion-reduce:delay-0`; `readStepRailTimingMs` returns 0). Keep that mapping
+on revendors.
 
 ## Pagination
 
@@ -357,7 +367,12 @@ field·operator·value bars stay Registry `Filters` (not yet required here).
 | Item | Why |
 | --- | --- |
 | **TableOfContents `kind: "separator"`** | Apps catalog TOC divider between groups |
-| **`AGENT_CONSOLE_THEME_CODEX` / `_CURSOR` exports** (optional) | Story palettes only today; Build re-copies them — promote from `agent-console.stories` |
+
+### AgentConsole (synced)
+
+Vendored with Registry: Claude / Codex / Cursor skins as `AGENT_CONSOLE_THEME_*`
+exports. Setup consumes those constants — do not re-copy palettes at the call
+site. Strip `"use client"`; prefer `@/lib/cn` over Registry `@/lib/utils`.
 
 ### Avatar (synced)
 

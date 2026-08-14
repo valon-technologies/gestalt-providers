@@ -26,6 +26,7 @@ import {
   DOCS_WORKFLOWS_PATH,
   docsSubsectionLabel,
 } from "./docs-data";
+import { SETUP_PATH } from "@/lib/constants";
 import { DOCS_PAGE_TOP_GAP } from "./docs-chrome";
 import { DocsLink } from "./DocsLink";
 
@@ -93,7 +94,8 @@ export function GettingStartedDocsPage() {
           experience—run each command as shown. This page covers install, point
           the CLI, authenticate, grant app access, and configure cloud
           environments. Journey links then take you to connect apps, invoke
-          operations, create API tokens, and use MCP.
+          operations, create API tokens, and use MCP. Prefer guided setup? Open{" "}
+          <DocsLink to={SETUP_PATH}>Setup</DocsLink>.
         </p>
         <div className="not-typeset flex flex-col gap-2.5">
           <Eyebrow className="block">Base URL</Eyebrow>

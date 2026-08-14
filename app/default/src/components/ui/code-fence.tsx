@@ -44,7 +44,7 @@ export const codeFenceHeaderClass =
  * display CodeBlock puts it on `<code>` — both paint the same token theme.
  */
 export const codeFencePreClass =
-  "overflow-x-auto px-4 py-3 font-mono text-sm leading-[normal] [tab-size:2]";
+  "overflow-x-auto px-4 py-3 font-mono text-sm leading-snug [tab-size:2]";
 
 /** Token theme host class — colors come from typeset. */
 export const codeFenceHighlightClass = "typeset-code-hljs";

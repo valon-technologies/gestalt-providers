@@ -127,6 +127,8 @@
   --color-warning-solid-foreground: var(--warning-solid-foreground);
   --color-warning-hover: var(--warning-hover);
   --color-warning-pressed: var(--warning-pressed);
+  --color-error-solid: var(--error-solid);
+  --color-error-solid-foreground: var(--error-solid-foreground);
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
   --color-info-hover: var(--info-hover);

@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import Container from "@/components/Container";
 import { PageLayout } from "@/components/ui/page-layout";
@@ -8,17 +8,11 @@ import {
 } from "@/components/ui/table-of-contents";
 import { useScrollSpy } from "@/hooks/use-scroll-spy";
 import { usePageLayoutAnchorOffsetPx } from "@/lib/page-layout-anchor-offset";
+import { pageLayoutContentTopStyle, PAGE_LAYOUT_READING_COLUMN_CLASS } from "@/lib/page-layout-content-top";
 import { getActiveDocsNavItem } from "./docs-data";
 import { DocsAudienceCallout } from "./DocsAudienceCallout";
 import { DocsMobileNav, DocsNavList } from "./DocsMobileNav";
 import { DocsJourneyFooter } from "./DocsJourneyFooter";
-import { DOCS_PAGE_TOP_GAP } from "./docs-chrome";
-
-/** Same seam for sticky rails, hash / TOC scroll-mt, and (via DocsPageBody) h2 gaps. */
-const docsShellStyle = {
-  "--page-layout-pane-top": `calc(var(--app-sticky-chrome-height) + ${DOCS_PAGE_TOP_GAP})`,
-  "--page-layout-anchor-offset": `calc(var(--app-sticky-chrome-height) + ${DOCS_PAGE_TOP_GAP})`,
-} as CSSProperties;
 
 export default function DocsShell({
   children,
@@ -115,7 +109,7 @@ export default function DocsShell({
         does not forward `ref`). Sticky rails + scroll-mt inherit; scroll-spy
         probes from this node so it sees the docs override, not `:root`.
       */}
-      <div ref={pageLayoutRef} style={docsShellStyle}>
+      <div ref={pageLayoutRef} style={pageLayoutContentTopStyle}>
         <PageLayout
           tracks="compact"
           pane={<DocsNavList activeId={activeItem.id} />}
@@ -138,11 +132,8 @@ export default function DocsShell({
             )
           }
         >
-          <article className="mx-auto min-w-0 w-full max-w-[65ch]">
+          <article className={PAGE_LAYOUT_READING_COLUMN_CLASS}>
             {/*
-              Reading measure: center track is ~800px (~82–110ch) without a cap.
-              65ch keeps body lines in the comfortable 60–70 character band;
-              `mx-auto` centers that measure in the PageLayout content track.
               On-this-page lives only in PageLayout Aside (xl+); no stacked
               duplicate below that breakpoint — nav already covers the page.
             */}
