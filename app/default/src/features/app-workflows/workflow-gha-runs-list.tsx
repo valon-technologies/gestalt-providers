@@ -237,7 +237,7 @@ function WorkflowDefinitionRunsSection({
         <div
           ref={headerRef}
           className={cn(
-            "sticky top-[calc(var(--page-layout-mobile-nav-top)+var(--page-layout-mobile-nav-height))] z-20 isolate flex items-center gap-1 border-b border-transparent bg-background py-3 lg:top-[var(--app-sticky-chrome-height)]",
+            "sticky top-[calc(var(--page-layout-mobile-nav-top)+var(--page-layout-mobile-nav-height))] z-20 isolate flex items-center gap-1 border-b border-transparent bg-background pt-6 pb-4 lg:top-[var(--app-sticky-chrome-height)]",
             headerStuck && "border-border",
           )}
           data-stuck={headerStuck ? "true" : undefined}
@@ -283,11 +283,9 @@ function WorkflowDefinitionRunsSection({
           </SectionHeader>
         </div>
 
-        <CollapsibleContent
-          drawerClassName="relative z-0"
-          className="pt-2 pb-8"
-        >
-          <div className="space-y-2 border-b border-border pb-3 pl-[calc(var(--size-control-sm)+0.25rem)]">
+        <CollapsibleContent drawerClassName="relative z-0">
+          {/* pb-6 above the rule matches the next header's pt-6. */}
+          <div className="space-y-2 border-b border-border pb-6 pl-[calc(var(--size-control-sm)+0.25rem)]">
             {loading ? (
               <p className="text-sm text-muted-foreground/70">
                 Loading runs…

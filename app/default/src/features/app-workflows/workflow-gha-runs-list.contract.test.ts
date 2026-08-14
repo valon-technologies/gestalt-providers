@@ -13,13 +13,13 @@ describe("WorkflowGroupedDefinitionRunsList stacking", () => {
     );
     expect(SOURCE).toContain("lg:top-[var(--app-sticky-chrome-height)]");
     expect(SOURCE).toContain(
-      "border-b border-transparent bg-background py-3",
+      "border-b border-transparent bg-background pt-6 pb-4",
     );
     expect(SOURCE).toContain('headerStuck && "border-border"');
     expect(SOURCE).not.toContain('className="space-y-8"');
-    expect(SOURCE).toContain('className="pt-2 pb-8"');
+    expect(SOURCE).not.toContain("pb-8");
     expect(SOURCE).toContain(
-      'className="space-y-2 border-b border-border pb-3 pl-[calc(var(--size-control-sm)+0.25rem)]"',
+      'className="space-y-2 border-b border-border pb-6 pl-[calc(var(--size-control-sm)+0.25rem)]"',
     );
     expect(SOURCE).toContain("relative isolate z-0 rounded-none");
     expect(SOURCE).toContain('className="relative z-[2] shrink-0"');
