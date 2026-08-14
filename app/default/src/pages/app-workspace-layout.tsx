@@ -14,7 +14,6 @@ import {
   useIntegrationsQuery,
   useInvalidateIntegrations,
   useWorkflowRunQuery,
-  useWorkflowRunsQuery,
 } from "@/lib/queries";
 import { Code } from "@/components/ui/code";
 import Container from "@/components/Container";
@@ -42,12 +41,10 @@ import {
 import { isActiveRegistryRollout } from "@/features/registry/format";
 import { RegistryCode } from "@/features/registry/registry-code";
 import {
-  decodeTemporalRunHandle,
-  rememberWorkflowRunPublicId,
-  resolveWorkflowRunPublicId,
   shortRunId,
   targetLabel,
 } from "@/features/app-workflows/workflow-format";
+import { useResolvedWorkflowRunRoute } from "@/features/app-workflows/use-resolved-workflow-run-route";
 import {
   adminSurfaceForPathname,
   APP_ADMIN_NAV,
@@ -99,31 +96,13 @@ export default function AppWorkspaceLayout() {
     () => workflowAdminRunIdFromPathname(pathname, app),
     [pathname, app],
   );
-  const workflowRunsQuery = useWorkflowRunsQuery(app, {
-    enabled: Boolean(workflowRouteRunId),
-  });
-  const knownWorkflowRuns = useMemo(
-    () => workflowRunsQuery.data?.pages.flatMap((page) => page.runs) ?? [],
-    [workflowRunsQuery.data],
+  const resolvedWorkflowRun = useResolvedWorkflowRunRoute(
+    app,
+    workflowRouteRunId ?? "",
   );
-  const workflowRunId = useMemo(() => {
-    if (!workflowRouteRunId) return null;
-    const resolved = resolveWorkflowRunPublicId(
-      app,
-      workflowRouteRunId,
-      knownWorkflowRuns,
-    );
-    // Only call GetRun with a public Temporal handle (or other full id).
-    if (decodeTemporalRunHandle(resolved)) {
-      rememberWorkflowRunPublicId(app, resolved);
-      return resolved;
-    }
-    if (resolved !== workflowRouteRunId) {
-      rememberWorkflowRunPublicId(app, resolved);
-      return resolved;
-    }
-    return null;
-  }, [app, knownWorkflowRuns, workflowRouteRunId]);
+  const workflowRunId = workflowRouteRunId
+    ? resolvedWorkflowRun.publicRunId
+    : null;
   const workflowRunQuery = useWorkflowRunQuery(app, workflowRunId);
   const workflowRunLabel = useMemo(() => {
     const run = workflowRunQuery.data;

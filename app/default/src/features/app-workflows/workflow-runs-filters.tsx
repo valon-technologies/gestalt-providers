@@ -21,7 +21,6 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { WorkflowStatusIcon } from "@/features/app-workflows/workflow-status-icon";
 import {
-  capitalize,
   shortDefinitionId,
 } from "@/features/app-workflows/workflow-format";
 import {
@@ -214,6 +213,11 @@ export function WorkflowRunsFilters({
                 variant="outline"
                 className="border-dashed"
                 disabled={disabled || definitionOptions.length === 0}
+                aria-label={
+                  query.definitionId
+                    ? `Filter by definition, selected: ${query.definitionId}`
+                    : "Filter by definition"
+                }
                 data-testid="workflow-runs-definition-filter"
               >
                 <PlusCircle className="size-3.5" aria-hidden />
@@ -256,6 +260,12 @@ export function WorkflowRunsFilters({
                             setDefinitionOpen(false);
                           }}
                         >
+                          <Checkbox
+                            checked={selected}
+                            tabIndex={-1}
+                            aria-hidden
+                            className="pointer-events-none mr-2"
+                          />
                           <span className="whitespace-normal break-all font-mono text-xs">
                             {definitionId}
                           </span>
@@ -305,7 +315,6 @@ export function WorkflowRunsFilters({
             <Switch
               id={groupById}
               checked={query.groupBy === "definition"}
-              disabled={disabled}
               onCheckedChange={(checked) =>
                 onChange({
                   ...query,
@@ -326,7 +335,8 @@ export function WorkflowRunsFilters({
       ) : null}
       {statusScope === "server" ? (
         <p className="text-xs text-muted-foreground">
-          Showing {capitalize(query.statuses[0] ?? "")} runs from the server.
+          Showing {STATUS_LABELS[query.statuses[0] ?? "pending"].toLowerCase()}{" "}
+          runs.
         </p>
       ) : null}
     </div>

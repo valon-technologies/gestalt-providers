@@ -38,6 +38,9 @@ export const queryKeys = {
     root: ["workflows"] as const,
     /** Prefix for all run-list queries (with or without status/definition). */
     list: (app: string) => ["workflows", app, "list"] as const,
+    /** App-scoped run index populated by any ListRuns page (flat or grouped). */
+    runSummaries: (app: string) =>
+      ["workflows", app, "run-summaries"] as const,
     listPage: (
       app: string,
       status: string,

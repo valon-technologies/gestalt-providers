@@ -462,10 +462,20 @@ export async function mockWorkflowRuns(
     if (request.method() === "GET") {
       const url = new URL(request.url());
       const appName = url.searchParams.get("targetApp")?.trim();
-      const runs = appName
+      const definitionId =
+        url.searchParams.get("definitionId")?.trim() ||
+        url.searchParams.get("definition_id")?.trim();
+      let runs = appName
         ? currentRuns.filter((run) => workflowRunMatchesApp(run, appName))
         : currentRuns;
-      route.fulfill({ json: { runs, nextPageToken: "" } });
+      if (definitionId) {
+        runs = runs.filter(
+          (run) => (run.definitionId?.trim() || "") === definitionId,
+        );
+      }
+      route.fulfill({
+        json: { runs, nextPageToken: "", totalCount: runs.length },
+      });
     } else {
       route.fallback();
     }

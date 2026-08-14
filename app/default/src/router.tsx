@@ -349,6 +349,7 @@ const appAdminWorkflowDefinitionsRedirectRoute = createRoute({
     throw redirect({
       to: "/apps/$app/admin/workflows",
       params: { app: params.app },
+      search: { group: "definition" },
       replace: true,
     });
   },

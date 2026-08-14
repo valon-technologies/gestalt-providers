@@ -43,6 +43,7 @@ import {
   applyWorkflowRunsListQuery,
   emptyWorkflowRunsListQuery,
   serverListStatus,
+  workflowListHasMorePages,
   workflowRunsListQueryFromSearch,
   workflowRunsListQueryIsActive,
   workflowRunsSearchFromQuery,
@@ -50,6 +51,7 @@ import {
 } from "@/features/app-workflows/workflow-runs-list-query";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
+import { pickWorkflowRunListAggregates } from "@/lib/workflowApi";
 
 export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
   const navigate = useNavigate({ from: "/apps/$app/admin/workflows" });
@@ -98,7 +100,15 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
     (runsQuery.isFetching && !runsQuery.isPending) ||
     (definitionsQuery.isFetching && !definitionsQuery.isPending);
   const loadingMore = runsQuery.isFetchingNextPage;
-  const hasMoreRuns = Boolean(runsQuery.hasNextPage);
+  const runAggregates = useMemo(
+    () => pickWorkflowRunListAggregates(runsQuery.data?.pages ?? []),
+    [runsQuery.data?.pages],
+  );
+  const hasMoreRuns = workflowListHasMorePages({
+    hasNextPage: Boolean(runsQuery.hasNextPage),
+    loadedCount: runs.length,
+    totalCount: runAggregates.totalCount,
+  });
   const runsError = runsQuery.error
     ? userFacingError(runsQuery.error, "Unable to load workflow activity. Try again.")
     : null;
@@ -170,7 +180,7 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
       </PageHeader>
 
       <div className="space-y-8">
-        {runsError ? (
+        {!groupedByDefinition && runsError ? (
           <ErrorNotice
             message={runsError}
             onRetry={activityRetryable ? refreshRuns : undefined}
@@ -227,6 +237,7 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
               <WorkflowGroupedDefinitionRunsList
                 appName={appName}
                 definitionIds={groupedDefinitionIds}
+                activityDefinitionIds={runDefinitionIds}
                 status={serverStatus}
                 listQuery={listQuery}
               />
@@ -334,7 +345,7 @@ function RunsList({
         >
           <p className="text-sm text-muted-foreground">
             {hasMoreRuns
-              ? "No matching runs in the loaded page. Load more runs, or clear filters."
+              ? "No matching runs loaded so far. Load more runs, or clear filters."
               : "No workflow runs match the current filters."}
           </p>
           <Button

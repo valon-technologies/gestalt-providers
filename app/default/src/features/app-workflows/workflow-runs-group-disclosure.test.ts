@@ -24,9 +24,20 @@ describe("workflow-runs-group-disclosure", () => {
     resetWorkflowDefinitionGroupDisclosure();
   });
 
-  it("defaults every definition group to open", () => {
+  it("defaults activity groups open and dormant groups closed", () => {
     expect(isWorkflowDefinitionGroupOpen("spend", "def_a")).toBe(true);
+    expect(isWorkflowDefinitionGroupOpen("spend", "def_dormant", false)).toBe(
+      false,
+    );
     expect(readCollapsedWorkflowDefinitionIds("spend").size).toBe(0);
+  });
+
+  it("persists an expanded dormant group", () => {
+    setWorkflowDefinitionGroupOpen("spend", "def_dormant", true);
+    forgetWorkflowDefinitionGroupDisclosureMemory();
+    expect(
+      isWorkflowDefinitionGroupOpen("spend", "def_dormant", false),
+    ).toBe(true);
   });
 
   it("remembers collapsed groups across remount-style reads", () => {

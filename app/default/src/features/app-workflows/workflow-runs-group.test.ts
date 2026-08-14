@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { WorkflowRun } from "@/lib/api";
 import {
-  groupWorkflowRunsByDefinition,
   mergeWorkflowDefinitionIds,
   parseWorkflowRunsGroupBy,
+  rollupWorkflowRunGroupHeaderStatus,
   rollupWorkflowRunGroupStatus,
+  rollupWorkflowStatusCounts,
   serializeWorkflowRunsGroupBy,
 } from "./workflow-runs-group";
 
@@ -25,36 +26,6 @@ describe("workflow-runs-group", () => {
     expect(parseWorkflowRunsGroupBy("definition")).toBe("definition");
     expect(serializeWorkflowRunsGroupBy("none")).toBeUndefined();
     expect(serializeWorkflowRunsGroupBy("definition")).toBe("definition");
-  });
-
-  it("groups by definition in first-seen order", () => {
-    const runs = [
-      run({ id: "1", definitionId: "app_b" }),
-      run({ id: "2", definitionId: "app_a" }),
-      run({ id: "3", definitionId: "app_b" }),
-      run({ id: "4" }),
-      run({ id: "5", definitionId: "  " }),
-    ];
-    const groups = groupWorkflowRunsByDefinition(runs);
-    expect(groups.map((group) => group.definitionId)).toEqual([
-      "app_b",
-      "app_a",
-      "",
-    ]);
-    expect(groups[0]?.runs.map((item) => item.id)).toEqual(["1", "3"]);
-    expect(groups[1]?.runs.map((item) => item.id)).toEqual(["2"]);
-    expect(groups[2]?.label).toBe("Unknown definition");
-    expect(groups[2]?.runs.map((item) => item.id)).toEqual(["4", "5"]);
-  });
-
-  it("keeps the full definition id as the group label", () => {
-    const definitionId =
-      "app_example-app_sync_every_four_hours";
-    const groups = groupWorkflowRunsByDefinition([
-      run({ id: "1", definitionId }),
-    ]);
-    expect(groups[0]?.label).toBe(definitionId);
-    expect(groups[0]?.label.includes("…")).toBe(false);
   });
 
   it("merges inventory ids before activity-only ids", () => {
@@ -89,5 +60,58 @@ describe("workflow-runs-group", () => {
         run({ id: "2", status: "skipped" }),
       ]),
     ).toBe("succeeded");
+  });
+
+  it("rollups a histogram even when the loaded page is all succeeded", () => {
+    expect(
+      rollupWorkflowStatusCounts({
+        pending: 0,
+        running: 0,
+        succeeded: 24,
+        failed: 3,
+        canceled: 0,
+      }),
+    ).toBe("failed");
+    expect(
+      rollupWorkflowRunGroupHeaderStatus({
+        clientOnlyFilters: false,
+        hasMore: true,
+        loadedRuns: [run({ id: "1", status: "succeeded" })],
+        statusCounts: {
+          pending: 0,
+          running: 0,
+          succeeded: 24,
+          failed: 3,
+          canceled: 0,
+        },
+      }),
+    ).toBe("failed");
+  });
+
+  it("does not claim group health from a truncated client-filtered page", () => {
+    expect(
+      rollupWorkflowRunGroupHeaderStatus({
+        clientOnlyFilters: true,
+        hasMore: true,
+        loadedRuns: [run({ id: "1", status: "succeeded" })],
+        statusCounts: {
+          pending: 0,
+          running: 0,
+          succeeded: 24,
+          failed: 3,
+          canceled: 0,
+        },
+      }),
+    ).toBe("unknown");
+  });
+
+  it("does not paint succeeded from page 1 when the list is truncated without counts", () => {
+    expect(
+      rollupWorkflowRunGroupHeaderStatus({
+        clientOnlyFilters: false,
+        hasMore: true,
+        loadedRuns: [run({ id: "1", status: "succeeded" })],
+      }),
+    ).toBe("unknown");
   });
 });

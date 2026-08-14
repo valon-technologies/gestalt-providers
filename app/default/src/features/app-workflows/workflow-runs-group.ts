@@ -1,51 +1,15 @@
 import type { WorkflowRun, WorkflowStatus } from "@/lib/api";
 import { normalizeWorkflowStatus } from "@/lib/api";
+import type { WorkflowRunStatusCounts } from "@/lib/workflowApi";
 
 /** How the Runs list is arranged — layout only, not a filter. */
 export type WorkflowRunsGroupBy = "none" | "definition";
 
 export const WORKFLOW_RUNS_GROUP_BY_LABEL = "Group by definition";
 
-export type WorkflowRunDefinitionGroup = {
-  /** Empty string when the run has no definitionId. */
-  definitionId: string;
-  /** Full definition id (or fallback copy) — do not mid-ellipsis shorten. */
-  label: string;
-  runs: WorkflowRun[];
-};
-
 /**
- * Bucket runs by definition, preserving first-seen order (matches newest-first
- * list order → groups ordered by most recent activity).
- */
-export function groupWorkflowRunsByDefinition(
-  runs: readonly WorkflowRun[],
-): WorkflowRunDefinitionGroup[] {
-  const order: string[] = [];
-  const buckets = new Map<string, WorkflowRun[]>();
-
-  for (const run of runs) {
-    const definitionId = run.definitionId?.trim() || "";
-    const existing = buckets.get(definitionId);
-    if (existing) {
-      existing.push(run);
-      continue;
-    }
-    order.push(definitionId);
-    buckets.set(definitionId, [run]);
-  }
-
-  return order.map((definitionId) => ({
-    definitionId,
-    label: definitionId || "Unknown definition",
-    runs: buckets.get(definitionId) ?? [],
-  }));
-}
-
-/**
- * Aggregate status for a definition group’s loaded runs. Worst outcome wins
- * (same priority as job/step rollup): failed → canceled → running → pending →
- * succeeded (skipped counts as ok alongside succeeded).
+ * Worst-outcome rollup: failed → canceled → running → pending → succeeded
+ * (skipped counts as ok alongside succeeded).
  */
 export function rollupWorkflowRunGroupStatus(
   runs: readonly Pick<WorkflowRun, "status">[],
@@ -65,6 +29,42 @@ export function rollupWorkflowRunGroupStatus(
     return "succeeded";
   }
   return normalized[0] ?? "unknown";
+}
+
+/**
+ * Same worst-outcome priority over a server histogram so a truncated first
+ * page cannot hide failures the API already counted.
+ */
+export function rollupWorkflowStatusCounts(
+  counts: WorkflowRunStatusCounts,
+): WorkflowStatus {
+  if (counts.failed > 0) return "failed";
+  if (counts.canceled > 0) return "canceled";
+  if (counts.running > 0) return "running";
+  if (counts.pending > 0) return "pending";
+  if (counts.succeeded > 0) return "succeeded";
+  return "unknown";
+}
+
+/**
+ * Group header health. Prefer the ListRuns histogram when the visible set is
+ * the same corpus the histogram describes. Client-only filters cannot use it.
+ * Truncated lists without a histogram stay unknown (do not paint succeeded
+ * from page 1).
+ */
+export function rollupWorkflowRunGroupHeaderStatus(opts: {
+  clientOnlyFilters: boolean;
+  hasMore: boolean;
+  loadedRuns: readonly Pick<WorkflowRun, "status">[];
+  statusCounts?: WorkflowRunStatusCounts | null;
+}): WorkflowStatus {
+  if (opts.clientOnlyFilters) {
+    if (opts.hasMore) return "unknown";
+    return rollupWorkflowRunGroupStatus(opts.loadedRuns);
+  }
+  if (opts.statusCounts) return rollupWorkflowStatusCounts(opts.statusCounts);
+  if (opts.hasMore) return "unknown";
+  return rollupWorkflowRunGroupStatus(opts.loadedRuns);
 }
 
 export function parseWorkflowRunsGroupBy(

@@ -366,10 +366,14 @@ test.describe("App admin workflows", () => {
     ).toHaveCount(0);
 
     await page.goto(`/apps/${SLACK_APP}/admin/workflows/definitions`);
-    await expect(page).toHaveURL(/\/admin\/workflows\/definitions$/);
-    await expect(page.getByTestId("app-workflow-definitions-list")).toBeVisible();
-    await expect(page.getByText("app_slack_notify")).toBeVisible();
-    await expect(page.getByText("app_gmail_sync")).toHaveCount(0);
+    await expect(page).toHaveURL(/\/admin\/workflows(?:\?group=definition)?$/);
+    await page.goto(`/apps/${SLACK_APP}/admin/workflows?group=definition`);
+    await expect(
+      page.getByTestId("app-workflow-run-group-header-app_slack_notify"),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("app-workflow-run-group-header-app_gmail_sync"),
+    ).toHaveCount(0);
   });
 
   test("keeps grouped sticky header above scrolling run status icons", async ({
@@ -468,10 +472,17 @@ test.describe("App admin workflows", () => {
     ]);
 
     await page.goto(`/apps/${SLACK_APP}/admin/workflows/definitions`);
-    await expect(page.getByTestId("app-workflow-definitions-list")).toBeVisible();
-    await expect(page.getByText("app_slack_notify")).toBeVisible();
+    await expect(page).toHaveURL(/\/admin\/workflows(?:\?group=definition)?$/);
+    await page.goto(`/apps/${SLACK_APP}/admin/workflows?group=definition`);
+    await expect(
+      page.getByTestId("app-workflow-run-group-header-app_slack_notify"),
+    ).toBeVisible();
+    await page.getByRole("link", { name: "app_slack_notify" }).click();
+    await expect(page).toHaveURL(/\/definitions\/app_slack_notify/);
     await page.getByRole("link", { name: "View runs" }).click();
     await expect(page).toHaveURL(/definition=app_slack_notify/);
-    await expect(page.getByText(/Filtered to definition/)).toBeVisible();
+    await expect(
+      page.getByTestId("workflow-runs-definition-filter"),
+    ).toContainText("app_slack_notify");
   });
 });

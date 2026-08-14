@@ -21,6 +21,7 @@ import {
   startWorkflowRun,
 } from "@/lib/workflowApi";
 import { queryKeys } from "@/lib/query-keys";
+import { mergeWorkflowRunSummaries } from "./workflow-run-summaries";
 
 function invalidateDefinitionQueries(
   queryClient: ReturnType<typeof useQueryClient>,
@@ -65,6 +66,7 @@ export function useWorkflowRunsQuery(
     enabled?: boolean;
   },
 ) {
+  const queryClient = useQueryClient();
   const status = opts?.status?.trim() || undefined;
   const definitionId = opts?.definitionId?.trim() || undefined;
   const pageSize = opts?.pageSize;
@@ -75,14 +77,21 @@ export function useWorkflowRunsQuery(
       definitionId ?? "all",
       pageSize ?? "default",
     ),
-    queryFn: ({ pageParam }) =>
-      listWorkflowRuns({
+    queryFn: async ({ pageParam }) => {
+      const page = await listWorkflowRuns({
         targetApp: appName,
         pageToken: pageParam,
         status,
         definitionId,
         pageSize,
-      }),
+      });
+      queryClient.setQueryData(
+        queryKeys.workflows.runSummaries(appName),
+        (prev: WorkflowRun[] | undefined) =>
+          mergeWorkflowRunSummaries(prev ?? [], page.runs),
+      );
+      return page;
+    },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.nextPageToken,
     enabled: opts?.enabled ?? true,

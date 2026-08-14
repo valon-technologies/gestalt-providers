@@ -51,9 +51,7 @@ import {
   rememberWorkflowRunPublicId,
   workflowRunListTitle,
 } from "./workflow-format";
-import {
-  rollupWorkflowRunGroupStatus,
-} from "./workflow-runs-group";
+import { rollupWorkflowRunGroupHeaderStatus } from "./workflow-runs-group";
 import { useWorkflowDefinitionGroupOpen } from "./workflow-runs-group-disclosure";
 import { useStickyStuck } from "./workflow-runs-sticky-stuck";
 import {
@@ -61,6 +59,7 @@ import {
   workflowDefinitionRunCountLabel,
   workflowListHasMorePages,
   workflowRunsListQueryIsActive,
+  workflowRunsListQueryUsesClientOnlyFilters,
   workflowVisibleRunTotalCount,
   type WorkflowRunsListQuery,
 } from "./workflow-runs-list-query";
@@ -108,14 +107,20 @@ export function WorkflowGhaRunsList({
 export function WorkflowGroupedDefinitionRunsList({
   appName,
   definitionIds,
+  activityDefinitionIds,
   status,
   listQuery,
 }: {
   appName: string;
   definitionIds: readonly string[];
+  activityDefinitionIds?: readonly string[];
   status?: string;
   listQuery: WorkflowRunsListQuery;
 }) {
+  const activityIds = useMemo(
+    () => new Set(activityDefinitionIds?.map((id) => id.trim()).filter(Boolean)),
+    [activityDefinitionIds],
+  );
   return (
     <SearchHighlightProvider query={listQuery.q}>
       <div data-testid="app-workflow-run-list-grouped">
@@ -124,6 +129,10 @@ export function WorkflowGroupedDefinitionRunsList({
             key={definitionId}
             appName={appName}
             definitionId={definitionId}
+            defaultOpen={
+              activityIds.has(definitionId) ||
+              listQuery.definitionId === definitionId
+            }
             status={status}
             listQuery={listQuery}
           />
@@ -165,17 +174,20 @@ function FlatRunsList({
 function WorkflowDefinitionRunsSection({
   appName,
   definitionId,
+  defaultOpen,
   status,
   listQuery,
 }: {
   appName: string;
   definitionId: string;
+  defaultOpen: boolean;
   status?: string;
   listQuery: WorkflowRunsListQuery;
 }) {
   const [groupOpen, setGroupOpen] = useWorkflowDefinitionGroupOpen(
     appName,
     definitionId,
+    defaultOpen,
   );
   const runsQuery = useWorkflowRunsQuery(appName, {
     status,
@@ -218,9 +230,15 @@ function WorkflowDefinitionRunsSection({
     hasMore: hasMoreRuns,
   });
   const toggleLabel = `Toggle runs for ${definitionId}`;
-  const groupStatus = hasMoreRuns
-    ? "unknown"
-    : rollupWorkflowRunGroupStatus(filteredRuns);
+  const groupStatus = rollupWorkflowRunGroupHeaderStatus({
+    clientOnlyFilters: workflowRunsListQueryUsesClientOnlyFilters({
+      ...listQuery,
+      definitionId,
+    }),
+    hasMore: hasMoreRuns,
+    loadedRuns: filteredRuns,
+    statusCounts: aggregates.statusCounts,
+  });
   const headingId = `workflow-run-group-${definitionId}`;
   const headerRef = useRef<HTMLDivElement>(null);
   const headerStuck = useStickyStuck(headerRef, groupOpen);

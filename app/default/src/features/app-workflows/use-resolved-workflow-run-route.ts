@@ -1,6 +1,9 @@
 import { useEffect, useMemo } from "react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { useWorkflowRunsQuery } from "@/lib/queries";
+import {
+  useWorkflowRunSummaries,
+  useWorkflowRunsQuery,
+} from "@/lib/queries";
 import {
   decodeTemporalRunHandle,
   rememberWorkflowRunPublicId,
@@ -50,23 +53,25 @@ export function rewriteShortWorkflowRunPath(opts: {
 
 /**
  * Resolve a route `$runId` (short or full handle) to the public API id, using
- * the runs list cache + session memory. GetRun still needs the full handle.
+ * the shared run index (any ListRuns page) plus session memory. GetRun still
+ * needs the full handle.
  */
 export function useResolvedWorkflowRunRoute(app: string, routeRunId: string) {
   const navigate = useNavigate();
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
-  const runsQuery = useWorkflowRunsQuery(app);
-  const knownRuns = useMemo(
-    () => runsQuery.data?.pages.flatMap((page) => page.runs) ?? [],
-    [runsQuery.data],
-  );
+  const knownRuns = useWorkflowRunSummaries(app);
 
   const resolvedId = useMemo(
     () => resolveWorkflowRunPublicId(app, routeRunId, knownRuns),
     [app, knownRuns, routeRunId],
   );
+  const needsDiscovery =
+    Boolean(routeRunId.trim()) &&
+    !decodeTemporalRunHandle(resolvedId) &&
+    resolvedId === routeRunId;
+  useWorkflowRunsQuery(app, { enabled: needsDiscovery });
 
   const listRun = useMemo(
     () =>

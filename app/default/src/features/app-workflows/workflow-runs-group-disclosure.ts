@@ -1,68 +1,112 @@
 import { useCallback, useEffect, useState } from "react";
 
 /**
- * Session disclosure for grouped Runs: which definition sections the user
- * closed. Default is open. Collapsed ids are the exception, keyed by app, so
- * toggling Group by definition (which remounts the list) does not reset them.
+ * Session disclosure for grouped Runs. URL owns layout (`group=definition`)
+ * and filters. This store owns working-set chrome — not shareable.
  *
- * URL owns layout (`group=definition`) and filters. This store owns working-set
- * chrome — not shareable, not a durable preference.
+ * Default: definitions with activity start open; dormant inventory starts
+ * closed. Explicit toggles are stored as expanded/collapsed overrides.
  */
-const memory = new Map<string, Set<string>>();
+const memory = new Map<string, DisclosureState>();
+
+type DisclosureState = {
+  collapsed: Set<string>;
+  expanded: Set<string>;
+};
+
+function emptyDisclosure(): DisclosureState {
+  return { collapsed: new Set(), expanded: new Set() };
+}
 
 function storageKey(app: string): string {
   return `gestalt.workflowDefinitionGroupsCollapsed:${app}`;
 }
 
-function parseCollapsedIds(raw: string | null): Set<string> {
-  if (!raw?.trim()) return new Set();
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return new Set();
-    const ids = new Set<string>();
-    for (const value of parsed) {
-      if (typeof value !== "string") continue;
-      const id = value.trim();
-      if (id) ids.add(id);
-    }
-    return ids;
-  } catch {
-    return new Set();
+function parseIdList(value: unknown): Set<string> {
+  if (!Array.isArray(value)) return new Set();
+  const ids = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const id = item.trim();
+    if (id) ids.add(id);
   }
+  return ids;
 }
 
-function persistCollapsedIds(app: string, ids: Set<string>): void {
-  memory.set(app, ids);
+function parseDisclosure(raw: string | null): DisclosureState {
+  if (!raw?.trim()) return emptyDisclosure();
   try {
-    sessionStorage.setItem(storageKey(app), JSON.stringify([...ids]));
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return { collapsed: parseIdList(parsed), expanded: new Set() };
+    }
+    if (parsed && typeof parsed === "object") {
+      const record = parsed as { collapsed?: unknown; expanded?: unknown };
+      return {
+        collapsed: parseIdList(record.collapsed),
+        expanded: parseIdList(record.expanded),
+      };
+    }
+  } catch {
+    // ignore corrupt session payload
+  }
+  return emptyDisclosure();
+}
+
+function persistDisclosure(app: string, state: DisclosureState): void {
+  memory.set(app, state);
+  try {
+    sessionStorage.setItem(
+      storageKey(app),
+      JSON.stringify({
+        collapsed: [...state.collapsed],
+        expanded: [...state.expanded],
+      }),
+    );
   } catch {
     // private mode / quota — in-memory set still survives remount in this tab
   }
 }
 
-export function readCollapsedWorkflowDefinitionIds(app: string): Set<string> {
+function readDisclosure(app: string): DisclosureState {
   const key = app.trim();
-  if (!key) return new Set();
+  if (!key) return emptyDisclosure();
   const cached = memory.get(key);
-  if (cached) return new Set(cached);
-  try {
-    const ids = parseCollapsedIds(sessionStorage.getItem(storageKey(key)));
-    memory.set(key, ids);
-    return new Set(ids);
-  } catch {
-    const empty = new Set<string>();
-    memory.set(key, empty);
-    return new Set();
+  if (cached) {
+    return {
+      collapsed: new Set(cached.collapsed),
+      expanded: new Set(cached.expanded),
+    };
   }
+  try {
+    const state = parseDisclosure(sessionStorage.getItem(storageKey(key)));
+    memory.set(key, state);
+    return {
+      collapsed: new Set(state.collapsed),
+      expanded: new Set(state.expanded),
+    };
+  } catch {
+    const empty = emptyDisclosure();
+    memory.set(key, empty);
+    return emptyDisclosure();
+  }
+}
+
+export function readCollapsedWorkflowDefinitionIds(app: string): Set<string> {
+  return readDisclosure(app).collapsed;
 }
 
 export function isWorkflowDefinitionGroupOpen(
   app: string,
   definitionId: string,
+  defaultOpen = true,
 ): boolean {
   const id = definitionId.trim();
   if (!id) return true;
-  return !readCollapsedWorkflowDefinitionIds(app).has(id);
+  const state = readDisclosure(app);
+  if (state.expanded.has(id)) return true;
+  if (state.collapsed.has(id)) return false;
+  return defaultOpen;
 }
 
 export function setWorkflowDefinitionGroupOpen(
@@ -73,10 +117,15 @@ export function setWorkflowDefinitionGroupOpen(
   const key = app.trim();
   const id = definitionId.trim();
   if (!key || !id) return;
-  const next = readCollapsedWorkflowDefinitionIds(key);
-  if (open) next.delete(id);
-  else next.add(id);
-  persistCollapsedIds(key, next);
+  const next = readDisclosure(key);
+  if (open) {
+    next.expanded.add(id);
+    next.collapsed.delete(id);
+  } else {
+    next.collapsed.add(id);
+    next.expanded.delete(id);
+  }
+  persistDisclosure(key, next);
 }
 
 /** Test helper — clears memory and session keys for this module. */
@@ -99,14 +148,17 @@ export function forgetWorkflowDefinitionGroupDisclosureMemory(): void {
 export function useWorkflowDefinitionGroupOpen(
   app: string,
   definitionId: string,
+  defaultOpen = true,
 ): [boolean, (open: boolean) => void] {
   const [open, setOpenState] = useState(() =>
-    isWorkflowDefinitionGroupOpen(app, definitionId),
+    isWorkflowDefinitionGroupOpen(app, definitionId, defaultOpen),
   );
 
   useEffect(() => {
-    setOpenState(isWorkflowDefinitionGroupOpen(app, definitionId));
-  }, [app, definitionId]);
+    setOpenState(
+      isWorkflowDefinitionGroupOpen(app, definitionId, defaultOpen),
+    );
+  }, [app, defaultOpen, definitionId]);
 
   const setOpen = useCallback(
     (next: boolean) => {
