@@ -3,22 +3,17 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const SOURCE = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "stepper.tsx"),
-  "utf8",
-);
+const HERE = dirname(fileURLToPath(import.meta.url));
+const SOURCE = readFileSync(join(HERE, "stepper.tsx"), "utf8");
+const SOURCE_RAIL = readFileSync(join(HERE, "step-rail.tsx"), "utf8");
 
 describe("Stepper", () => {
-  test("centers horizontal step labels under the indicator", () => {
+  test("horizontal labels center under the indicator", () => {
     expect(SOURCE).toContain(
       'horizontal: "flex w-full min-w-0 flex-col text-center"',
     );
-    expect(SOURCE).toContain(
-      'vertical: "row-start-1 w-max max-w-full min-w-0 justify-self-start flex-row text-left"',
-    );
-    expect(SOURCE).not.toMatch(
-      /p-\[var\(--stepper-trigger-pad\)\] text-left outline-none/,
-    );
+    expect(SOURCE).toContain('vertical: "flex-row text-left"');
+    expect(SOURCE).not.toMatch(/rounded-md text-left outline-none/);
   });
 
   test("horizontal hit area fills the step column instead of hugging the label", () => {
@@ -26,33 +21,56 @@ describe("Stepper", () => {
     expect(SOURCE).toContain("w-full min-w-0");
   });
 
-  test("step titles scale with stepper size", () => {
-    expect(SOURCE).toContain("min-w-0 text-pretty font-medium leading-none tracking-tight");
-    expect(SOURCE).toContain('size === "sm" ? "text-xs" : "text-sm"');
+  test("step chrome sits above the rail so connectors tuck under discs", () => {
+    expect(SOURCE).toContain("relative z-10 inline-flex items-center gap-2");
+    expect(SOURCE).not.toContain("relative z-0 inline-flex items-center gap-2");
+    expect(SOURCE_RAIL).toContain("pointer-events-none absolute z-[1] overflow-hidden");
   });
 
-  test("sm size tightens vertical step rhythm", () => {
-    expect(SOURCE).toContain('vertical: "grid grid-cols-1"');
-    expect(SOURCE).toContain("row-start-2");
-    expect(SOURCE).toContain('class: "h-4"');
-    expect(SOURCE).toContain('class: "h-8"');
-    expect(SOURCE).not.toContain(
-      "top-[calc(var(--stepper-trigger-pad,0.375rem)+var(--stepper-indicator-size,2rem))]",
-    );
+  test("step titles use text-pretty for wrapped labels", () => {
+    expect(SOURCE).toContain("text-pretty text-sm font-medium leading-snug");
+    expect(SOURCE).not.toContain("text-pretty text-sm font-medium leading-none");
   });
 
-  test("completedVariant success paints checks, not the connector edge", () => {
-    expect(SOURCE).toContain("completedVariant?: StepperCompletedVariant");
+  test("horizontal titles wrap inside the column instead of overflowing as max-content", () => {
     expect(SOURCE).toContain(
-      "border-success-solid bg-success-solid text-success-solid-foreground",
+      "group-data-[orientation=horizontal]/step:block group-data-[orientation=horizontal]/step:w-full group-data-[orientation=horizontal]/step:min-w-0",
     );
-    expect(SOURCE).toContain('accent: "bg-accent-solid"');
-    expect(SOURCE).not.toContain('success: "bg-success-solid"');
+    expect(SOURCE).toContain("inline-flex items-center gap-2");
+    expect(SOURCE).not.toContain(
+      'orientation === "horizontal" && "block w-full min-w-0"',
+    );
   });
 
-  test("connectorVariant primary paints completed rails in ink", () => {
-    expect(SOURCE).toContain("connectorVariant?: StepperConnectorVariant");
-    expect(SOURCE).toContain('primary: "bg-primary"');
-    expect(SOURCE).toContain("data-connector-variant={connectorVariant}");
+  test("completedChrome remaps rail tokens on the root, not per-indicator", () => {
+    expect(SOURCE).toContain("completedChrome");
+    expect(SOURCE).toContain("stepRailCompletedChromeAccentClassName");
+    expect(SOURCE).toContain("stepRailCompletedChromeOutcomeClassName");
+    expect(SOURCE).toContain('completedChrome = "outcome"');
+    expect(SOURCE).toContain('completedChrome: "outcome"');
+    expect(SOURCE).toContain("data-completed-chrome");
+    expect(SOURCE).toContain("stepperVariants({ orientation, completedChrome })");
+    expect(SOURCE).not.toContain("resolvedCompletedChrome");
+    expect(SOURCE).not.toContain('from "@/components/ui/outcome-status-indicator"');
+  });
+
+  test("vertical connectors stagger skip-ahead as a tail and meet the next circle", () => {
+    expect(SOURCE).toContain("stepRailLineStaggerSteps");
+    expect(SOURCE).toContain("stepRailAdvanceTransition");
+    expect(SOURCE).toContain("stepRailFromActiveIndex");
+    expect(SOURCE).not.toContain("prevActiveIndexRef");
+    expect(SOURCE).toContain("staggerSteps={staggerSteps}");
+    expect(SOURCE_RAIL).toContain("-bottom-[var(--step-rail-trigger-pad,0px)]");
+    expect(SOURCE_RAIL).toContain("[clip-path:inset(0_0_100%_0)]");
+  });
+
+  test("indicator chrome delay is sampled at the state transition, not on callback identity", () => {
+    expect(SOURCE).toContain("resolveChromeDelayMs");
+    expect(SOURCE).not.toContain(
+      "getChromeDelayMs={() => getChromeDelayMs(index, dataState)}",
+    );
+    expect(SOURCE_RAIL).toContain("resolveDelayRef");
+    expect(SOURCE_RAIL).not.toContain("[animate, isCompleted, resolveDelay]");
+    expect(SOURCE_RAIL).not.toContain("[animate, dataState, resolveDelay]");
   });
 });

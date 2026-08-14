@@ -1,8 +1,9 @@
 import { describe, expect, test } from "vitest";
 import type { APIToken, Integration } from "@/lib/api";
 import {
+  BUILD_CREATE_NEW_TOKEN_ID,
   BUILD_STEPS,
-  SETUP_JOURNEY_EYEBROW,
+  BUILD_USE_EXISTING_TOKEN_ID,
   buildAuthorizeSelectionReady,
   buildInstallStepTitle,
   buildStepDescription,
@@ -11,10 +12,12 @@ import {
   isActivationDue,
   isBuildComplete,
   isSetupDataSourceApp,
+  isSetupTokenGrantId,
   isWorkspaceWarm,
   setupAppsConnected,
   setupAppsHasConnectable,
   setupDataSourceIntegrations,
+  tokensIncludingSessionGrant,
   type BuildWorkspaceSnapshot,
 } from "@/lib/buildPaths";
 
@@ -281,12 +284,6 @@ describe("buildStepTitle", () => {
     const token = BUILD_STEPS.find((step) => step.id === "token")!;
     expect(buildStepTitle(token, "cursor")).toBe("Create an API token");
   });
-
-  test("every step uses the Setup journey eyebrow", () => {
-    expect(BUILD_STEPS.map((step) => step.eyebrow)).toEqual(
-      BUILD_STEPS.map(() => SETUP_JOURNEY_EYEBROW),
-    );
-  });
 });
 
 describe("setup data-source apps", () => {
@@ -358,5 +355,48 @@ describe("buildAuthorizeSelectionReady", () => {
         selectedTokenId: "tok_1",
       }),
     ).toBe(false);
+  });
+});
+
+describe("tokensIncludingSessionGrant", () => {
+  test("isSetupTokenGrantId rejects radio sentinels", () => {
+    expect(isSetupTokenGrantId(BUILD_CREATE_NEW_TOKEN_ID)).toBe(false);
+    expect(isSetupTokenGrantId(BUILD_USE_EXISTING_TOKEN_ID)).toBe(false);
+    expect(isSetupTokenGrantId("")).toBe(false);
+    expect(isSetupTokenGrantId("tok_new")).toBe(true);
+  });
+
+  test("prepends a session-minted grant the server list omitted", () => {
+    const listed = tokensIncludingSessionGrant([token], {
+      grantId: "tok_new",
+      name: "Workspace assistant",
+      createdAt: "2026-08-14T15:00:00Z",
+    });
+    expect(listed.map((item) => item.id)).toEqual(["tok_new", "tok_1"]);
+    expect(listed[0]).toEqual({
+      id: "tok_new",
+      name: "Workspace assistant",
+      createdAt: "2026-08-14T15:00:00Z",
+    });
+  });
+
+  test("does not duplicate a grant the server already returned", () => {
+    expect(
+      tokensIncludingSessionGrant([token], {
+        grantId: "tok_1",
+        name: "Test",
+      }),
+    ).toEqual([token]);
+  });
+
+  test("does not inject radio sentinels or an unbound grant", () => {
+    expect(
+      tokensIncludingSessionGrant([token], {
+        grantId: BUILD_CREATE_NEW_TOKEN_ID,
+      }),
+    ).toEqual([token]);
+    expect(tokensIncludingSessionGrant([token], { grantId: "" })).toEqual([
+      token,
+    ]);
   });
 });

@@ -265,13 +265,17 @@ vendored `tabs`.
 ## Stepper
 
 Registry `stepper` is vendored as `ui/stepper.tsx` (process navigation with
-checks + connectors). Depends on `lib/list-item-interaction.ts` and
-`selection-check`. Theme bridges include `--accent-fill-hover` /
-`--accent-fill-pressed` for soft-selected hover (selectable-rows). Setup uses a
-controlled horizontal Stepper with `activationMode="jump"`, `size="sm"`,
-`completedVariant="success"` (Registry step-rail semantic green on checks)
-and `connectorVariant="primary"` (ink rails, same as the active indicator).
-Default connectors stay `accent-solid`. Do not restyle Stepper chrome at the
+checks + connectors). Shared rail chrome lives in `ui/step-rail.tsx`. Depends on
+`lib/list-item-interaction.ts` and `selection-check`. Theme bridges include
+`--accent-fill-hover` / `--accent-fill-pressed` for soft-selected hover
+(selectable-rows). Registry `completedChrome="outcome"` uses `--color-green-500`;
+map that onto live `--status-indicator-success` (same OSI recipe). Do not copy
+the Registry green ramp, and do not `var(--color-green-500)` here (`@theme inline
+reference` does not emit that name). Setup uses a controlled horizontal Stepper
+with `activationMode="jump"` and `size="default"`. Completed checks default to
+`completedChrome="outcome"` (green fill, white check, ink connectors).
+Pass `completedChrome="accent"` for gold. TimelineSteps keeps gold via
+`stepRailCompletedChromeAccentClassName`. Do not restyle Stepper chrome at the
 call site (layout-only wrappers OK).
 
 ## Pagination

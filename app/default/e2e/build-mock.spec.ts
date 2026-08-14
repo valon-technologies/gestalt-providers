@@ -188,7 +188,10 @@ test.describe("Setup page", () => {
     ).toBeVisible();
     await expect(
       page.locator('[data-slot="page-header"] [data-slot="eyebrow"]'),
-    ).toHaveText("Setup");
+    ).toHaveCount(0);
+    await expect(
+      page.locator('[data-slot="page-header-content"]'),
+    ).toHaveAttribute("data-size", "md");
 
     await expect(page.getByTestId("build-welcome")).toBeVisible();
     await expect(page.getByText(/About 5 minutes/)).toBeVisible();
@@ -410,7 +413,15 @@ test.describe("Setup page", () => {
     await expect(page.getByTestId("build-step-next")).toBeDisabled();
     await page.getByRole("button", { name: "Create token" }).click();
     await expect(page.getByText("Token created.")).toBeVisible();
+    await expect(page.getByRole("radio", { name: "Use existing token" })).toBeChecked();
+    await expect(page.getByTestId("build-existing-token-list")).toBeVisible();
+    await expect(
+      page.getByRole("radio", { name: /ci-pipeline \(tok_new\)/ }),
+    ).toBeChecked();
     await expect(page.getByTestId("build-step-next")).toBeEnabled();
+    await expect(page.getByTestId("build-step-next")).toContainText(
+      "Add Gestalt in Cursor",
+    );
     await page.getByTestId("build-step-next").click();
 
     await expect(page).toHaveURL(/\/setup\/install$/);
@@ -425,6 +436,61 @@ test.describe("Setup page", () => {
     );
     await expect(page.getByTestId("build-connect-apps")).toBeVisible();
     await expect(page.getByTestId("build-step-next")).toBeDisabled();
+  });
+
+  test("creating a token selects it under Use existing when the server list omits it", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.addInitScript(() => {
+      sessionStorage.setItem("gestalt.build.introSeen", "1");
+      sessionStorage.setItem("gestalt.build.installAgent", "cursor");
+    });
+
+    const hello = {
+      id: "grant-legacy-3e5276ee-671b-42e0-9093-971216489eaf",
+      name: "Hello",
+      scopes: ["api"],
+      createdAt: "2026-04-13T00:00:00Z",
+    };
+    const tokens = await mockTokens(page, [hello]);
+    await mockPersonalTokenCreate(
+      page,
+      tokens,
+      async (body) => ({
+        token: {
+          id: "tok_new",
+          name: body.name ?? "created",
+          scopes: [],
+          createdAt: "2026-08-14T00:00:00Z",
+        },
+        plaintext: "gst_api_created_once_secret",
+      }),
+      { listCreated: false },
+    );
+
+    await page.goto("/setup/token");
+    await page.locator("label").filter({ hasText: "Create new token" }).click();
+    await page.getByLabel("Token name").fill("Workspace assistant");
+    await expect(page.getByTestId("build-step-next")).toBeDisabled();
+    await page.getByRole("button", { name: "Create token" }).click();
+    await expect(page.getByText("Token created.")).toBeVisible();
+
+    await expect(
+      page.getByRole("radio", { name: "Use existing token" }),
+    ).toBeChecked();
+    await expect(page.getByTestId("build-existing-token-list")).toBeVisible();
+    await expect(
+      page.getByRole("radio", { name: "Workspace assistant (tok_new)" }),
+    ).toBeChecked();
+    await expect(
+      page.getByRole("radio", {
+        name: "Hello (grant-legacy-3e5276ee-671b-42e0-9093-971216489eaf)",
+      }),
+    ).not.toBeChecked();
+    await expect(page.getByTestId("build-step-next")).toBeEnabled();
+    await expect(page.getByTestId("build-step-next")).toContainText(
+      "Add Gestalt in Cursor",
+    );
   });
 
   test("apps step prompts to connect catalog apps", async ({
@@ -447,7 +513,7 @@ test.describe("Setup page", () => {
     ).toBeVisible();
     await expect(
       page.locator('[data-slot="page-header"] [data-slot="eyebrow"]'),
-    ).toHaveText("Setup");
+    ).toHaveCount(0);
     await expect(page.getByTestId("build-connect-apps")).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Suggested" }),

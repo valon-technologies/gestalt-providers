@@ -79,8 +79,6 @@ export interface BuildWorkspaceSnapshot {
 export interface BuildStep {
   id: BuildStepId;
   title: string;
-  /** PageHeader kicker. Same journey label on every step; the title owns the task. */
-  eyebrow: string;
   /** Plain-English support line under the title — must not restate the title. */
   description: string;
   ctaLabel: string;
@@ -170,16 +168,12 @@ Ready for a new attempt when you are.`,
 /** Tenant-neutral product noun for Setup copy (deployments may override later). */
 export const SETUP_PRODUCT_NAME = "Gestalt";
 
-/** PageHeader kicker for the Setup journey. Eyebrow CSS uppercases it. */
-export const SETUP_JOURNEY_EYEBROW = "Setup";
-
 export const BUILD_STEPS: BuildStep[] = [
   {
     id: "welcome",
     title: "Welcome",
-    eyebrow: SETUP_JOURNEY_EYEBROW,
     description:
-      "Connect the assistant you already use to this workspace so it can use your company’s apps — with your permission.",
+      "Connect the assistant you already use to this workspace so it can use your company’s apps, with your permission.",
     ctaLabel: "Choose your assistant",
     to: `${SETUP_PATH}/welcome`,
     isComplete: (snapshot) => snapshot.welcomeSeen,
@@ -187,9 +181,8 @@ export const BUILD_STEPS: BuildStep[] = [
   {
     id: "assistant",
     title: "Choose your assistant",
-    eyebrow: SETUP_JOURNEY_EYEBROW,
     description:
-      "Pick the tool you work in — Cursor, Claude Code, Codex, or another assistant.",
+      "Pick the tool you work in: Cursor, Claude Code, Codex, or another assistant.",
     ctaLabel: "Continue",
     to: `${SETUP_PATH}/assistant`,
     isComplete: (snapshot) => buildInstallAgentSelected(snapshot.installAgentId),
@@ -197,7 +190,6 @@ export const BUILD_STEPS: BuildStep[] = [
   {
     id: "token",
     title: "Create an API token",
-    eyebrow: SETUP_JOURNEY_EYEBROW,
     description:
       "Your assistant needs a token to reach this workspace securely.",
     ctaLabel: "Continue",
@@ -207,7 +199,6 @@ export const BUILD_STEPS: BuildStep[] = [
   {
     id: "install",
     title: `Add ${SETUP_PRODUCT_NAME}`,
-    eyebrow: SETUP_JOURNEY_EYEBROW,
     description: `Add ${SETUP_PRODUCT_NAME} so your assistant can reach this workspace.`,
     ctaLabel: "Continue",
     to: `${SETUP_PATH}/install`,
@@ -216,7 +207,6 @@ export const BUILD_STEPS: BuildStep[] = [
   {
     id: "apps",
     title: "Connect apps",
-    eyebrow: SETUP_JOURNEY_EYEBROW,
     description:
       "Pick the apps your assistant can use. Connect at least one to continue.",
     ctaLabel: "Continue",
@@ -227,7 +217,6 @@ export const BUILD_STEPS: BuildStep[] = [
   {
     id: "try",
     title: "Try it",
-    eyebrow: SETUP_JOURNEY_EYEBROW,
     description:
       "Paste a test prompt in your assistant and see it use this workspace.",
     ctaLabel: "Browse apps",
@@ -241,6 +230,39 @@ export const BUILD_USE_EXISTING_TOKEN_ID = "existing";
 
 /** Radio value for “create a new token” on the token step. */
 export const BUILD_CREATE_NEW_TOKEN_ID = "new";
+
+/** True when `id` is a real grant, not a token-step radio sentinel. */
+export function isSetupTokenGrantId(id: string): boolean {
+  const trimmed = id.trim();
+  return (
+    trimmed.length > 0 &&
+    trimmed !== BUILD_CREATE_NEW_TOKEN_ID &&
+    trimmed !== BUILD_USE_EXISTING_TOKEN_ID
+  );
+}
+
+/**
+ * Keep a session-minted grant visible on the token step when the server list
+ * has not caught up (or never will). Pass `grantId` only while Setup still
+ * holds that grant's plaintext.
+ */
+export function tokensIncludingSessionGrant(
+  tokens: APIToken[],
+  session: { grantId: string; name?: string; createdAt?: string },
+): APIToken[] {
+  const grantId = session.grantId.trim();
+  if (!isSetupTokenGrantId(grantId)) return tokens;
+  if (tokens.some((token) => token.id === grantId)) return tokens;
+  const name = session.name?.trim();
+  return [
+    {
+      id: grantId,
+      ...(name && name !== grantId ? { name } : {}),
+      createdAt: session.createdAt ?? new Date().toISOString(),
+    },
+    ...tokens,
+  ];
+}
 
 /** Pre-split Connect URL — redirect to the token step. */
 export const LEGACY_SETUP_CONNECT_STEP_ID = "connect";

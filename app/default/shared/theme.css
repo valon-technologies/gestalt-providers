@@ -144,6 +144,8 @@
   --warning-solid-foreground: oklch(23% 0.04 255);
   --error: oklch(92.8% 0.035 25);
   --error-foreground: oklch(40.8% 0.105 25);
+  --error-solid: oklch(58.766% 0.1526 23);
+  --error-solid-foreground: oklch(100% 0 0);
   --info: oklch(92.8% 0.035 248);
   --info-foreground: oklch(40.8% 0.105 248);
 
@@ -360,6 +362,8 @@
   --warning-solid-foreground: oklch(19.5% 0.03 255);
   --error: oklch(28.2% 0.058 25);
   --error-foreground: oklch(85.8% 0.073 25);
+  --error-solid: oklch(77.8% 0.108 25);
+  --error-solid-foreground: oklch(19.5% 0.03 255);
   --info: oklch(28.2% 0.058 248);
   --info-foreground: oklch(85.8% 0.07 248);
 

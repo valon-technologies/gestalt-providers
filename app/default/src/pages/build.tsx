@@ -24,7 +24,6 @@ import {
   choiceCardRadioHiddenClassName,
   radioLabelWrappedDisabledClassName,
 } from "@/lib/choice-card-chrome";
-import { Eyebrow } from "@/components/ui/eyebrow";
 import {
   Alert,
   AlertActions,
@@ -133,13 +132,13 @@ import {
   companionAppLabel,
   DEFAULT_BUILD_TOKEN_NAME,
   firstIncompleteStepId,
+  tokensIncludingSessionGrant,
   getExemplar,
   isBuildComplete,
   isBuildStepId,
   isLegacySetupConnectStepId,
   resolveExemplarOpenPath,
   SETUP_PRODUCT_NAME,
-  SETUP_JOURNEY_EYEBROW,
   isSetupDataSourceApp,
   setupAppsConnected,
   setupAppsHasConnectable,
@@ -278,9 +277,7 @@ function SetupPageChrome({
           onValueChange={onValueChange}
           orientation="horizontal"
           activationMode="jump"
-          size="sm"
-          completedVariant="success"
-          connectorVariant="primary"
+          size="default"
         >
           <SetupStepperList
             titleForStep={titleForStep}
@@ -310,8 +307,7 @@ function SetupOverview({ snapshot }: { snapshot: BuildWorkspaceSnapshot }) {
     >
       <div className="space-y-8" data-testid="build-setup-overview">
         <PageHeader>
-          <PageHeaderContent size="lg">
-            <Eyebrow tone="accent">{SETUP_JOURNEY_EYEBROW}</Eyebrow>
+          <PageHeaderContent size="md">
             <PageHeaderTitle>You&apos;re all set</PageHeaderTitle>
             <PageHeaderDescription>
               Your assistant is connected and your workspace apps are ready to
@@ -433,8 +429,7 @@ export default function BuildStepPage() {
 
       <div className="space-y-8">
         <PageHeader className={cn(stepId === "welcome" && "hidden")}>
-          <PageHeaderContent size="lg">
-            <Eyebrow tone="accent">{currentStep.eyebrow}</Eyebrow>
+          <PageHeaderContent size="md">
             <PageHeaderTitle>
               {buildStepTitle(currentStep, session.selectedInstallAgent)}
             </PageHeaderTitle>
@@ -779,15 +774,14 @@ function WelcomeStorytelling({
   return (
     <div className="space-y-8" data-testid="build-welcome">
       <PageHeader>
-        <PageHeaderContent size="lg">
-          <Eyebrow tone="accent">{SETUP_JOURNEY_EYEBROW}</Eyebrow>
+        <PageHeaderContent size="md">
           <PageHeaderTitle>
             Your AI assistant, wired into your work
           </PageHeaderTitle>
           <PageHeaderDescription>
             Generic AI doesn&apos;t know how your company runs.{" "}
             {SETUP_PRODUCT_NAME} connects the assistant you already use to the
-            company apps your teams rely on — with your permission.
+            company apps your teams rely on, with your permission.
           </PageHeaderDescription>
         </PageHeaderContent>
       </PageHeader>
@@ -803,7 +797,7 @@ function WelcomeStorytelling({
           <span className="text-foreground" aria-hidden>
             ·
           </span>
-          <span>Answers from real company systems — not generic web results</span>
+          <span>Answers from real company systems, not generic web results</span>
         </li>
         <li className="flex gap-2">
           <span className="text-foreground" aria-hidden>
@@ -1243,6 +1237,8 @@ function BuildStepPanel({
         <AuthorizeStepActions
           tokens={tokens}
           tokensLoaded={tokensReady}
+          apiToken={apiToken}
+          apiTokenGrantId={apiTokenGrantId}
           tokenName={tokenName}
           onTokenName={onTokenName}
           selectedTokenId={selectedTokenId}
@@ -1459,6 +1455,8 @@ function ExistingTokenRadioRow({
 function AuthorizeStepActions({
   tokens,
   tokensLoaded,
+  apiToken,
+  apiTokenGrantId,
   onApiToken,
   tokenName,
   onTokenName,
@@ -1468,6 +1466,8 @@ function AuthorizeStepActions({
 }: {
   tokens: APIToken[];
   tokensLoaded: boolean;
+  apiToken: string;
+  apiTokenGrantId: string;
   onApiToken: (token: string, grantId?: string) => void;
   tokenName: string;
   onTokenName: (name: string) => void;
@@ -1478,8 +1478,19 @@ function AuthorizeStepActions({
   const [moreTokensOpen, setMoreTokensOpen] = useState<string | undefined>(
     undefined,
   );
-  const hasTokens = tokens.length > 0;
-  const sortedTokens = useMemo(() => sortTokensByRecency(tokens), [tokens]);
+  const listedTokens = useMemo(
+    () =>
+      tokensIncludingSessionGrant(tokens, {
+        grantId: apiToken.trim() ? apiTokenGrantId : "",
+        name: tokenName,
+      }),
+    [tokens, apiToken, apiTokenGrantId, tokenName],
+  );
+  const hasTokens = listedTokens.length > 0;
+  const sortedTokens = useMemo(
+    () => sortTokensByRecency(listedTokens),
+    [listedTokens],
+  );
   const previewTokens = useMemo(
     () => sortedTokens.slice(0, BUILD_EXISTING_TOKEN_PREVIEW),
     [sortedTokens],
@@ -1494,7 +1505,7 @@ function AuthorizeStepActions({
     : selectedTokenId === BUILD_CREATE_NEW_TOKEN_ID
       ? BUILD_CREATE_NEW_TOKEN_ID
       : selectedTokenId === BUILD_USE_EXISTING_TOKEN_ID ||
-          tokens.some((token) => token.id === selectedTokenId)
+          listedTokens.some((token) => token.id === selectedTokenId)
         ? BUILD_USE_EXISTING_TOKEN_ID
         : undefined;
 
@@ -1502,13 +1513,13 @@ function AuthorizeStepActions({
     if (!tokensLoaded || hasTokens) return;
     if (selectedTokenId === BUILD_CREATE_NEW_TOKEN_ID) return;
     onSelectedTokenId(BUILD_CREATE_NEW_TOKEN_ID);
-    onTokenName(createDraftTokenName(tokenName, tokens));
+    onTokenName(createDraftTokenName(tokenName, listedTokens));
   }, [
     tokensLoaded,
     hasTokens,
     selectedTokenId,
     tokenName,
-    tokens,
+    listedTokens,
     onSelectedTokenId,
     onTokenName,
   ]);
@@ -1516,17 +1527,17 @@ function AuthorizeStepActions({
   useEffect(() => {
     if (!tokensLoaded) return;
     if (authorizeMode !== BUILD_CREATE_NEW_TOKEN_ID) return;
-    const nextName = createDraftTokenName(tokenName, tokens);
+    const nextName = createDraftTokenName(tokenName, listedTokens);
     if (nextName !== tokenName) onTokenName(nextName);
   }, [
     tokensLoaded,
     authorizeMode,
     tokenName,
-    tokens,
+    listedTokens,
     onTokenName,
   ]);
 
-  const selectedExistingTokenId = tokens.some(
+  const selectedExistingTokenId = listedTokens.some(
     (token) => token.id === selectedTokenId,
   )
     ? selectedTokenId
@@ -1551,8 +1562,8 @@ function AuthorizeStepActions({
     plaintext: string,
     created: { id: string; name: string },
   ) {
-    onSelectedTokenId(created.id);
     onApiToken(plaintext, created.id);
+    onSelectedTokenId(created.id);
     onTokenName(created.name);
     toast.success("Token created.");
     await onTokensChanged();
@@ -1569,7 +1580,7 @@ function AuthorizeStepActions({
 
   function selectCreateMode() {
     onSelectedTokenId(BUILD_CREATE_NEW_TOKEN_ID);
-    onTokenName(createDraftTokenName(tokenName, tokens));
+    onTokenName(createDraftTokenName(tokenName, listedTokens));
   }
 
   function selectExistingToken(token: APIToken) {
@@ -1637,7 +1648,7 @@ function AuthorizeStepActions({
                       <RadioGroup
                         value={selectedExistingTokenId}
                         onValueChange={(value) => {
-                          const token = tokens.find((item) => item.id === value);
+                          const token = listedTokens.find((item) => item.id === value);
                           if (token) selectExistingToken(token);
                         }}
                         className="flex flex-col gap-2"
@@ -1842,7 +1853,7 @@ function InvokeStepActions({
           <SectionHeaderContent>
             <SectionHeaderTitle>Related apps</SectionHeaderTitle>
             <SectionHeaderDescription>
-              More apps that fit this outcome — open one, or browse the full store.
+              More apps that fit this outcome. Open one, or browse the full store.
             </SectionHeaderDescription>
           </SectionHeaderContent>
         </SectionHeader>

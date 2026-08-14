@@ -407,12 +407,18 @@ export async function mockPersonalTokenCreate(
     expiresAt?: string;
     status?: number;
   }>,
+  options?: { listCreated?: boolean },
 ) {
   await page.route("**/api/v1/tokens", async (route: Route, request) => {
     if (request.method() === "POST") {
       const body = request.postDataJSON() as CreatePersonalTokenBody;
       const result = await handler(body);
-      tokens.setTokens([result.token]);
+      if (options?.listCreated !== false) {
+        const rest = tokens
+          .getTokens()
+          .filter((token) => token.id !== result.token.id);
+        tokens.setTokens([result.token, ...rest]);
+      }
       await route.fulfill({
         status: result.status ?? 201,
         json: {
