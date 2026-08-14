@@ -38,7 +38,7 @@ function parseDisclosure(raw: string | null): DisclosureState {
   try {
     const parsed: unknown = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      return { collapsed: parseIdList(parsed), expanded: new Set() };
+      return emptyDisclosure();
     }
     if (parsed && typeof parsed === "object") {
       const record = parsed as { collapsed?: unknown; expanded?: unknown };

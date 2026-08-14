@@ -67,6 +67,14 @@ export function rollupWorkflowRunGroupHeaderStatus(opts: {
   return rollupWorkflowRunGroupStatus(opts.loadedRuns);
 }
 
+/** Open a closed group when filters match loaded rows so matches are not hidden. */
+export function shouldExpandGroupForVisibleMatches(opts: {
+  filtersActive: boolean;
+  matchingRunCount: number;
+}): boolean {
+  return opts.filtersActive && opts.matchingRunCount > 0;
+}
+
 export function parseWorkflowRunsGroupBy(
   raw: string | undefined,
 ): WorkflowRunsGroupBy {

@@ -61,4 +61,12 @@ describe("workflow-runs-group-disclosure", () => {
 
     expect(isWorkflowDefinitionGroupOpen("spend", "def_a")).toBe(false);
   });
+
+  it("ignores a legacy collapsed-id array in sessionStorage", () => {
+    session.set(
+      "gestalt.workflowDefinitionGroupsCollapsed:spend",
+      JSON.stringify(["def_a"]),
+    );
+    expect(isWorkflowDefinitionGroupOpen("spend", "def_a")).toBe(true);
+  });
 });

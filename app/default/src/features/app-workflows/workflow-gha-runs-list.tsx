@@ -51,7 +51,7 @@ import {
   rememberWorkflowRunPublicId,
   workflowRunListTitle,
 } from "./workflow-format";
-import { rollupWorkflowRunGroupHeaderStatus } from "./workflow-runs-group";
+import { rollupWorkflowRunGroupHeaderStatus, shouldExpandGroupForVisibleMatches } from "./workflow-runs-group";
 import { useWorkflowDefinitionGroupOpen } from "./workflow-runs-group-disclosure";
 import { useStickyStuck } from "./workflow-runs-sticky-stuck";
 import {
@@ -287,7 +287,9 @@ function WorkflowDefinitionRunsSection({
           ),
           hasMore: hasMoreRuns,
         });
-  const toggleLabel = `Toggle runs for ${definitionId}`;
+  const toggleLabel = groupOpen
+    ? `Hide runs for ${definitionId}`
+    : `Show runs for ${definitionId}`;
   const groupStatus = rollupWorkflowRunGroupHeaderStatus({
     clientOnlyFilters: workflowRunsListQueryUsesClientOnlyFilters({
       ...listQuery,
@@ -320,10 +322,16 @@ function WorkflowDefinitionRunsSection({
   }, [definitionId, omit, onOmittedChange]);
 
   useEffect(() => {
-    if (filtersActive && !filteredEmpty && !groupOpen) {
+    if (
+      shouldExpandGroupForVisibleMatches({
+        filtersActive,
+        matchingRunCount: filteredRuns.length,
+      }) &&
+      !groupOpen
+    ) {
       setGroupOpen(true);
     }
-  }, [filtersActive, filteredEmpty, groupOpen, setGroupOpen]);
+  }, [filtersActive, filteredRuns.length, groupOpen, setGroupOpen]);
 
   if (omit) return null;
 

@@ -68,7 +68,7 @@ export function runTriggerActorDescription(run: WorkflowRun): string {
   const actor = runActorLabel(run);
   if (trigger && actor) return `${trigger} by ${actor}`;
   if (trigger) return trigger;
-  if (actor) return `by ${actor}`;
+  if (actor) return `Started by ${actor}`;
   return "";
 }
 

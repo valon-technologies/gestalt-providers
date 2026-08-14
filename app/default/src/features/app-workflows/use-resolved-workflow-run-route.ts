@@ -52,10 +52,24 @@ export function rewriteShortWorkflowRunPath(opts: {
 }
 
 /**
- * Resolve a route `$runId` (short or full handle) to the public API id, using
- * the shared run index (any ListRuns page) plus session memory. GetRun still
- * needs the full handle.
+ * Public id to pass to GetRun. Prefer the run index / Temporal handle.
+ * After discovery is exhausted, fall back to the route segment so non-Temporal
+ * ids (and bookmarked full handles) still load instead of hanging on page 1.
  */
+export function publicWorkflowRunIdForGetRun(opts: {
+  routeRunId: string;
+  resolvedId: string;
+  listRunId?: string;
+  discoveryExhausted: boolean;
+}): string | null {
+  if (decodeTemporalRunHandle(opts.resolvedId)) return opts.resolvedId;
+  if (opts.listRunId) return opts.listRunId;
+  if (decodeTemporalRunHandle(opts.routeRunId)) return opts.routeRunId;
+  const trimmed = opts.routeRunId.trim();
+  if (!trimmed || !opts.discoveryExhausted) return null;
+  return trimmed;
+}
+
 export function useResolvedWorkflowRunRoute(app: string, routeRunId: string) {
   const navigate = useNavigate();
   const pathname = useRouterState({
@@ -67,12 +81,6 @@ export function useResolvedWorkflowRunRoute(app: string, routeRunId: string) {
     () => resolveWorkflowRunPublicId(app, routeRunId, knownRuns),
     [app, knownRuns, routeRunId],
   );
-  const needsDiscovery =
-    Boolean(routeRunId.trim()) &&
-    !decodeTemporalRunHandle(resolvedId) &&
-    resolvedId === routeRunId;
-  useWorkflowRunsQuery(app, { enabled: needsDiscovery });
-
   const listRun = useMemo(
     () =>
       knownRuns.find(
@@ -83,12 +91,47 @@ export function useResolvedWorkflowRunRoute(app: string, routeRunId: string) {
       ),
     [knownRuns, resolvedId, routeRunId],
   );
+  const needsDiscovery =
+    Boolean(routeRunId.trim()) &&
+    !decodeTemporalRunHandle(resolvedId) &&
+    !listRun &&
+    resolvedId === routeRunId;
+  const discovery = useWorkflowRunsQuery(app, { enabled: needsDiscovery });
+  useEffect(() => {
+    if (!needsDiscovery) return;
+    if (
+      !discovery.hasNextPage ||
+      discovery.isFetchingNextPage ||
+      discovery.isPending
+    ) {
+      return;
+    }
+    void discovery.fetchNextPage();
+  }, [
+    discovery.fetchNextPage,
+    discovery.hasNextPage,
+    discovery.isFetchingNextPage,
+    discovery.isPending,
+    discovery.dataUpdatedAt,
+    needsDiscovery,
+  ]);
+  const discoveryExhausted =
+    !needsDiscovery ||
+    (discovery.isFetched &&
+      !discovery.hasNextPage &&
+      !discovery.isFetchingNextPage &&
+      !discovery.isPending);
 
-  const publicRunId = useMemo(() => {
-    if (decodeTemporalRunHandle(resolvedId)) return resolvedId;
-    if (listRun?.id) return listRun.id;
-    return null;
-  }, [listRun?.id, resolvedId]);
+  const publicRunId = useMemo(
+    () =>
+      publicWorkflowRunIdForGetRun({
+        routeRunId,
+        resolvedId,
+        listRunId: listRun?.id,
+        discoveryExhausted,
+      }),
+    [discoveryExhausted, listRun?.id, resolvedId, routeRunId],
+  );
 
   useEffect(() => {
     if (listRun?.id) rememberWorkflowRunPublicId(app, listRun.id);

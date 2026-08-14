@@ -110,11 +110,22 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
     totalCount: runAggregates.totalCount,
   });
   const runsError = runsQuery.error
-    ? userFacingError(runsQuery.error, "Unable to load workflow activity. Try again.")
+    ? userFacingError(
+        runsQuery.error,
+        "Couldn't load workflow runs. Try again.",
+      )
     : null;
+  const definitionsError = definitionsQuery.error
+    ? userFacingError(
+        definitionsQuery.error,
+        "Couldn't load workflow runs. Try again.",
+      )
+    : null;
+  const catalogError = runsError ?? definitionsError;
   const activityUnavailable = Boolean(runsError && !runsQuery.isPending);
   const activityRetryable = !(
-    runsQuery.error instanceof WorkflowProviderConfigurationError
+    (runsQuery.error ?? definitionsQuery.error) instanceof
+    WorkflowProviderConfigurationError
   );
 
   const filteredRuns = useMemo(
@@ -180,9 +191,9 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
       </PageHeader>
 
       <div className="space-y-8">
-        {!groupedByDefinition && runsError ? (
+        {catalogError ? (
           <ErrorNotice
-            message={runsError}
+            message={catalogError}
             onRetry={activityRetryable ? refreshRuns : undefined}
             retrying={refreshing}
           />
@@ -203,7 +214,7 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
                 />
                 List runs from your terminal
               </span>
-              <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform duration-overshoot ease-out-back" />
+              <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform duration-overshoot ease-out-back motion-reduce:transition-none" aria-hidden />
             </CollapsibleTrigger>
             <CollapsibleContent className="space-y-2 rounded-b-xl border-t border-border px-4 py-3">
               <p className="text-sm text-foreground text-pretty">
@@ -246,7 +257,7 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
               <p className="text-sm text-muted-foreground/70">
                 Loading workflow runs…
               </p>
-            ) : (
+            ) : catalogError ? null : (
               <EmptyRunsState appName={appName} />
             )
           ) : activityUnavailable ? (

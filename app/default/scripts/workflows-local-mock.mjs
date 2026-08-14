@@ -961,23 +961,25 @@ export async function handleWorkflowsLocalMock(req, res, pathname, url) {
     const nextStart = start + page.length;
     const nextPageToken =
       nextStart < filtered.length ? String(nextStart) : "";
-    // status_counts: same ownership/definition scope with status cleared
+    // App-wide lists may include status_counts. Definition-scoped ListRuns
+    // omit the histogram (matches Temporal).
     sendJson(res, 200, {
       runs: page,
       nextPageToken,
       totalCount: filtered.length,
-      statusCounts: {
-        pending: definitionScoped.filter((run) => run.status === "pending")
-          .length,
-        running: definitionScoped.filter((run) => run.status === "running")
-          .length,
-        succeeded: definitionScoped.filter((run) => run.status === "succeeded")
-          .length,
-        failed: definitionScoped.filter((run) => run.status === "failed")
-          .length,
-        canceled: definitionScoped.filter((run) => run.status === "canceled")
-          .length,
-      },
+      ...(definitionId
+        ? {}
+        : {
+            statusCounts: {
+              pending: scoped.filter((run) => run.status === "pending").length,
+              running: scoped.filter((run) => run.status === "running").length,
+              succeeded: scoped.filter((run) => run.status === "succeeded")
+                .length,
+              failed: scoped.filter((run) => run.status === "failed").length,
+              canceled: scoped.filter((run) => run.status === "canceled")
+                .length,
+            },
+          }),
     });
     return true;
   }

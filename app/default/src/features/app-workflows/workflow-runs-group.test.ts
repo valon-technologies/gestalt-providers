@@ -7,6 +7,7 @@ import {
   rollupWorkflowRunGroupStatus,
   rollupWorkflowStatusCounts,
   serializeWorkflowRunsGroupBy,
+  shouldExpandGroupForVisibleMatches,
 } from "./workflow-runs-group";
 
 function run(partial: Partial<WorkflowRun> & Pick<WorkflowRun, "id">): WorkflowRun {
@@ -113,5 +114,26 @@ describe("workflow-runs-group", () => {
         loadedRuns: [run({ id: "1", status: "succeeded" })],
       }),
     ).toBe("unknown");
+  });
+
+  it("expands a group when filters match loaded rows", () => {
+    expect(
+      shouldExpandGroupForVisibleMatches({
+        filtersActive: true,
+        matchingRunCount: 2,
+      }),
+    ).toBe(true);
+    expect(
+      shouldExpandGroupForVisibleMatches({
+        filtersActive: true,
+        matchingRunCount: 0,
+      }),
+    ).toBe(false);
+    expect(
+      shouldExpandGroupForVisibleMatches({
+        filtersActive: false,
+        matchingRunCount: 2,
+      }),
+    ).toBe(false);
   });
 });
