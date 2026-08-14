@@ -13,7 +13,10 @@ import {
   useDeployAppAdminVersionMutation,
   useIntegrationsQuery,
   useInvalidateIntegrations,
+  useWorkflowRunQuery,
+  useWorkflowRunsQuery,
 } from "@/lib/queries";
+import { Code } from "@/components/ui/code";
 import Container from "@/components/Container";
 import {
   Breadcrumb,
@@ -39,13 +42,22 @@ import {
 import { isActiveRegistryRollout } from "@/features/registry/format";
 import { RegistryCode } from "@/features/registry/registry-code";
 import {
+  decodeTemporalRunHandle,
+  rememberWorkflowRunPublicId,
+  resolveWorkflowRunPublicId,
+  shortRunId,
+  targetLabel,
+} from "@/features/app-workflows/workflow-format";
+import {
   adminSurfaceForPathname,
   APP_ADMIN_NAV,
+  APP_APPS_NAV,
   APP_USER_NAV,
   isAppAdminChromePath,
   isAppMetricsPath,
   isAppVersionsAdminPath,
   workflowAdminBreadcrumbTrail,
+  workflowAdminRunIdFromPathname,
   workspaceDocumentTitle,
   workspaceLocationForPathname,
 } from "@/features/app-workspace/app-nav";
@@ -83,8 +95,60 @@ export default function AppWorkspaceLayout() {
     () => workspaceLocationForPathname(pathname, app),
     [pathname, app],
   );
+  const workflowRouteRunId = useMemo(
+    () => workflowAdminRunIdFromPathname(pathname, app),
+    [pathname, app],
+  );
+  const workflowRunsQuery = useWorkflowRunsQuery(app, {
+    enabled: Boolean(workflowRouteRunId),
+  });
+  const knownWorkflowRuns = useMemo(
+    () => workflowRunsQuery.data?.pages.flatMap((page) => page.runs) ?? [],
+    [workflowRunsQuery.data],
+  );
+  const workflowRunId = useMemo(() => {
+    if (!workflowRouteRunId) return null;
+    const resolved = resolveWorkflowRunPublicId(
+      app,
+      workflowRouteRunId,
+      knownWorkflowRuns,
+    );
+    // Only call GetRun with a public Temporal handle (or other full id).
+    if (decodeTemporalRunHandle(resolved)) {
+      rememberWorkflowRunPublicId(app, resolved);
+      return resolved;
+    }
+    if (resolved !== workflowRouteRunId) {
+      rememberWorkflowRunPublicId(app, resolved);
+      return resolved;
+    }
+    return null;
+  }, [app, knownWorkflowRuns, workflowRouteRunId]);
+  const workflowRunQuery = useWorkflowRunQuery(app, workflowRunId);
+  const workflowRunLabel = useMemo(() => {
+    const run = workflowRunQuery.data;
+    if (!run) return undefined;
+    return (
+      targetLabel(run.target).trim() ||
+      run.definitionId?.trim() ||
+      undefined
+    );
+  }, [workflowRunQuery.data]);
+  const workflowRunShortId = useMemo(() => {
+    if (workflowRunQuery.data?.id) {
+      return shortRunId(workflowRunQuery.data.id);
+    }
+    if (workflowRouteRunId) {
+      return shortRunId(workflowRouteRunId);
+    }
+    return undefined;
+  }, [workflowRouteRunId, workflowRunQuery.data?.id]);
   useDocumentTitle(
-    workspaceDocumentTitle(label, workspaceLocation, { pathname, app }),
+    workspaceDocumentTitle(label, workspaceLocation, {
+      pathname,
+      app,
+      runLabel: workflowRunLabel,
+    }),
   );
 
   const isVersionsPath =
@@ -218,9 +282,14 @@ export default function AppWorkspaceLayout() {
       ? item.when !== "hasCredentialSurface" || showConnectionNav
       : true,
   );
+  const appsNavItems = APP_APPS_NAV.filter((item) =>
+    hasAdminSurface(capabilities, item.requires),
+  );
   const adminNavItems = APP_ADMIN_NAV.filter((item) =>
     hasAdminSurface(capabilities, item.requires),
   );
+  const appsGroupVisible =
+    adminCapabilitiesReady && capabilities.workflows;
   const adminGroupVisible =
     adminCapabilitiesReady && showAdminGroup(capabilities);
 
@@ -258,7 +327,10 @@ export default function AppWorkspaceLayout() {
       fleetView &&
       !fleetView.ownsActiveRolloutHeadline,
   );
-  const workflowTrail = workflowAdminBreadcrumbTrail(pathname, app);
+  const workflowTrail = workflowAdminBreadcrumbTrail(pathname, app, {
+    runLabel: workflowRunLabel,
+    runShortId: workflowRunShortId,
+  });
   const workspaceBreadcrumb = (
     <Breadcrumb>
       <BreadcrumbList>
@@ -299,19 +371,27 @@ export default function AppWorkspaceLayout() {
                   return (
                     <span key={`${segment.label}-${index}`} className="contents">
                       <BreadcrumbSeparator />
-                      <BreadcrumbItem>
+                      <BreadcrumbItem className="inline-flex max-w-full items-center gap-2">
                         {isLast || !segment.link ? (
-                          <BreadcrumbPage>{segment.label}</BreadcrumbPage>
+                          <BreadcrumbPage className="min-w-0 truncate">
+                            {segment.label}
+                          </BreadcrumbPage>
                         ) : (
                           <BreadcrumbLink asChild>
                             <Link
                               to={segment.link.to}
                               params={segment.link.params}
+                              className="min-w-0 truncate"
                             >
                               {segment.label}
                             </Link>
                           </BreadcrumbLink>
                         )}
+                        {segment.code ? (
+                          <Code className="shrink-0 text-xs text-muted-foreground">
+                            {segment.code}
+                          </Code>
+                        ) : null}
                       </BreadcrumbItem>
                     </span>
                   );
@@ -339,6 +419,8 @@ export default function AppWorkspaceLayout() {
               <AppWorkspaceNav
                 app={app}
                 userItems={userNavItems}
+                appsItems={appsNavItems}
+                appsGroupVisible={appsGroupVisible}
                 adminItems={adminNavItems}
                 adminGroupVisible={adminGroupVisible}
               />
@@ -348,6 +430,8 @@ export default function AppWorkspaceLayout() {
                 app={app}
                 pathname={pathname}
                 userItems={userNavItems}
+                appsItems={appsNavItems}
+                appsGroupVisible={appsGroupVisible}
                 adminItems={adminNavItems}
                 adminGroupVisible={adminGroupVisible}
               />

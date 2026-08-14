@@ -25,6 +25,19 @@ describe("normalizeWorkflowStatus", () => {
 });
 
 describe("normalizeWorkflowRun status", () => {
+  it("maps snake_case definition_id from list summaries", () => {
+    const run = normalizeWorkflowRun({
+      id: "run-1",
+      provider: "temporal",
+      status: "succeeded",
+      target: { steps: [] },
+      definition_id: "app_demo_nightly",
+    } as Parameters<typeof normalizeWorkflowRun>[0] & {
+      definition_id: string;
+    });
+    expect(run.definitionId).toBe("app_demo_nightly");
+  });
+
   it("collapses proto run and step status enums", () => {
     const run = normalizeWorkflowRun({
       id: "run-1",

@@ -372,6 +372,73 @@ test.describe("App admin workflows", () => {
     await expect(page.getByText("app_gmail_sync")).toHaveCount(0);
   });
 
+  test("keeps grouped sticky header above scrolling run status icons", async ({
+    authenticatedPage: page,
+  }) => {
+    const definitionId = "app_daily_digest";
+    await mockWorkflowRuns(
+      page,
+      Array.from({ length: 20 }, (_, index) => ({
+        id: `run_${index}`,
+        provider: "basic",
+        status: index % 4 === 0 ? "failed" : "succeeded",
+        definitionId,
+        target: workflowAppTarget(SLACK_APP, "chat.postMessage"),
+        createdAt: new Date(Date.UTC(2026, 7, 13, 18 - index, 0, 0)).toISOString(),
+      })),
+    );
+    await mockIntegrations(page, [
+      {
+        name: SLACK_APP,
+        displayName: "Slack",
+        managementPath: `/apps/${SLACK_APP}/admin`,
+      },
+    ]);
+    await mockAppAdminRegistry(page, SLACK_APP, SLACK_REGISTRY);
+    await mockWorkflowDefinitions(page, [
+      {
+        id: definitionId,
+        provider: "basic",
+        paused: false,
+        target: workflowAppTarget(SLACK_APP, "chat.postMessage"),
+        activations: [],
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 640 });
+    await page.goto(`/apps/${SLACK_APP}/admin/workflows?group=definition`);
+
+    const header = page.getByTestId(
+      `app-workflow-run-group-header-${definitionId}`,
+    );
+    const firstRun = page.getByTestId("app-workflow-run-run_0");
+    await expect(header).toBeVisible();
+    await expect(firstRun).toBeVisible();
+
+    await firstRun.evaluate((node) => {
+      node.scrollIntoView({ block: "start" });
+    });
+    await page.evaluate(() => window.scrollBy(0, 96));
+
+    const hit = await page.evaluate((headerTestId) => {
+      const headerEl = document.querySelector(`[data-testid="${headerTestId}"]`);
+      if (!(headerEl instanceof HTMLElement)) return "missing-header";
+      const rect = headerEl.getBoundingClientRect();
+      const top = document.elementFromPoint(rect.left + 36, rect.bottom - 8);
+      if (!(top instanceof Element)) return "missing-hit";
+      if (top.closest(`[data-testid="${headerTestId}"]`)) return "header";
+      return (
+        top.closest("[data-testid^='app-workflow-run-']")?.getAttribute(
+          "data-testid",
+        ) ??
+        top.getAttribute("data-slot") ??
+        top.tagName
+      );
+    }, `app-workflow-run-group-header-${definitionId}`);
+
+    expect(hit).toBe("header");
+  });
+
   test("lists API definitions and links to filtered runs", async ({
     authenticatedPage: page,
   }) => {

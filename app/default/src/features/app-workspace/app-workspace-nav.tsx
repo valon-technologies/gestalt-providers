@@ -45,25 +45,46 @@ function WorkspaceNavItem({
 export function AppWorkspaceNav({
   app,
   userItems,
+  appsItems,
+  appsGroupVisible,
   adminItems,
   adminGroupVisible,
 }: {
   app: string;
   userItems: ReadonlyArray<NavItem>;
+  appsItems: ReadonlyArray<NavItem>;
+  appsGroupVisible: boolean;
   adminItems: ReadonlyArray<NavItem>;
   adminGroupVisible: boolean;
 }) {
   return (
     <NavList aria-label="App workspace">
-      {userItems.map((item) => (
-        <WorkspaceNavItem
-          key={item.id}
-          app={app}
-          item={item}
-          exact={item.id === "overview"}
-          testId={`app-workspace-nav-${item.id}`}
-        />
-      ))}
+      {userItems.length > 0 ? (
+        <NavListGroup label="Workspace">
+          {userItems.map((item) => (
+            <WorkspaceNavItem
+              key={item.id}
+              app={app}
+              item={item}
+              exact={item.id === "overview"}
+              testId={`app-workspace-nav-${item.id}`}
+            />
+          ))}
+        </NavListGroup>
+      ) : null}
+
+      {appsGroupVisible && appsItems.length > 0 ? (
+        <NavListGroup label="Apps" className="mt-2">
+          {appsItems.map((item) => (
+            <WorkspaceNavItem
+              key={item.id}
+              app={app}
+              item={item}
+              testId={`app-apps-nav-${item.id}`}
+            />
+          ))}
+        </NavListGroup>
+      ) : null}
 
       {adminGroupVisible && adminItems.length > 0 ? (
         <NavListGroup label="Admin" className="mt-2">

@@ -278,3 +278,54 @@ export function findStepInGraph(
 export function flattenJobs(graph: WorkflowRunGraph): WorkflowJob[] {
   return graph.stages.flatMap((stage) => stage.jobs);
 }
+
+export type WorkflowRunGraphTreeItem = {
+  id: string;
+  kind: "job" | "step";
+  name: string;
+  status?: string;
+  durationMs?: number | null;
+  jobId: string;
+  stepId?: string;
+  children?: string[];
+};
+
+/**
+ * Job folders are tree branches; each step is a child of its job.
+ * A branch has one child per step — multi-step runs have multiple children.
+ * Multiple jobs (explicit stages) become sibling branches.
+ */
+export function indexWorkflowRunGraphTree(graph: WorkflowRunGraph): {
+  rootIds: string[];
+  items: Record<string, WorkflowRunGraphTreeItem>;
+} {
+  const items: Record<string, WorkflowRunGraphTreeItem> = {};
+  const rootIds: string[] = [];
+  for (const job of flattenJobs(graph)) {
+    const jobNodeId = `job:${job.id}`;
+    const childIds = job.steps.map((step) => {
+      const stepNodeId = `job:${job.id}:step:${step.id}`;
+      items[stepNodeId] = {
+        id: stepNodeId,
+        kind: "step",
+        name: step.name,
+        status: step.status,
+        durationMs: step.durationMs,
+        jobId: job.id,
+        stepId: step.id,
+      };
+      return stepNodeId;
+    });
+    items[jobNodeId] = {
+      id: jobNodeId,
+      kind: "job",
+      name: job.name,
+      status: job.status,
+      durationMs: job.durationMs,
+      jobId: job.id,
+      children: childIds,
+    };
+    rootIds.push(jobNodeId);
+  }
+  return { rootIds, items };
+}

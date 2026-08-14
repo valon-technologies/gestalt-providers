@@ -82,8 +82,11 @@ describe("OutcomeStatusIndicator", () => {
     );
   });
 
-  test("imports cn from the local utils alias", () => {
-    expect(SOURCE).toContain('from "@/lib/cn"');
-    expect(SOURCE).not.toContain('from "@/lib/utils"');
+  test("pins glyph size on the Icon so ancestor menus cannot enlarge it", () => {
+    expect(SOURCE).toContain("GLYPH_SIZE_CLASS");
+    expect(SOURCE).toContain("overflow-hidden");
+    expect(SOURCE).toContain('sm: "size-4"');
+    expect(SOURCE).toContain('sm: "size-2.5"');
+    expect(SOURCE).not.toContain('sm: "size-4 [&>svg]:size-2.5"');
   });
 });

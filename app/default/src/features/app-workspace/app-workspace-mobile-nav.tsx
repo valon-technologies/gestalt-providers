@@ -24,34 +24,49 @@ function activeWorkspaceNavLabel(
 }
 
 /**
- * Mobile stand-in for the app-workspace Pane: same NavList (incl. Admin group)
- * inside PageLayoutPaneMobileNav (Menu bar + caret → full-width disclosure).
- * Visible bar stays "Menu"; aria-label keeps the current section for SR users.
+ * Mobile stand-in for the app-workspace Pane: same NavList (incl. Apps / Admin
+ * groups) inside PageLayoutPaneMobileNav (Menu bar + caret → full-width
+ * disclosure). Visible bar stays "Menu"; aria-label keeps the current section
+ * for SR users.
  */
 export function AppWorkspaceMobileNav({
   app,
   pathname,
   userItems,
+  appsItems,
+  appsGroupVisible,
   adminItems,
   adminGroupVisible,
 }: {
   app: string;
   pathname: string;
   userItems: ReadonlyArray<NavItem>;
+  appsItems: ReadonlyArray<NavItem>;
+  appsGroupVisible: boolean;
   adminItems: ReadonlyArray<NavItem>;
   adminGroupVisible: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const destinationCount =
-    userItems.length + (adminGroupVisible ? adminItems.length : 0);
+    userItems.length +
+    (appsGroupVisible ? appsItems.length : 0) +
+    (adminGroupVisible ? adminItems.length : 0);
 
   const activeLabel = useMemo(() => {
     const items = [
       ...userItems,
+      ...(appsGroupVisible ? appsItems : []),
       ...(adminGroupVisible ? adminItems : []),
     ];
     return activeWorkspaceNavLabel(pathname, items);
-  }, [adminGroupVisible, adminItems, pathname, userItems]);
+  }, [
+    adminGroupVisible,
+    adminItems,
+    appsGroupVisible,
+    appsItems,
+    pathname,
+    userItems,
+  ]);
 
   useEffect(() => {
     setOpen(false);
@@ -74,6 +89,8 @@ export function AppWorkspaceMobileNav({
       <AppWorkspaceNav
         app={app}
         userItems={userItems}
+        appsItems={appsItems}
+        appsGroupVisible={appsGroupVisible}
         adminItems={adminItems}
         adminGroupVisible={adminGroupVisible}
       />

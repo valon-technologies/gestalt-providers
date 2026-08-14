@@ -43,7 +43,7 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || "/", `http://${req.headers.host}`);
     const pathname = decodeURIComponent(url.pathname);
 
-    if (handleWorkflowsLocalMock(req, res, pathname, url)) {
+    if (await handleWorkflowsLocalMock(req, res, pathname, url)) {
       return;
     }
 

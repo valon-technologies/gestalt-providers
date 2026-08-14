@@ -480,6 +480,8 @@ export interface WorkflowRun {
   definitionGeneration?: number;
   input?: Record<string, unknown>;
   currentStepId?: string;
+  /** Subject the run executes as (Workflow API `run_as`). */
+  runAs?: string;
   steps?: WorkflowStepExecution[];
   /** Optional job graph; when absent the UI projects from `steps`. */
   stages?: WorkflowRunStage[];
@@ -489,6 +491,7 @@ export interface WorkflowRun {
 export interface WorkflowDefinitionActivation {
   id: string;
   paused?: boolean;
+  input?: Record<string, unknown>;
   trigger?: {
     kind?: string;
     case?: string;
@@ -561,11 +564,18 @@ export function normalizeWorkflowRun(run: WorkflowRunWire): WorkflowRun {
   const wire = run as WorkflowRunWire & {
     targetApp?: string;
     target_app?: string;
+    runAs?: string;
+    run_as?: string;
+    definitionId?: string;
+    definition_id?: string;
   };
   return {
     ...run,
     status: normalizeWorkflowStatus(optionalString(run.status)),
     targetApp: optionalString(wire.targetApp) ?? optionalString(wire.target_app),
+    runAs: optionalString(wire.runAs) ?? optionalString(wire.run_as),
+    definitionId:
+      optionalString(wire.definitionId) ?? optionalString(wire.definition_id),
     target: normalizeWorkflowTarget(run.target),
     steps: normalizeWorkflowStepExecutions(run.steps),
     stages: normalizeWorkflowRunStages(run.stages),
@@ -614,6 +624,7 @@ function normalizeWorkflowActivation(
   return {
     id: optionalString(raw.id) ?? "",
     paused: Boolean(raw.paused),
+    input: optionalRecord(raw.input),
     trigger: {
       kind: caseName,
       case: caseName,

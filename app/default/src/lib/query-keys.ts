@@ -36,9 +36,20 @@ export const queryKeys = {
   },
   workflows: {
     root: ["workflows"] as const,
+    /** Prefix for all run-list queries (with or without status/definition). */
     list: (app: string) => ["workflows", app, "list"] as const,
+    listPage: (
+      app: string,
+      status: string,
+      definitionId = "all",
+      pageSize: number | "default" = "default",
+    ) => ["workflows", app, "list", status, definitionId, pageSize] as const,
     detail: (app: string, runId: string) =>
       ["workflows", app, "detail", runId] as const,
+    events: (app: string, runId: string) =>
+      ["workflows", app, "detail", runId, "events"] as const,
+    output: (app: string, runId: string) =>
+      ["workflows", app, "detail", runId, "output"] as const,
     stepLogs: (app: string, runId: string, jobId: string, stepId: string) =>
       ["workflows", app, "detail", runId, "jobs", jobId, "steps", stepId, "logs"] as const,
     definitions: (app: string) =>

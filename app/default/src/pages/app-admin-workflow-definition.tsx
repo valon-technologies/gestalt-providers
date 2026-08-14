@@ -1,7 +1,11 @@
-import { useMemo } from "react";
-import { Link, useParams } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import type { WorkflowDefinition } from "@/lib/api";
 import {
+  useDeleteWorkflowDefinitionMutation,
+  useSetWorkflowActivationPausedMutation,
+  useSetWorkflowDefinitionPausedMutation,
+  useStartWorkflowRunMutation,
   useWorkflowDefinitionQuery,
   useWorkflowDefinitionsQuery,
   useWorkflowRunsQuery,
@@ -22,6 +26,16 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import ErrorNotice from "@/components/ErrorNotice";
 import { WorkflowTargetDetails } from "@/features/app-workflows/workflow-run-details";
 import { WorkflowStatusBadge } from "@/features/app-workflows/workflow-status-badge";
@@ -33,6 +47,7 @@ import {
   runTriggerLabel,
   shortRunId,
   targetLabel,
+  workflowRunPathId,
 } from "@/features/app-workflows/workflow-format";
 import {
   summarizeWorkflowDefinitionsFromRuns,
@@ -41,7 +56,9 @@ import { userFacingError } from "@/lib/user-facing-error";
 import { cn } from "@/lib/cn";
 import { listItemInteraction } from "@/lib/list-item-interaction";
 import { Info } from "lucide-react";
+
 export default function AppAdminWorkflowDefinitionPage() {
+  const navigate = useNavigate();
   const { app, definitionId } = useParams({
     from: "/apps/$app/admin/workflows/definitions/$definitionId",
   });
@@ -49,6 +66,14 @@ export default function AppAdminWorkflowDefinitionPage() {
   const definitionQuery = useWorkflowDefinitionQuery(app, definitionId);
   const definitionsQuery = useWorkflowDefinitionsQuery(app);
   const runsQuery = useWorkflowRunsQuery(app);
+  const startRunMutation = useStartWorkflowRunMutation(app);
+  const setPausedMutation = useSetWorkflowDefinitionPausedMutation(app);
+  const setActivationPausedMutation =
+    useSetWorkflowActivationPausedMutation(app);
+  const deleteMutation = useDeleteWorkflowDefinitionMutation(app);
+
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+
   const runs = useMemo(
     () => runsQuery.data?.pages.flatMap((page) => page.runs) ?? [],
     [runsQuery.data],
@@ -70,6 +95,7 @@ export default function AppAdminWorkflowDefinitionPage() {
     Boolean(definitionQuery.error) ||
     (!definitionQuery.isPending && !definition);
   const showObservedNote = usingObservedFallback && Boolean(observedSummary);
+  const controlsEnabled = Boolean(definition) && !usingObservedFallback;
 
   const apiDefinitions = definitionsQuery.data ?? [];
   const useObservedList =
@@ -100,6 +126,34 @@ export default function AppAdminWorkflowDefinitionPage() {
         )
       : null;
 
+  const actionError = startRunMutation.error
+    ? userFacingError(
+        startRunMutation.error,
+        "Unable to start a run for this definition. Try again.",
+      )
+    : setPausedMutation.error
+      ? userFacingError(
+          setPausedMutation.error,
+          "Unable to update pause state. Try again.",
+        )
+      : setActivationPausedMutation.error
+        ? userFacingError(
+            setActivationPausedMutation.error,
+            "Unable to update activation pause state. Try again.",
+          )
+        : deleteMutation.error
+          ? userFacingError(
+              deleteMutation.error,
+              "Unable to delete this definition. Try again.",
+            )
+          : null;
+
+  const mutating =
+    startRunMutation.isPending ||
+    setPausedMutation.isPending ||
+    setActivationPausedMutation.isPending ||
+    deleteMutation.isPending;
+
   function refresh() {
     void definitionQuery.refetch();
     void definitionsQuery.refetch();
@@ -118,6 +172,50 @@ export default function AppAdminWorkflowDefinitionPage() {
     if (runsQuery.isFetched) times.push(runsQuery.dataUpdatedAt);
     return times.length > 0 ? Math.max(...times) : null;
   })();
+
+  async function handleStartRun() {
+    if (!definition || mutating) return;
+    const run = await startRunMutation.mutateAsync({
+      definitionId: definition.id,
+      definition,
+    });
+    await navigate({
+      to: "/apps/$app/admin/workflows/runs/$runId",
+      params: { app, runId: workflowRunPathId(run.id) },
+    });
+  }
+
+  function handleToggleDefinitionPaused() {
+    if (!definition || mutating) return;
+    setPausedMutation.mutate({
+      definitionId: definition.id,
+      paused: !definition.paused,
+      provider: definition.provider,
+    });
+  }
+
+  function handleToggleActivationPaused(activationId: string, paused: boolean) {
+    if (!definition || mutating || !activationId) return;
+    setActivationPausedMutation.mutate({
+      definitionId: definition.id,
+      activationId,
+      paused: !paused,
+      provider: definition.provider,
+    });
+  }
+
+  async function handleDeleteDefinition() {
+    if (!definition || mutating) return;
+    await deleteMutation.mutateAsync({
+      definitionId: definition.id,
+      provider: definition.provider,
+    });
+    setDeleteDialogOpen(false);
+    await navigate({
+      to: "/apps/$app/admin/workflows",
+      params: { app },
+    });
+  }
 
   return (
     <section aria-label="Workflow definition">
@@ -152,6 +250,40 @@ export default function AppAdminWorkflowDefinitionPage() {
             dataUpdatedAt={refreshedAt}
             refreshing={refreshing}
           />
+          {controlsEnabled ? (
+            <>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => void handleStartRun()}
+                disabled={mutating}
+              >
+                {startRunMutation.isPending ? "Starting…" : "Run now"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleToggleDefinitionPaused}
+                disabled={mutating}
+              >
+                {setPausedMutation.isPending
+                  ? "Updating…"
+                  : definition?.paused
+                    ? "Resume"
+                    : "Pause"}
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                size="sm"
+                onClick={() => setDeleteDialogOpen(true)}
+                disabled={mutating}
+              >
+                Delete
+              </Button>
+            </>
+          ) : null}
           <Button asChild variant="outline" size="sm">
             <Link
               to="/apps/$app/admin/workflows"
@@ -181,12 +313,16 @@ export default function AppAdminWorkflowDefinitionPage() {
         />
       ) : null}
 
+      {actionError ? (
+        <ErrorNotice message={actionError} className="mb-6" />
+      ) : null}
+
       {showObservedNote ? (
         <Alert variant="info" className="mb-6">
           <Info aria-hidden />
           <AlertDescription>
             Definition details are inferred from recent runs. Full inventory may
-            be incomplete.
+            be incomplete — controls require a loaded definition.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -265,21 +401,43 @@ export default function AppAdminWorkflowDefinitionPage() {
                   {definition.activations.map((activation) => (
                     <li
                       key={activation.id}
-                      className="rounded-md border border-border px-3 py-2 text-sm"
+                      className="flex flex-col gap-2 rounded-md border border-border px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
                     >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono text-foreground">
-                          {activation.id || "—"}
-                        </span>
-                        {activation.paused ? (
-                          <Badge size="sm" variant="warning">
-                            Paused
-                          </Badge>
-                        ) : null}
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-foreground">
+                            {activation.id || "—"}
+                          </span>
+                          {activation.paused ? (
+                            <Badge size="sm" variant="warning">
+                              Paused
+                            </Badge>
+                          ) : (
+                            <Badge size="sm" variant="success">
+                              Active
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {activationTriggerLabel(activation)}
+                        </p>
                       </div>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {activationTriggerLabel(activation)}
-                      </p>
+                      {controlsEnabled && activation.id ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={mutating}
+                          onClick={() =>
+                            handleToggleActivationPaused(
+                              activation.id,
+                              Boolean(activation.paused),
+                            )
+                          }
+                        >
+                          {activation.paused ? "Resume" : "Pause"}
+                        </Button>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
@@ -322,7 +480,7 @@ export default function AppAdminWorkflowDefinitionPage() {
               <li key={run.id}>
                 <Link
                   to="/apps/$app/admin/workflows/runs/$runId"
-                  params={{ app, runId: run.id }}
+                  params={{ app, runId: workflowRunPathId(run.id) }}
                   className={cn(
                     "flex flex-col gap-1 px-4 py-3 focus-ring-inset sm:flex-row sm:items-center sm:justify-between",
                     listItemInteraction({ pointer: "css" }),
@@ -334,7 +492,9 @@ export default function AppAdminWorkflowDefinitionPage() {
                   <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <WorkflowStatusBadge status={run.status} />
                     <span>{formatDate(run.createdAt)}</span>
-                    <span>{runTriggerLabel(run)}</span>
+                    {runTriggerLabel(run) ? (
+                      <span>{runTriggerLabel(run)}</span>
+                    ) : null}
                   </span>
                 </Link>
               </li>
@@ -342,6 +502,34 @@ export default function AppAdminWorkflowDefinitionPage() {
           </ul>
         )}
       </section>
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete workflow definition</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the definition and its activations. Existing run
+              history is kept, but you will not be able to start new runs from
+              this definition.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>
+              Keep definition
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={deleteMutation.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDeleteDefinition();
+              }}
+            >
+              {deleteMutation.isPending ? "Deleting…" : "Delete definition"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }

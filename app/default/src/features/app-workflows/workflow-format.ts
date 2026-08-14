@@ -41,7 +41,8 @@ export function stepKind(step: WorkflowStepTarget): string {
 }
 
 export function runTriggerLabel(run: WorkflowRun): string {
-  const kind = run.trigger?.kind || "unknown";
+  const kind = run.trigger?.kind?.trim();
+  if (!kind) return "";
   if (run.trigger?.activationId) {
     return `${kind}:${run.trigger.activationId}`;
   }
@@ -51,9 +52,160 @@ export function runTriggerLabel(run: WorkflowRun): string {
   return kind;
 }
 
+/** Actor label from createdBy, or empty when the API omitted a creator. */
+export function runActorLabel(run: WorkflowRun): string {
+  const subject = run.createdBy?.subjectId?.trim();
+  if (!subject) return "";
+  return subject.replace(/^[^:]+:/, "");
+}
+
+/**
+ * Compact list subtitle for how/who started a run. Omits invented
+ * "unknown" / "system" fallbacks when trigger or createdBy are absent.
+ */
+export function runTriggerActorDescription(run: WorkflowRun): string {
+  const trigger = runTriggerLabel(run);
+  const actor = runActorLabel(run);
+  if (trigger && actor) return `${trigger} by ${actor}`;
+  if (trigger) return trigger;
+  if (actor) return `by ${actor}`;
+  return "";
+}
+
+type TemporalRunHandle = {
+  kind?: string;
+  run_workflow_id?: string;
+  run_temporal_run_id?: string;
+  owner_key?: string;
+};
+
+/** Decode a public Temporal run handle (`base64url` JSON), or null if not one. */
+export function decodeTemporalRunHandle(id: string): TemporalRunHandle | null {
+  const trimmed = id.trim();
+  if (!trimmed) return null;
+  try {
+    const padded = trimmed.replace(/-/g, "+").replace(/_/g, "/");
+    const padLen = (4 - (padded.length % 4)) % 4;
+    const json = atob(padded + "=".repeat(padLen));
+    const parsed = JSON.parse(json) as TemporalRunHandle;
+    if (
+      typeof parsed !== "object" ||
+      parsed == null ||
+      parsed.kind !== "temporal-run"
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Short display id for lists. Temporal public ids are base64url JSON whose
+ * prefix/suffix are shared (`{"kind":…` / `owner_key`), so naive slice
+ * collision — prefer the unique Temporal run id when present.
+ */
 export function shortRunId(id: string): string {
+  const handle = decodeTemporalRunHandle(id);
+  const temporalRunId = handle?.run_temporal_run_id?.trim();
+  if (temporalRunId) {
+    const parts = temporalRunId.split("-").filter(Boolean);
+    const last = parts[parts.length - 1];
+    if (last && last.length >= 8) return last;
+    if (temporalRunId.length <= 12) return temporalRunId;
+    return `${temporalRunId.slice(0, 8)}…`;
+  }
+  const workflowId = handle?.run_workflow_id?.trim();
+  if (workflowId) {
+    if (workflowId.length <= 16) return workflowId;
+    return `${workflowId.slice(0, 6)}…${workflowId.slice(-6)}`;
+  }
   if (id.length <= 24) return id;
   return `${id.slice(0, 10)}…${id.slice(-8)}`;
+}
+
+/**
+ * Primary list title. Flat lists use the target or definition so rows are
+ * distinguishable. Grouped-by-definition lists already name the definition
+ * on the section header, so the row is just the short run id.
+ */
+export function workflowRunListTitle(
+  run: Pick<WorkflowRun, "id" | "definitionId" | "target">,
+  options?: { groupedByDefinition?: boolean },
+): string {
+  if (options?.groupedByDefinition) return shortRunId(run.id);
+  return targetLabel(run.target) || run.definitionId || shortRunId(run.id);
+}
+
+/** Route param for run detail links — short display id when the public id is a Temporal handle. */
+export function workflowRunPathId(publicId: string): string {
+  const trimmed = publicId.trim();
+  if (!trimmed) return trimmed;
+  return shortRunId(trimmed);
+}
+
+function workflowRunIdStorageKey(app: string, routeId: string): string {
+  return `gestalt.workflowRunId:${app}:${routeId}`;
+}
+
+/** Remember public handle ↔ short route id so refresh/deep links in-session resolve. */
+export function rememberWorkflowRunPublicId(app: string, publicId: string): void {
+  const trimmed = publicId.trim();
+  if (!app || !trimmed) return;
+  const short = shortRunId(trimmed);
+  try {
+    sessionStorage.setItem(workflowRunIdStorageKey(app, short), trimmed);
+    const temporalRunId = decodeTemporalRunHandle(trimmed)?.run_temporal_run_id?.trim();
+    if (temporalRunId) {
+      sessionStorage.setItem(workflowRunIdStorageKey(app, temporalRunId), trimmed);
+    }
+  } catch {
+    // private mode / quota — resolution still works from in-memory list cache
+  }
+}
+
+function lookupRememberedWorkflowRunPublicId(
+  app: string,
+  routeId: string,
+): string | null {
+  try {
+    return sessionStorage.getItem(workflowRunIdStorageKey(app, routeId));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve a route `$runId` (short, temporal UUID, or full handle) to the public
+ * API run id. GetRun still requires the full Temporal handle.
+ */
+export function resolveWorkflowRunPublicId(
+  app: string,
+  routeId: string,
+  knownRuns: Iterable<{ id: string }> = [],
+): string {
+  const trimmed = routeId.trim();
+  if (!trimmed) return trimmed;
+  if (decodeTemporalRunHandle(trimmed)) {
+    rememberWorkflowRunPublicId(app, trimmed);
+    return trimmed;
+  }
+  for (const run of knownRuns) {
+    if (!run?.id) continue;
+    if (run.id === trimmed || shortRunId(run.id) === trimmed) {
+      rememberWorkflowRunPublicId(app, run.id);
+      return run.id;
+    }
+    const temporalRunId = decodeTemporalRunHandle(run.id)?.run_temporal_run_id?.trim();
+    if (temporalRunId && temporalRunId === trimmed) {
+      rememberWorkflowRunPublicId(app, run.id);
+      return run.id;
+    }
+  }
+  const remembered = lookupRememberedWorkflowRunPublicId(app, trimmed);
+  if (remembered) return remembered;
+  return trimmed;
 }
 
 export function shortDefinitionId(id: string): string {
@@ -99,6 +251,8 @@ export function workflowRunCounts(runs: WorkflowRun[]) {
 export function runSearchTerms(run: WorkflowRun): string[] {
   const terms = [
     run.id,
+    shortRunId(run.id),
+    decodeTemporalRunHandle(run.id)?.run_temporal_run_id,
     run.provider,
     run.status,
     run.definitionId,

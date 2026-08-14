@@ -1,0 +1,93 @@
+import { useEffect, useMemo } from "react";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { useWorkflowRunsQuery } from "@/lib/queries";
+import {
+  decodeTemporalRunHandle,
+  rememberWorkflowRunPublicId,
+  resolveWorkflowRunPublicId,
+  workflowRunPathId,
+} from "@/features/app-workflows/workflow-format";
+
+/**
+ * Resolve a route `$runId` (short or full handle) to the public API id, using
+ * the runs list cache + session memory. GetRun still needs the full handle.
+ */
+export function useResolvedWorkflowRunRoute(app: string, routeRunId: string) {
+  const navigate = useNavigate();
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
+  const runsQuery = useWorkflowRunsQuery(app);
+  const knownRuns = useMemo(
+    () => runsQuery.data?.pages.flatMap((page) => page.runs) ?? [],
+    [runsQuery.data],
+  );
+
+  const resolvedId = useMemo(
+    () => resolveWorkflowRunPublicId(app, routeRunId, knownRuns),
+    [app, knownRuns, routeRunId],
+  );
+
+  const listRun = useMemo(
+    () =>
+      knownRuns.find(
+        (run) =>
+          run.id === resolvedId ||
+          run.id === routeRunId ||
+          workflowRunPathId(run.id) === routeRunId,
+      ),
+    [knownRuns, resolvedId, routeRunId],
+  );
+
+  const publicRunId = useMemo(() => {
+    if (decodeTemporalRunHandle(resolvedId)) return resolvedId;
+    if (listRun?.id) return listRun.id;
+    return null;
+  }, [listRun?.id, resolvedId]);
+
+  useEffect(() => {
+    if (listRun?.id) rememberWorkflowRunPublicId(app, listRun.id);
+  }, [app, listRun?.id]);
+
+  useEffect(() => {
+    if (!publicRunId) return;
+    rememberWorkflowRunPublicId(app, publicRunId);
+    const short = workflowRunPathId(publicRunId);
+    if (!short || short === routeRunId) return;
+    // Rewrite legacy full-handle URLs to the short path form (keep job/step suffix).
+    if (
+      !(
+        routeRunId === publicRunId ||
+        Boolean(decodeTemporalRunHandle(routeRunId))
+      )
+    ) {
+      return;
+    }
+    const marker = `/apps/${app}/admin/workflows/runs/`;
+    const idx = pathname.indexOf(marker);
+    if (idx < 0) return;
+    const rest = pathname.slice(idx + marker.length);
+    const slash = rest.indexOf("/");
+    const currentSeg = slash >= 0 ? rest.slice(0, slash) : rest;
+    const after = slash >= 0 ? rest.slice(slash) : "";
+    let decoded = currentSeg;
+    try {
+      decoded = decodeURIComponent(currentSeg);
+    } catch {
+      // keep raw segment
+    }
+    if (decoded !== routeRunId && currentSeg !== routeRunId) return;
+    const next = `${marker}${encodeURIComponent(short)}${after}`;
+    if (next !== pathname) {
+      void navigate({ to: next, replace: true });
+    }
+  }, [app, navigate, pathname, publicRunId, routeRunId]);
+
+  return {
+    routeRunId,
+    publicRunId,
+    listRun: listRun ?? undefined,
+    runsQuery,
+    pathRunId: publicRunId ? workflowRunPathId(publicRunId) : routeRunId,
+  };
+}

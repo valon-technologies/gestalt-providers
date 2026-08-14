@@ -37,7 +37,9 @@ import { cn } from "@/lib/cn";
  * fills for badges/meters, not Actions-style light-on-fill glyphs.
  */
 const outcomeStatusIndicatorVariants = cva(
-  "inline-flex shrink-0 items-center justify-center rounded-full [&>svg]:pointer-events-none",
+  // overflow-hidden keeps Lucide strokes inside the filled circle; glyph size is
+  // set on the <Icon> itself so ancestor menus (`[&_svg]:size-*`) cannot enlarge it.
+  "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full [&>svg]:pointer-events-none",
   {
     variants: {
       status: {
@@ -52,9 +54,9 @@ const outcomeStatusIndicatorVariants = cva(
         unknown: "bg-foreground/[0.06] text-muted-foreground",
       },
       size: {
-        sm: "size-4 [&>svg]:size-2.5",
-        md: "size-5 [&>svg]:size-3",
-        lg: "size-6 [&>svg]:size-3.5",
+        sm: "size-4",
+        md: "size-5",
+        lg: "size-6",
       },
     },
     defaultVariants: {
@@ -86,6 +88,12 @@ export type OutcomeStatus = NonNullable<
 export type OutcomeStatusIndicatorSize = NonNullable<
   VariantProps<typeof outcomeStatusIndicatorVariants>["size"]
 >;
+
+const GLYPH_SIZE_CLASS: Record<OutcomeStatusIndicatorSize, string> = {
+  sm: "size-2.5",
+  md: "size-3",
+  lg: "size-3.5",
+};
 
 /**
  * Soft feedback Badge variant for each outcome (not action chrome).
@@ -151,7 +159,10 @@ function OutcomeStatusIndicator({
     >
       <Icon
         strokeWidth={2.5}
-        className={spin ? "animate-spin motion-reduce:animate-none" : undefined}
+        className={cn(
+          GLYPH_SIZE_CLASS[glyphSize],
+          spin ? "animate-spin motion-reduce:animate-none" : undefined,
+        )}
         aria-hidden
       />
     </span>

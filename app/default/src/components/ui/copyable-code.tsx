@@ -44,29 +44,21 @@ function CopyableCode({
   tooltip = "Copy",
 }: CopyableCodeProps) {
   const display = children ?? value;
-  const isTruncated =
-    children != null &&
-    (typeof children === "string" || typeof children === "number") &&
-    String(children).trim() !== value.trim();
 
   return (
     <span
       data-slot="copyable-code"
       className={cn(copyableCodeVariants(), className)}
     >
-      <code
-        className={copyableCodeTextVariants()}
-        title={isTruncated ? value : undefined}
-        aria-label={isTruncated ? value : undefined}
-      >
-        {display}
-      </code>
+      <code className={copyableCodeTextVariants()}>{display}</code>
       <span className={copyableCodeActionVariants()}>
         <TooltipProvider delayDuration={0}>
           <CopyIconButton
             density="chip"
             value={value}
-            tooltip={isTruncated ? `Copy ${value}` : tooltip}
+            // Keep tooltip short — never paste the clipboard payload into the
+            // tip (handles can be huge base64url Temporal ids).
+            tooltip={tooltip}
           />
         </TooltipProvider>
       </span>
