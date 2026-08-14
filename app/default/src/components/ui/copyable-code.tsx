@@ -26,7 +26,7 @@ const copyableCodeTextVariants = cva(
 );
 
 const copyableCodeActionVariants = cva(
-  "flex shrink-0 items-center self-stretch border-l border-border/50 p-[0.12em]",
+  "flex shrink-0 items-stretch self-stretch border-l border-border/50",
 );
 
 export type CopyableCodeProps = {
@@ -56,7 +56,6 @@ function CopyableCode({
           <CopyIconButton
             density="chip"
             value={value}
-            className="relative after:absolute after:-inset-1.5 after:content-['']"
             // Keep tooltip short — never paste the clipboard payload into the
             // tip (handles can be huge base64url Temporal ids).
             tooltip={tooltip}

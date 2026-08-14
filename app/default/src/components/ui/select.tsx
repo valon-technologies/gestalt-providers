@@ -8,7 +8,7 @@ import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 
 import { buttonVariants } from "@/components/ui/button";
 import { SelectionCheck } from "@/components/ui/selection-check";
-import { menuItemVariants } from "@/lib/menu";
+import { menuItemVariants, selectItemTextSlotClassName } from "@/lib/menu";
 import { cn } from "@/lib/cn";
 
 function Select({
@@ -123,7 +123,8 @@ function SelectItem({
         // check. Idle/highlight hover-press stay Neutral via menuItemVariants.
         // Accent vivid fill is for persistent list surfaces (Listbox), not
         // transient flyout options (selection-indicators.md / flyout.md).
-        "w-full *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+        "w-full",
+        selectItemTextSlotClassName,
         className,
       )}
       {...props}
@@ -133,7 +134,12 @@ function SelectItem({
           <SelectionCheck tone="solid" />
         </SelectPrimitive.ItemIndicator>
       </span>
-      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+      {/* ItemText strips className. data-slot lets the row size direct-child
+          Lucide marks without wrapping children (wrapping portals into the
+          trigger and kills SelectValue truncate). */}
+      <SelectPrimitive.ItemText data-slot="select-item-text">
+        {children}
+      </SelectPrimitive.ItemText>
     </SelectPrimitive.Item>
   );
 }

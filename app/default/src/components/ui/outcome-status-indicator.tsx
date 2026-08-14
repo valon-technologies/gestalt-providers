@@ -36,9 +36,17 @@ import { cn } from "@/lib/cn";
  * `*-solid` / `*-solid-foreground` here — those pairs are dark ink on lighter
  * fills for badges/meters, not Actions-style light-on-fill glyphs.
  */
+// One size tier owns both the filled circle and the inner Lucide stroke.
+// Glyph class is applied on <Icon> so ancestor menus (`[&_svg]:size-*`) cannot
+// enlarge it. Circle class stays on the shell (cva `size`).
+const OUTCOME_STATUS_SIZE = {
+  sm: { circle: "size-4", glyph: "size-2.5" },
+  md: { circle: "size-5", glyph: "size-3" },
+  lg: { circle: "size-6", glyph: "size-3.5" },
+} as const;
+
 const outcomeStatusIndicatorVariants = cva(
-  // overflow-hidden keeps Lucide strokes inside the filled circle; glyph size is
-  // set on the <Icon> itself so ancestor menus (`[&_svg]:size-*`) cannot enlarge it.
+  // overflow-hidden keeps Lucide strokes inside the filled circle.
   "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full [&>svg]:pointer-events-none",
   {
     variants: {
@@ -54,9 +62,9 @@ const outcomeStatusIndicatorVariants = cva(
         unknown: "bg-foreground/[0.06] text-muted-foreground",
       },
       size: {
-        sm: "size-4",
-        md: "size-5",
-        lg: "size-6",
+        sm: OUTCOME_STATUS_SIZE.sm.circle,
+        md: OUTCOME_STATUS_SIZE.md.circle,
+        lg: OUTCOME_STATUS_SIZE.lg.circle,
       },
     },
     defaultVariants: {
@@ -85,15 +93,7 @@ export type OutcomeStatus = NonNullable<
   VariantProps<typeof outcomeStatusIndicatorVariants>["status"]
 >;
 
-export type OutcomeStatusIndicatorSize = NonNullable<
-  VariantProps<typeof outcomeStatusIndicatorVariants>["size"]
->;
-
-const GLYPH_SIZE_CLASS: Record<OutcomeStatusIndicatorSize, string> = {
-  sm: "size-2.5",
-  md: "size-3",
-  lg: "size-3.5",
-};
+export type OutcomeStatusIndicatorSize = keyof typeof OUTCOME_STATUS_SIZE;
 
 /**
  * Soft feedback Badge variant for each outcome (not action chrome).
@@ -160,7 +160,7 @@ function OutcomeStatusIndicator({
       <Icon
         strokeWidth={2.5}
         className={cn(
-          GLYPH_SIZE_CLASS[glyphSize],
+          OUTCOME_STATUS_SIZE[glyphSize].glyph,
           spin ? "animate-spin motion-reduce:animate-none" : undefined,
         )}
         aria-hidden

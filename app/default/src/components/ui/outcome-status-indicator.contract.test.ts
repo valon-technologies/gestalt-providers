@@ -83,10 +83,10 @@ describe("OutcomeStatusIndicator", () => {
   });
 
   test("pins glyph size on the Icon so ancestor menus cannot enlarge it", () => {
-    expect(SOURCE).toContain("GLYPH_SIZE_CLASS");
+    expect(SOURCE).toContain("OUTCOME_STATUS_SIZE");
     expect(SOURCE).toContain("overflow-hidden");
-    expect(SOURCE).toContain('sm: "size-4"');
-    expect(SOURCE).toContain('sm: "size-2.5"');
+    expect(SOURCE).toContain('sm: OUTCOME_STATUS_SIZE.sm.circle');
+    expect(SOURCE).toContain('sm: { circle: "size-4", glyph: "size-2.5" }');
     expect(SOURCE).not.toContain('sm: "size-4 [&>svg]:size-2.5"');
   });
 });
