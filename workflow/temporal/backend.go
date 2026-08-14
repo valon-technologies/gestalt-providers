@@ -391,6 +391,10 @@ func addRunStatusCount(counts *gestalt.WorkflowRunStatusCounts, status gestalt.W
 	}
 }
 
+// statusCountsFromVisibilityExecutions counts known GestaltRunStatus values on
+// a complete page. Executions without a mappable status stay in total_count
+// only. That matches CountWorkflow histogram buckets, which filter by status;
+// it is not a reason to CountWorkflow again.
 func statusCountsFromVisibilityExecutions(executions []*workflowpb.WorkflowExecutionInfo) *gestalt.WorkflowRunStatusCounts {
 	counts := &gestalt.WorkflowRunStatusCounts{}
 	for _, info := range executions {
@@ -523,6 +527,9 @@ func (b *temporalBackend) countWorkflows(ctx context.Context, query string) (int
 	return 0, mapTemporalWorkflowCallError("count temporal workflows", last)
 }
 
+// isRetryableTemporalCountError treats visibility overload as one policy.
+// Temporal's Go client can surface the same pressure as a typed serviceerror
+// or as a gRPC status; both are retryable. They are not distinct failure modes.
 func isRetryableTemporalCountError(err error) bool {
 	if err == nil {
 		return false

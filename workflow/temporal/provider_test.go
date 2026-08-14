@@ -698,32 +698,13 @@ func TestBackendListRunsUsesTemporalVisibility(t *testing.T) {
 
 func TestBackendListRunsFiltersByDefinitionID(t *testing.T) {
 	ctx, state := newTestWorkflowStateStore(t)
-	dc := converter.GetDefaultDataConverter()
-	definitionPayload, err := dc.ToPayload("definition-1")
-	if err != nil {
-		t.Fatalf("definition payload: %v", err)
-	}
-	statusPayload, err := dc.ToPayload("running")
-	if err != nil {
-		t.Fatalf("status payload: %v", err)
-	}
-	ownerPayload, err := dc.ToPayload("slack")
-	if err != nil {
-		t.Fatalf("owner payload: %v", err)
-	}
+	ownerPayload := testTemporalPayload(t, "slack")
+	statusPayload := testTemporalPayload(t, "running")
+	definitionPayload := testTemporalPayload(t, "definition-1")
 	tc := &recordingTemporalClient{
 		listResp: &workflowservicepb.ListWorkflowExecutionsResponse{
 			Executions: []*workflowpb.WorkflowExecutionInfo{
-				{
-					Execution: &commonpb.WorkflowExecution{WorkflowId: "workflow-1", RunId: "run-1"},
-					Status:    enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
-					Memo:      &commonpb.Memo{Fields: map[string]*commonpb.Payload{memoKeyOwnerKey: ownerPayload}},
-					SearchAttributes: &commonpb.SearchAttributes{IndexedFields: map[string]*commonpb.Payload{
-						searchAttrDefinitionID.GetName(): definitionPayload,
-						searchAttrRunStatus.GetName():    statusPayload,
-						searchAttrTargetApps.GetName():   ownerPayload,
-					}},
-				},
+				listableDefinitionRun("workflow-1", "run-1", ownerPayload, statusPayload, definitionPayload),
 			},
 		},
 		countDefault: 4,
@@ -762,35 +743,13 @@ func TestBackendListRunsFiltersByDefinitionID(t *testing.T) {
 
 func TestBackendListRunsCountsTruncatedDefinitionScopedPage(t *testing.T) {
 	ctx, state := newTestWorkflowStateStore(t)
-	dc := converter.GetDefaultDataConverter()
-	definitionPayload, err := dc.ToPayload("definition-1")
-	if err != nil {
-		t.Fatalf("definition payload: %v", err)
-	}
-	statusPayload, err := dc.ToPayload("running")
-	if err != nil {
-		t.Fatalf("status payload: %v", err)
-	}
-	ownerPayload, err := dc.ToPayload("slack")
-	if err != nil {
-		t.Fatalf("owner payload: %v", err)
-	}
+	ownerPayload := testTemporalPayload(t, "slack")
+	statusPayload := testTemporalPayload(t, "running")
+	definitionPayload := testTemporalPayload(t, "definition-1")
 	tc := &recordingTemporalClient{
-		listResp: &workflowservicepb.ListWorkflowExecutionsResponse{
-			Executions: []*workflowpb.WorkflowExecutionInfo{
-				{
-					Execution: &commonpb.WorkflowExecution{WorkflowId: "workflow-1", RunId: "run-1"},
-					Status:    enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
-					Memo:      &commonpb.Memo{Fields: map[string]*commonpb.Payload{memoKeyOwnerKey: ownerPayload}},
-					SearchAttributes: &commonpb.SearchAttributes{IndexedFields: map[string]*commonpb.Payload{
-						searchAttrDefinitionID.GetName(): definitionPayload,
-						searchAttrRunStatus.GetName():    statusPayload,
-						searchAttrTargetApps.GetName():   ownerPayload,
-					}},
-				},
-			},
-			NextPageToken: []byte("next-page"),
-		},
+		listResp: truncatedVisibilityPage(
+			listableDefinitionRun("workflow-1", "run-1", ownerPayload, statusPayload, definitionPayload),
+		),
 		countDefault: 4,
 	}
 	backend := newRecordingTemporalBackend(tc, state)
@@ -1041,6 +1000,176 @@ func TestBackendListRunsOmitsAggregatesWhenCountFails(t *testing.T) {
 	}
 }
 
+func TestBackendListRunsOmitsHistogramIndependentlyWhenOneStatusCountFails(t *testing.T) {
+	ctx, state := newTestWorkflowStateStore(t)
+	ownerPayload := testTemporalPayload(t, "slack")
+	statusPayload := testTemporalPayload(t, "running")
+	tc := &recordingTemporalClient{
+		listResp: truncatedVisibilityPage(
+			listableRunningExecution("workflow-1", "run-1", ownerPayload, statusPayload),
+		),
+		countDefault: 42,
+	}
+	backend := newRecordingTemporalBackend(tc, state)
+	pendingQuery := backend.runVisibilityQuery(&gestalt.ListWorkflowProviderRunsRequest{
+		Status:    gestalt.WorkflowRunStatusValuePending,
+		TargetApp: "slack",
+	})
+	tc.countErrByQuery = map[string]error{
+		pendingQuery: status.Error(codes.Internal, "pending histogram unavailable"),
+	}
+
+	resp, err := backend.ListRuns(ctx, &gestalt.ListWorkflowProviderRunsRequest{
+		TargetApp: "slack",
+	})
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if resp.TotalCount == nil || *resp.TotalCount != 42 {
+		t.Fatalf("total count = %#v, want 42 from the successful total CountWorkflow", resp.TotalCount)
+	}
+	if resp.GetStatusCounts() != nil {
+		t.Fatalf("status_counts should be omitted when one histogram CountWorkflow fails, got %#v", resp.StatusCounts)
+	}
+}
+
+func TestBackendListRunsCompletePageKeepsUnmappedStatusInTotalOnly(t *testing.T) {
+	ctx, state := newTestWorkflowStateStore(t)
+	ownerPayload := testTemporalPayload(t, "slack")
+	runningPayload := testTemporalPayload(t, "running")
+	tc := &recordingTemporalClient{
+		listResp: &workflowservicepb.ListWorkflowExecutionsResponse{
+			Executions: []*workflowpb.WorkflowExecutionInfo{
+				listableRunningExecution("workflow-1", "run-1", ownerPayload, runningPayload),
+				{
+					Execution: &commonpb.WorkflowExecution{WorkflowId: "workflow-2", RunId: "run-2"},
+					Status:    enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
+				},
+			},
+		},
+		countDefault: 99,
+	}
+	backend := newRecordingTemporalBackend(tc, state)
+
+	resp, err := backend.ListRuns(ctx, &gestalt.ListWorkflowProviderRunsRequest{
+		TargetApp: "slack",
+	})
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if resp.TotalCount == nil || *resp.TotalCount != 2 {
+		t.Fatalf("total count = %#v, want 2 visibility hits including unmapped status", resp.TotalCount)
+	}
+	if resp.StatusCounts == nil ||
+		resp.StatusCounts.Running != 1 ||
+		resp.StatusCounts.Succeeded != 0 ||
+		resp.StatusCounts.Pending != 0 ||
+		resp.StatusCounts.Failed != 0 ||
+		resp.StatusCounts.Canceled != 0 {
+		t.Fatalf("status counts = %#v, want running=1 from mapped rows only", resp.StatusCounts)
+	}
+	if len(tc.countWorkflowRequests) != 0 {
+		t.Fatalf("count workflow requests = %d, want 0 (unmapped status is not a CountWorkflow fallback)", len(tc.countWorkflowRequests))
+	}
+}
+
+func TestBackendListRunsCapsConcurrentCountWorkflow(t *testing.T) {
+	ctx, state := newTestWorkflowStateStore(t)
+	ownerPayload := testTemporalPayload(t, "slack")
+	statusPayload := testTemporalPayload(t, "running")
+	const countDelay = 25 * time.Millisecond
+	tc := &recordingTemporalClient{
+		listResp: truncatedVisibilityPage(
+			listableRunningExecution("workflow-1", "run-1", ownerPayload, statusPayload),
+		),
+		countDefault: 8,
+		countDelay:   countDelay,
+	}
+	backend := newRecordingTemporalBackend(tc, state)
+
+	started := time.Now()
+	resp, err := backend.ListRuns(ctx, &gestalt.ListWorkflowProviderRunsRequest{
+		TargetApp: "slack",
+	})
+	elapsed := time.Since(started)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if resp.TotalCount == nil || *resp.TotalCount != 8 {
+		t.Fatalf("total count = %#v, want 8", resp.TotalCount)
+	}
+	wantCounts := 1 + len(listRunStatusHistogram)
+	if got := len(tc.countWorkflowRequests); got != wantCounts {
+		t.Fatalf("count workflow requests = %d, want %d", got, wantCounts)
+	}
+	tc.mu.Lock()
+	maxInFlight := tc.maxInFlight
+	tc.mu.Unlock()
+	if maxInFlight > countWorkflowConcurrency {
+		t.Fatalf("max in-flight CountWorkflow = %d, want <= %d", maxInFlight, countWorkflowConcurrency)
+	}
+	if maxInFlight < 2 {
+		t.Fatalf("max in-flight CountWorkflow = %d, want concurrent histogram fan-out", maxInFlight)
+	}
+	// Six counts and four slots need a second wave. Parallel-unlimited would
+	// finish in about one delay.
+	if elapsed < countDelay+countDelay/2 {
+		t.Fatalf("ListRuns finished in %s, want a second limiter wave (>= %s)", elapsed, countDelay+countDelay/2)
+	}
+}
+
+func TestBackendListRunsReleasesCountSlotBeforeRetryWait(t *testing.T) {
+	ctx, state := newTestWorkflowStateStore(t)
+	ownerPayload := testTemporalPayload(t, "slack")
+	statusPayload := testTemporalPayload(t, "running")
+	definitionPayload := testTemporalPayload(t, "definition-1")
+	tc := &recordingTemporalClient{
+		listResp: truncatedVisibilityPage(
+			listableDefinitionRun("workflow-1", "run-1", ownerPayload, statusPayload, definitionPayload),
+		),
+		countErr:          status.Error(codes.ResourceExhausted, "too many outstanding requests"),
+		countSucceedAfter: 1,
+		countDefault:      3,
+	}
+	backend := newRecordingTemporalBackend(tc, state)
+	backend.countWorkflowSlots = make(chan struct{}, 1)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := backend.ListRuns(ctx, &gestalt.ListWorkflowProviderRunsRequest{
+			TargetApp:    "slack",
+			DefinitionID: "definition-1",
+		})
+		done <- err
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		tc.mu.Lock()
+		n := len(tc.countWorkflowRequests)
+		tc.mu.Unlock()
+		if n >= 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for first CountWorkflow")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(5 * time.Millisecond)
+
+	slotCtx, cancel := context.WithTimeout(ctx, 20*time.Millisecond)
+	defer cancel()
+	if err := backend.acquireCountSlot(slotCtx); err != nil {
+		t.Fatalf("count slot still held during retry backoff: %v", err)
+	}
+	backend.releaseCountSlot()
+
+	if err := <-done; err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+}
+
 func TestBackendListRunsRetriesCountOnTransientVisibilityErrors(t *testing.T) {
 	tests := []struct {
 		name              string
@@ -1080,39 +1209,33 @@ func TestBackendListRunsRetriesCountOnTransientVisibilityErrors(t *testing.T) {
 			wantTotalSet:      false,
 			wantAttempts:      3,
 		},
+		{
+			name:              "typed resource exhausted then success",
+			countErr:          serviceerror.NewResourceExhausted(enumspb.RESOURCE_EXHAUSTED_CAUSE_UNSPECIFIED, "too many outstanding requests"),
+			countSucceedAfter: 1,
+			wantTotal:         42,
+			wantTotalSet:      true,
+			wantAttempts:      2,
+		},
+		{
+			name:              "typed unavailable then success",
+			countErr:          serviceerror.NewUnavailable("unavailable"),
+			countSucceedAfter: 1,
+			wantTotal:         42,
+			wantTotalSet:      true,
+			wantAttempts:      2,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, state := newTestWorkflowStateStore(t)
-			dc := converter.GetDefaultDataConverter()
-			definitionPayload, err := dc.ToPayload("definition-1")
-			if err != nil {
-				t.Fatalf("definition payload: %v", err)
-			}
-			statusPayload, err := dc.ToPayload("running")
-			if err != nil {
-				t.Fatalf("status payload: %v", err)
-			}
-			ownerPayload, err := dc.ToPayload("slack")
-			if err != nil {
-				t.Fatalf("owner payload: %v", err)
-			}
+			ownerPayload := testTemporalPayload(t, "slack")
+			statusPayload := testTemporalPayload(t, "running")
+			definitionPayload := testTemporalPayload(t, "definition-1")
 			tc := &recordingTemporalClient{
-				listResp: &workflowservicepb.ListWorkflowExecutionsResponse{
-					Executions: []*workflowpb.WorkflowExecutionInfo{
-						{
-							Execution: &commonpb.WorkflowExecution{WorkflowId: "workflow-1", RunId: "run-1"},
-							Status:    enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
-							Memo:      &commonpb.Memo{Fields: map[string]*commonpb.Payload{memoKeyOwnerKey: ownerPayload}},
-							SearchAttributes: &commonpb.SearchAttributes{IndexedFields: map[string]*commonpb.Payload{
-								searchAttrDefinitionID.GetName(): definitionPayload,
-								searchAttrRunStatus.GetName():    statusPayload,
-								searchAttrTargetApps.GetName():   ownerPayload,
-							}},
-						},
-					},
-					NextPageToken: []byte("next-page"),
-				},
+				listResp: truncatedVisibilityPage(
+					listableDefinitionRun("workflow-1", "run-1", ownerPayload, statusPayload, definitionPayload),
+				),
 				countErr:          tt.countErr,
 				countSucceedAfter: tt.countSucceedAfter,
 				countDefault:      42,
@@ -1332,6 +1455,55 @@ func newRecordingTemporalBackend(tc *recordingTemporalClient, state *workflowSta
 	return newTemporalBackend("temporal", baseTemporalConfig(), tc, nil, state)
 }
 
+func testTemporalPayload(t *testing.T, value string) *commonpb.Payload {
+	t.Helper()
+	payload, err := converter.GetDefaultDataConverter().ToPayload(value)
+	if err != nil {
+		t.Fatalf("payload %q: %v", value, err)
+	}
+	return payload
+}
+
+func listableRunningExecution(workflowID, runID string, owner, runStatus *commonpb.Payload) *workflowpb.WorkflowExecutionInfo {
+	info := &workflowpb.WorkflowExecutionInfo{
+		Execution: &commonpb.WorkflowExecution{WorkflowId: workflowID, RunId: runID},
+		Status:    enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
+	}
+	if owner != nil {
+		info.Memo = &commonpb.Memo{Fields: map[string]*commonpb.Payload{memoKeyOwnerKey: owner}}
+	}
+	if runStatus != nil {
+		info.SearchAttributes = &commonpb.SearchAttributes{IndexedFields: map[string]*commonpb.Payload{
+			searchAttrRunStatus.GetName(): runStatus,
+		}}
+	}
+	return info
+}
+
+func listableDefinitionRun(workflowID, runID string, owner, runStatus, definition *commonpb.Payload) *workflowpb.WorkflowExecutionInfo {
+	info := listableRunningExecution(workflowID, runID, owner, runStatus)
+	if definition == nil {
+		return info
+	}
+	if info.SearchAttributes == nil {
+		info.SearchAttributes = &commonpb.SearchAttributes{IndexedFields: map[string]*commonpb.Payload{}}
+	} else if info.SearchAttributes.IndexedFields == nil {
+		info.SearchAttributes.IndexedFields = map[string]*commonpb.Payload{}
+	}
+	info.SearchAttributes.IndexedFields[searchAttrDefinitionID.GetName()] = definition
+	if owner != nil {
+		info.SearchAttributes.IndexedFields[searchAttrTargetApps.GetName()] = owner
+	}
+	return info
+}
+
+func truncatedVisibilityPage(executions ...*workflowpb.WorkflowExecutionInfo) *workflowservicepb.ListWorkflowExecutionsResponse {
+	return &workflowservicepb.ListWorkflowExecutionsResponse{
+		Executions:    executions,
+		NextPageToken: []byte("next-page"),
+	}
+}
+
 type recordedExecution struct {
 	WorkflowID string
 	Options    client.StartWorkflowOptions
@@ -1357,8 +1529,12 @@ type recordingTemporalClient struct {
 	countRespByQuery      map[string]int64
 	countDefault          int64
 	countErr              error
+	countErrByQuery       map[string]error
 	countSucceedAfter     int
 	countAttempts         int
+	countDelay            time.Duration
+	inFlight              int
+	maxInFlight           int
 	describeResp          *workflowservicepb.DescribeWorkflowExecutionResponse
 	describeErr           error
 	queryRun              *gestalt.WorkflowRun
@@ -1434,20 +1610,48 @@ func (c *recordingTemporalClient) ListWorkflow(_ context.Context, req *workflows
 
 func (c *recordingTemporalClient) CountWorkflow(_ context.Context, req *workflowservicepb.CountWorkflowExecutionsRequest) (*workflowservicepb.CountWorkflowExecutionsResponse, error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.countWorkflowRequests = append(c.countWorkflowRequests, req)
-	if c.countErr != nil {
+	c.inFlight++
+	if c.inFlight > c.maxInFlight {
+		c.maxInFlight = c.inFlight
+	}
+	delay := c.countDelay
+	query := req.GetQuery()
+	var fail error
+	if err, ok := c.countErrByQuery[query]; ok {
+		fail = err
+	}
+	if fail == nil && c.countErr != nil {
 		c.countAttempts++
 		if c.countSucceedAfter == 0 || c.countAttempts <= c.countSucceedAfter {
-			return nil, c.countErr
+			fail = c.countErr
 		}
 	}
+	mappedCount, mapped := int64(0), false
 	if c.countRespByQuery != nil {
-		if total, ok := c.countRespByQuery[req.GetQuery()]; ok {
-			return &workflowservicepb.CountWorkflowExecutionsResponse{Count: total}, nil
+		if total, ok := c.countRespByQuery[query]; ok {
+			mappedCount = total
+			mapped = true
 		}
 	}
-	return &workflowservicepb.CountWorkflowExecutionsResponse{Count: c.countDefault}, nil
+	countDefault := c.countDefault
+	c.mu.Unlock()
+
+	if delay > 0 {
+		time.Sleep(delay)
+	}
+
+	c.mu.Lock()
+	c.inFlight--
+	c.mu.Unlock()
+
+	if fail != nil {
+		return nil, fail
+	}
+	if mapped {
+		return &workflowservicepb.CountWorkflowExecutionsResponse{Count: mappedCount}, nil
+	}
+	return &workflowservicepb.CountWorkflowExecutionsResponse{Count: countDefault}, nil
 }
 
 func (c *recordingTemporalClient) DescribeWorkflowExecution(_ context.Context, workflowID, runID string) (*workflowservicepb.DescribeWorkflowExecutionResponse, error) {

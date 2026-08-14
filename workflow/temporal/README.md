@@ -90,8 +90,10 @@ Metadata-only reads do not start the Temporal worker.
     with the same filter as the page (including status and `definition_id`)
   - `status_counts` is the provider + `target_app` histogram with the list
     status filter cleared (tab/facet totals). On a complete unfiltered page it
-    is counted from that page. Truncated pages and status-filtered lists still
-    CountWorkflow. Omitted on definition-scoped lists (grouped Runs has no tabs)
+    is counted from that page (executions without a known `GestaltRunStatus`
+    stay in `total_count` only; they are not a reason to CountWorkflow).
+    Truncated pages and status-filtered lists still CountWorkflow. Omitted on
+    definition-scoped lists (grouped Runs has no tabs)
   - either aggregate is omitted when its count RPC fails ("unknown", not zero);
     continuation pages omit both so paging stays a single ListWorkflow call
   - CountWorkflow retries `ResourceExhausted` and `Unavailable` up to 3 attempts;
