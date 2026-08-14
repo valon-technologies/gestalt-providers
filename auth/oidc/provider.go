@@ -426,15 +426,7 @@ func (p *Provider) tokenExchange(ctx context.Context, req *gestalt.TokenRequest)
 	if err != nil {
 		return nil, err
 	}
-	// List/Get/Revoke key grants by the host-canonical caller (user:<uuid>).
-	// Introspect still returns the grant-record / token-hash subject, which for
-	// Google login is user:<email>. Issuing under that email makes the new
-	// grant invisible to ListGrants after public RPC canonicalizes the caller.
-	subject := strings.TrimSpace(introspectResp.Subject)
-	if caller, err := p.callerSubject(ctx); err == nil && strings.TrimSpace(caller) != "" {
-		subject = strings.TrimSpace(caller)
-	}
-	issued, err := p.grants.issue(ctx, subject, issuedScope, clientID, grantCategoryAPIToken, ttl)
+	issued, err := p.grants.issue(ctx, p.grantOwnerForIssue(ctx, introspectResp.Subject), issuedScope, clientID, grantCategoryAPIToken, ttl)
 	if err != nil {
 		return nil, err
 	}
@@ -545,6 +537,17 @@ func (p *Provider) grantStore() (*grantStore, error) {
 		return nil, fmt.Errorf("oidc auth: provider is not configured")
 	}
 	return p.grants, nil
+}
+
+// grantOwnerForIssue picks the subject List/Get/Revoke will use for a new
+// API-token grant. A host-verified caller (Settings) owns grants by the
+// canonical subject. Token-only callers (CLI) have no canonical caller, so
+// the grant stays under the subject_token's stored subject.
+func (p *Provider) grantOwnerForIssue(ctx context.Context, tokenSubject string) string {
+	if caller, err := p.callerSubject(ctx); err == nil && caller != "" {
+		return caller
+	}
+	return strings.TrimSpace(tokenSubject)
 }
 
 func (p *Provider) callerSubject(ctx context.Context) (string, error) {
