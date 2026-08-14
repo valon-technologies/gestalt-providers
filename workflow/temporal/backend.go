@@ -53,9 +53,6 @@ type temporalBackend struct {
 
 	promoteOnce sync.Once
 	promoteErr  error
-
-	// Caps in-flight CountWorkflow RPCs for this backend (not during retry wait).
-	countWorkflowSlots chan struct{}
 }
 
 type workflowRunStartSnapshot struct {
@@ -73,13 +70,12 @@ func newTemporalBackend(providerName string, cfg config, tc client.Client, execu
 		executor = gestaltworkflow.New(gestaltworkflow.Config{})
 	}
 	return &temporalBackend{
-		providerName:       strings.TrimSpace(providerName),
-		cfg:                cfg,
-		client:             tc,
-		stepExecutor:       executor,
-		state:              state,
-		newWorker:          defaultTemporalWorkerFactory,
-		countWorkflowSlots: make(chan struct{}, countWorkflowConcurrency),
+		providerName: strings.TrimSpace(providerName),
+		cfg:          cfg,
+		client:       tc,
+		stepExecutor: executor,
+		state:        state,
+		newWorker:    defaultTemporalWorkerFactory,
 	}
 }
 
@@ -471,76 +467,14 @@ func (b *temporalBackend) attachListRunAggregates(ctx context.Context, req *gest
 	}
 }
 
-// Unscoped first-page lists can issue 6 CountWorkflow RPCs (total + 5 status
-// buckets). Cap below that peak so visibility is not fully occupied; slots
-// are held only for the RPC, not retry wait.
-const (
-	countWorkflowConcurrency  = 4
-	countWorkflowMaxAttempts  = 3
-	countWorkflowRetryBackoff = 50 * time.Millisecond
-)
-
-func (b *temporalBackend) acquireCountSlot(ctx context.Context) error {
-	select {
-	case b.countWorkflowSlots <- struct{}{}:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-func (b *temporalBackend) releaseCountSlot() {
-	<-b.countWorkflowSlots
-}
-
-func (b *temporalBackend) countWorkflowOnce(ctx context.Context, query string) (*workflowservicepb.CountWorkflowExecutionsResponse, error) {
-	if err := b.acquireCountSlot(ctx); err != nil {
-		return nil, err
-	}
-	defer b.releaseCountSlot()
-	return b.client.CountWorkflow(ctx, &workflowservicepb.CountWorkflowExecutionsRequest{
+func (b *temporalBackend) countWorkflows(ctx context.Context, query string) (int64, error) {
+	resp, err := b.client.CountWorkflow(ctx, &workflowservicepb.CountWorkflowExecutionsRequest{
 		Query: query,
 	})
-}
-
-func (b *temporalBackend) countWorkflows(ctx context.Context, query string) (int64, error) {
-	var last error
-	for attempt := 0; attempt < countWorkflowMaxAttempts; attempt++ {
-		if attempt > 0 {
-			timer := time.NewTimer(time.Duration(attempt) * countWorkflowRetryBackoff)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return 0, ctx.Err()
-			case <-timer.C:
-			}
-		}
-		resp, err := b.countWorkflowOnce(ctx, query)
-		if err == nil {
-			return resp.GetCount(), nil
-		}
-		last = err
-		if !isRetryableTemporalCountError(err) {
-			break
-		}
+	if err != nil {
+		return 0, mapTemporalWorkflowCallError("count temporal workflows", err)
 	}
-	return 0, mapTemporalWorkflowCallError("count temporal workflows", last)
-}
-
-// isRetryableTemporalCountError treats visibility overload as one policy.
-// Temporal's Go client can surface the same pressure as a typed serviceerror
-// or as a gRPC status; both are retryable. They are not distinct failure modes.
-func isRetryableTemporalCountError(err error) bool {
-	if err == nil {
-		return false
-	}
-	var exhausted *serviceerror.ResourceExhausted
-	var unavailable *serviceerror.Unavailable
-	if errors.As(err, &exhausted) || errors.As(err, &unavailable) {
-		return true
-	}
-	code := status.Code(err)
-	return code == codes.ResourceExhausted || code == codes.Unavailable
+	return resp.GetCount(), nil
 }
 
 var listRunStatusHistogram = []gestalt.WorkflowRunStatus{

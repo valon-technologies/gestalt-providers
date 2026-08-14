@@ -1073,208 +1073,6 @@ func TestBackendListRunsCompletePageKeepsUnmappedStatusInTotalOnly(t *testing.T)
 	}
 }
 
-func TestBackendListRunsCapsConcurrentCountWorkflow(t *testing.T) {
-	ctx, state := newTestWorkflowStateStore(t)
-	ownerPayload := testTemporalPayload(t, "slack")
-	statusPayload := testTemporalPayload(t, "running")
-	const countDelay = 25 * time.Millisecond
-	tc := &recordingTemporalClient{
-		listResp: truncatedVisibilityPage(
-			listableRunningExecution("workflow-1", "run-1", ownerPayload, statusPayload),
-		),
-		countDefault: 8,
-		countDelay:   countDelay,
-	}
-	backend := newRecordingTemporalBackend(tc, state)
-
-	started := time.Now()
-	resp, err := backend.ListRuns(ctx, &gestalt.ListWorkflowProviderRunsRequest{
-		TargetApp: "slack",
-	})
-	elapsed := time.Since(started)
-	if err != nil {
-		t.Fatalf("ListRuns: %v", err)
-	}
-	if resp.TotalCount == nil || *resp.TotalCount != 8 {
-		t.Fatalf("total count = %#v, want 8", resp.TotalCount)
-	}
-	wantCounts := 1 + len(listRunStatusHistogram)
-	if got := len(tc.countWorkflowRequests); got != wantCounts {
-		t.Fatalf("count workflow requests = %d, want %d", got, wantCounts)
-	}
-	tc.mu.Lock()
-	maxInFlight := tc.maxInFlight
-	tc.mu.Unlock()
-	if maxInFlight > countWorkflowConcurrency {
-		t.Fatalf("max in-flight CountWorkflow = %d, want <= %d", maxInFlight, countWorkflowConcurrency)
-	}
-	if maxInFlight < 2 {
-		t.Fatalf("max in-flight CountWorkflow = %d, want concurrent histogram fan-out", maxInFlight)
-	}
-	// Six counts and four slots need a second wave. Parallel-unlimited would
-	// finish in about one delay.
-	if elapsed < countDelay+countDelay/2 {
-		t.Fatalf("ListRuns finished in %s, want a second limiter wave (>= %s)", elapsed, countDelay+countDelay/2)
-	}
-}
-
-func TestBackendListRunsReleasesCountSlotBeforeRetryWait(t *testing.T) {
-	ctx, state := newTestWorkflowStateStore(t)
-	ownerPayload := testTemporalPayload(t, "slack")
-	statusPayload := testTemporalPayload(t, "running")
-	definitionPayload := testTemporalPayload(t, "definition-1")
-	tc := &recordingTemporalClient{
-		listResp: truncatedVisibilityPage(
-			listableDefinitionRun("workflow-1", "run-1", ownerPayload, statusPayload, definitionPayload),
-		),
-		countErr:          status.Error(codes.ResourceExhausted, "too many outstanding requests"),
-		countSucceedAfter: 1,
-		countDefault:      3,
-	}
-	backend := newRecordingTemporalBackend(tc, state)
-	backend.countWorkflowSlots = make(chan struct{}, 1)
-
-	done := make(chan error, 1)
-	go func() {
-		_, err := backend.ListRuns(ctx, &gestalt.ListWorkflowProviderRunsRequest{
-			TargetApp:    "slack",
-			DefinitionID: "definition-1",
-		})
-		done <- err
-	}()
-
-	deadline := time.Now().Add(time.Second)
-	for {
-		tc.mu.Lock()
-		n := len(tc.countWorkflowRequests)
-		tc.mu.Unlock()
-		if n >= 1 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("timed out waiting for first CountWorkflow")
-		}
-		time.Sleep(time.Millisecond)
-	}
-	time.Sleep(5 * time.Millisecond)
-
-	slotCtx, cancel := context.WithTimeout(ctx, 20*time.Millisecond)
-	defer cancel()
-	if err := backend.acquireCountSlot(slotCtx); err != nil {
-		t.Fatalf("count slot still held during retry backoff: %v", err)
-	}
-	backend.releaseCountSlot()
-
-	if err := <-done; err != nil {
-		t.Fatalf("ListRuns: %v", err)
-	}
-}
-
-func TestBackendListRunsRetriesCountOnTransientVisibilityErrors(t *testing.T) {
-	tests := []struct {
-		name              string
-		countErr          error
-		countSucceedAfter int
-		wantTotal         int64
-		wantTotalSet      bool
-		wantAttempts      int
-	}{
-		{
-			name:              "resource exhausted then success",
-			countErr:          status.Error(codes.ResourceExhausted, "too many outstanding requests"),
-			countSucceedAfter: 1,
-			wantTotal:         42,
-			wantTotalSet:      true,
-			wantAttempts:      2,
-		},
-		{
-			name:              "unavailable then success",
-			countErr:          status.Error(codes.Unavailable, "unavailable"),
-			countSucceedAfter: 1,
-			wantTotal:         42,
-			wantTotalSet:      true,
-			wantAttempts:      2,
-		},
-		{
-			name:              "resource exhausted until retry budget",
-			countErr:          status.Error(codes.ResourceExhausted, "too many outstanding requests"),
-			countSucceedAfter: 0,
-			wantTotalSet:      false,
-			wantAttempts:      3,
-		},
-		{
-			name:              "unavailable until retry budget",
-			countErr:          status.Error(codes.Unavailable, "unavailable"),
-			countSucceedAfter: 0,
-			wantTotalSet:      false,
-			wantAttempts:      3,
-		},
-		{
-			name:              "typed resource exhausted then success",
-			countErr:          serviceerror.NewResourceExhausted(enumspb.RESOURCE_EXHAUSTED_CAUSE_UNSPECIFIED, "too many outstanding requests"),
-			countSucceedAfter: 1,
-			wantTotal:         42,
-			wantTotalSet:      true,
-			wantAttempts:      2,
-		},
-		{
-			name:              "typed unavailable then success",
-			countErr:          serviceerror.NewUnavailable("unavailable"),
-			countSucceedAfter: 1,
-			wantTotal:         42,
-			wantTotalSet:      true,
-			wantAttempts:      2,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx, state := newTestWorkflowStateStore(t)
-			ownerPayload := testTemporalPayload(t, "slack")
-			statusPayload := testTemporalPayload(t, "running")
-			definitionPayload := testTemporalPayload(t, "definition-1")
-			tc := &recordingTemporalClient{
-				listResp: truncatedVisibilityPage(
-					listableDefinitionRun("workflow-1", "run-1", ownerPayload, statusPayload, definitionPayload),
-				),
-				countErr:          tt.countErr,
-				countSucceedAfter: tt.countSucceedAfter,
-				countDefault:      42,
-			}
-			backend := newRecordingTemporalBackend(tc, state)
-
-			resp, err := backend.ListRuns(ctx, &gestalt.ListWorkflowProviderRunsRequest{
-				TargetApp:    "slack",
-				DefinitionID: "definition-1",
-			})
-			if err != nil {
-				t.Fatalf("ListRuns: %v", err)
-			}
-			if tt.wantTotalSet {
-				if resp.TotalCount == nil || *resp.TotalCount != tt.wantTotal {
-					t.Fatalf("total count = %#v, want %d after retry", resp.TotalCount, tt.wantTotal)
-				}
-			} else if resp.TotalCount != nil {
-				t.Fatalf("total_count should be omitted after count retries fail, got %#v", resp.TotalCount)
-			}
-			if resp.GetStatusCounts() != nil {
-				t.Fatalf("definition-scoped list should omit status_counts, got %#v", resp.StatusCounts)
-			}
-			if got := len(tc.countWorkflowRequests); got != tt.wantAttempts {
-				t.Fatalf("count workflow requests = %d, want %d", got, tt.wantAttempts)
-			}
-			if len(tc.listWorkflowRequests) != 1 {
-				t.Fatalf("list workflow requests = %#v", tc.listWorkflowRequests)
-			}
-			listQuery := tc.listWorkflowRequests[0].GetQuery()
-			for _, countReq := range tc.countWorkflowRequests {
-				if got := countReq.GetQuery(); got != listQuery {
-					t.Fatalf("count query = %q, want list query %q", got, listQuery)
-				}
-			}
-		})
-	}
-}
-
 func TestBackendListRunsLegacyOwnerOnlyMemo(t *testing.T) {
 	ctx, state := newTestWorkflowStateStore(t)
 	dc := converter.GetDefaultDataConverter()
@@ -1530,11 +1328,6 @@ type recordingTemporalClient struct {
 	countDefault          int64
 	countErr              error
 	countErrByQuery       map[string]error
-	countSucceedAfter     int
-	countAttempts         int
-	countDelay            time.Duration
-	inFlight              int
-	maxInFlight           int
 	describeResp          *workflowservicepb.DescribeWorkflowExecutionResponse
 	describeErr           error
 	queryRun              *gestalt.WorkflowRun
@@ -1610,48 +1403,21 @@ func (c *recordingTemporalClient) ListWorkflow(_ context.Context, req *workflows
 
 func (c *recordingTemporalClient) CountWorkflow(_ context.Context, req *workflowservicepb.CountWorkflowExecutionsRequest) (*workflowservicepb.CountWorkflowExecutionsResponse, error) {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.countWorkflowRequests = append(c.countWorkflowRequests, req)
-	c.inFlight++
-	if c.inFlight > c.maxInFlight {
-		c.maxInFlight = c.inFlight
-	}
-	delay := c.countDelay
 	query := req.GetQuery()
-	var fail error
 	if err, ok := c.countErrByQuery[query]; ok {
-		fail = err
+		return nil, err
 	}
-	if fail == nil && c.countErr != nil {
-		c.countAttempts++
-		if c.countSucceedAfter == 0 || c.countAttempts <= c.countSucceedAfter {
-			fail = c.countErr
-		}
+	if c.countErr != nil {
+		return nil, c.countErr
 	}
-	mappedCount, mapped := int64(0), false
 	if c.countRespByQuery != nil {
 		if total, ok := c.countRespByQuery[query]; ok {
-			mappedCount = total
-			mapped = true
+			return &workflowservicepb.CountWorkflowExecutionsResponse{Count: total}, nil
 		}
 	}
-	countDefault := c.countDefault
-	c.mu.Unlock()
-
-	if delay > 0 {
-		time.Sleep(delay)
-	}
-
-	c.mu.Lock()
-	c.inFlight--
-	c.mu.Unlock()
-
-	if fail != nil {
-		return nil, fail
-	}
-	if mapped {
-		return &workflowservicepb.CountWorkflowExecutionsResponse{Count: mappedCount}, nil
-	}
-	return &workflowservicepb.CountWorkflowExecutionsResponse{Count: countDefault}, nil
+	return &workflowservicepb.CountWorkflowExecutionsResponse{Count: c.countDefault}, nil
 }
 
 func (c *recordingTemporalClient) DescribeWorkflowExecution(_ context.Context, workflowID, runID string) (*workflowservicepb.DescribeWorkflowExecutionResponse, error) {
