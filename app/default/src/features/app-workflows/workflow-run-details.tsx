@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import type {
   WorkflowRun,
@@ -6,6 +5,18 @@ import type {
   WorkflowStepTarget,
   WorkflowTarget,
 } from "@/lib/api";
+import { CodeBlock } from "@/components/ui/code-block";
+import {
+  DescriptionDetails,
+  DescriptionItem,
+  DescriptionList,
+  DescriptionTerm,
+} from "@/components/ui/description-list";
+import {
+  SectionHeader,
+  SectionHeaderContent,
+  SectionHeaderTitle,
+} from "@/components/ui/section-header";
 import { WorkflowStatusBadge } from "./workflow-status-badge";
 import {
   formatDate,
@@ -14,22 +25,90 @@ import {
   runTriggerLabel,
   stepKind,
 } from "./workflow-format";
+import { formatDuration, formatRelativeTime } from "./workflow-run-graph";
+
+function sameInstant(left?: string, right?: string): boolean {
+  if (!left || !right) return false;
+  const a = new Date(left).getTime();
+  const b = new Date(right).getTime();
+  return !Number.isNaN(a) && !Number.isNaN(b) && a === b;
+}
 
 export function WorkflowRunDetails({
   run,
   appName,
+  outputOverride,
+  durationMs,
 }: {
   run: WorkflowRun;
   appName: string;
+  /** Prefer dedicated GetRunOutput when inline output is empty. */
+  outputOverride?: unknown;
+  /** Wall-clock duration for the run (from the projected graph). */
+  durationMs?: number | null;
 }) {
+  const output = outputOverride !== undefined ? outputOverride : run.output;
+  const startedAt = run.startedAt || run.createdAt;
+  const showCreated =
+    Boolean(run.createdAt) &&
+    Boolean(run.startedAt) &&
+    !sameInstant(run.createdAt, run.startedAt);
+  const trigger = runTriggerLabel(run);
+
   return (
     <div className="space-y-5">
-      <DetailGrid
-        items={[
-          ["Provider", run.provider],
-          [
-            "Definition",
-            run.definitionId ? (
+      <DescriptionList
+        variant="stacked"
+        divided={false}
+        className="grid gap-x-6 gap-y-1 sm:grid-cols-2"
+      >
+        <DescriptionItem>
+          <DescriptionTerm>Status</DescriptionTerm>
+          <DescriptionDetails>
+            <WorkflowStatusBadge status={run.status} size="default" />
+          </DescriptionDetails>
+        </DescriptionItem>
+        <DescriptionItem>
+          <DescriptionTerm>Duration</DescriptionTerm>
+          <DescriptionDetails>
+            {formatDuration(durationMs ?? null)}
+          </DescriptionDetails>
+        </DescriptionItem>
+        <DescriptionItem>
+          <DescriptionTerm>Trigger</DescriptionTerm>
+          <DescriptionDetails>{trigger || "—"}</DescriptionDetails>
+        </DescriptionItem>
+        <DescriptionItem>
+          <DescriptionTerm>Started</DescriptionTerm>
+          <DescriptionDetails>
+            {formatDate(startedAt)}
+            {startedAt ? (
+              <span className="ml-2 text-muted-foreground">
+                {formatRelativeTime(startedAt)}
+              </span>
+            ) : null}
+          </DescriptionDetails>
+        </DescriptionItem>
+        {showCreated ? (
+          <DescriptionItem>
+            <DescriptionTerm>Created</DescriptionTerm>
+            <DescriptionDetails>{formatDate(run.createdAt)}</DescriptionDetails>
+          </DescriptionItem>
+        ) : null}
+        <DescriptionItem>
+          <DescriptionTerm>Completed</DescriptionTerm>
+          <DescriptionDetails>
+            {formatDate(run.completedAt)}
+          </DescriptionDetails>
+        </DescriptionItem>
+        <DescriptionItem>
+          <DescriptionTerm>Provider</DescriptionTerm>
+          <DescriptionDetails>{run.provider || "—"}</DescriptionDetails>
+        </DescriptionItem>
+        <DescriptionItem>
+          <DescriptionTerm>Definition</DescriptionTerm>
+          <DescriptionDetails>
+            {run.definitionId ? (
               <Link
                 to="/apps/$app/admin/workflows/definitions/$definitionId"
                 params={{ app: appName, definitionId: run.definitionId }}
@@ -39,15 +118,22 @@ export function WorkflowRunDetails({
               </Link>
             ) : (
               "—"
-            ),
-          ],
-          ["Trigger", runTriggerLabel(run)],
-          ["Created", formatDate(run.createdAt)],
-          ["Started", formatDate(run.startedAt)],
-          ["Completed", formatDate(run.completedAt)],
-          ["Created by", run.createdBy?.subjectId || "—"],
-        ]}
-      />
+            )}
+          </DescriptionDetails>
+        </DescriptionItem>
+        <DescriptionItem>
+          <DescriptionTerm>Run as</DescriptionTerm>
+          <DescriptionDetails mono={Boolean(run.runAs)}>
+            {run.runAs || "—"}
+          </DescriptionDetails>
+        </DescriptionItem>
+        <DescriptionItem>
+          <DescriptionTerm>Created by</DescriptionTerm>
+          <DescriptionDetails>
+            {run.createdBy?.subjectId || "—"}
+          </DescriptionDetails>
+        </DescriptionItem>
+      </DescriptionList>
       <WorkflowTargetDetails target={run.target} />
       {run.steps && run.steps.length > 0 ? (
         <StepExecutions steps={run.steps} />
@@ -55,8 +141,8 @@ export function WorkflowRunDetails({
       {hasJSONValue(run.input) ? (
         <JSONSection title="Input" value={run.input} />
       ) : null}
-      {hasJSONValue(run.output) ? (
-        <JSONSection title="Output" value={run.output} />
+      {hasJSONValue(output) ? (
+        <JSONSection title="Output" value={output} />
       ) : null}
     </div>
   );
@@ -65,17 +151,25 @@ export function WorkflowRunDetails({
 export function WorkflowTargetDetails({ target }: { target: WorkflowTarget }) {
   if (target.steps.length === 0) {
     return (
-      <div>
-        <SectionHeading>Target</SectionHeading>
-        <p className="mt-2 text-sm text-muted-foreground/70">No target steps.</p>
+      <div className="space-y-3">
+        <SectionHeader>
+          <SectionHeaderContent size="sm">
+            <SectionHeaderTitle as="h3">Target</SectionHeaderTitle>
+          </SectionHeaderContent>
+        </SectionHeader>
+        <p className="text-sm text-muted-foreground/70">No target steps.</p>
       </div>
     );
   }
 
   return (
-    <div>
-      <SectionHeading>Target steps</SectionHeading>
-      <ul className="mt-3 space-y-3">
+    <div className="space-y-3">
+      <SectionHeader>
+        <SectionHeaderContent size="sm">
+          <SectionHeaderTitle as="h3">Target steps</SectionHeaderTitle>
+        </SectionHeaderContent>
+      </SectionHeader>
+      <ul className="space-y-3">
         {target.steps.map((step, index) => (
           <li
             key={step.id || `step-${index}`}
@@ -89,46 +183,47 @@ export function WorkflowTargetDetails({ target }: { target: WorkflowTarget }) {
   );
 }
 
-function DetailGrid({
-  items,
-}: {
-  items: Array<[string, ReactNode]>;
-}) {
-  return (
-    <dl className="grid gap-3 sm:grid-cols-2">
-      {items.map(([label, value]) => (
-        <div key={label}>
-          <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
-          <dd className="mt-1 break-all text-sm text-foreground">{value}</dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
 function TargetStepDetails({ step }: { step: WorkflowStepTarget }) {
   return (
-    <div className="space-y-1 text-sm">
-      <DetailLine label="Step" value={step.id || "—"} />
-      <DetailLine label="Kind" value={stepKind(step)} />
-      {step.app ? (
-        <DetailLine
-          label="App"
-          value={`${step.app.name}.${step.app.operation}`}
-        />
-      ) : null}
-      {step.app?.connection ? (
-        <DetailLine label="Connection" value={step.app.connection} />
-      ) : null}
-      {step.agent ? (
-        <DetailLine
-          label="Agent"
-          value={`${step.agent.provider || "agent"} / ${step.agent.model || "model"}`}
-        />
-      ) : null}
-      {step.timeoutSeconds != null ? (
-        <DetailLine label="Timeout" value={`${step.timeoutSeconds}s`} />
-      ) : null}
+    <div className="space-y-3">
+      <DescriptionList termWidth="6.5rem">
+        <DescriptionItem>
+          <DescriptionTerm>Step</DescriptionTerm>
+          <DescriptionDetails mono>{step.id || "—"}</DescriptionDetails>
+        </DescriptionItem>
+        <DescriptionItem>
+          <DescriptionTerm>Kind</DescriptionTerm>
+          <DescriptionDetails>{stepKind(step)}</DescriptionDetails>
+        </DescriptionItem>
+        {step.app ? (
+          <DescriptionItem>
+            <DescriptionTerm>App</DescriptionTerm>
+            <DescriptionDetails mono>
+              {`${step.app.name}.${step.app.operation}`}
+            </DescriptionDetails>
+          </DescriptionItem>
+        ) : null}
+        {step.app?.connection ? (
+          <DescriptionItem>
+            <DescriptionTerm>Connection</DescriptionTerm>
+            <DescriptionDetails>{step.app.connection}</DescriptionDetails>
+          </DescriptionItem>
+        ) : null}
+        {step.agent ? (
+          <DescriptionItem>
+            <DescriptionTerm>Agent</DescriptionTerm>
+            <DescriptionDetails>
+              {`${step.agent.provider || "agent"} / ${step.agent.model || "model"}`}
+            </DescriptionDetails>
+          </DescriptionItem>
+        ) : null}
+        {step.timeoutSeconds != null ? (
+          <DescriptionItem>
+            <DescriptionTerm>Timeout</DescriptionTerm>
+            <DescriptionDetails>{`${step.timeoutSeconds}s`}</DescriptionDetails>
+          </DescriptionItem>
+        ) : null}
+      </DescriptionList>
       {hasJSONValue(step.inputs) ? (
         <JSONSection title="Inputs" value={step.inputs} compact />
       ) : null}
@@ -160,9 +255,13 @@ export function WorkflowStepDefinitionPanel({
 
 function StepExecutions({ steps }: { steps: WorkflowStepExecution[] }) {
   return (
-    <div>
-      <SectionHeading>Step executions</SectionHeading>
-      <ul className="mt-3 space-y-3">
+    <div className="space-y-3">
+      <SectionHeader>
+        <SectionHeaderContent size="sm">
+          <SectionHeaderTitle as="h3">Step executions</SectionHeaderTitle>
+        </SectionHeaderContent>
+      </SectionHeader>
+      <ul className="space-y-3">
         {steps.map((step, index) => (
           <li
             key={step.stepId || `execution-${index}`}
@@ -207,32 +306,20 @@ function JSONSection({
   compact?: boolean;
 }) {
   return (
-    <div className={compact ? "mt-3" : undefined}>
-      <SectionHeading>{title}</SectionHeading>
-      <pre
-        className={`mt-2 overflow-x-auto rounded-md border border-border bg-accent p-3 font-mono text-xs text-foreground ${
-          compact ? "max-h-48" : "max-h-80"
-        }`}
-      >
-        {prettyJSON(value)}
-      </pre>
+    <div className={compact ? "mt-3 space-y-2" : "space-y-3"}>
+      <SectionHeader>
+        <SectionHeaderContent size="sm">
+          <SectionHeaderTitle as="h3">{title}</SectionHeaderTitle>
+        </SectionHeaderContent>
+      </SectionHeader>
+      <CodeBlock
+        chrome="inset"
+        language="json"
+        code={prettyJSON(value)}
+        scrollable
+        maxHeight={compact ? 192 : 320}
+        copyLabel={`Copy ${title.toLowerCase()}`}
+      />
     </div>
-  );
-}
-
-function SectionHeading({ children }: { children: ReactNode }) {
-  return (
-    <h4 className="text-xs font-medium tracking-wide text-muted-foreground">
-      {children}
-    </h4>
-  );
-}
-
-function DetailLine({ label, value }: { label: string; value: string }) {
-  return (
-    <p className="text-sm text-foreground">
-      <span className="text-muted-foreground">{label}: </span>
-      {value}
-    </p>
   );
 }

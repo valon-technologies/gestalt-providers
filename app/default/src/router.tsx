@@ -20,7 +20,6 @@ import AppAdminSnapshotsPage from "@/pages/app-admin-snapshots";
 import AppAdminWorkflowsPage from "@/pages/app-admin-workflows";
 import AppAdminWorkflowRunPage from "@/pages/app-admin-workflow-run";
 import AppAdminWorkflowRunStepPage from "@/pages/app-admin-workflow-run-step";
-import AppAdminWorkflowDefinitionsPage from "@/pages/app-admin-workflow-definitions";
 import AppAdminWorkflowDefinitionPage from "@/pages/app-admin-workflow-definition";
 import AppWorkspaceLayout from "@/pages/app-workspace-layout";
 import AppWorkspaceConnectionPage from "@/pages/app-workspace/connection";
@@ -43,6 +42,7 @@ import SettingsTokensSection from "@/components/SettingsTokensSection";
 import { canAccessAdminRoute, hasGrantedGestaltAdminAccess } from "@/features/admin-access/admin-access-gate";
 import { AdminLayout } from "@/features/admin-access/admin-layout";
 import { appBasepath } from "@/lib/mount";
+import { parseWorkflowRunsSearch } from "@/features/app-workflows/workflow-runs-list-query";
 import { rootRoute } from "./routes/__root";
 
 function DocsLayout() {
@@ -325,13 +325,8 @@ const appAdminHistoryRoute = createRoute({
 const appAdminWorkflowsRoute = createRoute({
   getParentRoute: () => appWorkspaceLayoutRoute,
   path: "/admin/workflows",
-  validateSearch: (
-    search: Record<string, unknown>,
-  ): { definition?: string } => {
-    const definition =
-      typeof search.definition === "string" ? search.definition.trim() : "";
-    return definition ? { definition } : {};
-  },
+  validateSearch: (search: Record<string, unknown>) =>
+    parseWorkflowRunsSearch(search),
   component: AppAdminWorkflowsPage,
 });
 
@@ -347,10 +342,17 @@ const appAdminWorkflowRunStepRoute = createRoute({
   component: AppAdminWorkflowRunStepPage,
 });
 
-const appAdminWorkflowDefinitionsRoute = createRoute({
+const appAdminWorkflowDefinitionsRedirectRoute = createRoute({
   getParentRoute: () => appWorkspaceLayoutRoute,
   path: "/admin/workflows/definitions",
-  component: AppAdminWorkflowDefinitionsPage,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: "/apps/$app/admin/workflows",
+      params: { app: params.app },
+      search: { group: "definition" },
+      replace: true,
+    });
+  },
 });
 
 const appAdminWorkflowDefinitionRoute = createRoute({
@@ -572,7 +574,7 @@ const routeTree = rootRoute.addChildren([
     appAdminWorkflowsRoute,
     appAdminWorkflowRunRoute,
     appAdminWorkflowRunStepRoute,
-    appAdminWorkflowDefinitionsRoute,
+    appAdminWorkflowDefinitionsRedirectRoute,
     appAdminWorkflowDefinitionRoute,
     appAdminMembersRoute,
     appAdminServiceAccountsRoute,

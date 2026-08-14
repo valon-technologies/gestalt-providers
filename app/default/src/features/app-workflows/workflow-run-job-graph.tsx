@@ -1,216 +1,156 @@
+import * as React from "react";
 import { Link } from "@tanstack/react-router";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { cn } from "@/lib/cn";
-import { listItemInteraction } from "@/lib/list-item-interaction";
-import type {
-  WorkflowJob,
-  WorkflowJobStage,
-  WorkflowJobStep,
-  WorkflowRunGraph,
+import { hotkeysCoreFeature, syncDataLoaderFeature } from "@headless-tree/core";
+import { useTree } from "@headless-tree/react";
+
+import {
+  Tree,
+  TreeItem,
+  TreeItemLabel,
+  TREE_INDENT_BY_SIZE,
+} from "@/components/ui/tree";
+import {
+  formatDuration,
+  indexWorkflowRunGraphTree,
+  type WorkflowRunGraph,
+  type WorkflowRunGraphTreeItem,
 } from "./workflow-run-graph";
-import { formatDuration } from "./workflow-run-graph";
 import { WorkflowStatusIcon } from "./workflow-status-icon";
 
-/**
- * GitHub Actions-inspired run graph.
- * Supports sequential stages and parallel job groups (UI-ready even when the
- * backend only emits a single sequential job today).
- */
+const ROOT_ID = "__workflow-run-graph-root__";
+
 export function WorkflowRunJobGraph({
   appName,
   runId,
   graph,
-  definitionLabel,
-  triggerLabel,
 }: {
   appName: string;
   runId: string;
   graph: WorkflowRunGraph;
-  definitionLabel?: string;
-  triggerLabel?: string;
 }) {
+  const { rootIds, items } = React.useMemo(
+    () => indexWorkflowRunGraphTree(graph),
+    [graph],
+  );
+
+  const loaderItems = React.useMemo(
+    (): Record<string, WorkflowRunGraphTreeItem> => ({
+      [ROOT_ID]: {
+        id: ROOT_ID,
+        kind: "job",
+        name: "",
+        jobId: "",
+        children: rootIds,
+      },
+      ...items,
+    }),
+    [items, rootIds],
+  );
+
+  const initialExpandedItems = React.useMemo(
+    () => [...rootIds],
+    // Headless Tree reads expandedItems only from initialState on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  const tree = useTree<WorkflowRunGraphTreeItem>({
+    initialState: { expandedItems: initialExpandedItems },
+    indent: TREE_INDENT_BY_SIZE.default,
+    rootItemId: ROOT_ID,
+    getItemName: (item) => item.getItemData()?.name ?? "",
+    isItemFolder: (item) => item.getItemData()?.kind === "job",
+    dataLoader: {
+      getItem: (itemId) => loaderItems[itemId]!,
+      getChildren: (itemId) => loaderItems[itemId]?.children ?? [],
+    },
+    features: [syncDataLoaderFeature, hotkeysCoreFeature],
+  });
+
+  React.useLayoutEffect(() => {
+    tree.rebuildTree();
+  }, [loaderItems, tree]);
+
   return (
-    <Card
-      variant="outline"
-      className="overflow-x-auto border-0 bg-card"
+    <Tree
+      indent={TREE_INDENT_BY_SIZE.default}
+      expandActivation="toggle"
+      showIndentGuides
+      tree={tree}
+      toggleIconType="plus-minus"
       data-testid="workflow-run-job-graph"
+      aria-label="Run graph"
     >
-      <CardHeader className="pb-3">
-        <CardTitle className="font-mono text-sm font-medium">
-          {definitionLabel || "workflow"}
-        </CardTitle>
-        {triggerLabel ? (
-          <CardDescription>on: {triggerLabel}</CardDescription>
-        ) : null}
-      </CardHeader>
-      <CardContent className="pt-0">
-        <div className="flex min-w-max flex-col gap-4 lg:flex-row lg:items-stretch lg:gap-0">
-          {graph.stages.map((stage, index) => (
-            <div key={stage.id} className="flex items-stretch lg:contents">
-              {index > 0 ? <StageConnector /> : null}
-              <StageBlock appName={appName} runId={runId} stage={stage} />
-            </div>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
+      {tree
+        .getItems()
+        .filter((item) => item.getId() !== ROOT_ID)
+        .map((item) => {
+          const data = loaderItems[item.getId()];
+          if (!data) return null;
+          return (
+            <TreeItem key={item.getId()} item={item}>
+              <GraphTreeItemLabel
+                data={data}
+                appName={appName}
+                runId={runId}
+              />
+            </TreeItem>
+          );
+        })}
+    </Tree>
   );
 }
 
-function StageConnector() {
-  return (
-    <div
-      className="flex items-center justify-center py-2 lg:w-10 lg:py-0"
-      aria-hidden
-    >
-      <div className="h-8 w-px bg-border lg:h-px lg:w-full lg:self-center" />
-    </div>
-  );
-}
-
-function StageBlock({
+function GraphTreeItemLabel({
+  data,
   appName,
   runId,
-  stage,
 }: {
+  data: WorkflowRunGraphTreeItem;
   appName: string;
   runId: string;
-  stage: WorkflowJobStage;
 }) {
-  if (stage.kind === "parallel" && stage.jobs.length > 1) {
-    return (
-      <div
-        className="w-full min-w-[16rem] max-w-md overflow-hidden rounded-lg bg-background"
-        data-testid={`workflow-stage-${stage.id}`}
+  const body = (
+    <>
+      <WorkflowStatusIcon
+        status={data.status}
+        size={data.kind === "job" ? "md" : "sm"}
+      />
+      <span
+        className={
+          data.kind === "job"
+            ? "min-w-0 flex-1 truncate font-medium text-foreground"
+            : "min-w-0 flex-1 truncate text-foreground/90"
+        }
       >
-        <ul className="divide-y divide-border/60">
-          {stage.jobs.map((job) => (
-            <li key={job.id}>
-              <JobRow appName={appName} runId={runId} job={job} compact />
-            </li>
-          ))}
-        </ul>
-      </div>
+        {data.name}
+      </span>
+      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+        {formatDuration(data.durationMs)}
+      </span>
+    </>
+  );
+
+  if (data.kind === "step" && data.stepId) {
+    return (
+      <TreeItemLabel>
+        <Link
+          to="/apps/$app/admin/workflows/runs/$runId/jobs/$jobId/steps/$stepId"
+          params={{
+            app: appName,
+            runId,
+            jobId: data.jobId,
+            stepId: data.stepId,
+          }}
+          className="flex min-h-6 min-w-0 flex-1 items-center gap-1.5"
+          data-testid={`workflow-step-${data.stepId}`}
+          data-row-link=""
+        >
+          {body}
+        </Link>
+      </TreeItemLabel>
     );
   }
 
-  const job = stage.jobs[0];
-  if (!job) return null;
-  return (
-    <div
-      className="w-full min-w-[16rem] max-w-md"
-      data-testid={`workflow-stage-${stage.id}`}
-    >
-      <JobCard appName={appName} runId={runId} job={job} />
-    </div>
-  );
-}
-
-function JobCard({
-  appName,
-  runId,
-  job,
-}: {
-  appName: string;
-  runId: string;
-  job: WorkflowJob;
-}) {
-  return (
-    <div className="overflow-hidden rounded-lg bg-background">
-      <JobRow appName={appName} runId={runId} job={job} />
-      {job.steps.length > 0 ? (
-        <ul className="border-t border-border/60 px-1 py-1">
-          {job.steps.map((step) => (
-            <li key={step.id}>
-              <StepRow
-                appName={appName}
-                runId={runId}
-                jobId={job.id}
-                step={step}
-              />
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </div>
-  );
-}
-
-function JobRow({
-  appName,
-  runId,
-  job,
-  compact = false,
-}: {
-  appName: string;
-  runId: string;
-  job: WorkflowJob;
-  compact?: boolean;
-}) {
-  const firstStep = job.steps[0];
-  const to = firstStep
-    ? {
-        to: "/apps/$app/admin/workflows/runs/$runId/jobs/$jobId/steps/$stepId" as const,
-        params: {
-          app: appName,
-          runId,
-          jobId: job.id,
-          stepId: firstStep.id,
-        },
-      }
-    : {
-        to: "/apps/$app/admin/workflows/runs/$runId" as const,
-        params: { app: appName, runId },
-      };
-
-  return (
-    <Link
-      {...to}
-      className={cn(
-        "flex items-center gap-2 px-3 py-2 text-sm",
-        listItemInteraction({ pointer: "css" }),
-        compact && "rounded-md",
-      )}
-    >
-      <WorkflowStatusIcon status={job.status} />
-      <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-        {job.name}
-      </span>
-      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-        {formatDuration(job.durationMs)}
-      </span>
-    </Link>
-  );
-}
-
-function StepRow({
-  appName,
-  runId,
-  jobId,
-  step,
-}: {
-  appName: string;
-  runId: string;
-  jobId: string;
-  step: WorkflowJobStep;
-}) {
-  return (
-    <Link
-      to="/apps/$app/admin/workflows/runs/$runId/jobs/$jobId/steps/$stepId"
-      params={{ app: appName, runId, jobId, stepId: step.id }}
-      className={cn(
-        "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm",
-        listItemInteraction({ pointer: "css" }),
-      )}
-      data-testid={`workflow-step-${step.id}`}
-    >
-      <WorkflowStatusIcon status={step.status} size="sm" />
-      <span className="min-w-0 flex-1 truncate text-foreground/90">
-        {step.name}
-      </span>
-      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-        {formatDuration(step.durationMs)}
-      </span>
-    </Link>
-  );
+  return <TreeItemLabel>{body}</TreeItemLabel>;
 }

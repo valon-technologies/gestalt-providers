@@ -832,6 +832,26 @@ function sendJson(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      if (chunks.length === 0) {
+        resolve({});
+        return;
+      }
+      try {
+        const raw = Buffer.concat(chunks).toString("utf8");
+        resolve(raw ? JSON.parse(raw) : {});
+      } catch (error) {
+        reject(error);
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
 function matchPath(pathname, pattern) {
   // Escape regex metacharacters, then turn `:param` into a named capture.
   // Do not escape `:` first — param markers must remain recognizable.
@@ -859,7 +879,7 @@ function matchPath(pathname, pattern) {
  * @param {URL} url
  * @returns {boolean} true when the request was handled
  */
-export function handleWorkflowsLocalMock(req, res, pathname, url) {
+export async function handleWorkflowsLocalMock(req, res, pathname, url) {
   const method = req.method || "GET";
 
   if (handleTenantThemeRequest(req, res, pathname)) {
@@ -901,7 +921,21 @@ export function handleWorkflowsLocalMock(req, res, pathname, url) {
   }
   if (pathname === "/api/v2/workflow/runs" && method === "GET") {
     const targetApp = url.searchParams.get("targetApp")?.trim();
-    const filtered = targetApp
+    const status = url.searchParams.get("status")?.trim().toLowerCase();
+    const definitionId =
+      url.searchParams.get("definitionId")?.trim() ||
+      url.searchParams.get("definition_id")?.trim();
+    const pageSizeRaw = Number(url.searchParams.get("pageSize") || "20");
+    const pageSize =
+      Number.isFinite(pageSizeRaw) && pageSizeRaw > 0
+        ? Math.min(Math.floor(pageSizeRaw), 100)
+        : 20;
+    const pageToken = url.searchParams.get("pageToken")?.trim() || "";
+    const offset = pageToken
+      ? Number.parseInt(pageToken, 10)
+      : 0;
+    const start = Number.isFinite(offset) && offset > 0 ? offset : 0;
+    const scoped = targetApp
       ? runs.filter((run) => {
           const apps = run.target.steps
             .map((step) => step.app?.name)
@@ -912,7 +946,109 @@ export function handleWorkflowsLocalMock(req, res, pathname, url) {
           );
         })
       : runs;
-    sendJson(res, 200, { runs: filtered, nextPageToken: "" });
+    const definitionScoped = definitionId
+      ? scoped.filter((run) => run.definitionId === definitionId)
+      : scoped;
+    const statusToken = status
+      ?.replace(/^workflow_run_status_/, "")
+      .toLowerCase();
+    const filtered = statusToken
+      ? definitionScoped.filter(
+          (run) => String(run.status).toLowerCase() === statusToken,
+        )
+      : definitionScoped;
+    const page = filtered.slice(start, start + pageSize);
+    const nextStart = start + page.length;
+    const nextPageToken =
+      nextStart < filtered.length ? String(nextStart) : "";
+    // App-wide lists may include status_counts. Definition-scoped ListRuns
+    // omit the histogram (matches Temporal).
+    sendJson(res, 200, {
+      runs: page,
+      nextPageToken,
+      totalCount: filtered.length,
+      ...(definitionId
+        ? {}
+        : {
+            statusCounts: {
+              pending: scoped.filter((run) => run.status === "pending").length,
+              running: scoped.filter((run) => run.status === "running").length,
+              succeeded: scoped.filter((run) => run.status === "succeeded")
+                .length,
+              failed: scoped.filter((run) => run.status === "failed").length,
+              canceled: scoped.filter((run) => run.status === "canceled")
+                .length,
+            },
+          }),
+    });
+    return true;
+  }
+  // Chi-style ":cancel" is encoded as path ending with ":cancel"
+  if (pathname.endsWith(":cancel") && method === "POST") {
+    const runId = decodeURIComponent(
+      pathname
+        .slice("/api/v2/workflow/runs/".length)
+        .replace(/:cancel$/, ""),
+    );
+    const index = runs.findIndex((item) => item.id === runId);
+    if (index < 0) {
+      sendJson(res, 404, { error: "not found" });
+      return true;
+    }
+    runs[index] = {
+      ...runs[index],
+      status: "canceled",
+      completedAt: new Date().toISOString(),
+      statusMessage: "Canceled manually",
+    };
+    sendJson(res, 200, runs[index]);
+    return true;
+  }
+  const runEventsMatch = matchPath(
+    pathname,
+    "/api/v2/workflow/runs/:runId/events",
+  );
+  if (runEventsMatch && method === "GET") {
+    const run = runs.find((item) => item.id === runEventsMatch.runId);
+    if (!run) {
+      sendJson(res, 404, { error: "not found" });
+      return true;
+    }
+    sendJson(res, 200, {
+      events: [
+        {
+          id: `${run.id}-created`,
+          runId: run.id,
+          type: "run.created",
+          createdAt: run.createdAt,
+          data: { status: "pending" },
+        },
+        ...(run.startedAt
+          ? [
+              {
+                id: `${run.id}-started`,
+                runId: run.id,
+                type: "run.started",
+                createdAt: run.startedAt,
+                data: { status: run.status },
+              },
+            ]
+          : []),
+      ],
+    });
+    return true;
+  }
+  const runOutputMatch = matchPath(
+    pathname,
+    "/api/v2/workflow/runs/:runId/output",
+  );
+  if (runOutputMatch && method === "GET") {
+    const run = runs.find((item) => item.id === runOutputMatch.runId);
+    if (!run) {
+      sendJson(res, 404, { error: "not found" });
+      return true;
+    }
+    sendJson(res, 200, { output: run.output ?? null });
     return true;
   }
   const runMatch = matchPath(pathname, "/api/v2/workflow/runs/:runId");
@@ -944,6 +1080,67 @@ export function handleWorkflowsLocalMock(req, res, pathname, url) {
     sendJson(res, 200, { definitions });
     return true;
   }
+  if (pathname.endsWith(":setPaused") && method === "POST") {
+    const body = await readJsonBody(req);
+    const paused = Boolean(body?.paused);
+    const activationMatch = pathname.match(
+      /^\/api\/v2\/workflow\/definitions\/([^/]+)\/activations\/([^/]+):setPaused$/,
+    );
+    if (activationMatch) {
+      const definitionId = decodeURIComponent(activationMatch[1]);
+      const activationId = decodeURIComponent(activationMatch[2]);
+      const definition = definitions.find((item) => item.id === definitionId);
+      if (!definition) {
+        sendJson(res, 404, { error: "not found" });
+        return true;
+      }
+      definition.activations = (definition.activations || []).map((activation) =>
+        activation.id === activationId ? { ...activation, paused } : activation,
+      );
+      sendJson(res, 200, definition);
+      return true;
+    }
+    const definitionMatchPaused = pathname.match(
+      /^\/api\/v2\/workflow\/definitions\/([^/]+):setPaused$/,
+    );
+    if (definitionMatchPaused) {
+      const definitionId = decodeURIComponent(definitionMatchPaused[1]);
+      const definition = definitions.find((item) => item.id === definitionId);
+      if (!definition) {
+        sendJson(res, 404, { error: "not found" });
+        return true;
+      }
+      definition.paused = paused;
+      sendJson(res, 200, definition);
+      return true;
+    }
+  }
+  const definitionRunsMatch = pathname.match(
+    /^\/api\/v2\/workflow\/definitions\/([^/]+)\/runs$/,
+  );
+  if (definitionRunsMatch && method === "POST") {
+    const definitionId = decodeURIComponent(definitionRunsMatch[1]);
+    const definition = definitions.find((item) => item.id === definitionId);
+    if (!definition) {
+      sendJson(res, 404, { error: "not found" });
+      return true;
+    }
+    const now = new Date().toISOString();
+    const run = {
+      id: `run_manual_${Date.now()}`,
+      provider: definition.provider,
+      status: "pending",
+      definitionId: definition.id,
+      definitionGeneration: definition.generation,
+      createdAt: now,
+      target: definition.target,
+      trigger: { kind: "manual" },
+      steps: [],
+    };
+    runs.unshift(run);
+    sendJson(res, 200, run);
+    return true;
+  }
   const definitionMatch = matchPath(
     pathname,
     "/api/v2/workflow/definitions/:definitionId",
@@ -959,6 +1156,18 @@ export function handleWorkflowsLocalMock(req, res, pathname, url) {
     sendJson(res, 200, definition);
     return true;
   }
+  if (definitionMatch && method === "DELETE") {
+    const index = definitions.findIndex(
+      (item) => item.id === definitionMatch.definitionId,
+    );
+    if (index < 0) {
+      sendJson(res, 404, { error: "not found" });
+      return true;
+    }
+    definitions.splice(index, 1);
+    sendJson(res, 200, {});
+    return true;
+  }
   if (pathname.startsWith("/api/")) {
     sendJson(res, 404, { error: "not found" });
     return true;
@@ -968,17 +1177,14 @@ export function handleWorkflowsLocalMock(req, res, pathname, url) {
 
 /** Connect middleware for Vite `configureServer`. */
 export function workflowsLocalMockMiddleware(req, res, next) {
-  try {
-    const host = req.headers.host || "127.0.0.1";
-    const url = new URL(req.url || "/", `http://${host}`);
-    const pathname = decodeURIComponent(url.pathname);
-    if (handleWorkflowsLocalMock(req, res, pathname, url)) {
-      return;
-    }
-    next();
-  } catch (error) {
-    next(error);
-  }
+  const host = req.headers.host || "127.0.0.1";
+  const url = new URL(req.url || "/", `http://${host}`);
+  const pathname = decodeURIComponent(url.pathname);
+  void handleWorkflowsLocalMock(req, res, pathname, url)
+    .then((handled) => {
+      if (!handled) next();
+    })
+    .catch((error) => next(error));
 }
 
 export function resolveWorktreeDisplayName(

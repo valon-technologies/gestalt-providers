@@ -102,13 +102,23 @@ describe("workflowAdminPageLabel", () => {
     ).toBe("diagnose");
     expect(
       workflowAdminPageLabel("/apps/slack/admin/workflows/definitions", "slack"),
-    ).toBe("Definitions");
+    ).toBe(null);
     expect(
       workflowAdminPageLabel(
         "/apps/slack/admin/workflows/definitions/app_slack_notify",
         "slack",
       ),
     ).toBe("app_slack_notify");
+  });
+
+  it("prefers an explicit run label over the encoded run id", () => {
+    expect(
+      workflowAdminPageLabel(
+        "/apps/slack/admin/workflows/runs/eyJraW5kIjoidGVtcG9yYWwtcnVuIn0",
+        "slack",
+        { runLabel: "example-app.runs.sync.fanout.execute" },
+      ),
+    ).toBe("example-app.runs.sync.fanout.execute");
   });
 });
 

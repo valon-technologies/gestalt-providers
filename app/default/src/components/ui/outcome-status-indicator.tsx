@@ -36,8 +36,18 @@ import { cn } from "@/lib/cn";
  * `*-solid` / `*-solid-foreground` here — those pairs are dark ink on lighter
  * fills for badges/meters, not Actions-style light-on-fill glyphs.
  */
+// One size tier owns both the filled circle and the inner Lucide stroke.
+// Glyph class is applied on <Icon> so ancestor menus (`[&_svg]:size-*`) cannot
+// enlarge it. Circle class stays on the shell (cva `size`).
+const OUTCOME_STATUS_SIZE = {
+  sm: { circle: "size-4", glyph: "size-2.5" },
+  md: { circle: "size-5", glyph: "size-3" },
+  lg: { circle: "size-6", glyph: "size-3.5" },
+} as const;
+
 const outcomeStatusIndicatorVariants = cva(
-  "inline-flex shrink-0 items-center justify-center rounded-full [&>svg]:pointer-events-none",
+  // overflow-hidden keeps Lucide strokes inside the filled circle.
+  "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full [&>svg]:pointer-events-none",
   {
     variants: {
       status: {
@@ -52,9 +62,9 @@ const outcomeStatusIndicatorVariants = cva(
         unknown: "bg-foreground/[0.06] text-muted-foreground",
       },
       size: {
-        sm: "size-4 [&>svg]:size-2.5",
-        md: "size-5 [&>svg]:size-3",
-        lg: "size-6 [&>svg]:size-3.5",
+        sm: OUTCOME_STATUS_SIZE.sm.circle,
+        md: OUTCOME_STATUS_SIZE.md.circle,
+        lg: OUTCOME_STATUS_SIZE.lg.circle,
       },
     },
     defaultVariants: {
@@ -83,9 +93,7 @@ export type OutcomeStatus = NonNullable<
   VariantProps<typeof outcomeStatusIndicatorVariants>["status"]
 >;
 
-export type OutcomeStatusIndicatorSize = NonNullable<
-  VariantProps<typeof outcomeStatusIndicatorVariants>["size"]
->;
+export type OutcomeStatusIndicatorSize = keyof typeof OUTCOME_STATUS_SIZE;
 
 /**
  * Soft feedback Badge variant for each outcome (not action chrome).
@@ -151,7 +159,10 @@ function OutcomeStatusIndicator({
     >
       <Icon
         strokeWidth={2.5}
-        className={spin ? "animate-spin motion-reduce:animate-none" : undefined}
+        className={cn(
+          OUTCOME_STATUS_SIZE[glyphSize].glyph,
+          spin ? "animate-spin motion-reduce:animate-none" : undefined,
+        )}
         aria-hidden
       />
     </span>

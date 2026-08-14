@@ -5,3 +5,4 @@ export * from "./app-admin";
 export * from "./app-authorization";
 export * from "./admin";
 export * from "./workflows";
+export * from "./workflow-run-summaries";

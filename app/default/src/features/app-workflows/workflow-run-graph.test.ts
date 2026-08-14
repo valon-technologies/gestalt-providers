@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { WorkflowRun } from "@/lib/api";
 import {
   formatDuration,
+  indexWorkflowRunGraphTree,
   projectWorkflowRunGraph,
 } from "./workflow-run-graph";
 
@@ -96,5 +97,52 @@ describe("projectWorkflowRunGraph", () => {
       "parallel",
     ]);
     expect(graph.stages[1]?.jobs).toHaveLength(2);
+  });
+
+  it("indexes the job as a tree branch with one child per step", () => {
+    const tree = indexWorkflowRunGraphTree(projectWorkflowRunGraph(baseRun()));
+    expect(tree.rootIds).toEqual(["job:workflow"]);
+    expect(tree.items["job:workflow"]?.kind).toBe("job");
+    expect(tree.items["job:workflow"]?.children).toEqual([
+      "job:workflow:step:a",
+      "job:workflow:step:b",
+    ]);
+    expect(tree.items["job:workflow:step:a"]?.kind).toBe("step");
+    expect(tree.items["job:workflow:step:b"]?.kind).toBe("step");
+  });
+
+  it("indexes parallel jobs as sibling branches", () => {
+    const tree = indexWorkflowRunGraphTree(
+      projectWorkflowRunGraph(
+        baseRun({
+          stages: [
+            {
+              id: "checks",
+              kind: "parallel",
+              jobs: [
+                {
+                  id: "ui",
+                  name: "UI tests",
+                  status: "succeeded",
+                  steps: [{ id: "skip", name: "Skip", status: "skipped" }],
+                },
+                {
+                  id: "validate",
+                  name: "Validate",
+                  status: "succeeded",
+                  steps: [
+                    { id: "lint", name: "Lint", status: "succeeded" },
+                    { id: "run", name: "Run", status: "succeeded" },
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+      ),
+    );
+    expect(tree.rootIds).toEqual(["job:ui", "job:validate"]);
+    expect(tree.items["job:ui"]?.children).toHaveLength(1);
+    expect(tree.items["job:validate"]?.children).toHaveLength(2);
   });
 });

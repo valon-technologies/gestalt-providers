@@ -218,12 +218,12 @@ test.describe("App admin workflows", () => {
 
     await openSlackWorkflows(page);
 
-    await expect(page.getByTestId("app-admin-nav-workflows")).toHaveClass(/font-medium/);
+    await expect(page.getByTestId("app-apps-nav-workflows")).toHaveClass(/font-medium/);
     await expect(
       page.getByRole("link", { name: /datadog\.monitors\.get \(\+2\)/i }),
     ).toBeVisible();
     await expect(
-      page.getByLabel("All workflow runs").getByText("incident_triage"),
+      page.getByTestId("app-workflow-run-run_123"),
     ).toBeVisible();
     await expect(
       page.getByLabel("All workflow runs").getByText("event:datadog_alert"),
@@ -301,7 +301,9 @@ test.describe("App admin workflows", () => {
         "This run can't be canceled because it already started. Refresh to see the latest status.",
       ),
     ).toBeVisible();
-    await expect(page.getByText("run_pending")).toBeVisible();
+    await expect(
+      page.getByLabel("Workflow run").getByText("run_pending"),
+    ).toBeVisible();
     await expect(page.getByRole("button", { name: "Cancel run" })).toBeVisible();
   });
 
@@ -366,10 +368,80 @@ test.describe("App admin workflows", () => {
     ).toHaveCount(0);
 
     await page.goto(`/apps/${SLACK_APP}/admin/workflows/definitions`);
-    await expect(page).toHaveURL(/\/admin\/workflows\/definitions$/);
-    await expect(page.getByTestId("app-workflow-definitions-list")).toBeVisible();
-    await expect(page.getByText("app_slack_notify")).toBeVisible();
-    await expect(page.getByText("app_gmail_sync")).toHaveCount(0);
+    await expect(page).toHaveURL(/\/admin\/workflows\?group=definition/);
+    await expect(
+      page.getByTestId("app-workflow-run-group-header-app_slack_notify"),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("app-workflow-run-group-header-app_gmail_sync"),
+    ).toHaveCount(0);
+  });
+
+  test("keeps grouped sticky header above scrolling run status icons", async ({
+    authenticatedPage: page,
+  }) => {
+    const definitionId = "app_daily_digest";
+    await mockWorkflowRuns(
+      page,
+      Array.from({ length: 20 }, (_, index) => ({
+        id: `run_${index}`,
+        provider: "basic",
+        status: index % 4 === 0 ? "failed" : "succeeded",
+        definitionId,
+        target: workflowAppTarget(SLACK_APP, "chat.postMessage"),
+        createdAt: new Date(Date.UTC(2026, 7, 13, 18 - index, 0, 0)).toISOString(),
+      })),
+    );
+    await mockIntegrations(page, [
+      {
+        name: SLACK_APP,
+        displayName: "Slack",
+        managementPath: `/apps/${SLACK_APP}/admin`,
+      },
+    ]);
+    await mockAppAdminRegistry(page, SLACK_APP, SLACK_REGISTRY);
+    await mockWorkflowDefinitions(page, [
+      {
+        id: definitionId,
+        provider: "basic",
+        paused: false,
+        target: workflowAppTarget(SLACK_APP, "chat.postMessage"),
+        activations: [],
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 640 });
+    await page.goto(`/apps/${SLACK_APP}/admin/workflows?group=definition`);
+
+    const header = page.getByTestId(
+      `app-workflow-run-group-header-${definitionId}`,
+    );
+    const firstRun = page.getByTestId("app-workflow-run-run_0");
+    await expect(header).toBeVisible();
+    await expect(firstRun).toBeVisible();
+
+    await firstRun.evaluate((node) => {
+      node.scrollIntoView({ block: "start" });
+    });
+    await page.evaluate(() => window.scrollBy(0, 96));
+
+    const hit = await page.evaluate((headerTestId) => {
+      const headerEl = document.querySelector(`[data-testid="${headerTestId}"]`);
+      if (!(headerEl instanceof HTMLElement)) return "missing-header";
+      const rect = headerEl.getBoundingClientRect();
+      const top = document.elementFromPoint(rect.left + 36, rect.bottom - 8);
+      if (!(top instanceof Element)) return "missing-hit";
+      if (top.closest(`[data-testid="${headerTestId}"]`)) return "header";
+      return (
+        top.closest("[data-testid^='app-workflow-run-']")?.getAttribute(
+          "data-testid",
+        ) ??
+        top.getAttribute("data-slot") ??
+        top.tagName
+      );
+    }, `app-workflow-run-group-header-${definitionId}`);
+
+    expect(hit).toBe("header");
   });
 
   test("lists API definitions and links to filtered runs", async ({
@@ -401,10 +473,16 @@ test.describe("App admin workflows", () => {
     ]);
 
     await page.goto(`/apps/${SLACK_APP}/admin/workflows/definitions`);
-    await expect(page.getByTestId("app-workflow-definitions-list")).toBeVisible();
-    await expect(page.getByText("app_slack_notify")).toBeVisible();
+    await expect(page).toHaveURL(/\/admin\/workflows\?group=definition/);
+    await expect(
+      page.getByTestId("app-workflow-run-group-header-app_slack_notify"),
+    ).toBeVisible();
+    await page.getByRole("link", { name: "app_slack_notify" }).click();
+    await expect(page).toHaveURL(/\/definitions\/app_slack_notify/);
     await page.getByRole("link", { name: "View runs" }).click();
     await expect(page).toHaveURL(/definition=app_slack_notify/);
-    await expect(page.getByText(/Filtered to definition/)).toBeVisible();
+    await expect(
+      page.getByTestId("workflow-runs-definition-filter"),
+    ).toContainText("app_slack_notify");
   });
 });
