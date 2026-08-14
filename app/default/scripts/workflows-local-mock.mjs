@@ -160,6 +160,8 @@ const integrations = [
     name: SLACK_APP,
     displayName: "Slack",
     managementPath: `/apps/${SLACK_APP}/admin`,
+    sourceTreeUrl:
+      "https://github.com/example-org/example-app/tree/main/apps/slack",
   },
 ];
 
