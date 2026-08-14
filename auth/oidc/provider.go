@@ -426,7 +426,15 @@ func (p *Provider) tokenExchange(ctx context.Context, req *gestalt.TokenRequest)
 	if err != nil {
 		return nil, err
 	}
-	issued, err := p.grants.issue(ctx, introspectResp.Subject, issuedScope, clientID, grantCategoryAPIToken, ttl)
+	// List/Get/Revoke key grants by the host-canonical caller (user:<uuid>).
+	// Introspect still returns the grant-record / token-hash subject, which for
+	// Google login is user:<email>. Issuing under that email makes the new
+	// grant invisible to ListGrants after public RPC canonicalizes the caller.
+	subject := strings.TrimSpace(introspectResp.Subject)
+	if caller, err := p.callerSubject(ctx); err == nil && strings.TrimSpace(caller) != "" {
+		subject = strings.TrimSpace(caller)
+	}
+	issued, err := p.grants.issue(ctx, subject, issuedScope, clientID, grantCategoryAPIToken, ttl)
 	if err != nil {
 		return nil, err
 	}
@@ -540,6 +548,9 @@ func (p *Provider) grantStore() (*grantStore, error) {
 }
 
 func (p *Provider) callerSubject(ctx context.Context) (string, error) {
+	if subject := strings.TrimSpace(gestalt.TrustedCallerSubjectFromContext(ctx)); subject != "" {
+		return subject, nil
+	}
 	call := gestalt.IdentityCallContextFromContext(ctx)
 	if subject := strings.TrimSpace(call.CallerSubjectID); subject != "" {
 		return subject, nil
