@@ -19,6 +19,8 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableHead,
+  TableHeader,
   TableRow,
 } from "@/components/ui/table";
 import { TableStatusIndicator } from "@/components/ui/table-status-indicator";
@@ -93,12 +95,19 @@ function AdminVersionsTable({
 }) {
   return (
     <div
-      className="overflow-hidden rounded-lg border border-border bg-card"
+      className="overflow-hidden rounded-lg border border-border bg-card text-card-foreground"
       aria-busy={loading || undefined}
       data-testid="admin-versions-table"
     >
       {loading ? <span className="sr-only">Loading app versions</span> : null}
       <Table aria-label={APP_VERSIONS_PAGE_TITLE}>
+        <TableHeader className="sr-only">
+          <TableRow>
+            <TableHead>Status</TableHead>
+            <TableHead>App</TableHead>
+            <TableHead>Rollout</TableHead>
+          </TableRow>
+        </TableHeader>
         <TableBody>{children}</TableBody>
       </Table>
     </div>
@@ -282,7 +291,7 @@ export default function AdminVersionsPage() {
         query.trim() ? (
           <p className="text-sm text-muted-foreground">{APP_VERSIONS_SEARCH_EMPTY}</p>
         ) : (
-          <div className="rounded-lg border border-border bg-card p-6">
+          <div className="rounded-lg border border-border bg-card p-6 text-card-foreground">
             <p className="text-sm font-medium text-foreground">
               {APP_VERSIONS_EMPTY_TITLE}
             </p>

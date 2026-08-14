@@ -9,6 +9,16 @@ import {
 import { toast } from "sonner";
 import type { AppAuthorizationMember } from "@/lib/api";
 import { isAPIErrorStatus } from "@/lib/api";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -44,6 +54,7 @@ import {
 import {
   groupRelationshipTuple,
   inferAppAccessRule,
+  mutableAccessEntries,
   parseGroupSelector,
   partitionAccessEntries,
   personRelationshipTuple,
@@ -58,10 +69,13 @@ import {
   ACCESS_SECTION_IDS,
   ACCESS_SECTIONS_NAV_LABEL,
   ACCESS_WHO_NAV_LABEL,
+  DIALOG_CANCEL,
+  ADD_GROUP_DIALOG_DESCRIPTION,
   ADD_GROUP_DIALOG_TITLE,
   ADD_GROUP_FIELD_HINT,
   ADD_GROUP_FIELD_LABEL,
   ADD_GROUP_LABEL,
+  ADD_PERSON_DIALOG_DESCRIPTION,
   ADD_PERSON_DIALOG_TITLE,
   ADD_PERSON_FIELD_HINT,
   ADD_PERSON_FIELD_LABEL,
@@ -75,6 +89,9 @@ import {
   savedOffForEveryone,
   savedOnForGroup,
   savedOnForPerson,
+  TURN_OFF_FOR_EVERYONE_ACTION,
+  TURN_OFF_FOR_EVERYONE_DESCRIPTION,
+  TURN_OFF_FOR_EVERYONE_TITLE,
 } from "./admin-access-copy";
 import {
   AccessEntryRow,
@@ -136,6 +153,7 @@ export function AdminAppAccess({
   const [personOpen, setPersonOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [pendingNoOne, setPendingNoOne] = useState(false);
 
   const members = membersQuery.data ?? [];
   const forbidden =
@@ -201,7 +219,12 @@ export function AdminAppAccess({
       const el = document.getElementById(id);
       if (!el) return;
       activate(id);
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      el.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+        block: "start",
+      });
       setMobileNavOpen(false);
     },
     [activate],
@@ -214,15 +237,27 @@ export function AdminAppAccess({
       onSelect={onNavSectionSelect}
     />
   );
-  const accessPaneMobile = (
-    <AccessSectionsPane
-      sections={navSections}
-      activeId={activeId}
-      onSelect={onNavSectionSelect}
-    />
-  );
 
-  async function handleRuleChange(next: AppAccessRule) {
+  async function applyNoOneRule() {
+    const removable = mutableAccessEntries([...groups, ...people]);
+    setActionError(null);
+    try {
+      for (const entry of removable) {
+        const tuple = relationshipTupleForMember(appName, entry.member);
+        if (tuple) await deleteMutation.mutateAsync(tuple);
+      }
+      setDraftRule(null);
+      if (removable.length > 0 && removable.length === groups.length + people.length) {
+        toast.success(savedOffForEveryone(appLabel));
+      }
+    } catch (error) {
+      setActionError(
+        accessActionErrorMessage(error, "Couldn't update who can use this app."),
+      );
+    }
+  }
+
+  function handleRuleChange(next: AppAccessRule) {
     if (!ruleChoiceEnabled(next, inferred)) return;
     setActionError(null);
     if (next === "specific") {
@@ -230,19 +265,7 @@ export function AdminAppAccess({
       return;
     }
     if (next === "no_one") {
-      const removable = [...groups, ...people].filter((entry) => entry.mutable);
-      try {
-        for (const entry of removable) {
-          const tuple = relationshipTupleForMember(appName, entry.member);
-          if (tuple) await deleteMutation.mutateAsync(tuple);
-        }
-        setDraftRule(null);
-        if (removable.length > 0 && removable.length === groups.length + people.length) {
-          toast.success(savedOffForEveryone(appLabel));
-        }
-      } catch (error) {
-        setActionError(accessActionErrorMessage(error, "Couldn't update who can use this app."));
-      }
+      setPendingNoOne(true);
     }
   }
 
@@ -275,7 +298,10 @@ export function AdminAppAccess({
         </SectionHeader>
       {!accessReady ? (
         <p className="mt-3 flex items-center gap-1.5 text-sm text-muted-foreground">
-          <SpinnerIcon className="size-4 animate-spin" aria-hidden />
+          <SpinnerIcon
+            className="size-4 motion-safe:animate-spin motion-reduce:animate-none"
+            aria-hidden
+          />
           Loading who can use this app…
         </p>
       ) : (
@@ -340,11 +366,15 @@ export function AdminAppAccess({
       ) : null}
 
       {loadError ? (
-        <p className="text-sm text-destructive">{loadError}</p>
+        <p className="text-sm text-destructive" role="alert">
+          {loadError}
+        </p>
       ) : null}
 
       {actionError ? (
-        <p className="text-sm text-destructive">{actionError}</p>
+        <p className="text-sm text-destructive" role="alert">
+          {actionError}
+        </p>
       ) : null}
         </>
       )}
@@ -432,7 +462,7 @@ export function AdminAppAccess({
       <AddAccessDialog
         open={groupOpen}
         title={ADD_GROUP_DIALOG_TITLE}
-        description={ACCESS_RULE_CHOICES.specific.description}
+        description={ADD_GROUP_DIALOG_DESCRIPTION}
         fieldLabel={ADD_GROUP_FIELD_LABEL}
         fieldHint={ADD_GROUP_FIELD_HINT}
         inputType="text"
@@ -451,7 +481,7 @@ export function AdminAppAccess({
       <AddAccessDialog
         open={personOpen}
         title={ADD_PERSON_DIALOG_TITLE}
-        description={ACCESS_RULE_CHOICES.specific.description}
+        description={ADD_PERSON_DIALOG_DESCRIPTION}
         fieldLabel={ADD_PERSON_FIELD_LABEL}
         fieldHint={ADD_PERSON_FIELD_HINT}
         inputType="email"
@@ -465,6 +495,28 @@ export function AdminAppAccess({
           toast.success(savedOnForPerson(appLabel, value));
         }}
       />
+      <AlertDialog open={pendingNoOne} onOpenChange={setPendingNoOne}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{TURN_OFF_FOR_EVERYONE_TITLE}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {TURN_OFF_FOR_EVERYONE_DESCRIPTION}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>{DIALOG_CANCEL}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy}
+              onClick={() => {
+                setPendingNoOne(false);
+                void applyNoOneRule();
+              }}
+            >
+              {TURN_OFF_FOR_EVERYONE_ACTION}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       </div>
     </>
   );
@@ -481,7 +533,11 @@ export function AdminAppAccess({
           onOpenChange={setMobileNavOpen}
           panelLabel={ACCESS_SECTIONS_NAV_LABEL}
         >
-          {accessPaneMobile}
+          <AccessSectionsPane
+            sections={navSections}
+            activeId={activeId}
+            onSelect={onNavSectionSelect}
+          />
         </PageLayoutPaneMobileNav>
       }
     >

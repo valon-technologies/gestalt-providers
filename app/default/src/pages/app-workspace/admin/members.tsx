@@ -29,8 +29,10 @@ import {
   SERVICE_ACCOUNTS_ROUTE,
 } from "@/features/app-workspace/app-agent-identity-presentation";
 import { partitionAppMembers } from "@/features/app-workspace/app-workspace-shared";
+import { sessionDisplayLabel } from "@/lib/auth";
 import {
   useAppAuthorizationMembersQuery,
+  useAuthSessionQuery,
   useGestaltAdminQuery,
 } from "@/lib/queries";
 import { Link as RouterLink } from "@tanstack/react-router";
@@ -42,8 +44,11 @@ function membersLoadErrorMessage(_error: unknown): string {
 
 export default function AppAdminMembersPage() {
   const { app } = useAppWorkspace();
+  const sessionQuery = useAuthSessionQuery();
   const membersQuery = useAppAuthorizationMembersQuery(app);
-  const gestaltAdminQuery = useGestaltAdminQuery();
+  const gestaltAdminQuery = useGestaltAdminQuery({
+    enabled: Boolean(sessionDisplayLabel(sessionQuery.data ?? null)),
+  });
   const showWhoCanUseLink = gestaltAdminQuery.data === true;
   const members = membersQuery.data ?? [];
   const membersLoading = membersQuery.isPending;
@@ -88,7 +93,21 @@ export default function AppAdminMembersPage() {
                 </Link>{" "}
                 to add or change who can use this app.
               </>
-            ) : null}{" "}
+            ) : (
+              <>
+                {" "}
+                See{" "}
+                <Link asChild>
+                  <RouterLink
+                    to={AUTHORIZATION_DOCS_PATH}
+                    hash={AUTHORIZATION_DOCS_GRANT_HASH}
+                  >
+                    How to grant access
+                  </RouterLink>
+                </Link>{" "}
+                or ask a Gestalt admin.
+              </>
+            )}{" "}
             Service accounts appear under{" "}
             <Link asChild>
               <RouterLink to={SERVICE_ACCOUNTS_ROUTE} params={{ app }}>
@@ -102,7 +121,10 @@ export default function AppAdminMembersPage() {
 
       {membersLoading ? (
         <p className="mt-5 flex items-center gap-1.5 text-sm text-muted-foreground">
-          <SpinnerIcon className="size-4 animate-spin" aria-hidden />
+          <SpinnerIcon
+            className="size-4 motion-safe:animate-spin motion-reduce:animate-none"
+            aria-hidden
+          />
           Loading members…
         </p>
       ) : null}
@@ -147,7 +169,7 @@ export default function AppAdminMembersPage() {
             </SectionHeader>
             {peopleMembers.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No people have been granted access yet.
+                No people can use this app yet.
               </p>
             ) : (
               <MemberAccess

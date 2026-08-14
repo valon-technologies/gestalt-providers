@@ -41,10 +41,18 @@ export function setCachedSession(session: CachedAuthSession): void {
   localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(stored));
 }
 
+let onSessionCleared: (() => void) | undefined;
+
+/** Register work that must run when the browser session ends (logout or 401). */
+export function setOnSessionCleared(listener: (() => void) | undefined): void {
+  onSessionCleared = listener;
+}
+
 export function clearSession(): void {
   if (typeof window === "undefined") return;
   localStorage.removeItem(AUTH_SESSION_KEY);
   localStorage.removeItem(USER_EMAIL_KEY);
+  onSessionCleared?.();
 }
 
 export function getUserEmail(): string | null {

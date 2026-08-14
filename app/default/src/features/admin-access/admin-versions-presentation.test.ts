@@ -129,14 +129,14 @@ describe("admin versions presentation", () => {
 
   test("filters apps by visible name, registry, version, and rollout copy", () => {
     const viewer: AdminRegistryAppSummary = {
-      app: "agent-trace-viewer",
-      registry: "toolshed",
+      app: "example-viewer",
+      registry: "example-registry",
       desiredVersion: "1.2.0",
       fleetState: healthy,
       cohort: { restarted: 6, acknowledged: 6, materialized: 6, failed: 0 },
     };
     const tracker: AdminRegistryAppSummary = {
-      app: "ai-spend-tracker",
+      app: "example-tracker",
       registry: "other",
       desiredVersion: "0.9.0",
       rollout: {
@@ -149,8 +149,8 @@ describe("admin versions presentation", () => {
       fleetState: healthy,
     };
 
-    expect(filterAdminVersionsApps([viewer, tracker], "trace")).toEqual([viewer]);
-    expect(filterAdminVersionsApps([viewer, tracker], "toolshed")).toEqual([
+    expect(filterAdminVersionsApps([viewer, tracker], "viewer")).toEqual([viewer]);
+    expect(filterAdminVersionsApps([viewer, tracker], "example-registry")).toEqual([
       viewer,
     ]);
     expect(filterAdminVersionsApps([viewer, tracker], "failed")).toEqual([

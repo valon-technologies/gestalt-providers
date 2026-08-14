@@ -49,7 +49,7 @@ function member(partial: AdminMember): AdminMember {
 function registryApp(name: string) {
   return {
     app: name,
-    registry: "toolshed",
+    registry: "example-registry",
     desiredVersion: "1.0.0",
     rollout: {
       version: "1.0.0",
@@ -637,27 +637,27 @@ test.describe("Admin app access", () => {
     await mockIntegrations(page, [app("slack", "Slack")]);
     await mockGestaltAdmin(page, true);
     await mockRegistryApps(page, [
-      registryApp("agent-trace-viewer"),
-      registryApp("ai-spend-tracker"),
+      registryApp("example-viewer"),
+      registryApp("example-tracker"),
     ]);
 
     await page.goto("/admin/versions");
     await expect(
-      page.getByTestId("admin-versions-row-agent-trace-viewer"),
+      page.getByTestId("admin-versions-row-example-viewer"),
     ).toBeVisible();
     await expect(
-      page.getByTestId("admin-versions-row-ai-spend-tracker"),
+      page.getByTestId("admin-versions-row-example-tracker"),
     ).toBeVisible();
 
-    await page.getByRole("searchbox", { name: "Search apps" }).fill("trace");
+    await page.getByRole("searchbox", { name: "Search apps" }).fill("viewer");
     await expect(
       page
-        .getByTestId("admin-versions-row-agent-trace-viewer")
-        .getByRole("link", { name: /agent-trace-viewer/ })
+        .getByTestId("admin-versions-row-example-viewer")
+        .getByRole("link", { name: /example-viewer/ })
         .getByRole("mark"),
-    ).toHaveText("trace");
+    ).toHaveText("viewer");
     await expect(
-      page.getByTestId("admin-versions-row-ai-spend-tracker"),
+      page.getByTestId("admin-versions-row-example-tracker"),
     ).toHaveCount(0);
   });
 
@@ -671,24 +671,19 @@ test.describe("Admin app access", () => {
     await mockIntegrations(page, [app("slack", "Slack")]);
     await mockGestaltAdmin(page, true);
     await mockRegistryApps(page, [
-      registryApp("agent-trace-viewer"),
-      registryApp("ai-spend-tracker"),
+      registryApp("example-viewer"),
+      registryApp("example-tracker"),
     ]);
 
     await page.goto("/admin/versions");
-    const row = page.getByTestId("admin-versions-row-agent-trace-viewer");
+    const row = page.getByTestId("admin-versions-row-example-viewer");
     await expect(row).toBeVisible();
-    await expect(page.getByRole("columnheader", { name: "App" })).toHaveCount(0);
+    await expect(page.getByRole("columnheader", { name: "App" })).toBeVisible();
 
-    const box = await row.boundingBox();
-    expect(box).toBeTruthy();
-    await page.mouse.click(
-      box!.x + box!.width - 24,
-      box!.y + Math.min(16, box!.height / 2),
-    );
-    await expect(page).toHaveURL(/\/admin\/versions\/agent-trace-viewer$/);
+    await row.getByRole("link", { name: "example-viewer" }).click();
+    await expect(page).toHaveURL(/\/admin\/versions\/example-viewer$/);
     await expect(
-      page.getByRole("heading", { name: "agent-trace-viewer" }),
+      page.getByRole("heading", { name: "example-viewer" }),
     ).toBeVisible();
   });
 });

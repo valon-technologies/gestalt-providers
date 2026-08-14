@@ -44,9 +44,9 @@ import {
   PLATFORM_ADMINS_LOAD_ERROR,
   PLATFORM_ADMINS_PAGE_DESCRIPTION,
   PLATFORM_ADMINS_PAGE_TITLE,
-  PLATFORM_ADMINS_SAVED_GROUP,
-  PLATFORM_ADMINS_SAVED_PERSON,
+  PLATFORM_ADMINS_SAVED,
   PLATFORM_ADMINS_UNAVAILABLE,
+  REMOVE_ADMIN_CONFIRM_DESCRIPTION,
 } from "@/features/admin-access/admin-access-copy";
 import {
   AccessEntryRow,
@@ -111,7 +111,10 @@ export default function AdminPlatformAdminsPage() {
 
       {rosterQuery.isPending ? (
         <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          <SpinnerIcon className="size-4 animate-spin" aria-hidden />
+          <SpinnerIcon
+            className="size-4 motion-safe:animate-spin motion-reduce:animate-none"
+            aria-hidden
+          />
           Loading platform admins…
         </p>
       ) : null}
@@ -124,9 +127,17 @@ export default function AdminPlatformAdminsPage() {
         <p className="text-sm text-muted-foreground">{PLATFORM_ADMINS_UNAVAILABLE}</p>
       ) : null}
 
-      {loadError ? <p className="text-sm text-destructive">{loadError}</p> : null}
+      {loadError ? (
+        <p className="text-sm text-destructive" role="alert">
+          {loadError}
+        </p>
+      ) : null}
 
-      {actionError ? <p className="text-sm text-destructive">{actionError}</p> : null}
+      {actionError ? (
+        <p className="text-sm text-destructive" role="alert">
+          {actionError}
+        </p>
+      ) : null}
 
       {!rosterQuery.isPending && !forbidden && !unavailable && !loadError ? (
         <>
@@ -160,6 +171,7 @@ export default function AdminPlatformAdminsPage() {
                     entry={entry}
                     busy={busy}
                     testId="admin-platform-admin-entry"
+                    confirmDescription={REMOVE_ADMIN_CONFIRM_DESCRIPTION}
                     onRemove={() => void handleRemove(entry.member)}
                   />
                 ))}
@@ -198,6 +210,7 @@ export default function AdminPlatformAdminsPage() {
                     entry={entry}
                     busy={busy}
                     testId="admin-platform-admin-entry"
+                    confirmDescription={REMOVE_ADMIN_CONFIRM_DESCRIPTION}
                     onRemove={() => void handleRemove(entry.member)}
                   />
                 ))}
@@ -224,7 +237,7 @@ export default function AdminPlatformAdminsPage() {
             groupRelationshipTupleForResource(resource, value, role),
           );
           toast.success(
-            PLATFORM_ADMINS_SAVED_GROUP(parseGroupSelector(value).id || value),
+            PLATFORM_ADMINS_SAVED(parseGroupSelector(value).id || value),
           );
         }}
       />
@@ -244,7 +257,7 @@ export default function AdminPlatformAdminsPage() {
           await addMutation.mutateAsync(
             personRelationshipTupleForResource(resource, value, role),
           );
-          toast.success(PLATFORM_ADMINS_SAVED_PERSON(value));
+          toast.success(PLATFORM_ADMINS_SAVED(value));
         }}
       />
     </div>

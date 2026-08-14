@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { AppAuthorizationMember } from "@/lib/api";
+import { APIError, type AppAuthorizationMember } from "@/lib/api";
 import {
   accessCountLabel,
   accessListStatus,
@@ -8,8 +8,8 @@ import {
   ACCESS_RULE_HEADING,
   ADMIN_METRICS_NAV_LABEL,
   ADMIN_METRICS_PAGE_DESCRIPTION,
-  ADMIN_PAGE_DESCRIPTION,
   APP_ACCESS_NAV_LABEL,
+  APP_ACCESS_PAGE_DESCRIPTION,
   APP_ACCESS_PAGE_TITLE,
   APP_VERSIONS_NAV_LABEL,
   EVERYONE_BLOCKS_REMOVE,
@@ -22,6 +22,7 @@ import {
   groupRelationshipTupleForResource,
   inferAppAccessRule,
   isGroupMember,
+  mutableAccessEntries,
   partitionAccessEntries,
   personLabel,
   personRelationshipTuple,
@@ -32,6 +33,7 @@ import {
   relationshipTupleForMemberOnResource,
   resourceTypeHasDefaultRole,
   ruleChoiceEnabled,
+  summarizeAppAccessList,
 } from "./admin-access";
 
 function member(
@@ -131,18 +133,18 @@ describe("groups and people", () => {
         source: "static",
         mutable: false,
         selectorKind: "subject_set",
-        selectorValue: "group:valon-employees#member",
+        selectorValue: "group:example-employees#member",
       }),
       member({
         role: "admin",
         source: "static",
         mutable: false,
         selectorKind: "subject_set",
-        selectorValue: "group:valon-employees#member",
+        selectorValue: "group:example-employees#member",
       }),
     ]);
     expect(groups).toHaveLength(1);
-    expect(groups[0]?.label).toBe("valon-employees");
+    expect(groups[0]?.label).toBe("example-employees");
   });
 
   test("keeps a removable grant when the same group is also locked in config", () => {
@@ -265,7 +267,7 @@ describe("rule choices", () => {
 
 describe("admin copy", () => {
   test("uses app access language, not assignment or authorization", () => {
-    expect(ADMIN_PAGE_DESCRIPTION).toBe(
+    expect(APP_ACCESS_PAGE_DESCRIPTION).toBe(
       "Set who can use each app: everyone, specific people and groups, or no one.",
     );
     expect(APP_ACCESS_PAGE_TITLE).toBe("App access");
@@ -296,5 +298,58 @@ describe("admin copy", () => {
     expect(accessListStatus({ rule: "specific", groups: 0, people: 0 })).toBe(
       "Nobody yet",
     );
+  });
+});
+
+describe("mutableAccessEntries", () => {
+  test("keeps only grants that Admin can revoke", () => {
+    const locked = member({
+      role: "viewer",
+      mutable: false,
+      selectorKind: "subject_set",
+      selectorValue: "group:eng#member",
+    });
+    const removable = member({
+      role: "viewer",
+      mutable: true,
+      selectorKind: "email",
+      selectorValue: "a@example.com",
+      email: "a@example.com",
+    });
+    const { groups, people } = partitionAccessEntries([locked, removable]);
+    expect(mutableAccessEntries([...groups, ...people]).map((entry) => entry.label)).toEqual([
+      "a@example.com",
+    ]);
+  });
+});
+
+describe("summarizeAppAccessList", () => {
+  test("does not treat a members 403 as Everyone", () => {
+    expect(
+      summarizeAppAccessList({
+        members: undefined,
+        membersError: new APIError(403, "forbidden"),
+        hasDefaultRole: true,
+      }),
+    ).toEqual({ kind: "unavailable" });
+  });
+
+  test("reports other load failures as error", () => {
+    expect(
+      summarizeAppAccessList({
+        members: undefined,
+        membersError: new APIError(500, "boom"),
+        hasDefaultRole: false,
+      }),
+    ).toEqual({ kind: "error" });
+  });
+
+  test("infers no_one from an empty member list without defaultRole", () => {
+    const state = summarizeAppAccessList({
+      members: [],
+      membersError: undefined,
+      hasDefaultRole: false,
+    });
+    expect(state).toMatchObject({ kind: "ready", rule: "no_one" });
   });
 });

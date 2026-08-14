@@ -18,6 +18,8 @@ export function useGestaltAdminQuery(options?: { enabled?: boolean }) {
     queryKey: queryKeys.admin.access(),
     queryFn: () => probeGestaltAdminAccess(),
     enabled: options?.enabled ?? true,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
     retry: false,
   });
 }
@@ -69,11 +71,15 @@ export function useAdminRegistryAppsQuery() {
   });
 }
 
-export function useAdminRegistryAppQuery(app: string) {
+export function useAdminRegistryAppQuery(
+  app: string,
+  options?: { refetchInterval?: number },
+) {
   return useQuery({
     queryKey: queryKeys.admin.version(app),
     queryFn: () => getAdminRegistryApp(app),
     enabled: Boolean(app),
+    refetchInterval: options?.refetchInterval,
     retry: (failureCount, error) =>
       !isAPIErrorStatus(error, 403) &&
       !isAPIErrorStatus(error, 404) &&

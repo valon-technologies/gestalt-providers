@@ -7,7 +7,7 @@ describe("adminNavIdForPathname", () => {
     expect(adminNavIdForPathname("/admin/apps/slack")).toBe("who-can-use");
     expect(adminNavIdForPathname("/admin/platform-admins")).toBe("platform-admins");
     expect(adminNavIdForPathname("/admin/versions")).toBe("versions");
-    expect(adminNavIdForPathname("/admin/versions/g-issues")).toBe("versions");
+    expect(adminNavIdForPathname("/admin/versions/example-app")).toBe("versions");
     expect(adminNavIdForPathname("/admin/metrics")).toBe("metrics");
   });
 });

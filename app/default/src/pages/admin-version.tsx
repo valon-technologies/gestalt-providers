@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { Link, useParams } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -38,6 +38,7 @@ import {
   APP_VERSIONS_NO_DATA,
   APP_VERSIONS_NOT_FOUND,
   APP_VERSIONS_NOT_INSTALLED,
+  APP_VERSIONS_REPLICA_ERROR,
 } from "@/features/admin-access/admin-access-copy";
 import {
   adminFleetBadge,
@@ -121,7 +122,7 @@ function ReplicaTable({ replicas }: { replicas: AdminFleetReplica[] }) {
                   <span>{replica.appObservation?.state || "unknown"}</span>
                   {replica.appObservation?.lastError ? (
                     <div className="max-w-72 text-xs text-destructive">
-                      {replica.appObservation.lastError}
+                      {APP_VERSIONS_REPLICA_ERROR}
                     </div>
                   ) : null}
                 </div>
@@ -136,17 +137,9 @@ function ReplicaTable({ replicas }: { replicas: AdminFleetReplica[] }) {
 
 export default function AdminVersionDetailPage() {
   const { app } = useParams({ from: "/admin/versions/$app" });
-  const appQuery = useAdminRegistryAppQuery(app);
+  const appQuery = useAdminRegistryAppQuery(app, { refetchInterval: 15_000 });
   const title = appQuery.data?.app ?? app;
   useDocumentTitle(`${title} · ${APP_VERSIONS_NAV_LABEL}`);
-
-  useEffect(() => {
-    if (!appQuery.isSuccess) return;
-    const timer = window.setTimeout(() => {
-      void appQuery.refetch();
-    }, 15_000);
-    return () => window.clearTimeout(timer);
-  }, [app, appQuery.dataUpdatedAt, appQuery.isSuccess, appQuery.refetch]);
 
   if (appQuery.isPending) {
     return <Skeleton className="h-64 w-full" />;
@@ -212,12 +205,12 @@ export default function AdminVersionDetailPage() {
         </PageHeaderActions>
       </PageHeader>
 
-      <section className="min-w-0 space-y-4 overflow-hidden rounded-lg border border-border bg-card p-4">
+      <section className="min-w-0 space-y-4 overflow-hidden rounded-lg border border-border bg-card p-4 text-card-foreground">
         <SectionHeader>
           <SectionHeaderContent>
             <SectionHeaderTitle>Summary</SectionHeaderTitle>
             <SectionHeaderDescription>
-              Fleet-known version and install metadata.
+              Fleet-known version and install details.
             </SectionHeaderDescription>
           </SectionHeaderContent>
         </SectionHeader>
@@ -243,7 +236,7 @@ export default function AdminVersionDetailPage() {
         </dl>
       </section>
 
-      <section className="space-y-4 rounded-lg border border-border bg-card p-4">
+      <section className="space-y-4 rounded-lg border border-border bg-card p-4 text-card-foreground">
         <SectionHeader>
           <SectionHeaderContent>
             <SectionHeaderTitle>Current fleet</SectionHeaderTitle>
@@ -286,7 +279,7 @@ export default function AdminVersionDetailPage() {
         ) : null}
       </section>
 
-      <section className="space-y-4 rounded-lg border border-border bg-card p-4">
+      <section className="space-y-4 rounded-lg border border-border bg-card p-4 text-card-foreground">
         <SectionHeader>
           <SectionHeaderContent>
             <SectionHeaderTitle>Rollout</SectionHeaderTitle>
@@ -319,7 +312,7 @@ export default function AdminVersionDetailPage() {
         )}
       </section>
 
-      <section className="space-y-5 rounded-lg border border-border bg-card p-4">
+      <section className="space-y-5 rounded-lg border border-border bg-card p-4 text-card-foreground">
         <SectionHeader>
           <SectionHeaderContent>
             <SectionHeaderTitle>Replica observations</SectionHeaderTitle>
@@ -338,7 +331,7 @@ export default function AdminVersionDetailPage() {
         </div>
       </section>
 
-      <section className="space-y-4 rounded-lg border border-border bg-card p-4">
+      <section className="space-y-4 rounded-lg border border-border bg-card p-4 text-card-foreground">
         <SectionHeader>
           <SectionHeaderContent>
             <SectionHeaderTitle>Replica pool</SectionHeaderTitle>

@@ -1,6 +1,6 @@
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
- * Registry `table-status-indicator` (toolshed#4287, #4289). Thin `variant`
+ * Registry `table-status-indicator`. Thin `variant`
  * adapter over `OutcomeStatusIndicator`.
  */
 

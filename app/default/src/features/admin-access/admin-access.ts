@@ -1,9 +1,10 @@
-import type { AppAuthorizationMember } from "@/lib/api";
-import type {
-  AuthorizationRelationshipTarget,
-  AuthorizationRelationshipTuple,
-  AuthorizationResource,
-  AuthorizationResourceType,
+import {
+  isAPIErrorStatus,
+  type AppAuthorizationMember,
+  type AuthorizationRelationshipTarget,
+  type AuthorizationRelationshipTuple,
+  type AuthorizationResource,
+  type AuthorizationResourceType,
 } from "@/lib/api";
 
 /** Who can use this app — one rule, stored as defaultRole + members. */
@@ -281,4 +282,49 @@ export function ruleChoiceEnabled(
     return rule === "everyone";
   }
   return rule !== "everyone";
+}
+
+export function mutableAccessEntries(
+  entries: AppAccessEntry[],
+): AppAccessEntry[] {
+  return entries.filter((entry) => entry.mutable);
+}
+
+/**
+ * List-row access summary. A members 403 is `unavailable`, not "Everyone":
+ * forbidden visibility is not an access rule.
+ */
+export type AppAccessListState =
+  | { kind: "loading" }
+  | { kind: "unavailable" }
+  | { kind: "error" }
+  | {
+      kind: "ready";
+      rule: AppAccessRule;
+      groups: AppAccessEntry[];
+      people: AppAccessEntry[];
+    };
+
+export function summarizeAppAccessList(options: {
+  members: AppAuthorizationMember[] | undefined;
+  membersError: unknown;
+  hasDefaultRole: boolean;
+}): AppAccessListState {
+  if (options.membersError) {
+    if (isAPIErrorStatus(options.membersError, 403)) {
+      return { kind: "unavailable" };
+    }
+    return { kind: "error" };
+  }
+  if (!options.members) return { kind: "loading" };
+  const { groups, people } = partitionAccessEntries(options.members);
+  return {
+    kind: "ready",
+    rule: inferAppAccessRule({
+      hasDefaultRole: options.hasDefaultRole,
+      members: options.members,
+    }),
+    groups,
+    people,
+  };
 }

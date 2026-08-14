@@ -1,5 +1,6 @@
 import { HTTP_UNAUTHORIZED } from "@/lib/constants";
 import { redirectToLogin, resolveAPIPath } from "@/lib/api";
+import { setOnSessionCleared } from "@/lib/auth";
 
 export const GESTALT_ADMIN_PROBE_PATH = "/admin/api/v1/app-registries";
 
@@ -10,10 +11,12 @@ export function hasGrantedGestaltAdminAccess(): boolean {
   return grantedGestaltAdminAccess;
 }
 
-/** Test-only: clear the in-session Admin admission cache. */
+/** Clear the in-session Admin admission cache (logout, 401, or tests). */
 export function resetGestaltAdminAccessCache(): void {
   grantedGestaltAdminAccess = false;
 }
+
+setOnSessionCleared(resetGestaltAdminAccessCache);
 
 /**
  * True when the caller can use Gestalt-admin APIs (`gestaltAdmin`).

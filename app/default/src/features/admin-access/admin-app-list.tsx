@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import type { AppAuthorizationMember, Integration } from "@/lib/api";
-import { isAPIErrorStatus } from "@/lib/api";
+import type { Integration } from "@/lib/api";
 import { getIntegrationLabel, filterIntegrations } from "@/lib/integrationSearch";
 import IntegrationIcon from "@/components/IntegrationIcon";
 import PluginSearchBar from "@/components/PluginSearchBar";
@@ -19,12 +18,10 @@ import {
   useAuthorizationResourceTypesQuery,
 } from "@/lib/queries";
 import {
-  inferAppAccessRule,
-  partitionAccessEntries,
   resourceTypeHasDefaultRole,
-  type AppAccessEntry,
+  summarizeAppAccessList,
 } from "./admin-access";
-import { accessListStatus } from "./admin-access-copy";
+import { ACCESS_LIST_STATUS, accessListStatus } from "./admin-access-copy";
 import { AdminAccessStatus } from "./admin-access-status";
 
 const ADMIN_APP_SKELETON_ROW_COUNT = 8;
@@ -61,38 +58,6 @@ function AdminAppSkeletonRow({ index }: { index: number }) {
       </div>
     </li>
   );
-}
-
-function summaryForApp(
-  members: AppAuthorizationMember[] | undefined,
-  membersError: unknown,
-  hasDefaultRole: boolean,
-): {
-  status: string;
-  groups: AppAccessEntry[];
-  people: AppAccessEntry[];
-} | null {
-  if (membersError && isAPIErrorStatus(membersError, 403)) {
-    return hasDefaultRole
-      ? {
-          status: accessListStatus({ rule: "everyone", groups: 0, people: 0 }),
-          groups: [],
-          people: [],
-        }
-      : null;
-  }
-  if (!members) return null;
-  const { groups, people } = partitionAccessEntries(members);
-  const rule = inferAppAccessRule({ hasDefaultRole, members });
-  return {
-    status: accessListStatus({
-      rule,
-      groups: groups.length,
-      people: people.length,
-    }),
-    groups,
-    people,
-  };
 }
 
 export function AdminAppList({
@@ -158,14 +123,37 @@ export function AdminAppList({
           {filtered.map((integration, index) => {
             const label = getIntegrationLabel(integration);
             const membersQuery = memberQueries[index];
-            const summary = summaryForApp(
-              membersQuery?.data,
-              membersQuery?.error,
-              hasDefaultRole,
-            );
-            const statusLoading =
-              !summary &&
-              (Boolean(membersQuery?.isPending) || resourceTypesQuery.isPending);
+            const listState = membersQuery?.error
+              ? summarizeAppAccessList({
+                  members: membersQuery.data,
+                  membersError: membersQuery.error,
+                  hasDefaultRole,
+                })
+              : resourceTypesQuery.isPending || membersQuery?.isPending
+                ? { kind: "loading" as const }
+                : summarizeAppAccessList({
+                    members: membersQuery?.data,
+                    membersError: membersQuery?.error,
+                    hasDefaultRole,
+                  });
+            const readyStatus =
+              listState.kind === "ready"
+                ? {
+                    status: accessListStatus({
+                      rule: listState.rule,
+                      groups: listState.groups.length,
+                      people: listState.people.length,
+                    }),
+                    groups: listState.groups,
+                    people: listState.people,
+                  }
+                : listState.kind === "unavailable" || listState.kind === "error"
+                  ? {
+                      status: ACCESS_LIST_STATUS.unavailable,
+                      groups: [],
+                      people: [],
+                    }
+                  : null;
             return (
               <li key={integration.name}>
                 <div
@@ -217,15 +205,15 @@ export function AdminAppList({
                       />
                     </span>
                   </Link>
-                  {summary ? (
+                  {readyStatus ? (
                     <div className="relative z-10 shrink-0">
                       <AdminAccessStatus
-                        status={summary.status}
-                        groups={summary.groups}
-                        people={summary.people}
+                        status={readyStatus.status}
+                        groups={readyStatus.groups}
+                        people={readyStatus.people}
                       />
                     </div>
-                  ) : statusLoading ? (
+                  ) : listState.kind === "loading" ? (
                     <Skeleton className="relative z-10 h-5 w-16 shrink-0 rounded-full" />
                   ) : null}
                 </div>

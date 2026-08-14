@@ -1,4 +1,14 @@
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -11,6 +21,7 @@ import {
 import {
   Field,
   FieldDescription,
+  FieldError,
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -18,14 +29,17 @@ import { APIError } from "@/lib/api";
 import { userFacingError } from "@/lib/user-facing-error";
 import { parseGroupSelector, type AppAccessEntry } from "./admin-access";
 import {
+  ADD_GROUP_INVALID,
   DIALOG_CANCEL,
   LOCKED_FROM_CONFIG,
+  REMOVE_ACCESS_CONFIRM_ACTION,
+  REMOVE_ACCESS_CONFIRM_DESCRIPTION,
+  REMOVE_ACCESS_CONFIRM_TITLE,
   REMOVE_ACCESS_LABEL,
 } from "./admin-access-copy";
 
 export function accessActionErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof APIError) return userFacingError(error, fallback);
-  if (error instanceof Error && error.message) return error.message;
   return fallback;
 }
 
@@ -34,13 +48,16 @@ export function AccessEntryRow({
   busy,
   onRemove,
   testId = "admin-access-entry",
+  confirmDescription = REMOVE_ACCESS_CONFIRM_DESCRIPTION,
 }: {
   entry: AppAccessEntry;
   busy: boolean;
   onRemove: () => void;
   testId?: string;
+  confirmDescription?: (label: string) => string;
 }) {
   const locked = !entry.mutable;
+  const [confirmOpen, setConfirmOpen] = useState(false);
   return (
     <li
       className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
@@ -57,10 +74,33 @@ export function AccessEntryRow({
         variant="outline"
         size="sm"
         disabled={locked || busy}
-        onClick={onRemove}
+        aria-label={`${REMOVE_ACCESS_LABEL} for ${entry.label}`}
+        onClick={() => setConfirmOpen(true)}
       >
         {REMOVE_ACCESS_LABEL}
       </Button>
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{REMOVE_ACCESS_CONFIRM_TITLE}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmDescription(entry.label)}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>{DIALOG_CANCEL}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy}
+              onClick={() => {
+                setConfirmOpen(false);
+                onRemove();
+              }}
+            >
+              {REMOVE_ACCESS_CONFIRM_ACTION}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </li>
   );
 }
@@ -92,6 +132,8 @@ export function AddAccessDialog({
 }) {
   const [value, setValue] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const inputId = useId();
+  const errorId = `${inputId}-error`;
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -105,7 +147,7 @@ export function AddAccessDialog({
       return;
     }
     if (inputType === "text" && !parseGroupSelector(trimmed).id) {
-      setFormError("Enter a group id.");
+      setFormError(ADD_GROUP_INVALID);
       return;
     }
     setFormError(null);
@@ -135,20 +177,20 @@ export function AddAccessDialog({
             <DialogTitle className="text-xl">{title}</DialogTitle>
             <DialogDescription className="text-base">{description}</DialogDescription>
           </DialogHeader>
-          <Field>
-            <FieldLabel htmlFor="admin-access-input">{fieldLabel}</FieldLabel>
+          <Field data-invalid={formError ? true : undefined}>
+            <FieldLabel htmlFor={inputId}>{fieldLabel}</FieldLabel>
             <Input
-              id="admin-access-input"
+              id={inputId}
               type={inputType}
               autoComplete="off"
               value={value}
               onChange={(event) => setValue(event.target.value)}
               placeholder={placeholder}
+              aria-invalid={formError ? true : undefined}
+              aria-describedby={formError ? errorId : undefined}
             />
             <FieldDescription>{fieldHint}</FieldDescription>
-            {formError ? (
-              <p className="text-sm text-destructive">{formError}</p>
-            ) : null}
+            {formError ? <FieldError id={errorId}>{formError}</FieldError> : null}
           </Field>
           <DialogFooter>
             <Button

@@ -95,7 +95,10 @@ export default function AppAdminMetricsPage() {
 
       {metricsQuery.isPending ? (
         <p className="mt-5 flex items-center gap-1.5 text-sm text-muted-foreground">
-          <SpinnerIcon className="size-4 animate-spin" aria-hidden />
+          <SpinnerIcon
+            className="size-4 motion-safe:animate-spin motion-reduce:animate-none"
+            aria-hidden
+          />
           Loading metrics…
         </p>
       ) : null}
@@ -150,7 +153,7 @@ export default function AppAdminMetricsPage() {
                   {APP_METRICS_EMPTY}
                 </p>
               ) : (
-                <div className="mt-3 overflow-hidden rounded-lg border border-border bg-card">
+                <div className="mt-3 overflow-hidden rounded-lg border border-border bg-card text-card-foreground">
                   <Table>
                     <TableHeader>
                       <TableRow>

@@ -16,12 +16,10 @@ export const PLATFORM_ADMINS_EMPTY_GROUPS =
   "No groups yet. Add a group so a whole team can open Admin.";
 export const PLATFORM_ADMINS_EMPTY_PEOPLE =
   "No individual people. Add someone only if they are not already in a group.";
-export const PLATFORM_ADMINS_SAVED_PERSON = (label: string) =>
-  `${label} can open Admin.`;
-export const PLATFORM_ADMINS_SAVED_GROUP = (label: string) =>
+export const PLATFORM_ADMINS_SAVED = (label: string) =>
   `${label} can open Admin.`;
 export const PLATFORM_ADMINS_UNAVAILABLE =
-  "Couldn't load platform admins. Authorization is unavailable on this server.";
+  "Couldn't load platform admins. This server doesn't support platform admin management.";
 export const PLATFORM_ADMINS_LOAD_ERROR =
   "Couldn't load platform admins. Try again.";
 export const PLATFORM_ADMINS_FORBIDDEN =
@@ -35,9 +33,10 @@ export const APP_VERSIONS_NAV_LABEL = "App versions";
 export const APP_VERSIONS_PAGE_TITLE = "App versions";
 export const APP_VERSIONS_PAGE_DESCRIPTION =
   "Current fleet health, desired versions, and rollout progress.";
-export const APP_VERSIONS_EMPTY_TITLE = "No registry apps";
+export const APP_VERSIONS_EMPTY_TITLE = "No apps with version data";
 export const APP_VERSIONS_EMPTY_DESCRIPTION =
-  "No registry-only apps are configured in this workspace.";
+  "No apps in this workspace report version health yet.";
+export const APP_VERSIONS_REPLICA_ERROR = "This replica reported an error.";
 export const APP_VERSIONS_SEARCH_EMPTY = "No apps match that search.";
 export const APP_VERSIONS_LOAD_ERROR = "Couldn't load app versions. Try again.";
 export const APP_VERSIONS_NOT_INSTALLED = "Not installed";
@@ -74,16 +73,12 @@ export const ADMIN_METRICS_LOADING = "Loading metrics…";
 export const ADMIN_METRICS_LAST_REFRESHED = (time: string) =>
   `Last refreshed ${time}`;
 
-/** @deprecated Use APP_ACCESS_PAGE_TITLE */
-export const ADMIN_PAGE_TITLE = APP_ACCESS_PAGE_TITLE;
-/** @deprecated Use APP_ACCESS_PAGE_DESCRIPTION */
-export const ADMIN_PAGE_DESCRIPTION = APP_ACCESS_PAGE_DESCRIPTION;
-
 /** One-phrase list status. Do not pair a count with a second chip. */
 export const ACCESS_LIST_STATUS = {
   everyone: "Everyone",
   noOne: "No one",
   nobodyYet: "Nobody yet",
+  unavailable: "Couldn't load access",
 } as const;
 
 export const ACCESS_RULE_HEADING = (appLabel: string) =>
@@ -109,6 +104,21 @@ export const ACCESS_RULE_CHOICES = {
 export const ADD_GROUP_LABEL = "Add group";
 export const ADD_PERSON_LABEL = "Add person";
 export const REMOVE_ACCESS_LABEL = "Remove access";
+export const REMOVE_ACCESS_CONFIRM_TITLE = "Remove access?";
+export const REMOVE_ACCESS_CONFIRM_ACTION = "Remove access";
+export const REMOVE_ACCESS_CONFIRM_DESCRIPTION = (label: string) =>
+  `${label} will no longer be able to use this app.`;
+export const REMOVE_ADMIN_CONFIRM_DESCRIPTION = (label: string) =>
+  `${label} will no longer be able to open Admin.`;
+export const TURN_OFF_FOR_EVERYONE_TITLE = "Turn this app off for everyone?";
+export const TURN_OFF_FOR_EVERYONE_DESCRIPTION =
+  "Everyone who currently has access will lose it. You can add people again later.";
+export const TURN_OFF_FOR_EVERYONE_ACTION = "Turn off for everyone";
+export const ADD_GROUP_DIALOG_DESCRIPTION =
+  "Add a group so a whole team can use this app.";
+export const ADD_PERSON_DIALOG_DESCRIPTION =
+  "Add someone only if they are not already in a group.";
+export const ADD_GROUP_INVALID = "Enter a group.";
 
 export const EMPTY_GROUPS =
   "No groups yet. Add a group so a whole team can use this app.";

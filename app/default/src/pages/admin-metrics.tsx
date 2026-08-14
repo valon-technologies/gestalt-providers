@@ -65,7 +65,7 @@ export default function AdminMetricsPage() {
           </Button>
         </PageHeaderActions>
       </PageHeader>
-      <div className="overflow-hidden rounded-lg border border-border bg-card">
+      <div className="overflow-hidden rounded-lg border border-border bg-card text-card-foreground">
         <div className="border-b border-border px-4 py-3">
           <span className="text-sm text-muted-foreground">{status}</span>
         </div>

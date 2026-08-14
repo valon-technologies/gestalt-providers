@@ -6,6 +6,7 @@ import {
   probeGestaltAdminAccess,
   resetGestaltAdminAccessCache,
 } from "./admin-access-gate";
+import { clearSession } from "@/lib/auth";
 
 describe("canShowAdminNav", () => {
   test("shows Admin only for Gestalt admins", () => {
@@ -35,5 +36,29 @@ describe("Gestalt admin admission cache", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(await probeGestaltAdminAccess()).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not cache 403 or 401", async () => {
+    resetGestaltAdminAccessCache();
+    const fetchMock = vi.fn(async () => new Response("", { status: 403 }));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await probeGestaltAdminAccess()).toBe(false);
+    expect(hasGrantedGestaltAdminAccess()).toBe(false);
+    expect(await probeGestaltAdminAccess()).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    fetchMock.mockImplementation(async () => new Response("", { status: 401 }));
+    expect(await probeGestaltAdminAccess()).toBe(false);
+    expect(hasGrantedGestaltAdminAccess()).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  test("logout clears a successful admission cache", async () => {
+    resetGestaltAdminAccessCache();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("[]", { status: 200 })));
+    expect(await probeGestaltAdminAccess()).toBe(true);
+    expect(hasGrantedGestaltAdminAccess()).toBe(true);
+    clearSession();
+    expect(hasGrantedGestaltAdminAccess()).toBe(false);
   });
 });

@@ -65,9 +65,8 @@ export function AdminAccessStatus({
         <Badge
           key={entry.member.selectorValue ?? entry.label}
           variant="secondary"
-          className="max-w-32 truncate"
         >
-          {entry.label}
+          <span className="max-w-32 truncate">{entry.label}</span>
         </Badge>
       ))}
       {visiblePeople.length > 0 ? (
@@ -77,7 +76,6 @@ export function AdminAccessStatus({
               <AvatarGroupItem
                 key={entry.member.selectorValue ?? entry.label}
                 tooltip={entry.label}
-                className="group-hover:[&_[data-slot=avatar]]:ring-neutral-hover group-active:[&_[data-slot=avatar]]:ring-neutral-pressed"
               >
                 <Avatar size="sm">
                   <AvatarFallback>{rosterInitials(entry.label)}</AvatarFallback>
@@ -85,10 +83,7 @@ export function AdminAccessStatus({
               </AvatarGroupItem>
             ))}
             {overflow > 0 ? (
-              <AvatarGroupCount
-                size="sm"
-                className="group-hover:ring-neutral-hover group-active:ring-neutral-pressed"
-              >
+              <AvatarGroupCount size="sm">
                 +{overflow}
               </AvatarGroupCount>
             ) : null}
