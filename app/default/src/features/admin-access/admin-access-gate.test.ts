@@ -1,33 +1,39 @@
-import { describe, expect, test } from "vitest";
-import type { Integration } from "@/lib/api";
-import { canShowAdminNav } from "./admin-access-gate";
-
-function app(partial: Partial<Integration> & Pick<Integration, "name">): Integration {
-  return { displayName: partial.name, ...partial };
-}
+// @vitest-environment happy-dom
+import { afterEach, describe, expect, test, vi } from "vitest";
+import {
+  canShowAdminNav,
+  hasGrantedGestaltAdminAccess,
+  probeGestaltAdminAccess,
+  resetGestaltAdminAccessCache,
+} from "./admin-access-gate";
 
 describe("canShowAdminNav", () => {
-  test("local-dev chrome always shows Admin", () => {
-    expect(
-      canShowAdminNav({ localDevChrome: true, integrations: [] }),
-    ).toBe(true);
+  test("shows Admin only for Gestalt admins", () => {
+    expect(canShowAdminNav(true)).toBe(true);
+    expect(canShowAdminNav(false)).toBe(false);
+    expect(canShowAdminNav(undefined)).toBe(false);
+  });
+});
+
+describe("Gestalt admin admission cache", () => {
+  afterEach(() => {
+    resetGestaltAdminAccessCache();
+    vi.unstubAllGlobals();
   });
 
-  test("production shows Admin when the caller can manage an app", () => {
-    expect(
-      canShowAdminNav({
-        localDevChrome: false,
-        integrations: [app({ name: "slack", managementPath: "/apps/slack" })],
-      }),
-    ).toBe(true);
+  test("starts empty", () => {
+    resetGestaltAdminAccessCache();
+    expect(hasGrantedGestaltAdminAccess()).toBe(false);
   });
 
-  test("production hides Admin when no app is manageable", () => {
-    expect(
-      canShowAdminNav({
-        localDevChrome: false,
-        integrations: [app({ name: "slack" })],
-      }),
-    ).toBe(false);
+  test("remembers a successful probe so sibling Admin routes skip beforeLoad", async () => {
+    resetGestaltAdminAccessCache();
+    const fetchMock = vi.fn(async () => new Response("[]", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await probeGestaltAdminAccess()).toBe(true);
+    expect(hasGrantedGestaltAdminAccess()).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await probeGestaltAdminAccess()).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

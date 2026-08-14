@@ -63,6 +63,8 @@ test.describe("badge parity with registry storybook", () => {
     const current = await badgeColors(page.getByTestId("deployed-version-badge").first());
 
     expect(current).toEqual(storybookInfo);
-    await expect(page.getByTestId("table-status-indicator").first()).toBeVisible();
+    await expect(
+      page.locator('[data-slot="table-status-indicator"]').first(),
+    ).toBeVisible();
   });
 });

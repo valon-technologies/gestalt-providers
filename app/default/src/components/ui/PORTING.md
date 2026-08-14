@@ -180,9 +180,18 @@ Prefer `OutcomeStatusIndicator` for connection / deploy / non-run domains.
 
 Registry `outcome-status-indicator` is vendored here —
 domain-neutral filled circle + symbol. Map Registry mid-dark ramps onto
-`bg-status-indicator-*`. Failure Badge pairing stays `destructive` (Registry
-`error` not vendored on Badge yet). Distinct from uptime `StatusIndicator`
-dots and `TableStatusIndicator` (soft Badge washes).
+`bg-status-indicator-*` (`info` → `bg-status-indicator-info`). Failure Badge
+pairing stays `destructive` (Registry `error` not vendored on Badge yet).
+Distinct from uptime `StatusIndicator` dots. Table-row gutters use this
+primitive (`iconOnly`); `TableStatusIndicator` is the `variant` adapter.
+
+## TableStatusIndicator
+
+Registry `table-status-indicator` is vendored here as a thin `variant` adapter
+over `OutcomeStatusIndicator` (`danger` → `failure`, `info` → `info`,
+`default` → `unknown`). Roots keep `data-slot` + `data-variant` and strip
+`data-status`. Compact `iconOnly` gutters default to `sm`. Do not reintroduce
+a second paint path (soft Badge washes) or a consumer `data-testid`.
 
 ## StatusIndicator
 
@@ -302,7 +311,7 @@ or hand-roll grid tracks per page:
 - `--page-layout-mobile-nav-top` — Menu docks flush under measured chrome
   (`var(--app-sticky-chrome-height)`). Do **not** add `--page-layout-pane-gap`.
 - `--page-layout-pane-top` — Pane / Aside rails use chrome + `--page-layout-pane-gap`
-  (1.5rem breathing room).
+  (4rem; same as Container `py-16`).
 - `--page-layout-pane-bottom`, `--page-layout-mobile-nav-height`,
   `--page-layout-anchor-offset`, track widths (`--page-layout-pane-width` /
   `--page-layout-aside-width`).
@@ -326,8 +335,8 @@ Esc dismiss, `RemoveScroll`, FocusScope trap, and `inert` on
 host has no layout box. Overlay `top` tracks the live Menu bar bottom. Scroll-spy
 activation offsets must use `usePageLayoutAnchorOffsetPx` from
 `@/lib/page-layout-anchor-offset` (live probe of `--page-layout-anchor-offset`) —
-do not hardcode mobile/desktop px. Host pages with Menu must not put top padding
-on `Container` above the bar. Label column uses `appTopBarColumnVariants` from
+do not hardcode mobile/desktop px. Page inset lives on `Container` (`py-16`);
+do not re-pad individual routes. Label column uses `appTopBarColumnVariants` from
 `app-top-bar` (one SoT with `AppTopBarInner`). Do not put `overflow-x-*` on
 `PageLayout`'s `paneMobile` slot. Wrap a scrolling `SegmentedControl` at the call
 site instead.

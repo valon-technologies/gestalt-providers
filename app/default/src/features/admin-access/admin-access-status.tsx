@@ -1,3 +1,4 @@
+import { ACCESS_LIST_STATUS } from "./admin-access-copy";
 import type { AppAccessEntry } from "./admin-access";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -35,7 +36,10 @@ export function AdminAccessStatus({
   groups: AppAccessEntry[];
   people: AppAccessEntry[];
 }) {
-  const showRoster = groups.length > 0 || people.length > 0;
+  const showRoster =
+    status !== ACCESS_LIST_STATUS.everyone &&
+    status !== ACCESS_LIST_STATUS.noOne &&
+    (groups.length > 0 || people.length > 0);
   if (!showRoster) {
     return <span className="text-sm text-muted-foreground">{status}</span>;
   }
@@ -61,7 +65,6 @@ export function AdminAccessStatus({
         <Badge
           key={entry.member.selectorValue ?? entry.label}
           variant="secondary"
-          size="sm"
           className="max-w-32 truncate"
         >
           {entry.label}
@@ -74,14 +77,20 @@ export function AdminAccessStatus({
               <AvatarGroupItem
                 key={entry.member.selectorValue ?? entry.label}
                 tooltip={entry.label}
+                className="group-hover:[&_[data-slot=avatar]]:ring-neutral-hover group-active:[&_[data-slot=avatar]]:ring-neutral-pressed"
               >
-                <Avatar variant="outline" size="sm">
+                <Avatar size="sm">
                   <AvatarFallback>{rosterInitials(entry.label)}</AvatarFallback>
                 </Avatar>
               </AvatarGroupItem>
             ))}
             {overflow > 0 ? (
-              <AvatarGroupCount size="sm">+{overflow}</AvatarGroupCount>
+              <AvatarGroupCount
+                size="sm"
+                className="group-hover:ring-neutral-hover group-active:ring-neutral-pressed"
+              >
+                +{overflow}
+              </AvatarGroupCount>
             ) : null}
           </AvatarGroup>
         </TooltipProvider>

@@ -6,21 +6,30 @@ import {
   ACCESS_LIST_STATUS,
   ACCESS_RULE_CHOICES,
   ACCESS_RULE_HEADING,
+  ADMIN_METRICS_NAV_LABEL,
+  ADMIN_METRICS_PAGE_DESCRIPTION,
   ADMIN_PAGE_DESCRIPTION,
+  APP_ACCESS_NAV_LABEL,
+  APP_ACCESS_PAGE_TITLE,
+  APP_VERSIONS_NAV_LABEL,
   EVERYONE_BLOCKS_REMOVE,
   LOCKED_FROM_CONFIG,
+  PLATFORM_ADMINS_NAV_LABEL,
 } from "./admin-access-copy";
 import {
   groupLabel,
   groupRelationshipTuple,
+  groupRelationshipTupleForResource,
   inferAppAccessRule,
   isGroupMember,
   partitionAccessEntries,
   personLabel,
   personRelationshipTuple,
+  personRelationshipTupleForResource,
   personSubjectId,
   parseGroupSelector,
   relationshipTupleForMember,
+  relationshipTupleForMemberOnResource,
   resourceTypeHasDefaultRole,
   ruleChoiceEnabled,
 } from "./admin-access";
@@ -115,6 +124,48 @@ describe("groups and people", () => {
     expect(people).toHaveLength(1);
   });
 
+  test("collapses the same group granted as viewer and admin", () => {
+    const { groups } = partitionAccessEntries([
+      member({
+        role: "viewer",
+        source: "static",
+        mutable: false,
+        selectorKind: "subject_set",
+        selectorValue: "group:valon-employees#member",
+      }),
+      member({
+        role: "admin",
+        source: "static",
+        mutable: false,
+        selectorKind: "subject_set",
+        selectorValue: "group:valon-employees#member",
+      }),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.label).toBe("valon-employees");
+  });
+
+  test("keeps a removable grant when the same group is also locked in config", () => {
+    const { groups } = partitionAccessEntries([
+      member({
+        role: "viewer",
+        source: "static",
+        mutable: false,
+        selectorKind: "subject_set",
+        selectorValue: "group:eng#member",
+      }),
+      member({
+        role: "viewer",
+        source: "dynamic",
+        mutable: true,
+        selectorKind: "subject_set",
+        selectorValue: "group:eng#member",
+      }),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.mutable).toBe(true);
+  });
+
   test("parses typed group ids into subject_set tuples", () => {
     expect(parseGroupSelector("eng")).toEqual({
       type: "group",
@@ -132,6 +183,22 @@ describe("groups and people", () => {
         relation: "member",
       },
     });
+    expect(
+      groupRelationshipTupleForResource(
+        { type: "gestaltAdmin", id: "gestaltAdmin" },
+        "eng",
+        "admin",
+      ),
+    ).toEqual({
+      resource: { type: "gestaltAdmin", id: "gestaltAdmin" },
+      relation: "admin",
+      target: {
+        subjectSet: {
+          resource: { type: "group", id: "eng" },
+          relation: "member",
+        },
+      },
+    });
   });
 
   test("person email becomes user: subject id", () => {
@@ -139,6 +206,13 @@ describe("groups and people", () => {
     expect(personRelationshipTuple("slack", "a@example.com").target).toEqual({
       subject: { type: "subject", id: "user:a@example.com" },
     });
+    expect(
+      personRelationshipTupleForResource(
+        { type: "gestaltAdmin", id: "gestaltAdmin" },
+        "a@example.com",
+        "admin",
+      ).relation,
+    ).toBe("admin");
   });
 
   test("delete tuple reuses role and selector from the member row", () => {
@@ -160,6 +234,18 @@ describe("groups and people", () => {
         },
       },
     });
+    expect(
+      relationshipTupleForMemberOnResource(
+        { type: "gestaltAdmin", id: "gestaltAdmin" },
+        member({
+          role: "admin",
+          selectorKind: "subject_id",
+          selectorValue: "user:a@example.com",
+          email: "a@example.com",
+          subjectId: "user:a@example.com",
+        }),
+      )?.resource,
+    ).toEqual({ type: "gestaltAdmin", id: "gestaltAdmin" });
   });
 });
 
@@ -178,8 +264,16 @@ describe("rule choices", () => {
 });
 
 describe("admin copy", () => {
-  test("uses who-can-use language, not assignment or authorization", () => {
-    expect(ADMIN_PAGE_DESCRIPTION).toBe("Choose who can use each app.");
+  test("uses app access language, not assignment or authorization", () => {
+    expect(ADMIN_PAGE_DESCRIPTION).toBe(
+      "Set who can use each app: everyone, specific people and groups, or no one.",
+    );
+    expect(APP_ACCESS_PAGE_TITLE).toBe("App access");
+    expect(APP_ACCESS_NAV_LABEL).toBe("App access");
+    expect(PLATFORM_ADMINS_NAV_LABEL).toBe("Platform admins");
+    expect(APP_VERSIONS_NAV_LABEL).toBe("App versions");
+    expect(ADMIN_METRICS_NAV_LABEL).toBe("Metrics");
+    expect(ADMIN_METRICS_PAGE_DESCRIPTION).toMatch(/since it started/);
     expect(ACCESS_RULE_HEADING("Slack")).toBe("Who can use Slack");
     expect(ACCESS_LIST_STATUS.everyone).toBe("Everyone");
     expect(ACCESS_LIST_STATUS.noOne).toBe("No one");

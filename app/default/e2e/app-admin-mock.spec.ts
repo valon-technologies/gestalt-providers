@@ -2,6 +2,7 @@ import {
   expect,
   mockAppAdminRegistry,
   mockAppAdminRegistryHistory,
+  mockAppAuthorizationMembers,
   mockAuthSession,
   mockIntegrations,
   test,
@@ -411,18 +412,17 @@ test.describe("app admin registry UI", () => {
       .getByTestId("snapshot-row-published")
       .filter({ hasText: PUBLISHED_NEW.version.slice(0, 20) });
     await expect(availableRow.getByTestId("snapshot-status")).toHaveCount(0);
-    await expect(availableRow.getByTestId("table-status-indicator")).toHaveAttribute(
-      "data-variant",
-      "success",
-    );
+    await expect(
+      availableRow.locator('[data-slot="table-status-indicator"]'),
+    ).toHaveAttribute("data-variant", "success");
     const availableIndicatorShell = availableRow
-      .getByTestId("table-status-indicator")
+      .locator('[data-slot="table-status-indicator"]')
       .locator("> span");
     await expect(availableIndicatorShell).toHaveCSS(
       "background-color",
-      "oklch(0.928 0.045 144)",
+      "oklch(0.62 0.19 145)",
     );
-    await expect(availableIndicatorShell).toHaveCSS("color", "oklch(0.408 0.105 144)");
+    await expect(availableIndicatorShell).toHaveCSS("color", "rgb(255, 255, 255)");
     await expect(availableRow).toContainText("Published in");
 
     const deployedBadge = page
@@ -463,13 +463,13 @@ test.describe("app admin registry UI", () => {
     const liveIndicatorShell = page
       .getByTestId("snapshot-row-published")
       .filter({ hasText: PUBLISHED_LEGACY.version.slice(0, 20) })
-      .getByTestId("table-status-indicator")
+      .locator('[data-slot="table-status-indicator"]')
       .locator("> span");
     await expect(liveIndicatorShell).toHaveCSS(
       "background-color",
-      "oklch(0.928 0.045 144)",
+      "oklch(0.62 0.19 145)",
     );
-    await expect(liveIndicatorShell).toHaveCSS("color", "oklch(0.408 0.105 144)");
+    await expect(liveIndicatorShell).toHaveCSS("color", "rgb(255, 255, 255)");
   });
 
   test("prefers published rows over pending and failed for the same version", async ({
@@ -810,5 +810,46 @@ test.describe("app admin registry UI", () => {
       "Automatically deployed",
     );
     await expect(deployedRow.getByTestId("deployed-by-avatar")).toHaveCount(0);
+  });
+
+  test("shows per-app Metrics for app admins", async ({ page }) => {
+    await mockIntegrations(page, [MANAGED_INTEGRATION]);
+    await mockAppAdminRegistry(page, APP, installedRegistryState());
+    await mockAppAuthorizationMembers(page, APP);
+    await page.route(
+      `**/api/v1/apps/${APP}/admin/metrics`,
+      async (route, request) => {
+        if (request.method() !== "GET") {
+          await route.fallback();
+          return;
+        }
+        await route.fulfill({
+          json: {
+            app: APP,
+            available: true,
+            requests: 12,
+            errors: 1,
+            durationSecondsSum: 0.24,
+            durationSecondsCount: 12,
+            operations: [
+              {
+                operation: "list",
+                requests: 12,
+                errors: 1,
+                durationSecondsSum: 0.24,
+                durationSecondsCount: 12,
+              },
+            ],
+          },
+        });
+      },
+    );
+
+    await page.goto(`/apps/${APP}/metrics`);
+    await expect(page.getByRole("heading", { name: "Metrics" })).toBeVisible();
+    await expect(page.getByText("since it started")).toBeVisible();
+    await expect(page.getByTestId("app-admin-nav-metrics")).toBeVisible();
+    await expect(page.getByRole("cell", { name: "list" })).toBeVisible();
+    await expect(page.getByRole("cell", { name: "12" }).first()).toBeVisible();
   });
 });

@@ -96,6 +96,23 @@ export async function mockManualConnect(
   );
 }
 
+export async function mockAppAuthorizationMembers(
+  page: Page,
+  app: string,
+  members: unknown[] = [],
+) {
+  await page.route(
+    `**/api/v1/apps/${encodeURIComponent(app)}/admin/members`,
+    (route: Route, request) => {
+      if (request.method() === "GET") {
+        route.fulfill({ json: members });
+      } else {
+        route.fallback();
+      }
+    },
+  );
+}
+
 export async function mockAppAdminIdentities(
   page: Page,
   app: string,

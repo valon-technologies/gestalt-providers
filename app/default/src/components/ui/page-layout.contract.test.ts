@@ -95,7 +95,7 @@ describe("PageLayout theme contract", () => {
     expect(GLOBALS_CSS).toContain("--app-sticky-chrome-height:");
     expect(GLOBALS_CSS).toContain("--page-layout-pane-gap:");
     expect(extractCssTokenValue(GLOBALS_CSS, "--page-layout-pane-gap")).toBe(
-      "1.5rem",
+      "4rem",
     );
     expect(extractCssTokenValue(GLOBALS_CSS, "--page-layout-pane-top")).toContain(
       "var(--app-sticky-chrome-height)",

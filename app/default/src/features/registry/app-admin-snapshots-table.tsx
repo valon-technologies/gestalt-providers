@@ -412,10 +412,11 @@ function SnapshotSeverityCell({
   const status = snapshotRowStatusPresentation(statusId);
 
   return (
-    <DataTableRegistryPrimaryLine className="justify-center">
+    <DataTableRegistryPrimaryLine className="justify-end">
       <TableStatusIndicator
         variant={status.indicatorVariant}
         iconOnly
+        size="md"
         label={status.label}
       />
     </DataTableRegistryPrimaryLine>
@@ -440,7 +441,7 @@ const SnapshotPullRequestCell = memo(function SnapshotPullRequestCell({
     shouldShowRowRolloutStepper(rollout, row.version);
 
   return (
-    <DataTableRegistryCell className="gap-2">
+    <DataTableRegistryCell>
       <DataTableRegistryPrimaryLine>
         {pullRequest?.number ? (
           <PublicationPullRequestLabel

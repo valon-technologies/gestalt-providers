@@ -215,7 +215,7 @@ function ReplicaHoverBody({
 function ReplicaStatusIndicator({ replicaClass }: { replicaClass: string }) {
   const kind = replicaStatusIndicatorKind(replicaClass);
   const shell =
-    "relative inline-flex size-3.5 shrink-0 items-center justify-center rounded-full";
+    "relative inline-flex size-2.5 shrink-0 items-center justify-center rounded-full";
 
   if (kind === "success") {
     return (
@@ -225,7 +225,7 @@ function ReplicaStatusIndicator({ replicaClass }: { replicaClass: string }) {
         data-kind={kind}
         className={cn(shell, "bg-status-indicator-success text-white")}
       >
-        <Check className="size-2.5" strokeWidth={3} absoluteStrokeWidth />
+        <Check className="size-2" strokeWidth={3} absoluteStrokeWidth />
       </span>
     );
   }
@@ -238,7 +238,7 @@ function ReplicaStatusIndicator({ replicaClass }: { replicaClass: string }) {
         data-kind={kind}
         className={cn(shell, "bg-status-indicator-danger text-white")}
       >
-        <X className="size-2.5" strokeWidth={3} absoluteStrokeWidth />
+        <X className="size-2" strokeWidth={3} absoluteStrokeWidth />
       </span>
     );
   }
@@ -251,7 +251,7 @@ function ReplicaStatusIndicator({ replicaClass }: { replicaClass: string }) {
         data-kind={kind}
         className={cn(shell, "bg-status-indicator-warning text-white")}
       >
-        <TriangleAlert className="size-2.5" strokeWidth={2.5} absoluteStrokeWidth />
+        <TriangleAlert className="size-2" strokeWidth={2.5} absoluteStrokeWidth />
       </span>
     );
   }
@@ -266,7 +266,7 @@ function ReplicaStatusIndicator({ replicaClass }: { replicaClass: string }) {
         "border-[1.5px] border-muted-foreground text-muted-foreground",
       )}
     >
-      <span className="block h-[1.5px] w-2 -rotate-45 rounded-full bg-current" />
+      <span className="block h-[1.5px] w-1.5 -rotate-45 rounded-full bg-current" />
     </span>
   );
 }
@@ -323,7 +323,7 @@ const FleetReplicaTrigger = memo(function FleetReplicaTrigger({
               ? "Click to pin details"
               : "Show details — click to pin"
         }
-        className="group inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center focus-ring rounded-sm outline-none"
+        className="group inline-flex cursor-pointer items-center justify-center rounded-sm outline-none focus-ring"
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -332,7 +332,7 @@ const FleetReplicaTrigger = memo(function FleetReplicaTrigger({
       >
         <Badge
           variant="ghost"
-          size="default"
+          size="sm"
           className={cn(
             "pointer-events-none font-normal text-foreground",
             ghostQuietChromeGroupActivateClassName,
@@ -430,6 +430,7 @@ export function SnapshotRowLiveReplicas({
   className,
   hoverScope = "row",
   heartbeatTtlSeconds,
+  summary: summaryOverride,
 }: {
   replicas: AppAdminFleetReplica[];
   className?: string;
@@ -437,13 +438,18 @@ export function SnapshotRowLiveReplicas({
   hoverScope?: string;
   /** Fleet heartbeat TTL — drives stale copy in the hover card. */
   heartbeatTtlSeconds?: number;
+  /** Replace the automatic "N on desired version" rail label. `null` hides it. */
+  summary?: ReactNode;
 }) {
   if (replicas.length === 0) return null;
   const ordered = sortReplicasByTriage(replicas);
-  const summary = replicaRowSummary(ordered);
+  const summary =
+    summaryOverride === undefined
+      ? replicaRowSummary(ordered)
+      : summaryOverride;
   return (
     <div
-      className={cn("mt-1.5 flex flex-wrap items-center gap-1.5", className)}
+      className={cn("flex flex-wrap items-center gap-1.5", className)}
       data-testid="snapshot-row-live-replicas"
     >
       {summary ? (

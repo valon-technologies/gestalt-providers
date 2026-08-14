@@ -1,3 +1,4 @@
+import { APP_METRICS_NAV_LABEL } from "./app-metrics-copy";
 import { CONNECTION_SURFACE_NAV_LABEL } from "./connection-surface-copy";
 import {
   SERVICE_ACCOUNTS_COPY,
@@ -9,6 +10,7 @@ export type AppUserNavId = "overview" | "connection" | "operations";
 
 export type AppAdminNavId =
   | "versions"
+  | "metrics"
   | "workflows"
   | "members"
   | "service-accounts";
@@ -54,6 +56,10 @@ export function adminSurfaceForPathname(
   if (pathname === versionsPath || pathname.startsWith(`${versionsPath}/`)) {
     return "registry";
   }
+  const metricsPath = `/apps/${app}/metrics`;
+  if (pathname === metricsPath || pathname.startsWith(`${metricsPath}/`)) {
+    return "authorization";
+  }
 
   const base = `/apps/${app}/admin`;
   if (!pathname.includes(base)) return null;
@@ -86,12 +92,31 @@ export function isAppVersionsAdminPath(pathname: string, app: string): boolean {
   );
 }
 
+export function isAppMetricsPath(pathname: string, app: string): boolean {
+  const metricsPath = `/apps/${app}/metrics`;
+  return pathname === metricsPath || pathname.startsWith(`${metricsPath}/`);
+}
+
+export function isAppAdminChromePath(pathname: string, app: string): boolean {
+  return (
+    pathname.includes(`/apps/${app}/admin`) ||
+    isAppVersionsAdminPath(pathname, app) ||
+    isAppMetricsPath(pathname, app)
+  );
+}
+
 export const APP_ADMIN_NAV = [
   {
     id: "versions" as const,
     label: "Versions",
     to: "/apps/$app/versions" as const,
     requires: "registry" as const satisfies AppAdminSurface,
+  },
+  {
+    id: "metrics" as const,
+    label: APP_METRICS_NAV_LABEL,
+    to: "/apps/$app/metrics" as const,
+    requires: "authorization" as const satisfies AppAdminSurface,
   },
   {
     id: "workflows" as const,

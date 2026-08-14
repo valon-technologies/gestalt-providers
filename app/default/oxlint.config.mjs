@@ -24,7 +24,6 @@ export default defineConfig({
     "node_modules/**",
     ".dev/**",
     ".local/**",
-    "public/control-surface/echarts.min.js",
   ],
   jsPlugins: [homePlugin],
   categories: {

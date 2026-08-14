@@ -40,9 +40,9 @@ describe("Nav AppTopBar composition", () => {
     expect(NAV).not.toContain('label: "Docs"');
   });
 
-  test("gates Admin nav on local-dev chrome or app admin", () => {
+  test("gates Admin nav on Gestalt admin probe", () => {
     expect(NAV).toContain("canShowAdminNav");
-    expect(NAV).toContain("isLocalDevChrome");
+    expect(NAV).toContain("useGestaltAdminQuery");
     expect(NAV).toContain("ADMIN_PATH");
     expect(NAV).toContain('label: "Admin"');
   });

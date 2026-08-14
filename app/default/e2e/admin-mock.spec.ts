@@ -46,12 +46,106 @@ function member(partial: AdminMember): AdminMember {
   };
 }
 
+function registryApp(name: string) {
+  return {
+    app: name,
+    registry: "toolshed",
+    desiredVersion: "1.0.0",
+    rollout: {
+      version: "1.0.0",
+      state: "complete",
+      createdAt: "2026-08-13T00:00:00Z",
+      enrollmentEndsAt: "2026-08-13T00:05:00Z",
+      deadline: "2026-08-13T00:10:00Z",
+    },
+    cohort: {
+      acknowledged: 1,
+      materialized: 1,
+      restarted: 1,
+      failed: 0,
+    },
+    fleetState: {
+      state: "healthy",
+      sourceVersion: "abc",
+      desiredVersion: "1.0.0",
+      minimumHealthyInstances: 1,
+      liveInstances: 1,
+      runningDesiredVersion: 1,
+      mismatched: 0,
+      errors: 0,
+      heartbeatTtlSeconds: 45,
+      evaluatedAt: "2026-08-13T00:00:00Z",
+    },
+  };
+}
+
+async function mockRegistryApps(
+  page: import("@playwright/test").Page,
+  apps: ReturnType<typeof registryApp>[],
+) {
+  await page.route(
+    (url) => url.pathname === "/admin/api/v1/registry-apps",
+    async (route, request) => {
+      if (request.method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      await route.fulfill({ json: apps });
+    },
+  );
+  await page.route(
+    (url) => url.pathname.startsWith("/admin/api/v1/registry-apps/"),
+    async (route, request) => {
+      if (request.method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      const name = decodeURIComponent(new URL(request.url()).pathname.split("/").pop() ?? "");
+      const match = apps.find((item) => item.app === name);
+      if (!match) {
+        await route.fulfill({ status: 404, json: { error: "not found" } });
+        return;
+      }
+      await route.fulfill({
+        json: {
+          ...match,
+          knownVersions: [],
+          freshReplicas: [],
+          staleReplicas: [],
+        },
+      });
+    },
+  );
+}
+
+async function mockGestaltAdmin(
+  page: import("@playwright/test").Page,
+  allowed: boolean,
+) {
+  await page.route(
+    (url) => url.pathname === "/admin/api/v1/app-registries",
+    async (route, request) => {
+      if (request.method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      if (!allowed) {
+        await route.fulfill({ status: 403, json: { error: "forbidden" } });
+        return;
+      }
+      await route.fulfill({ json: [] });
+    },
+  );
+}
+
 async function wireAdminAccess(
   page: import("@playwright/test").Page,
   state: AdminState,
 ) {
+  await mockGestaltAdmin(page, true);
   await page.route(
-    "**/api/v2/authorization/models/active/resource-types**",
+    (url) =>
+      url.pathname === "/api/v2/authorization/models/active/resource-types",
     async (route, request) => {
       if (request.method() !== "GET") {
         await route.fallback();
@@ -162,7 +256,7 @@ async function wireAdminAccess(
   });
 }
 
-test.describe("Admin who can use apps", () => {
+test.describe("Admin app access", () => {
   test("lists apps with group badges, people avatars, and No one", async ({
     authenticatedPage: page,
   }) => {
@@ -197,9 +291,17 @@ test.describe("Admin who can use apps", () => {
     await wireAdminAccess(page, state);
 
     await page.goto("/admin");
-    await expect(page.getByRole("heading", { name: "Admin" })).toBeVisible();
     await expect(
-      page.getByText("Choose who can use each app."),
+      page.getByRole("heading", { name: "App access" }),
+    ).toBeVisible();
+    await expect(page.getByTestId("admin-nav-who-can-use")).toBeVisible();
+    await expect(page.getByTestId("admin-nav-platform-admins")).toBeVisible();
+    await expect(page.getByTestId("admin-nav-versions")).toBeVisible();
+    await expect(page.getByTestId("admin-nav-metrics")).toBeVisible();
+    await expect(
+      page.getByText(
+        "Set who can use each app: everyone, specific people and groups, or no one.",
+      ),
     ).toBeVisible();
     await expect(page.getByTestId("admin-app-row-slack")).toContainText("Slack");
     await expect(
@@ -251,18 +353,12 @@ test.describe("Admin who can use apps", () => {
     await expect(
       page.getByRole("heading", { name: "Who can use Slack" }),
     ).toBeVisible();
-    const toc = page.getByTestId("admin-app-toc").first();
-    await expect(toc.getByRole("link", { name: "Who can use" })).toBeVisible();
-    await expect(toc.getByRole("link", { name: "Groups" })).toHaveCount(0);
     await expect(
       page.getByRole("radio", { name: /^No one/ }),
     ).toBeChecked();
-
     await page.getByTestId("admin-access-choice-specific").click();
-    await expect(toc.getByRole("link", { name: "Groups" })).toBeVisible();
-    await expect(toc.getByRole("link", { name: "People" })).toBeVisible();
-    await toc.getByRole("link", { name: "People" }).click();
-    await expect(page.getByRole("heading", { name: "People" })).toBeInViewport();
+    await expect(page.getByRole("heading", { name: "Groups" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "People" })).toBeVisible();
     await expect(page.getByText("No groups yet.")).toBeVisible();
     await expect(page.getByText("No individual people.")).toBeVisible();
 
@@ -367,13 +463,63 @@ test.describe("Admin who can use apps", () => {
     ).toBeVisible();
     await expect(
       page.getByTestId("admin-access-entry").filter({ hasText: "eng" }).getByText(
-        "Set in workspace config — can’t change here",
+        "Set in workspace config. Can’t change here.",
       ),
     ).toBeVisible();
     await expect(page.getByRole("button", { name: "Remove access" })).toBeDisabled();
   });
 
-  test("sends people who cannot manage apps back to Apps", async ({
+  test("keeps Admin section nav in sync with the center column", async ({
+    authenticatedPage: page,
+  }) => {
+    await mockAuthInfo(page, {
+      provider: "test-sso",
+      displayName: "Test SSO",
+    });
+    await mockIntegrations(page, [app("slack", "Slack")]);
+    await wireAdminAccess(page, { defaultRole: "", membersByApp: { slack: [] } });
+    await page.route(
+      (url) => url.pathname === "/admin/api/v1/app-registries",
+      async (route, request) => {
+        if (request.method() !== "GET") {
+          await route.fallback();
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        await route.fulfill({ json: [] });
+      },
+    );
+    await page.route("**/admin/api/v1/platform-admins", async (route, request) => {
+      if (request.method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      await route.fulfill({
+        json: {
+          resource: { type: "gestaltAdmin", id: "gestaltAdmin" },
+          role: "admin",
+          members: [],
+        },
+      });
+    });
+
+    await page.goto("/admin");
+    await expect(page.getByRole("heading", { name: "App access" })).toBeVisible();
+
+    await page.getByTestId("admin-nav-platform-admins").click();
+    await expect(
+      page.getByRole("heading", { name: "Platform admins" }),
+    ).toBeVisible({ timeout: 1000 });
+    await expect(page.getByTestId("admin-nav-platform-admins")).toHaveAttribute(
+      "data-selected",
+      "",
+    );
+    await expect(page.getByTestId("admin-nav-who-can-use")).not.toHaveAttribute(
+      "data-selected",
+    );
+  });
+
+  test("sends people who are not Gestalt admins back to Apps", async ({
     authenticatedPage: page,
   }) => {
     await mockAuthInfo(page, {
@@ -385,8 +531,10 @@ test.describe("Admin who can use apps", () => {
         name: "slack",
         displayName: "Slack",
         description: "Slack",
+        managementPath: "/apps/slack/admin",
       },
     ]);
+    await mockGestaltAdmin(page, false);
 
     await page.goto("/admin");
     await expect(page).toHaveURL(/\/apps/);
@@ -396,5 +544,151 @@ test.describe("Admin who can use apps", () => {
         name: "Admin",
       }),
     ).toHaveCount(0);
+  });
+
+  test("lists platform admins with config-locked rows", async ({
+    authenticatedPage: page,
+  }) => {
+    await mockAuthInfo(page, {
+      provider: "test-sso",
+      displayName: "Test SSO",
+    });
+    await mockIntegrations(page, [app("slack", "Slack")]);
+    await mockGestaltAdmin(page, true);
+    await page.route("**/admin/api/v1/platform-admins", async (route, request) => {
+      if (request.method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      await route.fulfill({
+        json: {
+          resource: { type: "gestaltAdmin", id: "gestaltAdmin" },
+          role: "admin",
+          members: [
+            member({
+              role: "admin",
+              source: "static",
+              mutable: false,
+              selectorKind: "subject_id",
+              selectorValue: "user:seed@gestalt.dev",
+              email: "seed@gestalt.dev",
+              subjectId: "user:seed@gestalt.dev",
+            }),
+          ],
+        },
+      });
+    });
+
+    await page.goto("/admin/platform-admins");
+    await expect(
+      page.getByRole("heading", { name: "Platform admins" }),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("admin-platform-admin-entry").filter({ hasText: "seed@gestalt.dev" }),
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Remove access" })).toBeDisabled();
+  });
+
+  test("loads App versions and Metrics from Admin", async ({
+    authenticatedPage: page,
+  }) => {
+    await mockAuthInfo(page, {
+      provider: "test-sso",
+      displayName: "Test SSO",
+    });
+    await mockIntegrations(page, [app("slack", "Slack")]);
+    await mockGestaltAdmin(page, true);
+    await page.route("**/admin/api/v1/registry-apps", async (route, request) => {
+      if (request.method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      await route.fulfill({ json: [] });
+    });
+    await page.route("**/admin/api/v1/metrics", async (route, request) => {
+      if (request.method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      await route.fulfill({
+        contentType: "text/plain",
+        body: "# HELP gestaltd_up 1\ngestaltd_up 1\n",
+      });
+    });
+
+    await page.goto("/admin/versions");
+    await expect(page.getByRole("heading", { name: "App versions" })).toBeVisible();
+    await expect(page.getByRole("searchbox", { name: "Search apps" })).toBeVisible();
+    await expect(page.getByText("No registry apps")).toBeVisible();
+
+    await page.getByTestId("admin-nav-metrics").click();
+    await expect(page.getByRole("heading", { name: "Metrics", exact: true })).toBeVisible();
+    await expect(page.getByText("since it started")).toBeVisible();
+    await expect(page.getByText("gestaltd_up 1")).toBeVisible();
+  });
+
+  test("filters App versions and highlights the matching app name", async ({
+    authenticatedPage: page,
+  }) => {
+    await mockAuthInfo(page, {
+      provider: "test-sso",
+      displayName: "Test SSO",
+    });
+    await mockIntegrations(page, [app("slack", "Slack")]);
+    await mockGestaltAdmin(page, true);
+    await mockRegistryApps(page, [
+      registryApp("agent-trace-viewer"),
+      registryApp("ai-spend-tracker"),
+    ]);
+
+    await page.goto("/admin/versions");
+    await expect(
+      page.getByTestId("admin-versions-row-agent-trace-viewer"),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("admin-versions-row-ai-spend-tracker"),
+    ).toBeVisible();
+
+    await page.getByRole("searchbox", { name: "Search apps" }).fill("trace");
+    await expect(
+      page
+        .getByTestId("admin-versions-row-agent-trace-viewer")
+        .getByRole("link", { name: /agent-trace-viewer/ })
+        .getByRole("mark"),
+    ).toHaveText("trace");
+    await expect(
+      page.getByTestId("admin-versions-row-ai-spend-tracker"),
+    ).toHaveCount(0);
+  });
+
+  test("opens an app from the versions row", async ({
+    authenticatedPage: page,
+  }) => {
+    await mockAuthInfo(page, {
+      provider: "test-sso",
+      displayName: "Test SSO",
+    });
+    await mockIntegrations(page, [app("slack", "Slack")]);
+    await mockGestaltAdmin(page, true);
+    await mockRegistryApps(page, [
+      registryApp("agent-trace-viewer"),
+      registryApp("ai-spend-tracker"),
+    ]);
+
+    await page.goto("/admin/versions");
+    const row = page.getByTestId("admin-versions-row-agent-trace-viewer");
+    await expect(row).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "App" })).toHaveCount(0);
+
+    const box = await row.boundingBox();
+    expect(box).toBeTruthy();
+    await page.mouse.click(
+      box!.x + box!.width - 24,
+      box!.y + Math.min(16, box!.height / 2),
+    );
+    await expect(page).toHaveURL(/\/admin\/versions\/agent-trace-viewer$/);
+    await expect(
+      page.getByRole("heading", { name: "agent-trace-viewer" }),
+    ).toBeVisible();
   });
 });

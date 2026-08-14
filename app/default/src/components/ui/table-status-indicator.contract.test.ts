@@ -7,35 +7,42 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SOURCE = readFileSync(join(HERE, "table-status-indicator.tsx"), "utf8");
 
 describe("TableStatusIndicator", () => {
-  test("shell colors match Badge status surfaces in this bundle", () => {
-    expect(SOURCE).toContain(
-      "bg-badge-success text-badge-success-foreground",
-    );
-    expect(SOURCE).toContain(
-      "bg-badge-destructive text-badge-destructive-foreground",
-    );
-    expect(SOURCE).toContain(
-      "bg-badge-warning text-badge-warning-foreground",
-    );
-    expect(SOURCE).toContain("bg-badge-info text-badge-info-foreground");
-    expect(SOURCE).toContain("bg-foreground/[0.06] text-foreground/80");
-    expect(SOURCE).toContain("from \"lucide-react\"");
-    expect(SOURCE).toContain("iconOnly");
+  test("is a thin variant adapter over OutcomeStatusIndicator", () => {
+    expect(SOURCE).toContain("OutcomeStatusIndicator");
+    expect(SOURCE).toContain("tableVariantToOutcome");
+    expect(SOURCE).toContain('default: "unknown"');
+    expect(SOURCE).toContain('danger: "failure"');
+    expect(SOURCE).toContain('info: "info"');
   });
 
-  test("maps semantic variants to default labels", () => {
-    expect(SOURCE).toContain("Succeeded");
-    expect(SOURCE).toContain("Failed");
-    expect(SOURCE).toContain("Caution");
-    expect(SOURCE).toContain("Information");
+  test("keeps table vocabulary on data-variant", () => {
+    expect(SOURCE).toContain('data-slot="table-status-indicator"');
+    expect(SOURCE).toContain("data-variant={resolved}");
+    expect(SOURCE).toContain("iconOnly={iconOnly}");
+    expect(SOURCE).toContain('size ?? (iconOnly ? "sm" : undefined)');
+    expect(SOURCE).toContain("data-status={undefined}");
+    expect(SOURCE).not.toContain("data-status={resolved}");
+    expect(SOURCE).not.toContain("data-testid");
   });
 
-  test("exports Badge variant mapper alongside indicator variants", () => {
+  test("re-exports tableStatusIndicatorVariants as a compatibility alias", () => {
+    expect(SOURCE).toContain("tableStatusIndicatorVariants");
+    expect(SOURCE).toContain("outcomeStatusIndicatorVariants");
+  });
+
+  test("badge helper delegates without remapping failure in this file", () => {
     expect(SOURCE).toContain("tableStatusIndicatorBadgeVariant");
-    expect(SOURCE).toContain("return \"destructive\"");
+    expect(SOURCE).toContain("outcomeStatusIndicatorBadgeVariant");
+    expect(SOURCE).not.toContain('return "destructive"');
   });
 
-  test("iconOnly falls back when label is an empty string", () => {
-    expect(SOURCE).toContain("label?.length");
+  test("preserves table default labels and empty-string label guard", () => {
+    expect(SOURCE).toContain('default: "Normal"');
+    expect(SOURCE).toContain('success: "Succeeded"');
+    expect(SOURCE).toContain('danger: "Failed"');
+    expect(SOURCE).toContain('warning: "Caution"');
+    expect(SOURCE).toContain('info: "Information"');
+    expect(SOURCE).toContain("label != null && label.length > 0");
+    expect(SOURCE).toContain("customLabel ?? VARIANT_DEFAULT_LABEL[resolved]");
   });
 });

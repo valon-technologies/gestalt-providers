@@ -1,8 +1,83 @@
-/** Product copy for Admin — who can use which apps. Keep engineer words off the page. */
+/** Product copy for Admin. Keep engineer words off the page. */
 
 export const ADMIN_NAV_LABEL = "Admin";
-export const ADMIN_PAGE_TITLE = "Admin";
-export const ADMIN_PAGE_DESCRIPTION = "Choose who can use each app.";
+export const ADMIN_SECTIONS_NAV_LABEL = "Admin sections";
+
+export const APP_ACCESS_NAV_LABEL = "App access";
+export const APP_ACCESS_PAGE_TITLE = "App access";
+export const APP_ACCESS_PAGE_DESCRIPTION =
+  "Set who can use each app: everyone, specific people and groups, or no one.";
+
+export const PLATFORM_ADMINS_NAV_LABEL = "Platform admins";
+export const PLATFORM_ADMINS_PAGE_TITLE = "Platform admins";
+export const PLATFORM_ADMINS_PAGE_DESCRIPTION =
+  "People and groups who can open Admin.";
+export const PLATFORM_ADMINS_EMPTY_GROUPS =
+  "No groups yet. Add a group so a whole team can open Admin.";
+export const PLATFORM_ADMINS_EMPTY_PEOPLE =
+  "No individual people. Add someone only if they are not already in a group.";
+export const PLATFORM_ADMINS_SAVED_PERSON = (label: string) =>
+  `${label} can open Admin.`;
+export const PLATFORM_ADMINS_SAVED_GROUP = (label: string) =>
+  `${label} can open Admin.`;
+export const PLATFORM_ADMINS_UNAVAILABLE =
+  "Couldn't load platform admins. Authorization is unavailable on this server.";
+export const PLATFORM_ADMINS_LOAD_ERROR =
+  "Couldn't load platform admins. Try again.";
+export const PLATFORM_ADMINS_FORBIDDEN =
+  "You do not have permission to manage platform admins.";
+export const PLATFORM_ADMINS_ADD_GROUP_DESCRIPTION =
+  "Add a group so a whole team can open Admin.";
+export const PLATFORM_ADMINS_ADD_PERSON_DESCRIPTION =
+  "Add someone only if they are not already in a group.";
+
+export const APP_VERSIONS_NAV_LABEL = "App versions";
+export const APP_VERSIONS_PAGE_TITLE = "App versions";
+export const APP_VERSIONS_PAGE_DESCRIPTION =
+  "Current fleet health, desired versions, and rollout progress.";
+export const APP_VERSIONS_EMPTY_TITLE = "No registry apps";
+export const APP_VERSIONS_EMPTY_DESCRIPTION =
+  "No registry-only apps are configured in this workspace.";
+export const APP_VERSIONS_SEARCH_EMPTY = "No apps match that search.";
+export const APP_VERSIONS_LOAD_ERROR = "Couldn't load app versions. Try again.";
+export const APP_VERSIONS_NOT_INSTALLED = "Not installed";
+export const APP_VERSIONS_NO_DATA = "No data";
+export const APP_VERSIONS_NOT_FOUND = "This registry app was not found.";
+export const APP_VERSIONS_LIVE_ON_TARGET = (count: number) =>
+  `${count} live on target`;
+export const APP_VERSIONS_LIVE_ON_TARGET_PARTIAL = (
+  onTarget: number,
+  live: number,
+) => `${onTarget} of ${live} live on target`;
+export const APP_VERSIONS_COHORT = (reloaded: number, acknowledged: number) =>
+  `${reloaded} of ${acknowledged} reloaded`;
+export const APP_VERSIONS_LAST_ROLLOUT_RELOADED = (
+  reloaded: number,
+  acknowledged: number,
+) => `last rollout ${reloaded} of ${acknowledged} reloaded`;
+export const APP_VERSIONS_ROLLOUT_RELOADED = (
+  reloaded: number,
+  acknowledged: number,
+) => `rollout ${reloaded} of ${acknowledged} reloaded`;
+export const APP_VERSIONS_ROW_META_SEP = " · ";
+
+export const ADMIN_METRICS_NAV_LABEL = "Metrics";
+export const ADMIN_METRICS_PAGE_TITLE = "Metrics";
+export const ADMIN_METRICS_PAGE_DESCRIPTION =
+  "Live telemetry from this server since it started. This is not a 24 hour history.";
+export const ADMIN_METRICS_UNAVAILABLE =
+  "Metrics are unavailable on this server.";
+export const ADMIN_METRICS_LOAD_ERROR = "Couldn't load metrics. Try again.";
+export const ADMIN_METRICS_REFRESH = "Refresh";
+export const ADMIN_METRICS_EMPTY = "Click refresh to load metrics.";
+export const ADMIN_METRICS_LOADING = "Loading metrics…";
+export const ADMIN_METRICS_LAST_REFRESHED = (time: string) =>
+  `Last refreshed ${time}`;
+
+/** @deprecated Use APP_ACCESS_PAGE_TITLE */
+export const ADMIN_PAGE_TITLE = APP_ACCESS_PAGE_TITLE;
+/** @deprecated Use APP_ACCESS_PAGE_DESCRIPTION */
+export const ADMIN_PAGE_DESCRIPTION = APP_ACCESS_PAGE_DESCRIPTION;
 
 /** One-phrase list status. Do not pair a count with a second chip. */
 export const ACCESS_LIST_STATUS = {
@@ -40,7 +115,8 @@ export const EMPTY_GROUPS =
 export const EMPTY_PEOPLE =
   "No individual people. Add someone only if they are not already in a group.";
 
-export const LOCKED_FROM_CONFIG = "Set in workspace config — can’t change here";
+export const LOCKED_FROM_CONFIG =
+  "Set in workspace config. Can’t change here.";
 export const EVERYONE_BLOCKS_REMOVE =
   "This app is on for everyone. To limit it, choose Specific people and groups first.";
 

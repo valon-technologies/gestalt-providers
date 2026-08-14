@@ -1,6 +1,6 @@
 @import "../shared/theme.css";
 
-/* Scan src/ only — do not crawl bundled admin vendor files for candidates. */
+/* Scan this directory (src/) only. */
 @import "tailwindcss" source(".");
 @import "tw-animate-css";
 
@@ -154,6 +154,7 @@
   --color-status-indicator-success: var(--status-indicator-success);
   --color-status-indicator-warning: var(--status-indicator-warning);
   --color-status-indicator-danger: var(--status-indicator-danger);
+  --color-status-indicator-info: var(--status-indicator-info);
   --color-status-indicator-muted: var(--status-indicator-muted);
 
   /* Registry UI extensions — see shared/theme.css for runtime fallbacks. */
@@ -371,8 +372,9 @@
        publishes the live height; this is the Nav-only fallback before measure. */
     --app-sticky-chrome-height: 4.0625rem;
     /* Breathing room between sticky chrome and PageLayout Pane / Aside rails —
-       not for the mobile Menu (secondary chrome docks flush under AppTopBar). */
-    --page-layout-pane-gap: 1.5rem;
+       same 4rem as Container `py-16`. Not for the mobile Menu (secondary chrome
+       docks flush under AppTopBar). */
+    --page-layout-pane-gap: 4rem;
     /* Menu sticky top: flush under measured chrome. Do not add pane-gap here. */
     --page-layout-mobile-nav-top: var(--app-sticky-chrome-height);
     /* Pane / Aside sticky top = chrome + rail breathing room. */

@@ -1,3 +1,4 @@
+import { isAdminMetricsScrapeText } from "./admin-metrics-response";
 import { clearSession } from "./auth";
 import { HTTP_UNAUTHORIZED } from "./constants";
 import { serverLoginURL } from "./authReturn";
@@ -993,6 +994,98 @@ export interface AppAuthorizationMember {
   subjectId?: string;
 }
 
+export interface AdminPlatformAdminsResponse {
+  resource: AuthorizationResource;
+  role: string;
+  members: AppAuthorizationMember[];
+}
+
+export interface AppAdminOperationMetric {
+  operation: string;
+  requests: number;
+  errors: number;
+  durationSecondsSum: number;
+  durationSecondsCount: number;
+}
+
+export interface AppAdminMetricsResponse {
+  app: string;
+  available: boolean;
+  requests: number;
+  errors: number;
+  durationSecondsSum: number;
+  durationSecondsCount: number;
+  operations: AppAdminOperationMetric[];
+}
+
+export interface AdminFleetState {
+  state: string;
+  sourceVersion?: string;
+  desiredVersion?: string;
+  minimumHealthyInstances: number;
+  liveInstances: number;
+  runningDesiredVersion: number;
+  mismatched: number;
+  errors: number;
+  heartbeatTtlSeconds: number;
+  evaluatedAt: string;
+}
+
+export interface AdminFleetReplica {
+  instanceId: string;
+  sourceVersion: string;
+  currentSource: boolean;
+  sourceStatus: "current" | "superseded" | "unavailable";
+  fresh: boolean;
+  startedAt?: string;
+  heartbeatAt: string;
+  heartbeatAgeSeconds: number;
+  appObservation: {
+    state: "running" | "starting" | "not_running" | "error" | "unknown";
+    desiredVersion?: string;
+    runningVersion?: string;
+    observedAt?: string;
+    lastError?: string;
+  };
+}
+
+export interface AdminRegistryAppSummary {
+  app: string;
+  registry: string;
+  desiredVersion?: string;
+  rollout?: {
+    version: string;
+    state: string;
+    targetSourceVersion?: string;
+    createdAt: string;
+    enrollmentEndsAt: string;
+    deadline: string;
+    completedAt?: string;
+    failedAt?: string;
+  };
+  cohort?: {
+    acknowledged: number;
+    materialized: number;
+    restarted: number;
+    failed: number;
+  };
+  fleetState: AdminFleetState;
+}
+
+export interface AdminRegistryAppDetail extends AdminRegistryAppSummary {
+  knownVersions: Array<{
+    version: string;
+    installedAt?: string;
+    installedBy?: string;
+  }>;
+  latestPublished?: {
+    version: string;
+    publishedAt: string;
+  };
+  freshReplicas: AdminFleetReplica[];
+  staleReplicas: AdminFleetReplica[];
+}
+
 export interface AuthorizationResource {
   type: string;
   id: string;
@@ -1167,6 +1260,81 @@ export async function getAppAdminRegistryHistory(
   return fetchAPI<AppAdminRegistryHistoryResponse>(
     `/api/v1/apps/${encodeURIComponent(app)}/admin/registry/history${query ? `?${query}` : ""}`,
   );
+}
+
+export async function getAppAdminMetrics(
+  app: string,
+): Promise<AppAdminMetricsResponse> {
+  const response = await fetchAPI<AppAdminMetricsResponse>(
+    `/api/v1/apps/${encodeURIComponent(app)}/admin/metrics`,
+  );
+  return {
+    ...response,
+    operations: response.operations ?? [],
+  };
+}
+
+export async function getAdminPlatformAdmins(): Promise<AdminPlatformAdminsResponse> {
+  const response = await fetchAPI<
+    AdminPlatformAdminsResponse & { members?: AppAuthorizationMember[] }
+  >("/admin/api/v1/platform-admins");
+  return {
+    resource: response.resource,
+    role: response.role,
+    members: response.members ?? [],
+  };
+}
+
+export async function listAdminRegistryApps(): Promise<AdminRegistryAppSummary[]> {
+  return fetchAPI<AdminRegistryAppSummary[]>("/admin/api/v1/registry-apps");
+}
+
+export async function getAdminRegistryApp(
+  app: string,
+): Promise<AdminRegistryAppDetail> {
+  const detail = await fetchAPI<AdminRegistryAppDetail>(
+    `/admin/api/v1/registry-apps/${encodeURIComponent(app)}`,
+  );
+  return {
+    ...detail,
+    knownVersions: detail.knownVersions ?? [],
+    freshReplicas: detail.freshReplicas ?? [],
+    staleReplicas: detail.staleReplicas ?? [],
+  };
+}
+
+export async function getAdminMetricsText(): Promise<string> {
+  const res = await fetch(resolveAPIPath("/admin/api/v1/metrics"), {
+    credentials: "include",
+    cache: "no-store",
+    headers: { Accept: "text/plain" },
+  });
+  if (res.status === HTTP_UNAUTHORIZED) {
+    redirectToLogin();
+    throw new APIError(HTTP_UNAUTHORIZED, "Session expired");
+  }
+  if (!res.ok) {
+    const body = await res.text();
+    let message =
+      res.status === 503
+        ? "Prometheus metrics are unavailable."
+        : "Couldn't load metrics.";
+    try {
+      const parsed = JSON.parse(body) as { error?: unknown };
+      if (typeof parsed.error === "string" && parsed.error.trim()) {
+        message = parsed.error;
+      }
+    } catch {
+      /* keep fallback */
+    }
+    throw new APIError(res.status, message);
+  }
+  const body = await res.text();
+  const contentType = res.headers.get("content-type") || "";
+  if (!isAdminMetricsScrapeText(contentType, body)) {
+    throw new APIError(503, "Metrics are unavailable on this server.");
+  }
+  return body;
 }
 
 export async function getIntegrationOperations(

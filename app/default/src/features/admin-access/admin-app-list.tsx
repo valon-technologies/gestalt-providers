@@ -6,7 +6,7 @@ import { getIntegrationLabel, filterIntegrations } from "@/lib/integrationSearch
 import IntegrationIcon from "@/components/IntegrationIcon";
 import PluginSearchBar from "@/components/PluginSearchBar";
 import { SearchHighlight } from "@/components/ui/search-highlight";
-import { SpinnerIcon } from "@/components/icons";
+import { Skeleton } from "@/components/ui/skeleton";
 import { listItemInteraction } from "@/lib/list-item-interaction";
 import {
   isInteractiveTarget,
@@ -26,6 +26,42 @@ import {
 } from "./admin-access";
 import { accessListStatus } from "./admin-access-copy";
 import { AdminAccessStatus } from "./admin-access-status";
+
+const ADMIN_APP_SKELETON_ROW_COUNT = 8;
+const ADMIN_APP_SKELETON_NAME_WIDTHS = [
+  "w-24",
+  "w-32",
+  "w-20",
+  "w-36",
+  "w-28",
+  "w-40",
+  "w-24",
+  "w-32",
+] as const;
+
+const ADMIN_APP_ROW_CLASS = cn(
+  "group relative flex items-center justify-between gap-4 px-4 py-3 text-sm",
+);
+
+function AdminAppSkeletonRow({ index }: { index: number }) {
+  const nameWidth =
+    ADMIN_APP_SKELETON_NAME_WIDTHS[index % ADMIN_APP_SKELETON_NAME_WIDTHS.length];
+  return (
+    <li
+      aria-hidden
+      className="pointer-events-none"
+      data-testid="admin-app-skeleton-row"
+    >
+      <div className={ADMIN_APP_ROW_CLASS}>
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <Skeleton className="size-8 shrink-0 rounded-lg" />
+          <Skeleton className={cn("h-5", nameWidth)} />
+        </div>
+        <Skeleton className="h-5 w-16 shrink-0 rounded-full" />
+      </div>
+    </li>
+  );
+}
 
 function summaryForApp(
   members: AppAuthorizationMember[] | undefined,
@@ -90,10 +126,16 @@ export function AdminAppList({
       <PluginSearchBar query={query} onQueryChange={setQuery} disabled={loading} />
 
       {loading ? (
-        <p className="mt-6 flex items-center gap-1.5 text-sm text-muted-foreground">
-          <SpinnerIcon className="size-4 animate-spin" aria-hidden />
-          Loading apps…
-        </p>
+        <ul
+          className="mt-6 divide-y divide-border rounded-lg border border-border"
+          aria-busy="true"
+          aria-label="Loading apps"
+          data-testid="admin-app-list"
+        >
+          {Array.from({ length: ADMIN_APP_SKELETON_ROW_COUNT }, (_, index) => (
+            <AdminAppSkeletonRow key={index} index={index} />
+          ))}
+        </ul>
       ) : null}
 
       {error ? (
@@ -121,11 +163,14 @@ export function AdminAppList({
               membersQuery?.error,
               hasDefaultRole,
             );
+            const statusLoading =
+              !summary &&
+              (Boolean(membersQuery?.isPending) || resourceTypesQuery.isPending);
             return (
               <li key={integration.name}>
                 <div
                   className={cn(
-                    "relative flex items-center justify-between gap-4 px-4 py-3 text-sm",
+                    ADMIN_APP_ROW_CLASS,
                     listItemInteraction({ pointer: "css" }),
                     nestedInteractiveSuppress.selectableRowSiblingControl,
                   )}
@@ -180,6 +225,8 @@ export function AdminAppList({
                         people={summary.people}
                       />
                     </div>
+                  ) : statusLoading ? (
+                    <Skeleton className="relative z-10 h-5 w-16 shrink-0 rounded-full" />
                   ) : null}
                 </div>
               </li>

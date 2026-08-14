@@ -18,14 +18,16 @@ describe("OutcomeStatusIndicator", () => {
       'failure: "bg-status-indicator-danger text-white"',
     );
     expect(SOURCE).toContain(
-      'in_progress: "bg-status-indicator-warning text-white"',
-    );
-    expect(SOURCE).toContain(
       'warning: "bg-status-indicator-warning text-white"',
+    );
+    expect(SOURCE).toContain('info: "bg-status-indicator-info text-white"');
+    expect(SOURCE).toContain(
+      'in_progress: "bg-status-indicator-warning text-white"',
     );
     expect(SOURCE).not.toContain("bg-green-500");
     expect(SOURCE).not.toContain("bg-red-500");
     expect(SOURCE).not.toContain("bg-yellow-500");
+    expect(SOURCE).not.toContain("bg-blue-500");
     expect(SOURCE).not.toContain("--valon-green");
   });
 
@@ -40,14 +42,19 @@ describe("OutcomeStatusIndicator", () => {
     expect(SOURCE).toContain('"inline-flex gap-2"');
   });
 
-  test("maps statuses to Badge variants without unused info", () => {
+  test("maps statuses to Badge variants (failure → destructive until error exists)", () => {
     expect(SOURCE).toContain("outcomeStatusIndicatorBadgeVariant");
     expect(SOURCE).toContain('return "success"');
     expect(SOURCE).toContain('return "destructive"');
     expect(SOURCE).toContain('return "warning"');
+    expect(SOURCE).toContain('return "info"');
     expect(SOURCE).toContain('return "muted"');
-    expect(SOURCE).not.toContain('| "info"');
     expect(SOURCE).not.toContain('return "error"');
+  });
+
+  test("info is a filled notice glyph, not pending", () => {
+    expect(SOURCE).toContain("info: { icon: Info");
+    expect(SOURCE).toContain('info: "bg-status-indicator-info text-white"');
   });
 
   test("pending is a single hollow Circle (no shell border)", () => {

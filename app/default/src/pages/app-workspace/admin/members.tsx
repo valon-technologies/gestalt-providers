@@ -18,6 +18,7 @@ import {
   SectionHeaderTitle,
 } from "@/components/ui/section-header";
 import { SpinnerIcon } from "@/components/icons";
+import { APP_ACCESS_NAV_LABEL } from "@/features/admin-access/admin-access-copy";
 import { useAppWorkspace } from "@/features/app-workspace/app-workspace-context";
 import {
   rolesForMembers,
@@ -28,7 +29,10 @@ import {
   SERVICE_ACCOUNTS_ROUTE,
 } from "@/features/app-workspace/app-agent-identity-presentation";
 import { partitionAppMembers } from "@/features/app-workspace/app-workspace-shared";
-import { useAppAuthorizationMembersQuery } from "@/lib/queries";
+import {
+  useAppAuthorizationMembersQuery,
+  useGestaltAdminQuery,
+} from "@/lib/queries";
 import { Link as RouterLink } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
@@ -39,6 +43,8 @@ function membersLoadErrorMessage(_error: unknown): string {
 export default function AppAdminMembersPage() {
   const { app } = useAppWorkspace();
   const membersQuery = useAppAuthorizationMembersQuery(app);
+  const gestaltAdminQuery = useGestaltAdminQuery();
+  const showWhoCanUseLink = gestaltAdminQuery.data === true;
   const members = membersQuery.data ?? [];
   const membersLoading = membersQuery.isPending;
   const membersForbidden =
@@ -70,14 +76,20 @@ export default function AppAdminMembersPage() {
         <PageHeaderContent size="md">
           <PageHeaderTitle>Members</PageHeaderTitle>
           <PageHeaderDescription>
-            People and groups who can use this app. This roster is read-only —
-            use{" "}
-            <Link asChild>
-              <RouterLink to="/admin/apps/$app" params={{ app }}>
-                Who can use this app
-              </RouterLink>
-            </Link>{" "}
-            to add or change access. Service accounts appear under{" "}
+            People and groups who can use this app. This roster is read-only.
+            {showWhoCanUseLink ? (
+              <>
+                {" "}
+                Use{" "}
+                <Link asChild>
+                  <RouterLink to="/admin/apps/$app" params={{ app }}>
+                    {APP_ACCESS_NAV_LABEL}
+                  </RouterLink>
+                </Link>{" "}
+                to add or change who can use this app.
+              </>
+            ) : null}{" "}
+            Service accounts appear under{" "}
             <Link asChild>
               <RouterLink to={SERVICE_ACCOUNTS_ROUTE} params={{ app }}>
                 {SERVICE_ACCOUNTS_COPY.navLabel}

@@ -108,6 +108,33 @@ export function inferAppAccessRule(options: {
   return "no_one";
 }
 
+/** One row per principal. Extra roles for the same group or person collapse. */
+function accessEntryIdentity(entry: AppAccessEntry): string {
+  if (entry.kind === "group") {
+    const parsed = parseGroupSelector(entry.member.selectorValue ?? "");
+    return `group:${parsed.type}:${parsed.id}`;
+  }
+  const id = (
+    entry.member.subjectId ||
+    entry.member.selectorValue ||
+    entry.member.email ||
+    entry.label
+  ).trim();
+  return `person:${id}`;
+}
+
+function collapseAccessEntries(entries: AppAccessEntry[]): AppAccessEntry[] {
+  const byIdentity = new Map<string, AppAccessEntry>();
+  for (const entry of entries) {
+    const key = accessEntryIdentity(entry);
+    const existing = byIdentity.get(key);
+    if (!existing || (entry.mutable && !existing.mutable)) {
+      byIdentity.set(key, entry);
+    }
+  }
+  return [...byIdentity.values()];
+}
+
 export function partitionAccessEntries(
   members: AppAuthorizationMember[],
 ): { groups: AppAccessEntry[]; people: AppAccessEntry[] } {
@@ -134,7 +161,10 @@ export function partitionAccessEntries(
       });
     }
   }
-  return { groups, people };
+  return {
+    groups: collapseAccessEntries(groups),
+    people: collapseAccessEntries(people),
+  };
 }
 
 export function relationshipTargetForMember(
@@ -161,27 +191,39 @@ export function relationshipTargetForMember(
   };
 }
 
-export function relationshipTupleForMember(
-  appName: string,
+export const DEFAULT_PLATFORM_ADMIN_ROLE = "admin";
+
+export function relationshipTupleForMemberOnResource(
+  resource: AuthorizationResource,
   member: AppAuthorizationMember,
 ): AuthorizationRelationshipTuple | null {
   const target = relationshipTargetForMember(member);
   const relation = member.role?.trim();
   if (!target || !relation) return null;
   return {
-    resource: authorizationResourceForApp(appName),
+    resource,
     relation,
     target,
   };
 }
 
-export function personRelationshipTuple(
+export function relationshipTupleForMember(
   appName: string,
+  member: AppAuthorizationMember,
+): AuthorizationRelationshipTuple | null {
+  return relationshipTupleForMemberOnResource(
+    authorizationResourceForApp(appName),
+    member,
+  );
+}
+
+export function personRelationshipTupleForResource(
+  resource: AuthorizationResource,
   email: string,
-  role = DEFAULT_APP_ACCESS_ROLE,
+  role: string,
 ): AuthorizationRelationshipTuple {
   return {
-    resource: authorizationResourceForApp(appName),
+    resource,
     relation: role,
     target: {
       subject: { type: SUBJECT_TYPE, id: personSubjectId(email) },
@@ -189,14 +231,14 @@ export function personRelationshipTuple(
   };
 }
 
-export function groupRelationshipTuple(
-  appName: string,
+export function groupRelationshipTupleForResource(
+  resource: AuthorizationResource,
   groupInput: string,
-  role = DEFAULT_APP_ACCESS_ROLE,
+  role: string,
 ): AuthorizationRelationshipTuple {
   const parsed = parseGroupSelector(groupInput);
   return {
-    resource: authorizationResourceForApp(appName),
+    resource,
     relation: role,
     target: {
       subjectSet: {
@@ -205,6 +247,30 @@ export function groupRelationshipTuple(
       },
     },
   };
+}
+
+export function personRelationshipTuple(
+  appName: string,
+  email: string,
+  role = DEFAULT_APP_ACCESS_ROLE,
+): AuthorizationRelationshipTuple {
+  return personRelationshipTupleForResource(
+    authorizationResourceForApp(appName),
+    email,
+    role,
+  );
+}
+
+export function groupRelationshipTuple(
+  appName: string,
+  groupInput: string,
+  role = DEFAULT_APP_ACCESS_ROLE,
+): AuthorizationRelationshipTuple {
+  return groupRelationshipTupleForResource(
+    authorizationResourceForApp(appName),
+    groupInput,
+    role,
+  );
 }
 
 export function ruleChoiceEnabled(

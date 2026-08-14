@@ -1,9 +1,8 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { clearSession, sessionDisplayLabel, sessionInitials } from "@/lib/auth";
 import { ADMIN_PATH, SETUP_PATH } from "@/lib/constants";
-import { isLocalDevChrome } from "@/lib/local-dev-chrome";
 import { appPath } from "@/lib/mount";
-import { useAuthInfoQuery, useAuthSessionQuery, useIntegrationsQuery } from "@/lib/queries";
+import { useAuthInfoQuery, useAuthSessionQuery, useGestaltAdminQuery } from "@/lib/queries";
 import { canShowAdminNav } from "@/features/admin-access/admin-access-gate";
 import { AccountMenu } from "./AccountMenu";
 import {
@@ -36,13 +35,10 @@ export default function Nav() {
   const initials = sessionInitials(session);
   const authInfoQuery = useAuthInfoQuery(!!displayLabel);
   const loginSupported = authInfoQuery.data?.loginSupported ?? false;
-  const integrationsQuery = useIntegrationsQuery({
-    enabled: Boolean(displayLabel) && !isLocalDevChrome(),
+  const gestaltAdminQuery = useGestaltAdminQuery({
+    enabled: Boolean(displayLabel),
   });
-  const showAdmin = canShowAdminNav({
-    localDevChrome: isLocalDevChrome(),
-    integrations: integrationsQuery.data,
-  });
+  const showAdmin = canShowAdminNav(gestaltAdminQuery.data);
   const links = showAdmin
     ? [...productLinks, { href: ADMIN_PATH, label: "Admin" as const }]
     : [...productLinks];
