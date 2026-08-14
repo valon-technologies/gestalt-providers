@@ -7,6 +7,8 @@ import { listItemInteraction } from "@/lib/list-item-interaction";
 import { isInteractiveTarget, rowLinkClickIntent } from "@/lib/row-link";
 import { useWorkflowRunsQuery } from "@/lib/queries";
 import { pickWorkflowRunListAggregates } from "@/lib/workflowApi";
+import { userFacingError } from "@/lib/user-facing-error";
+import ErrorNotice from "@/components/ErrorNotice";
 import { Card } from "@/components/ui/card";
 import { CopyableCode } from "@/components/ui/copyable-code";
 import { Button } from "@/components/ui/button";
@@ -51,7 +53,6 @@ import {
 } from "./workflow-format";
 import {
   rollupWorkflowRunGroupStatus,
-  type WorkflowRunsGroupBy,
 } from "./workflow-runs-group";
 import { useWorkflowDefinitionGroupOpen } from "./workflow-runs-group-disclosure";
 import { useStickyStuck } from "./workflow-runs-sticky-stuck";
@@ -59,6 +60,8 @@ import {
   applyWorkflowRunsListQuery,
   workflowDefinitionRunCountLabel,
   workflowListHasMorePages,
+  workflowRunsListQueryIsActive,
+  workflowVisibleRunTotalCount,
   type WorkflowRunsListQuery,
 } from "./workflow-runs-list-query";
 
@@ -83,19 +86,12 @@ const GROUPED_RUNS_PAGE_SIZE = 20;
 export function WorkflowGhaRunsList({
   runs,
   appName,
-  groupBy = "none",
   highlightQuery = "",
 }: {
   runs: WorkflowRun[];
   appName: string;
-  groupBy?: WorkflowRunsGroupBy;
   highlightQuery?: string;
 }) {
-  // Flat list only — grouped mode uses WorkflowGroupedDefinitionRunsList so
-  // each definition owns its ListRuns cursor.
-  if (groupBy === "definition") {
-    return null;
-  }
   return (
     <SearchHighlightProvider query={highlightQuery}>
       <FlatRunsList runs={runs} appName={appName} />
@@ -195,7 +191,8 @@ function WorkflowDefinitionRunsSection({
       applyWorkflowRunsListQuery(runs, {
         ...listQuery,
         // Display invariant: this section never shows another definition's
-        // rows. Cardinality still comes from ListRuns `totalCount`.
+        // rows. Header cardinality uses ListRuns `totalCount` only when the
+        // visible set is that same corpus (see workflowVisibleRunTotalCount).
         definitionId,
       }),
     [runs, listQuery, definitionId],
@@ -214,14 +211,27 @@ function WorkflowDefinitionRunsSection({
   const runCountLabel = workflowDefinitionRunCountLabel({
     loading,
     loadedCount: filteredRuns.length,
-    totalCount: aggregates.totalCount,
+    totalCount: workflowVisibleRunTotalCount(
+      listQuery,
+      aggregates.totalCount,
+    ),
     hasMore: hasMoreRuns,
   });
   const toggleLabel = `Toggle runs for ${definitionId}`;
-  const groupStatus = rollupWorkflowRunGroupStatus(filteredRuns);
+  const groupStatus = hasMoreRuns
+    ? "unknown"
+    : rollupWorkflowRunGroupStatus(filteredRuns);
   const headingId = `workflow-run-group-${definitionId}`;
   const headerRef = useRef<HTMLDivElement>(null);
   const headerStuck = useStickyStuck(headerRef, groupOpen);
+  const runsError = runsQuery.error
+    ? userFacingError(
+        runsQuery.error,
+        "Couldn't load runs for this definition. Try again.",
+      )
+    : null;
+  const filteredEmpty = filteredRuns.length === 0;
+  const hasListFilters = workflowRunsListQueryIsActive(listQuery);
 
   return (
     <section
@@ -236,10 +246,7 @@ function WorkflowDefinitionRunsSection({
         {/* Sticky flush under app chrome so a long group keeps its definition. */}
         <div
           ref={headerRef}
-          className={cn(
-            "sticky top-[calc(var(--page-layout-mobile-nav-top)+var(--page-layout-mobile-nav-height))] z-20 isolate flex items-center gap-1 border-b border-transparent bg-background pt-6 pb-4 lg:top-[var(--app-sticky-chrome-height)]",
-            headerStuck && "border-border",
-          )}
+          className="sticky top-[calc(var(--page-layout-mobile-nav-top)+var(--page-layout-mobile-nav-height))] z-20 isolate flex items-center gap-1 border-b border-transparent bg-background pt-6 pb-4 data-[stuck=true]:border-border lg:top-[var(--app-sticky-chrome-height)]"
           data-stuck={headerStuck ? "true" : undefined}
           data-testid={`app-workflow-run-group-header-${definitionId}`}
         >
@@ -260,7 +267,7 @@ function WorkflowDefinitionRunsSection({
 
           <SectionHeader className="min-w-0 flex-1 gap-x-1.5">
             <SectionHeaderIcon>
-              <WorkflowStatusIcon status={groupStatus} title={groupStatus} />
+              <WorkflowStatusIcon status={groupStatus} />
             </SectionHeaderIcon>
             <SectionHeaderContent
               size="sm"
@@ -272,7 +279,13 @@ function WorkflowDefinitionRunsSection({
                 title={definitionId}
                 className="max-w-full text-left text-sm font-medium whitespace-normal break-all"
               >
-                <SearchHighlight text={definitionId} variant="vivid" />
+                <Link
+                  to="/apps/$app/admin/workflows/definitions/$definitionId"
+                  params={{ app: appName, definitionId }}
+                  className="text-inherit hover:underline"
+                >
+                  <SearchHighlight text={definitionId} variant="vivid" />
+                </Link>
               </SectionHeaderTitle>
             </SectionHeaderContent>
             <SectionHeaderActions>
@@ -290,16 +303,22 @@ function WorkflowDefinitionRunsSection({
               <p className="text-sm text-muted-foreground/70">
                 Loading runs…
               </p>
-            ) : filteredRuns.length === 0 ? (
-              hasMoreRuns ? null : (
-                <p className="text-sm text-muted-foreground">
-                  No runs for this definition
-                  {listQuery.q.trim() || listQuery.statuses.length > 0
-                    ? " match the current filters"
-                    : " yet"}
-                  .
-                </p>
-              )
+            ) : runsError ? (
+              <ErrorNotice
+                message={runsError}
+                onRetry={() => {
+                  void runsQuery.refetch();
+                }}
+                retrying={runsQuery.isFetching && !runsQuery.isPending}
+              />
+            ) : filteredEmpty ? (
+              <p className="text-sm text-muted-foreground">
+                {hasMoreRuns
+                  ? "No matching runs in the loaded page. Load more runs, or clear filters."
+                  : hasListFilters
+                    ? "No runs for this definition match the current filters."
+                    : "No runs for this definition yet."}
+              </p>
             ) : (
               <Card variant="outline" className="overflow-hidden">
                 <ItemGroup aria-label={`Runs for ${definitionId}`}>

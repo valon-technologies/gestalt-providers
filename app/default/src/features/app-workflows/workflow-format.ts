@@ -294,29 +294,3 @@ export function activationTriggerLabel(
   }
   return capitalize(kind);
 }
-
-export function filterRuns(
-  runs: WorkflowRun[],
-  query: string,
-  status: string,
-  definitionId?: string,
-): WorkflowRun[] {
-  const needle = query.trim().toLowerCase();
-  const definitionFilter = definitionId?.trim();
-  return runs.filter((run) => {
-    if (
-      definitionFilter &&
-      (run.definitionId?.trim() || "") !== definitionFilter
-    ) {
-      return false;
-    }
-    if (
-      status !== "all" &&
-      normalizeWorkflowStatus(run.status) !== normalizeWorkflowStatus(status)
-    ) {
-      return false;
-    }
-    if (!needle) return true;
-    return runSearchTerms(run).some((term) => term.includes(needle));
-  });
-}

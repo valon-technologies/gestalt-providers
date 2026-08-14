@@ -83,8 +83,8 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
     });
   }, [listQuery.groupBy, replaceListQuery]);
 
-  // Flat list source, and when grouped: activity seed for definition discovery.
-  // Grouped sections fetch their own definition-scoped pages.
+  // Flat list source. Grouped sections own their ListRuns; this query only
+  // seeds activity-only definition ids and must not block those sections.
   const runsQuery = useWorkflowRunsQuery(appName, {
     status: serverStatus,
     definitionId: definitionFilter,
@@ -94,7 +94,6 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
     () => runsQuery.data?.pages.flatMap((page) => page.runs) ?? [],
     [runsQuery.data],
   );
-  const loading = runsQuery.isPending || definitionsQuery.isPending;
   const refreshing =
     (runsQuery.isFetching && !runsQuery.isPending) ||
     (definitionsQuery.isFetching && !definitionsQuery.isPending);
@@ -218,31 +217,34 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
           <WorkflowRunsFilters
             query={listQuery}
             definitionOptions={definitionOptions}
-            disabled={activityUnavailable}
-            hasMoreRuns={!groupedByDefinition && hasMoreRuns}
+            disabled={!groupedByDefinition && activityUnavailable}
             onChange={replaceListQuery}
             onClear={clearListQuery}
           />
 
-          {activityUnavailable ? (
-            <p className="text-sm text-muted-foreground">
-              Workflow activity is unavailable until the run list loads.
-            </p>
-          ) : loading ? (
-            <p className="text-sm text-muted-foreground/70">
-              Loading workflow runs…
-            </p>
-          ) : groupedByDefinition ? (
-            groupedDefinitionIds.length === 0 ? (
-              <EmptyRunsState appName={appName} />
-            ) : (
+          {groupedByDefinition ? (
+            groupedDefinitionIds.length > 0 ? (
               <WorkflowGroupedDefinitionRunsList
                 appName={appName}
                 definitionIds={groupedDefinitionIds}
                 status={serverStatus}
                 listQuery={listQuery}
               />
+            ) : definitionsQuery.isPending || runsQuery.isPending ? (
+              <p className="text-sm text-muted-foreground/70">
+                Loading workflow runs…
+              </p>
+            ) : (
+              <EmptyRunsState appName={appName} />
             )
+          ) : activityUnavailable ? (
+            <p className="text-sm text-muted-foreground">
+              Workflow activity is unavailable until the run list loads.
+            </p>
+          ) : runsQuery.isPending ? (
+            <p className="text-sm text-muted-foreground/70">
+              Loading workflow runs…
+            </p>
           ) : (
             <RunsList
               runs={filteredRuns}
@@ -331,7 +333,9 @@ function RunsList({
           data-testid="app-workflows-filtered-empty"
         >
           <p className="text-sm text-muted-foreground">
-            No workflow runs match the current filters.
+            {hasMoreRuns
+              ? "No matching runs in the loaded page. Load more runs, or clear filters."
+              : "No workflow runs match the current filters."}
           </p>
           <Button
             type="button"
@@ -341,6 +345,19 @@ function RunsList({
           >
             Clear filters
           </Button>
+          {hasMoreRuns ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={onLoadMore}
+              disabled={loadingMore}
+              data-testid="app-workflows-load-more"
+            >
+              {loadingMore ? "Loading…" : "Load more runs"}
+            </Button>
+          ) : null}
         </div>
       );
     }
@@ -352,7 +369,6 @@ function RunsList({
       <WorkflowGhaRunsList
         runs={runs}
         appName={appName}
-        groupBy="none"
         highlightQuery={highlightQuery}
       />
       {hasMoreRuns ? (

@@ -23,13 +23,13 @@ describe("shortRunId", () => {
       kind: "temporal-run",
       run_workflow_id: "wf-a",
       run_temporal_run_id: "019ff24b-c635-7620-8189-f78ab4a49972",
-      owner_key: "ai-spend-tracker",
+      owner_key: "example-app",
     });
     const b = encodeHandle({
       kind: "temporal-run",
       run_workflow_id: "wf-b",
       run_temporal_run_id: "019ff182-c5f0-731c-8a1f-4be3d7313c32",
-      owner_key: "ai-spend-tracker",
+      owner_key: "example-app",
     });
 
     expect(a.slice(0, 10)).toBe(b.slice(0, 10));
@@ -52,10 +52,10 @@ describe("resolveWorkflowRunPublicId", () => {
       kind: "temporal-run",
       run_workflow_id: "wf-a",
       run_temporal_run_id: "019ff24b-c635-7620-8189-f78ab4a49972",
-      owner_key: "ai-spend-tracker",
+      owner_key: "example-app",
     });
     expect(
-      resolveWorkflowRunPublicId("ai-spend-tracker", shortRunId(id), [
+      resolveWorkflowRunPublicId("example-app", shortRunId(id), [
         { id },
       ]),
     ).toBe(id);
@@ -69,7 +69,7 @@ describe("runSearchTerms", () => {
       kind: "temporal-run",
       run_workflow_id: "wf-a",
       run_temporal_run_id: "019ff24b-c635-7620-8189-f78ab4a49972",
-      owner_key: "ai-spend-tracker",
+      owner_key: "example-app",
     });
     const terms = runSearchTerms({
       id,
@@ -106,13 +106,13 @@ describe("workflowRunListTitle", () => {
       kind: "temporal-run",
       run_workflow_id: "wf-a",
       run_temporal_run_id: "019ff24b-c635-7620-8189-f78ab4a49972",
-      owner_key: "ai-spend-tracker",
+      owner_key: "example-app",
     });
     expect(
       workflowRunListTitle(
         {
           id,
-          definitionId: "app_ai-spend-tracker_ai_spend_tracker_daily_digest",
+          definitionId: "app_example-app_daily_digest",
           target: { steps: [] },
         },
         { groupedByDefinition: true },
@@ -127,7 +127,7 @@ describe("decodeTemporalRunHandle", () => {
       kind: "temporal-run",
       run_workflow_id: "wf",
       run_temporal_run_id: "019ff24b-c635-7620-8189-f78ab4a49972",
-      owner_key: "ai-spend-tracker",
+      owner_key: "example-app",
     });
     expect(decodeTemporalRunHandle(id)).toMatchObject({
       kind: "temporal-run",

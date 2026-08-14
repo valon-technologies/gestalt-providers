@@ -13,9 +13,9 @@ describe("WorkflowGroupedDefinitionRunsList stacking", () => {
     );
     expect(SOURCE).toContain("lg:top-[var(--app-sticky-chrome-height)]");
     expect(SOURCE).toContain(
-      "border-b border-transparent bg-background pt-6 pb-4",
+      "border-b border-transparent bg-background pt-6 pb-4 data-[stuck=true]:border-border",
     );
-    expect(SOURCE).toContain('headerStuck && "border-border"');
+    expect(SOURCE).not.toContain('headerStuck && "border-border"');
     expect(SOURCE).not.toContain('className="space-y-8"');
     expect(SOURCE).not.toContain("pb-8");
     expect(SOURCE).toContain(

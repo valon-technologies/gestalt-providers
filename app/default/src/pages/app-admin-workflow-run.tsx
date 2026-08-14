@@ -224,12 +224,16 @@ export default function AppAdminWorkflowRunPage() {
                 Loading run events…
               </p>
             ) : eventsQuery.error ? (
-              <p className="text-sm text-muted-foreground">
-                {userFacingError(
+              <ErrorNotice
+                message={userFacingError(
                   eventsQuery.error,
-                  "Unable to load run events.",
+                  "Couldn't load run events. Try again.",
                 )}
-              </p>
+                onRetry={() => {
+                  void eventsQuery.refetch();
+                }}
+                retrying={eventsQuery.isFetching && !eventsQuery.isPending}
+              />
             ) : events.length === 0 ? (
               <p className="text-sm text-muted-foreground/70">
                 No events recorded for this run yet.

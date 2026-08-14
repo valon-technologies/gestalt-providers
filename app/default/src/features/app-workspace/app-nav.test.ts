@@ -116,9 +116,9 @@ describe("workflowAdminPageLabel", () => {
       workflowAdminPageLabel(
         "/apps/slack/admin/workflows/runs/eyJraW5kIjoidGVtcG9yYWwtcnVuIn0",
         "slack",
-        { runLabel: "ai-spend-tracker.runs.sync.fanout.execute" },
+        { runLabel: "example-app.runs.sync.fanout.execute" },
       ),
-    ).toBe("ai-spend-tracker.runs.sync.fanout.execute");
+    ).toBe("example-app.runs.sync.fanout.execute");
   });
 });
 

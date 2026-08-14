@@ -49,7 +49,7 @@ describe("workflow-runs-group", () => {
 
   it("keeps the full definition id as the group label", () => {
     const definitionId =
-      "app_ai-spend-tracker_ai_spend_tracker_sync_every_four_hours";
+      "app_example-app_sync_every_four_hours";
     const groups = groupWorkflowRunsByDefinition([
       run({ id: "1", definitionId }),
     ]);

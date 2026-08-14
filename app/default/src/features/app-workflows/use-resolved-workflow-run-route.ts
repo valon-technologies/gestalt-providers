@@ -9,6 +9,46 @@ import {
 } from "@/features/app-workflows/workflow-format";
 
 /**
+ * Rewrite a legacy full-handle run URL to the short path form, keeping any
+ * job/step suffix. Returns null when the pathname should stay as-is.
+ */
+export function rewriteShortWorkflowRunPath(opts: {
+  pathname: string;
+  app: string;
+  routeRunId: string;
+  publicRunId: string;
+}): string | null {
+  const short = workflowRunPathId(opts.publicRunId);
+  if (!short || short === opts.routeRunId) return null;
+  if (
+    !(
+      opts.routeRunId === opts.publicRunId ||
+      Boolean(decodeTemporalRunHandle(opts.routeRunId))
+    )
+  ) {
+    return null;
+  }
+  const marker = `/apps/${opts.app}/admin/workflows/runs/`;
+  const idx = opts.pathname.indexOf(marker);
+  if (idx < 0) return null;
+  const rest = opts.pathname.slice(idx + marker.length);
+  const slash = rest.indexOf("/");
+  const currentSeg = slash >= 0 ? rest.slice(0, slash) : rest;
+  const after = slash >= 0 ? rest.slice(slash) : "";
+  let decoded = currentSeg;
+  try {
+    decoded = decodeURIComponent(currentSeg);
+  } catch {
+    // keep raw segment
+  }
+  if (decoded !== opts.routeRunId && currentSeg !== opts.routeRunId) {
+    return null;
+  }
+  const next = `${marker}${encodeURIComponent(short)}${after}`;
+  return next !== opts.pathname ? next : null;
+}
+
+/**
  * Resolve a route `$runId` (short or full handle) to the public API id, using
  * the runs list cache + session memory. GetRun still needs the full handle.
  */
@@ -52,42 +92,18 @@ export function useResolvedWorkflowRunRoute(app: string, routeRunId: string) {
   useEffect(() => {
     if (!publicRunId) return;
     rememberWorkflowRunPublicId(app, publicRunId);
-    const short = workflowRunPathId(publicRunId);
-    if (!short || short === routeRunId) return;
-    // Rewrite legacy full-handle URLs to the short path form (keep job/step suffix).
-    if (
-      !(
-        routeRunId === publicRunId ||
-        Boolean(decodeTemporalRunHandle(routeRunId))
-      )
-    ) {
-      return;
-    }
-    const marker = `/apps/${app}/admin/workflows/runs/`;
-    const idx = pathname.indexOf(marker);
-    if (idx < 0) return;
-    const rest = pathname.slice(idx + marker.length);
-    const slash = rest.indexOf("/");
-    const currentSeg = slash >= 0 ? rest.slice(0, slash) : rest;
-    const after = slash >= 0 ? rest.slice(slash) : "";
-    let decoded = currentSeg;
-    try {
-      decoded = decodeURIComponent(currentSeg);
-    } catch {
-      // keep raw segment
-    }
-    if (decoded !== routeRunId && currentSeg !== routeRunId) return;
-    const next = `${marker}${encodeURIComponent(short)}${after}`;
-    if (next !== pathname) {
-      void navigate({ to: next, replace: true });
-    }
+    const next = rewriteShortWorkflowRunPath({
+      pathname,
+      app,
+      routeRunId,
+      publicRunId,
+    });
+    if (next) void navigate({ to: next, replace: true });
   }, [app, navigate, pathname, publicRunId, routeRunId]);
 
   return {
-    routeRunId,
     publicRunId,
     listRun: listRun ?? undefined,
-    runsQuery,
     pathRunId: publicRunId ? workflowRunPathId(publicRunId) : routeRunId,
   };
 }

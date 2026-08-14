@@ -139,7 +139,7 @@ export default function AppAdminWorkflowDefinitionPage() {
       : setActivationPausedMutation.error
         ? userFacingError(
             setActivationPausedMutation.error,
-            "Unable to update activation pause state. Try again.",
+            "Unable to update this activation. Try again.",
           )
         : deleteMutation.error
           ? userFacingError(
@@ -321,8 +321,8 @@ export default function AppAdminWorkflowDefinitionPage() {
         <Alert variant="info" className="mb-6">
           <Info aria-hidden />
           <AlertDescription>
-            Definition details are inferred from recent runs. Full inventory may
-            be incomplete — controls require a loaded definition.
+            Definition details come from recent runs. Some fields may be
+            missing until the full definition loads.
           </AlertDescription>
         </Alert>
       ) : null}

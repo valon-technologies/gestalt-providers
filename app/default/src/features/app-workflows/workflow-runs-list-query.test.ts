@@ -12,6 +12,7 @@ import {
   workflowRunsListQueryUsesClientOnlyFilters,
   workflowRunsSearchFromQuery,
   workflowRunsStatusFilterScope,
+  workflowVisibleRunTotalCount,
 } from "./workflow-runs-list-query";
 
 function run(partial: Partial<WorkflowRun> & Pick<WorkflowRun, "id">): WorkflowRun {
@@ -277,5 +278,28 @@ describe("workflow-runs-list-query", () => {
         hasMore: false,
       }),
     ).toBe("7 runs");
+    expect(
+      workflowVisibleRunTotalCount(
+        { q: "digest", statuses: [], groupBy: "definition" },
+        128,
+      ),
+    ).toBeUndefined();
+    expect(
+      workflowVisibleRunTotalCount(
+        { q: "", statuses: ["failed"], groupBy: "definition" },
+        128,
+      ),
+    ).toBe(128);
+    expect(
+      workflowDefinitionRunCountLabel({
+        loading: false,
+        loadedCount: 3,
+        totalCount: workflowVisibleRunTotalCount(
+          { q: "digest", statuses: [], groupBy: "definition" },
+          128,
+        ),
+        hasMore: true,
+      }),
+    ).toBe("3+ runs");
   });
 });

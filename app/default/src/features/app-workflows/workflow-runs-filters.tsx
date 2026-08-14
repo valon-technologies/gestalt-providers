@@ -26,6 +26,7 @@ import {
 } from "@/features/app-workflows/workflow-format";
 import {
   WORKFLOW_RUNS_GROUP_BY_LABEL,
+  mergeWorkflowDefinitionIds,
 } from "@/features/app-workflows/workflow-runs-group";
 import {
   WORKFLOW_RUNS_LIST_STATUSES,
@@ -49,14 +50,12 @@ export function WorkflowRunsFilters({
   query,
   definitionOptions,
   disabled,
-  hasMoreRuns,
   onChange,
   onClear,
 }: {
   query: WorkflowRunsListQuery;
   definitionOptions: string[];
   disabled?: boolean;
-  hasMoreRuns?: boolean;
   onChange: (next: WorkflowRunsListQuery) => void;
   onClear: () => void;
 }) {
@@ -118,7 +117,13 @@ export function WorkflowRunsFilters({
                 variant="outline"
                 className="border-dashed"
                 disabled={disabled}
-                aria-label="Filter by status"
+                aria-label={
+                  selectedStatuses.length > 0
+                    ? `Filter by status, ${selectedStatuses.length} selected: ${selectedStatuses
+                        .map((status) => STATUS_LABELS[status])
+                        .join(", ")}`
+                    : "Filter by status"
+                }
                 data-testid="workflow-runs-status-filter"
               >
                 <PlusCircle className="size-3.5" aria-hidden />
@@ -157,7 +162,7 @@ export function WorkflowRunsFilters({
               align="start"
             >
               <Command className="min-h-0 flex-1">
-                <CommandInput placeholder="Status" />
+                <CommandInput placeholder="Status" aria-label="Search statuses" />
                 <CommandList className="min-h-0 max-h-[300px] flex-1">
                   <CommandEmpty>No statuses.</CommandEmpty>
                   <CommandGroup>
@@ -170,7 +175,12 @@ export function WorkflowRunsFilters({
                           onSelect={() => toggleStatus(status)}
                           data-testid={`workflow-runs-status-${status}`}
                         >
-                          <Checkbox checked={isSelected} className="mr-2" />
+                          <Checkbox
+                            checked={isSelected}
+                            tabIndex={-1}
+                            aria-hidden
+                            className="pointer-events-none mr-2"
+                          />
                           <WorkflowStatusIcon status={status} size="sm" />
                           <span className="truncate">
                             {STATUS_LABELS[status]}
@@ -211,8 +221,8 @@ export function WorkflowRunsFilters({
                   <>
                     Definition
                     <span aria-hidden className="mx-0.5 h-4 w-px bg-border" />
-                    <Badge variant="secondary" size="sm" className="font-mono">
-                      {definitionLabel}
+                    <Badge variant="secondary" size="sm">
+                      <code className="text-xs">{definitionLabel}</code>
                     </Badge>
                   </>
                 ) : (
@@ -225,7 +235,10 @@ export function WorkflowRunsFilters({
               align="start"
             >
               <Command className="min-h-0 flex-1">
-                <CommandInput placeholder="Definition" />
+                <CommandInput
+                  placeholder="Definition"
+                  aria-label="Search definitions"
+                />
                 <CommandList className="min-h-0 max-h-[300px] flex-1">
                   <CommandEmpty>No definitions.</CommandEmpty>
                   <CommandGroup>
@@ -305,10 +318,10 @@ export function WorkflowRunsFilters({
         </div>
       </div>
 
-      {statusScope === "loaded-only" && hasMoreRuns ? (
+      {statusScope === "loaded-only" ? (
         <p className="text-xs text-muted-foreground">
-          Multiple statuses filter the loaded page only. Pick one status for a
-          full server-backed list, or load more runs.
+          Status filters apply to runs loaded so far. Choose one status to
+          filter all runs, or load more runs.
         </p>
       ) : null}
       {statusScope === "server" ? (
@@ -324,15 +337,11 @@ export function useWorkflowDefinitionFilterOptions(
   apiDefinitionIds: string[],
   runDefinitionIds: string[],
 ): string[] {
-  return useMemo(() => {
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const id of [...apiDefinitionIds, ...runDefinitionIds]) {
-      const trimmed = id.trim();
-      if (!trimmed || seen.has(trimmed)) continue;
-      seen.add(trimmed);
-      out.push(trimmed);
-    }
-    return out.sort((a, b) => a.localeCompare(b));
-  }, [apiDefinitionIds, runDefinitionIds]);
+  return useMemo(
+    () =>
+      mergeWorkflowDefinitionIds(apiDefinitionIds, runDefinitionIds).sort(
+        (a, b) => a.localeCompare(b),
+      ),
+    [apiDefinitionIds, runDefinitionIds],
+  );
 }

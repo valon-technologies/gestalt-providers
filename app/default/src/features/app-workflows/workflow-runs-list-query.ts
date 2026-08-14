@@ -146,6 +146,19 @@ export function workflowRunsListQueryUsesClientOnlyFilters(
 }
 
 /**
+ * Header / Load-more cardinality from ListRuns `total_count`.
+ * Omit it when the visible rows are a client-only subset, or the header
+ * would count the unfiltered corpus.
+ */
+export function workflowVisibleRunTotalCount(
+  query: WorkflowRunsListQuery,
+  serverTotalCount?: number | null,
+): number | undefined {
+  if (workflowRunsListQueryUsesClientOnlyFilters(query)) return undefined;
+  return serverTotalCount ?? undefined;
+}
+
+/**
  * Whether the list should offer Load more.
  *
  * Visibility list pages can return a leftover nextPageToken with an empty
