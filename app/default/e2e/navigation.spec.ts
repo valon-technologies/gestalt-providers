@@ -78,9 +78,6 @@ test.describe("Navigation", () => {
     await page.goto("/settings");
     await expect(page).toHaveURL(/\/settings\/tokens$/);
     await expect(
-      page.getByRole("heading", { name: "Settings" }),
-    ).toBeVisible();
-    await expect(
       page.getByRole("heading", { name: "API tokens" }),
     ).toBeVisible();
   });
@@ -156,14 +153,14 @@ test.describe("Navigation", () => {
 
     await page.goto("/docs/mcp");
     await expect(
-      page.getByRole("heading", { name: "Use With MCP" }),
+      page.getByRole("heading", { name: "MCP setup" }),
     ).toBeVisible();
   });
 
   test("nav links work", async ({ authenticatedPage: page }) => {
     await page.goto("/apps");
     await page.getByRole("button", { name: "Open user menu" }).click();
-    await expect(page.getByRole("menuitem", { name: "Setup guide" })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "Setup", exact: true })).toBeVisible();
     await expect(page.getByRole("menuitem", { name: "Docs" })).toBeVisible();
     await page.getByRole("menuitem", { name: "Settings" }).click();
     await expect(page).toHaveURL(/\/settings/);

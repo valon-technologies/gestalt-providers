@@ -9,10 +9,10 @@ const SOURCE = readFileSync(
 );
 
 describe("DocsAudienceCallout", () => {
-  test("uses banner layout so static admin orientation is not role=alert", () => {
-    // Alert only asserts live regions for layout=default && variant!==outline.
-    expect(SOURCE).toContain('layout="banner"');
-    expect(SOURCE).toContain('variant="info"');
+  test("keeps stacked layout and turns the live region off", () => {
+    expect(SOURCE).toContain('<Alert variant="info" live={false}>');
+    expect(SOURCE).not.toMatch(/<Alert[^>]*layout="banner"/);
+    expect(SOURCE).toContain("<AlertIcon>");
     expect(SOURCE).toContain("<AlertTitle>For admins</AlertTitle>");
   });
 });

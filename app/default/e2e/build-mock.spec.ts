@@ -169,6 +169,7 @@ function withConnectedConnection<T extends { name: string }>(item: T) {
 async function expectSetupStepper(page: Page) {
   const stepper = page.locator('[data-slot="stepper"]');
   await expect(stepper).toHaveAttribute("data-orientation", "horizontal");
+  await expect(stepper).toHaveAttribute("data-activation-mode", "linear");
   await expect(stepper).toHaveAttribute("data-completed-chrome", "outcome");
   await expect(stepper).toHaveAttribute("data-size", "default");
 }
@@ -209,7 +210,9 @@ test.describe("Setup page", () => {
     await expect(page.getByText(/you choose which apps/i)).toBeVisible();
     await expect(page.getByText(/\bMCP\b/)).toHaveCount(0);
 
-    await expect(page.getByTestId("build-nav-welcome")).toBeVisible();
+    await expect(page.getByTestId("build-nav-welcome").locator("button")).toBeEnabled();
+    await expect(page.getByTestId("build-nav-install").locator("button")).toBeDisabled();
+    await expect(page.getByTestId("build-nav-try").locator("button")).toBeDisabled();
     await expect(page.getByTestId("build-step-nav")).toHaveAttribute(
       "data-orientation",
       "horizontal",
@@ -266,14 +269,29 @@ test.describe("Setup page", () => {
     authenticatedPage: page,
   }) => {
     await page.goto("/setup/welcome");
+    await expect(
+      page.getByText("Ask in plain English in Claude, ChatGPT, Cursor, or Codex"),
+    ).toBeVisible();
     await page.getByTestId("build-welcome-continue").click();
     await expect(page).toHaveURL(/\/setup\/assistant$/);
     await expect(page.getByTestId("build-install-radio")).toBeVisible();
+    await expect(
+      page.getByText(
+        "Pick Claude, ChatGPT, Cursor, or another assistant you already use. You can add more later.",
+      ),
+    ).toBeVisible();
+    await expect(page.getByTestId("build-install-card-claude")).toBeVisible();
+    await expect(page.getByTestId("build-install-card-chatgpt")).toBeVisible();
+    await expect(
+      page.getByTestId("build-install-card-claude-code"),
+    ).toBeVisible();
+    await expect(page.getByRole("group", { name: "Chat" })).toBeVisible();
+    await expect(page.getByRole("group", { name: "Coding tools" })).toBeVisible();
     await expect(page.getByTestId("build-step-next")).toBeDisabled();
     await page.getByTestId("build-install-card-cursor").click();
     await expect(page.getByTestId("build-step-next")).toBeEnabled();
     await expect(page.getByTestId("build-step-next")).toContainText(
-      "Create an API token",
+      "Create a token",
     );
   });
 
@@ -300,7 +318,7 @@ test.describe("Setup page", () => {
     await page.goto("/setup");
 
     await expect(page).toHaveURL(/\/setup\/install$/);
-    await expect(page.getByTestId("build-token-radio")).toHaveCount(0);
+    await expect(page.getByTestId("build-token-setup")).toHaveCount(0);
     await expect(page.getByTestId("build-mcp-install-single")).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Add Gestalt in Cursor" }),
@@ -320,13 +338,13 @@ test.describe("Setup page", () => {
     );
     await page.getByText("Paste the config yourself").click();
     await expect(page.getByText(".cursor/mcp.json")).toBeVisible();
-    await expect(page.getByRole("link", { name: "setup notes" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "MCP setup docs" })).toBeVisible();
 
     await page.goto("/setup/token");
-    await expect(page.getByTestId("build-token-radio")).toBeVisible();
+    await expect(page.getByTestId("build-token-setup")).toBeVisible();
     await expect(page.getByTestId("build-mcp-install-single")).toHaveCount(0);
     await expect(
-      page.getByRole("heading", { name: "Create an API token" }),
+      page.getByRole("heading", { name: "Create a token" }),
     ).toBeVisible();
   });
 
@@ -341,7 +359,7 @@ test.describe("Setup page", () => {
 
     await page.goto("/setup/connect");
     await expect(page).toHaveURL(/\/setup\/token$/);
-    await expect(page.getByTestId("build-token-radio")).toBeVisible();
+    await expect(page.getByTestId("build-token-setup")).toBeVisible();
   });
 
   test("MCP snippets reflect assistant choice on install", async ({
@@ -354,23 +372,55 @@ test.describe("Setup page", () => {
     });
 
     await page.goto("/setup/assistant");
-    await page.getByTestId("build-install-card-claude").click();
+    await page.getByTestId("build-install-card-claude-code").click();
     await page.getByTestId("build-step-next").click();
     await expect(page).toHaveURL(/\/setup\/token$/);
     await page.getByTestId("build-step-next").click();
     await expect(page).toHaveURL(/\/setup\/install$/);
     await expect(
-      page.getByRole("heading", { name: "Add Gestalt in Claude Code" }),
+      page.getByRole("heading", { name: "Add Gestalt in Claude Code", exact: true }),
     ).toBeVisible();
-    await expect(page.getByTestId("build-install-claude-snippet")).toBeVisible();
+    await expect(
+      page.getByTestId("build-install-claude-code-snippet"),
+    ).toBeVisible();
+
+    await page.goto("/setup/assistant");
+    await page.getByTestId("build-install-card-claude").click();
+    await page.getByTestId("build-step-next").click();
+    await page.getByTestId("build-step-next").click();
+    await expect(
+      page.getByRole("heading", { name: "Add Gestalt in Claude", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByTestId("build-install-claude-recipe")).toBeVisible();
+    await expect(page.getByText("Add custom connector")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open Connectors" })).toHaveAttribute(
+      "href",
+      "https://claude.ai/settings/connectors",
+    );
+
+    await page.goto("/setup/assistant");
+    await page.getByTestId("build-install-card-chatgpt").click();
+    await page.getByTestId("build-step-next").click();
+    await page.getByTestId("build-step-next").click();
+    await expect(
+      page.getByRole("heading", { name: "Add Gestalt in ChatGPT", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByTestId("build-install-chatgpt-recipe")).toBeVisible();
+    await expect(page.getByText("turn on Developer mode")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open Plugins" })).toHaveAttribute(
+      "href",
+      "https://chatgpt.com/plugins",
+    );
 
     await page.goto("/setup/assistant");
     await page.getByTestId("build-install-card-codex").click();
     await page.getByTestId("build-step-next").click();
     await expect(page).toHaveURL(/\/setup\/token$/);
     await page.getByTestId("build-step-next").click();
-    await expect(page.getByRole("heading", { name: "Add Gestalt in Codex" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Add Gestalt in Codex Desktop" })).toBeVisible();
     await expect(page.getByTestId("build-install-codex-snippet")).toBeVisible();
+    await expect(page.getByTestId("setup-overlap-callout")).toBeVisible();
+    await expect(page.getByText("Paste the commands below into Terminal")).toBeVisible();
   });
 
   test("step pager advances from token create to install", async ({
@@ -401,23 +451,26 @@ test.describe("Setup page", () => {
 
     await page.goto("/setup/token");
 
+    await expect(page.getByTestId("build-token-setup")).toBeVisible();
+    await expect(page.getByTestId("build-token-create-item")).toBeVisible();
+    await expect(page.getByTestId("build-token-selected-item")).toBeVisible();
     await expect(
       page.locator("label").filter({ hasText: "Use existing token" }),
     ).toHaveCount(0);
+    await expect(page.getByText("Create a token first.")).toBeVisible();
     await expect(page.getByLabel("Token name")).toBeVisible();
-    await expect(page.getByLabel("Token name")).toHaveValue(
-      "Workspace assistant",
-    );
+    await expect(page.getByLabel("Token name")).toHaveValue("Gestalt");
     await page.getByLabel("Token name").fill("ci-pipeline");
     await expect(page.getByRole("button", { name: "Create token" })).toBeVisible();
     await expect(page.getByTestId("build-step-next")).toBeDisabled();
     await page.getByRole("button", { name: "Create token" }).click();
     await expect(page.getByText("Token created.")).toBeVisible();
-    await expect(page.getByRole("radio", { name: "Use existing token" })).toBeChecked();
-    await expect(page.getByTestId("build-existing-token-list")).toBeVisible();
     await expect(
-      page.getByRole("radio", { name: /ci-pipeline \(tok_new\)/ }),
-    ).toBeChecked();
+      page.getByText("Done. You will not see the full secret again."),
+    ).toBeVisible();
+    await expect(
+      page.getByText("ci-pipeline is selected. Continue to add Gestalt."),
+    ).toBeVisible();
     await expect(page.getByTestId("build-step-next")).toBeEnabled();
     await expect(page.getByTestId("build-step-next")).toContainText(
       "Add Gestalt in Cursor",
@@ -426,7 +479,7 @@ test.describe("Setup page", () => {
 
     await expect(page).toHaveURL(/\/setup\/install$/);
     await expect(page.getByTestId("build-step-prev")).toContainText(
-      "Create an API token",
+      "Create a token",
     );
     await expect(page.getByTestId("build-mcp-install-single")).toBeVisible();
     await page.getByTestId("build-step-next").click();
@@ -438,7 +491,7 @@ test.describe("Setup page", () => {
     await expect(page.getByTestId("build-step-next")).toBeDisabled();
   });
 
-  test("creating a token selects it under Use existing when the server list omits it", async ({
+  test("creating a token selects it even when the server list omits it", async ({
     authenticatedPage: page,
   }) => {
     await seedSetupSession(page, {
@@ -469,24 +522,15 @@ test.describe("Setup page", () => {
     );
 
     await page.goto("/setup/token");
-    await page.locator("label").filter({ hasText: "Create new token" }).click();
-    await page.getByLabel("Token name").fill("Workspace assistant");
+    await expect(page.getByText("Hello")).toHaveCount(0);
+    await page.getByLabel("Token name").fill("Workspace");
     await expect(page.getByTestId("build-step-next")).toBeDisabled();
     await page.getByRole("button", { name: "Create token" }).click();
     await expect(page.getByText("Token created.")).toBeVisible();
-
     await expect(
-      page.getByRole("radio", { name: "Use existing token" }),
-    ).toBeChecked();
-    await expect(page.getByTestId("build-existing-token-list")).toBeVisible();
-    await expect(
-      page.getByRole("radio", { name: "Workspace assistant (tok_new)" }),
-    ).toBeChecked();
-    await expect(
-      page.getByRole("radio", {
-        name: "Hello (grant-legacy-3e5276ee-671b-42e0-9093-971216489eaf)",
-      }),
-    ).not.toBeChecked();
+      page.getByText("Workspace is selected. Continue to add Gestalt."),
+    ).toBeVisible();
+    await expect(page.getByTestId("build-existing-token-list")).toHaveCount(0);
     await expect(page.getByTestId("build-step-next")).toBeEnabled();
     await expect(page.getByTestId("build-step-next")).toContainText(
       "Add Gestalt in Cursor",
@@ -782,7 +826,7 @@ test.describe("Setup page", () => {
     );
   });
 
-  test("token step lists tokens as radios and supports create new", async ({
+  test("token step is create then selected, and listed grants are not a choice", async ({
     authenticatedPage: page,
   }) => {
     await mockTokens(page, [
@@ -798,19 +842,18 @@ test.describe("Setup page", () => {
 
     await page.goto("/setup/token");
 
-    await expect(page.getByTestId("build-token-radio")).toBeVisible();
-    await page.locator("label").filter({ hasText: "Use existing token" }).click();
-    await expect(page.getByTestId("build-existing-token-list")).toBeVisible();
-    await expect(page.getByText("Default token")).toBeVisible();
-    await expect(page.getByText("tok_123")).toBeVisible();
-    await page.locator("label").filter({ hasText: "Create new token" }).click();
+    await expect(page.getByTestId("build-token-setup")).toBeVisible();
+    await expect(
+      page.locator("label").filter({ hasText: "Use existing token" }),
+    ).toHaveCount(0);
+    await expect(page.getByText("Default token")).toHaveCount(0);
+    await expect(page.getByText("tok_123")).toHaveCount(0);
     await expect(page.getByLabel("Token name")).toBeVisible();
-    await expect(page.getByLabel("Token name")).toHaveValue(
-      "Workspace assistant",
-    );
+    await expect(page.getByLabel("Token name")).toHaveValue("Gestalt");
     await expect(page.getByText("Expiration", { exact: true })).toBeVisible();
     await expect(page.getByText("App access", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Create token" })).toBeVisible();
+    await expect(page.getByText("Create a token first.")).toBeVisible();
     await expect(page.getByTestId("build-step-next")).toBeDisabled();
   });
 
@@ -833,10 +876,7 @@ test.describe("Setup page", () => {
     });
 
     await page.goto("/setup/token");
-    await page.locator("label").filter({ hasText: "Create new token" }).click();
-    await expect(page.getByLabel("Token name")).toHaveValue(
-      "Workspace assistant",
-    );
+    await expect(page.getByLabel("Token name")).toHaveValue("Gestalt");
     await expect(page.getByLabel("Token name")).not.toHaveValue(grantId);
   });
 
@@ -872,6 +912,7 @@ test.describe("Setup page", () => {
     await expect(page).toHaveURL(/\/apps/);
     await expect(page.getByRole("heading", { name: "Apps" })).toBeVisible();
     await expect(page.getByTestId("setup-resume-banner")).toHaveCount(0);
+    await expect(page.getByTestId("setup-switch-assistant")).toHaveCount(0);
   });
 
   test("completed setup shows overview instead of welcome", async ({
@@ -901,9 +942,9 @@ test.describe("Setup page", () => {
     await expectSetupStepper(page);
     await expect(page.getByTestId("build-overview-welcome")).toBeVisible();
     await expect(page.getByTestId("build-overview-try")).toBeVisible();
-    await expect(page.getByRole("link", { name: /Run setup again/ })).toHaveAttribute(
+    await expect(page.getByRole("link", { name: /Connect another assistant/ })).toHaveAttribute(
       "href",
-      "/setup/welcome",
+      "/setup/assistant",
     );
     await expect(page.getByRole("link", { name: /Browse apps/ })).toHaveAttribute(
       "href",

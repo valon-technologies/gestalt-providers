@@ -21,23 +21,40 @@ import {
 } from "@/components/ui/segmented-control";
 import {
   DOCS_AUTHORIZATION_PATH,
+  DOCS_GETTING_STARTED_PATH,
+  DOCS_MCP_PATH,
   DOCS_SETTINGS_TOKENS_HREF,
   DOCS_TOKENS_PATH,
   DOCS_WORKFLOWS_PATH,
   docsSubsectionLabel,
 } from "./docs-data";
+import {
+  ASSISTANT_OVERLAP_SHORT,
+  CHATGPT_INSTALL_AUTH_NOTE,
+  CHATGPT_INSTALL_CREATE_APP,
+  CHATGPT_INSTALL_DEVELOPER_MODE,
+  CHATGPT_INSTALL_ENABLE,
+  CHATGPT_INSTALL_TOKEN,
+  CHATGPT_INSTALL_URL,
+  CHATGPT_PLUGINS_HREF,
+  CLAUDE_CONNECTOR_SETTINGS_HREF,
+  CLAUDE_INSTALL_ADD_CONNECTOR,
+  CLAUDE_INSTALL_ENABLE,
+  CLAUDE_INSTALL_HEADERS_NOTE,
+  CLAUDE_INSTALL_OPEN,
+  CLAUDE_INSTALL_OPEN_CONNECTORS,
+  CLAUDE_INSTALL_REQUEST_HEADER,
+  MCP_CODEX_HASH,
+  MCP_DOCS_TITLE,
+} from "@/lib/assistantConnectionCopy";
+import { MCP_CLIENT_TABS } from "@/lib/assistantHosts";
 import { SETUP_PATH } from "@/lib/constants";
 import { DOCS_PAGE_TOP_GAP } from "./docs-chrome";
 import { DocsLink } from "./DocsLink";
 
 const FALLBACK_ORIGIN = "https://your-gestalt-host";
 
-const mcpTabs = [
-  { id: "mcp-claude-code", label: "Claude Code" },
-  { id: "mcp-codex", label: "Codex" },
-  { id: "mcp-cursor", label: "Cursor" },
-  { id: "mcp-other", label: "Other clients" },
-] as const;
+const mcpTabs = MCP_CLIENT_TABS;
 
 const agentEnvironmentTabs = [
   { id: "agent-claude-code", label: "Claude Code web" },
@@ -49,7 +66,7 @@ type McpTabId = (typeof mcpTabs)[number]["id"];
 type AgentEnvironmentTabId = (typeof agentEnvironmentTabs)[number]["id"];
 
 const mcpTabIds = mcpTabs.map((tab) => tab.id);
-const defaultMcpTabId: McpTabId = "mcp-claude-code";
+const defaultMcpTabId: McpTabId = "mcp-claude";
 
 const agentEnvironmentTabIds = agentEnvironmentTabs.map((tab) => tab.id);
 const defaultAgentEnvironmentTabId: AgentEnvironmentTabId = "agent-claude-code";
@@ -91,10 +108,11 @@ export function GettingStartedDocsPage() {
         <p>
           Walk through Gestalt setup with copy-paste{" "}
           <Code>gestalt</Code> CLI commands. You do not need prior CLI
-          experience—run each command as shown. This page covers install, point
+          experience. Run each command as shown. This page covers install, point
           the CLI, authenticate, grant app access, and configure cloud
           environments. Journey links then take you to connect apps, invoke
-          operations, create API tokens, and use MCP. Prefer guided setup? Open{" "}
+          operations, create API tokens, and MCP setup. Prefer guided setup, or
+          switching assistants? Open{" "}
           <DocsLink to={SETUP_PATH}>Setup</DocsLink>.
         </p>
         <div className="not-typeset flex flex-col gap-2.5">
@@ -258,7 +276,7 @@ export function ConnectDocsPage() {
       <DocsPageBody>
         <p>
           Run <Code>gestalt apps list</Code>, then{" "}
-          <Code>gestalt apps connect &lt;app&gt;</Code>—or use the Apps page in
+          <Code>gestalt apps connect &lt;app&gt;</Code>, or use the Apps page in
           the browser.
         </p>
         <p>
@@ -332,7 +350,7 @@ export function AuthorizationDocsPage() {
         <p>
           For app admins and Gestalt admins: grant users and service accounts
           access to app operations from the Gestalt CLI. End users cannot
-          self-serve grants—ask your workspace admin.
+          self-serve grants. Ask your workspace admin.
         </p>
         <p>
           Most teams grant access at the app level. App admins can manage
@@ -481,17 +499,36 @@ export function McpDocsPage() {
 
   return (
     <>
-      <DocsPageHeader title="Use With MCP" />
+      <DocsPageHeader title={MCP_DOCS_TITLE} />
       <DocsPageBody>
         <p>
-          Gestalt exposes a single MCP endpoint that gives AI tools access to
-          all your connected apps. If authentication is enabled, create an API
-          token first—in the UI at{" "}
+          Gestalt exposes one MCP endpoint for all connected workspace apps.
+          Create an API token first, in the UI at{" "}
           <DocsLink to={DOCS_SETTINGS_TOKENS_HREF}>Settings → API tokens</DocsLink>
           , or with <Code>gestalt tokens create</Code> (see{" "}
           <DocsLink to={DOCS_TOKENS_PATH}>Manage API Tokens</DocsLink>
-          ).
+          ). Then register the server in your assistant.
         </p>
+        <Subheading id="mcp-overlap" />
+        <p>
+          Gestalt MCP is the default for company workspace apps. One MCP
+          endpoint, your workspace token, and the connections and grants you set
+          up in this UI.
+        </p>
+        <p>
+          Toolshed skills are markdown playbooks (runbooks, SQL patterns, team
+          conventions). They do not replace Gestalt app connections. Enable a
+          skill when you want procedural guidance, not when you need live API
+          access.
+        </p>
+        <p>
+          Codex and other assistants may offer native plugins for the same
+          vendor (for example Notion). Those use a separate sign-in and a
+          separate tool list. If Notion is connected in Apps here, use Gestalt
+          for Notion and leave the Codex Notion plugin off to avoid duplicate
+          tools and conflicting auth.
+        </p>
+        <p>{ASSISTANT_OVERLAP_SHORT}</p>
         <p>
           On workspaces with authentication disabled, omit the bearer-token flag
           and header blocks shown below.
@@ -526,9 +563,8 @@ export function TroubleshootingDocsPage() {
       <DocsPageHeader title="Troubleshooting" />
       <DocsPageBody>
         <p>
-          Most user-facing problems come down to the wrong URL, expired auth,
-          ambiguous connection selection, or a grant that has not taken effect
-          yet.
+          Most issues are the wrong URL, an expired token, duplicate tool
+          sources, or a missing app connection.
         </p>
         <Subheading id="ts-not-authenticated" />
         <p>
@@ -561,6 +597,31 @@ export function TroubleshootingDocsPage() {
           ), that the operation allows that role, and that you are
           authenticated as the same user or service account the grant targets.
           Then retry the invoke or MCP call.
+        </p>
+
+        <Subheading id="ts-overlap" />
+        <p>
+          If the same app appears twice (for example Notion in Gestalt and as a
+          Codex plugin), disable the duplicate. Use Gestalt MCP for
+          workspace-connected apps. Use native plugins only for gaps Gestalt
+          does not cover. See{" "}
+          <DocsLink to={DOCS_MCP_PATH} hash="mcp-overlap">
+            {MCP_DOCS_TITLE}
+          </DocsLink>
+          .
+        </p>
+
+        <Subheading id="ts-codex-desktop-tools" />
+        <p>
+          Confirm you ran{" "}
+          <Code>codex mcp add</Code> in Terminal on the same Mac as Codex
+          Desktop, then restart the app. Check that{" "}
+          <Code>GESTALT_API_KEY</Code> is set in the shell where you ran the
+          command, or export it in your profile. Full steps:{" "}
+          <DocsLink to={DOCS_MCP_PATH} hash={MCP_CODEX_HASH}>
+            Codex Desktop MCP setup
+          </DocsLink>
+          .
         </p>
       </DocsPageBody>
     </>
@@ -877,6 +938,48 @@ function McpClientTabs({ origin }: { origin: string }) {
       value={activeTabId as McpTabId}
       onValueChange={setActiveTabId}
     >
+      {activeTabId === "mcp-claude" ? (
+        <>
+          <p>{CLAUDE_INSTALL_OPEN}</p>
+          <p>
+            {CLAUDE_INSTALL_OPEN_CONNECTORS}{" "}
+            <DocsLink href={CLAUDE_CONNECTOR_SETTINGS_HREF}>
+              Open Connectors
+            </DocsLink>
+          </p>
+          <p>{CLAUDE_INSTALL_ADD_CONNECTOR}</p>
+          <CodeBlock chrome="inset" language="text" code={`${origin}/mcp`} />
+          <p>{CLAUDE_INSTALL_REQUEST_HEADER}</p>
+          <CodeBlock
+            chrome="inset"
+            language="text"
+            code="Bearer gst_api_your_token_here"
+          />
+          <p>{CLAUDE_INSTALL_ENABLE}</p>
+          <p>{CLAUDE_INSTALL_HEADERS_NOTE}</p>
+        </>
+      ) : null}
+
+      {activeTabId === "mcp-chatgpt" ? (
+        <>
+          <p>{CHATGPT_INSTALL_DEVELOPER_MODE}</p>
+          <p>
+            {CHATGPT_INSTALL_CREATE_APP}{" "}
+            <DocsLink href={CHATGPT_PLUGINS_HREF}>Open Plugins</DocsLink>
+          </p>
+          <p>{CHATGPT_INSTALL_URL}</p>
+          <CodeBlock chrome="inset" language="text" code={`${origin}/mcp`} />
+          <p>{CHATGPT_INSTALL_TOKEN}</p>
+          <CodeBlock
+            chrome="inset"
+            language="text"
+            code="gst_api_your_token_here"
+          />
+          <p>{CHATGPT_INSTALL_ENABLE}</p>
+          <p>{CHATGPT_INSTALL_AUTH_NOTE}</p>
+        </>
+      ) : null}
+
       {activeTabId === "mcp-claude-code" ? (
         <>
           <p>
@@ -914,16 +1017,32 @@ function McpClientTabs({ origin }: { origin: string }) {
       {activeTabId === "mcp-codex" ? (
         <>
           <p>
-            Codex can register the workspace directly from the CLI:
+            On the machine where Codex Desktop runs, open Terminal (not the
+            Codex chat) and register this workspace:
           </p>
           <CodeBlock chrome="inset"
             language="cli"
             code={`codex mcp add gestalt --url "$GESTALT_URL/mcp" --bearer-token-env-var GESTALT_API_KEY`}
           />
           <p>
+            Set{" "}
+            <Code>GESTALT_API_KEY</Code> in your shell profile if you want the
+            token to persist across Terminal sessions. Restart Codex Desktop
+            after adding the server.
+          </p>
+          <p>
             If authentication is disabled, omit{" "}
             <Code>--bearer-token-env-var GESTALT_API_KEY</Code>{" "}
             from the command.
+          </p>
+          <p>
+            Cloud agents do not use local{" "}
+            <Code>codex mcp add</Code>. Configure environment variables and the
+            install script in{" "}
+            <DocsLink to={DOCS_GETTING_STARTED_PATH} hash="agent-codex">
+              Configure Codex Cloud
+            </DocsLink>
+            .
           </p>
         </>
       ) : null}

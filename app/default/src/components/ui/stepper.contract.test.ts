@@ -21,10 +21,21 @@ describe("Stepper", () => {
     expect(SOURCE).toContain("w-full min-w-0");
   });
 
-  test("step chrome sits above the rail so connectors tuck under discs", () => {
-    expect(SOURCE).toContain("relative z-10 inline-flex items-center gap-2");
-    expect(SOURCE).not.toContain("relative z-0 inline-flex items-center gap-2");
-    expect(SOURCE_RAIL).toContain("pointer-events-none absolute z-[1] overflow-hidden");
+  test("disabled triggers do not take pointer or Neutral wash", () => {
+    expect(SOURCE).toContain("disabled:pointer-events-none");
+    expect(SOURCE).toContain("disabled:hover:bg-transparent");
+    expect(SOURCE).toContain("disabled:active:bg-transparent");
+  });
+
+  test("rail stacks above the Neutral plate and under the indicator", () => {
+    expect(SOURCE).toContain("group/step relative isolate flex");
+    expect(SOURCE).toContain("relative inline-flex items-center gap-2 rounded-md outline-none");
+    expect(SOURCE).not.toMatch(/relative z-\S+ inline-flex/);
+    expect(SOURCE_RAIL).toContain("pointer-events-none absolute z-10 overflow-hidden");
+    expect(SOURCE_RAIL).toContain(
+      "relative z-20 flex shrink-0 items-center justify-center rounded-full",
+    );
+    expect(SOURCE_RAIL).not.toContain("z-[1]");
   });
 
   test("step titles use text-pretty for wrapped labels", () => {

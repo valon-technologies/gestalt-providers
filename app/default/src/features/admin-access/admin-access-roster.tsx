@@ -1,4 +1,5 @@
 import { useId, useState, type FormEvent } from "react";
+import { CircleAlert } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,6 +28,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { APIError } from "@/lib/api";
 import { userFacingError } from "@/lib/user-facing-error";
+import { AccessGroupBadge } from "./access-group-badge";
 import { parseGroupSelector, type AppAccessEntry } from "./admin-access";
 import {
   ADD_GROUP_INVALID,
@@ -57,28 +59,45 @@ export function AccessEntryRow({
   confirmDescription?: (label: string) => string;
 }) {
   const locked = !entry.mutable;
+  const lockedHintId = useId();
   const [confirmOpen, setConfirmOpen] = useState(false);
   return (
-    <li
-      className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
-      data-testid={testId}
-    >
-      <div className="min-w-0">
-        <p className="truncate text-sm font-medium text-foreground">{entry.label}</p>
-        {locked ? (
-          <p className="mt-0.5 text-xs text-muted-foreground">{LOCKED_FROM_CONFIG}</p>
-        ) : null}
+    <li className="flex flex-col gap-2 px-4 py-3" data-testid={testId}>
+      <div className="flex min-w-0 items-baseline justify-between gap-4">
+        <div className="inline-flex min-w-0 max-w-full">
+          {entry.kind === "group" ? (
+            <AccessGroupBadge label={entry.label} className="max-w-full" />
+          ) : (
+            <p className="truncate text-sm font-medium text-foreground">
+              {entry.label}
+            </p>
+          )}
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="xs"
+          className="shrink-0"
+          disabled={locked || busy}
+          aria-label={`${REMOVE_ACCESS_LABEL} for ${entry.label}`}
+          aria-describedby={locked ? lockedHintId : undefined}
+          onClick={() => setConfirmOpen(true)}
+        >
+          {REMOVE_ACCESS_LABEL}
+        </Button>
       </div>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        disabled={locked || busy}
-        aria-label={`${REMOVE_ACCESS_LABEL} for ${entry.label}`}
-        onClick={() => setConfirmOpen(true)}
-      >
-        {REMOVE_ACCESS_LABEL}
-      </Button>
+      {locked ? (
+        <p
+          id={lockedHintId}
+          className="flex max-w-64 items-start justify-end gap-1 self-end text-right text-xs text-muted-foreground"
+        >
+          <CircleAlert
+            className="mt-px size-3.5 shrink-0"
+            aria-hidden="true"
+          />
+          <span>{LOCKED_FROM_CONFIG}</span>
+        </p>
+      ) : null}
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>

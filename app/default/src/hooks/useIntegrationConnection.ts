@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -11,6 +12,7 @@ import {
 } from "@/lib/api";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import type { Integration } from "@/lib/api";
+import { commitIntegrationDisconnect } from "@/lib/queries";
 import { userFacingError } from "@/lib/user-facing-error";
 
 type PendingSelection = {
@@ -76,6 +78,7 @@ export function useIntegrationConnection({
   onFlowComplete?: () => void;
 }) {
   const label = getIntegrationLabel(integration);
+  const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [selectingInstance, setSelectingInstance] = useState(false);
@@ -161,20 +164,27 @@ export function useIntegrationConnection({
     }
   }
 
+  async function commitDisconnect(instance?: string, connection?: string) {
+    await commitIntegrationDisconnect(queryClient, integration.name, {
+      instance,
+      connection,
+    });
+    onDisconnected?.();
+    onFlowComplete?.();
+  }
+
   async function handleDisconnect(instance?: string, connection?: string) {
     setDisconnecting(true);
     setError(null);
     try {
       await disconnect(integration.name, instance, connection);
+      await commitDisconnect(instance, connection);
       toast.success(`${label} disconnected.`);
-      onDisconnected?.();
-      onFlowComplete?.();
     } catch (err) {
       // Domain: missing credential is already the desired end state — reconcile.
       if (isAPIErrorStatus(err, 404)) {
+        await commitDisconnect(instance, connection);
         toast.success(`${label} is no longer connected.`);
-        onDisconnected?.();
-        onFlowComplete?.();
       } else {
         setError(
           userFacingError(

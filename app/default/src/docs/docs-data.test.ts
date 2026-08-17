@@ -76,7 +76,10 @@ describe("docs IA invariants", () => {
     const invoke = docsNavItems.find((item) => item.id === "invoke");
     // Hash-backed SegmentedControl options must not appear as TOC targets —
     // DocsOptionSwitcher intentionally omits matching DOM ids.
-    expect(mcp?.subsections).toEqual([]);
+    expect(mcp?.subsections.map((s) => s.id)).toEqual(["mcp-overlap"]);
+    expect(mcp?.subsections.some((s) => s.id.startsWith("mcp-claude"))).toBe(
+      false,
+    );
     expect(invoke?.subsections).toEqual([]);
     const gettingStarted = docsNavItems.find(
       (item) => item.id === "getting-started",

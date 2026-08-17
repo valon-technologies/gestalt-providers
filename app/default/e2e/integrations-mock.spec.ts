@@ -662,12 +662,16 @@ test.describe("Integrations", () => {
     await expect(panel.getByRole("button", { name: "Add account" })).toBeVisible();
   });
 
-  test("disconnect calls API and refreshes list", async ({
+  test("disconnect removes the account as soon as the API succeeds", async ({
     authenticatedPage,
   }) => {
     const page = authenticatedPage;
     let disconnected = false;
     let disconnectURL: URL | undefined;
+    let releaseCatalogRefetch: (() => void) | undefined;
+    const catalogRefetchReleased = new Promise<void>((resolve) => {
+      releaseCatalogRefetch = resolve;
+    });
 
     const oauthConnectionIntegration: Integration = {
       ...OAUTH_INTEGRATION,
@@ -683,26 +687,38 @@ test.describe("Integrations", () => {
       },
     });
 
-    await page.route("**/api/v1/apps", (route, request) => {
+    await page.route("**/api/v1/apps", async (route, request) => {
       if (request.method() === "GET") {
-        route.fulfill({ json: disconnected ? disconnectedList : connectedList });
+        if (disconnected) {
+          await catalogRefetchReleased;
+          await route.fulfill({ json: disconnectedList });
+        } else {
+          await route.fulfill({ json: connectedList });
+        }
       } else {
-        route.fallback();
+        await route.fallback();
       }
     });
 
     const panel = await openAppConnection(page, "oauth-svc");
+    await expect(panel.getByTestId("connection-account-prod")).toBeVisible();
     await panel.getByRole("button", { name: "Disconnect" }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Disconnect" }).click();
 
-    await expect.poll(() => disconnected).toBe(true);
-    const refreshedPanel = await openAppConnection(page, "oauth-svc");
-    await expect(refreshedPanel.getByText("Not connected")).toHaveCount(0);
-    await expect(refreshedPanel.getByRole("button", { name: "Connect" })).toBeVisible();
-    expect(disconnectURL?.searchParams.get("_instance")).toBe("prod");
-    expect(disconnectURL?.searchParams.get("_connection")).toBe("oauth");
-    expect(disconnectURL?.searchParams.has("instance")).toBe(false);
-    expect(disconnectURL?.searchParams.has("connection")).toBe(false);
+    try {
+      await expect.poll(() => disconnected).toBe(true);
+      await expect(page.getByText("OAuth Service disconnected.")).toBeVisible();
+      await expect(panel.getByTestId("connection-account-prod")).toHaveCount(0);
+      await expect(
+        page.getByTestId("app-admin-connection").getByRole("button", { name: "Connect" }),
+      ).toBeVisible();
+      expect(disconnectURL?.searchParams.get("_instance")).toBe("prod");
+      expect(disconnectURL?.searchParams.get("_connection")).toBe("oauth");
+      expect(disconnectURL?.searchParams.has("instance")).toBe(false);
+      expect(disconnectURL?.searchParams.has("connection")).toBe(false);
+    } finally {
+      releaseCatalogRefetch?.();
+    }
   });
 
   test("manual auth submits credential and refreshes", async ({

@@ -1,13 +1,13 @@
-import { ACCESS_LIST_STATUS } from "./admin-access-copy";
-import type { AppAccessEntry } from "./admin-access";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   AvatarGroup,
   AvatarGroupCount,
   AvatarGroupItem,
 } from "@/components/ui/avatar-group";
-import { Badge } from "@/components/ui/badge";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { AccessGroupBadge } from "./access-group-badge";
+import type { AppAccessEntry } from "./admin-access";
+import { ACCESS_LIST_STATUS } from "./admin-access-copy";
 
 const VISIBLE_PEOPLE = 5;
 
@@ -41,7 +41,18 @@ export function AdminAccessStatus({
     status !== ACCESS_LIST_STATUS.noOne &&
     (groups.length > 0 || people.length > 0);
   if (!showRoster) {
-    return <span className="text-sm text-muted-foreground">{status}</span>;
+    const unavailable = status === ACCESS_LIST_STATUS.unavailable;
+    return (
+      <span
+        className={
+          unavailable
+            ? "text-xs text-muted-foreground"
+            : "text-sm text-muted-foreground"
+        }
+      >
+        {status}
+      </span>
+    );
   }
 
   const visiblePeople = people.slice(0, VISIBLE_PEOPLE);
@@ -62,12 +73,11 @@ export function AdminAccessStatus({
       className="flex items-center gap-1.5"
     >
       {groups.map((entry) => (
-        <Badge
+        <AccessGroupBadge
           key={entry.member.selectorValue ?? entry.label}
-          variant="secondary"
-        >
-          <span className="max-w-32 truncate">{entry.label}</span>
-        </Badge>
+          label={entry.label}
+          className="max-w-32"
+        />
       ))}
       {visiblePeople.length > 0 ? (
         <TooltipProvider delayDuration={0}>

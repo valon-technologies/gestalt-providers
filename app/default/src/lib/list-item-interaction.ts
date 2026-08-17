@@ -24,8 +24,8 @@ import { cva, type VariantProps } from "class-variance-authority";
  * Pointer:
  * - `css` — `:hover`/`:active` on the painted element
  * - `css-group` — `group-hover`/`group-active` when a parent `.group` is the
- *   hit target but wash must stay on a smaller child (e.g. Stepper indicator
- *   shell so Neutral fill never covers the progress rail)
+ *   hit target but wash must stay on a smaller child (e.g. TreeItem → label).
+ *   Stepper keeps Neutral wash on the full trigger and stacks the rail above it.
  * - `rac` — React Aria hovered/pressed
  */
 export const listItemInteraction = cva("", {

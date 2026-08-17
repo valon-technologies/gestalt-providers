@@ -77,7 +77,7 @@ test.describe("Docs page", () => {
       leftNav.getByRole("link", { name: "Grant App Access" }),
     ).toHaveAttribute("href", "/docs/authorization");
     await expect(
-      leftNav.getByRole("link", { name: "Use With MCP" }),
+      leftNav.getByRole("link", { name: "MCP setup" }),
     ).toHaveAttribute("href", "/docs/mcp");
     await expect(page.getByText("Base URL", { exact: true })).toBeVisible();
     await expect(page.locator("article")).toContainText(expectedOrigin);
@@ -218,7 +218,7 @@ test.describe("Docs page", () => {
     await leftNav.getByRole("link", { name: "Grant App Access" }).click();
     await expect(page).toHaveURL(/\/docs\/authorization/);
     await expect(
-      page.getByRole("heading", { name: "Grant App Access" }),
+      page.getByRole("heading", { name: "Grant App Access", exact: true }),
     ).toBeVisible();
     await expect(page.locator("article")).toContainText(
       "App admins can manage members for apps they administer",
@@ -255,23 +255,22 @@ test.describe("Docs page", () => {
     await expect(page.locator("article")).toContainText("gestalt workflows --help");
     await expect(page.locator("article")).toContainText("gestalt workflows runs list");
 
-    await leftNav.getByRole("link", { name: "Use With MCP" }).click();
+    await leftNav.getByRole("link", { name: "MCP setup" }).click();
     await expect(page).toHaveURL(/\/docs\/mcp/);
     await expect(
-      page.getByRole("heading", { name: "Use With MCP" }),
+      page.getByRole("heading", { name: "MCP setup" }),
     ).toBeVisible();
     await expect(
-      page.getByText("claude mcp add --transport http").first(),
+      page.getByRole("heading", {
+        name: "Gestalt MCP, skills, and native plugins",
+      }),
     ).toBeVisible();
     await expect(page.locator("article")).toContainText(
-      "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh",
+      "Use Gestalt MCP for workspace apps",
     );
-    await expect(
-      page.getByRole("link", { name: "Settings → API tokens" }),
-    ).toHaveAttribute("href", "/settings/tokens");
-    await expect(
-      page.getByRole("link", { name: "Manage API Tokens" }),
-    ).toHaveAttribute("href", "/docs/tokens");
+    await expect(page.locator("article")).toContainText(
+      "Open Claude on the web or in the Claude desktop app",
+    );
     const mcpSwitch = page.getByRole("radiogroup", {
       name: "MCP client configuration",
     });
@@ -279,23 +278,47 @@ test.describe("Docs page", () => {
       .locator("xpath=ancestor::*[@data-docs-option-switcher][1]")
       .locator(":scope > div")
       .last();
+    await expect(mcpSwitch.getByRole("radio", { name: "Claude", exact: true })).toBeVisible();
+    await expect(mcpSwitch.getByRole("radio", { name: "ChatGPT" })).toBeVisible();
     await expect(
-      mcpSwitch.getByRole("radio", { name: "Claude Code" }),
+      mcpSwitch.getByRole("radio", { name: "Claude Code", exact: true }),
     ).toBeVisible();
     await expect(mcpSwitch.getByRole("radio", { name: "Codex" })).toBeVisible();
     await expect(mcpSwitch.getByRole("radio", { name: "Cursor" })).toBeVisible();
+    await mcpSwitch.getByRole("radio", { name: "ChatGPT" }).click();
+    await expect(page).toHaveURL(/\/docs\/mcp#mcp-chatgpt$/);
+    await expect(mcpPanel).toContainText("Developer mode");
+    await mcpSwitch.getByRole("radio", { name: "Claude Code", exact: true }).click();
+    await expect(page).toHaveURL(/\/docs\/mcp#mcp-claude-code$/);
+    await expect(mcpPanel).toContainText("claude mcp add --transport http");
+    await expect(page.locator("article")).toContainText(
+      "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh",
+    );
+    await expect(
+      page.getByRole("article").getByRole("link", { name: "Settings → API tokens" }),
+    ).toHaveAttribute("href", "/settings/tokens");
+    await expect(
+      leftNav.getByRole("link", { name: "Manage API Tokens" }),
+    ).toHaveAttribute("href", "/docs/tokens");
+    await expect(
+      page.getByRole("article").getByRole("link", { name: "Manage API Tokens", exact: true }),
+    ).toHaveAttribute("href", "/docs/tokens");
+    await expect(
+      mcpSwitch.getByRole("radio", { name: "Claude", exact: true }),
+    ).toBeVisible();
     await mcpSwitch.getByRole("radio", { name: "Codex" }).click();
     await expect(page).toHaveURL(/\/docs\/mcp#mcp-codex$/);
     await expect(mcpPanel).toContainText(
       'codex mcp add gestalt --url "$GESTALT_URL/mcp" --bearer-token-env-var GESTALT_API_KEY',
     );
+    await expect(mcpPanel).toContainText("Codex Desktop");
+    await expect(mcpPanel).toContainText("Cloud agents do not use local");
     await page.goto("/docs/mcp#mcp-cursor");
     await expect(mcpSwitch.getByRole("radio", { name: "Cursor" })).toBeChecked();
     await expect(mcpPanel).toContainText(".cursor/mcp.json");
     await mcpSwitch.getByRole("radio", { name: "Other clients" }).click();
-    await expect(page).toHaveURL(/\/docs\/mcp#mcp-other$/);    await expect(
-      page.getByRole("cell", { name: `${expectedOrigin}/mcp` }).first(),
-    ).toBeVisible();
+    await expect(page).toHaveURL(/\/docs\/mcp#mcp-other$/);
+    await expect(mcpPanel).toContainText(`${expectedOrigin}/mcp`);
     await expect(page.getByText("gestalt integrations list")).toHaveCount(0);
     expect(pageErrors).toEqual([]);
   });

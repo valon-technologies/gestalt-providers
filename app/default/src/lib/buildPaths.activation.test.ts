@@ -20,6 +20,7 @@ import {
   setupAppsHasConnectable,
   setupAppsStepComplete,
   setupDataSourceIntegrations,
+  setupTokenSelectedReadyCopy,
   tokensIncludingSessionGrant,
   type BuildWorkspaceSnapshot,
 } from "@/lib/buildPaths";
@@ -318,12 +319,17 @@ describe("buildStepTitle", () => {
   test("names the install step after the chosen assistant", () => {
     const install = BUILD_STEPS.find((step) => step.id === "install")!;
     expect(buildStepTitle(install, "cursor")).toBe("Add Gestalt in Cursor");
-    expect(buildStepTitle(install, "claude")).toBe(
+    expect(buildStepTitle(install, "claude")).toBe("Add Gestalt in Claude");
+    expect(buildStepTitle(install, "claude-code")).toBe(
       "Add Gestalt in Claude Code",
     );
-    expect(buildInstallStepTitle("codex")).toBe("Add Gestalt in Codex");
+    expect(buildStepTitle(install, "chatgpt")).toBe("Add Gestalt in ChatGPT");
+    expect(buildInstallStepTitle("codex")).toBe("Add Gestalt in Codex Desktop");
     expect(buildStepDescription(install, "cursor")).toBe(
       "Connect Cursor so it can use your Gestalt apps.",
+    );
+    expect(buildStepDescription(install, "codex")).toBe(
+      "Run these commands in Terminal on the Mac where Codex Desktop is installed.",
     );
   });
 
@@ -337,7 +343,9 @@ describe("buildStepTitle", () => {
       "try",
     ]);
     const token = BUILD_STEPS.find((step) => step.id === "token")!;
-    expect(buildStepTitle(token, "cursor")).toBe("Create an API token");
+    expect(buildStepTitle(token, "cursor")).toBe("Create a token");
+    expect(token.description).toContain("Your assistant uses this token");
+    expect(token.description).not.toContain("coding agent");
   });
 });
 
@@ -446,6 +454,15 @@ describe("buildAuthorizeSelectionReady", () => {
         selectedTokenId: "tok_1",
       }),
     ).toBe(false);
+  });
+
+  test("selected-step copy names the minted token", () => {
+    expect(setupTokenSelectedReadyCopy("ci-pipeline")).toBe(
+      "ci-pipeline is selected. Continue to add Gestalt.",
+    );
+    expect(setupTokenSelectedReadyCopy("  ")).toBe(
+      "Your token is selected. Continue to add Gestalt.",
+    );
   });
 });
 

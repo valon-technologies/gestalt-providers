@@ -10,18 +10,23 @@ import { Link as UiLink } from "@/components/ui/link";
 export function DocsLink({
   to,
   href,
+  hash,
   children,
 }: {
   children: ReactNode;
   /** In-app path (TanStack Router). */
   to?: string;
+  /** In-app hash without `#` (TanStack Router). */
+  hash?: string;
   /** External URL (`target=_blank`). */
   href?: string;
 }) {
   if (to) {
     return (
       <UiLink asChild>
-        <RouterLink to={to}>{children}</RouterLink>
+        <RouterLink to={to} hash={hash}>
+          {children}
+        </RouterLink>
       </UiLink>
     );
   }

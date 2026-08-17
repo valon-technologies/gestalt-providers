@@ -636,7 +636,7 @@ export async function seedSetupSession(page: Page, seed: SetupSessionSeed) {
         sessionStorage.setItem("gestalt.build.introSeen", "1");
       }
       if (s.installAgent) {
-        sessionStorage.setItem("gestalt.build.installAgent", s.installAgent);
+        sessionStorage.setItem("gestalt.build.installAgent.v2", s.installAgent);
       }
       if (s.selectedTokenId) {
         sessionStorage.setItem(

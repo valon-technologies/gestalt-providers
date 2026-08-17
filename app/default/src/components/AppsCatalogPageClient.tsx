@@ -543,12 +543,12 @@ export default function AppsCatalogPageClient() {
               <Alert variant="info" data-testid="setup-resume-banner">
                 <AlertTitle>Finish setup</AlertTitle>
                 <AlertDescription>
-                  Pick up where you left off and connect your assistant to this
-                  workspace.
+                  Pick up where you left off. Choose your assistant and finish
+                  install.
                 </AlertDescription>
                 <AlertActions>
                   <UiButton variant="secondary" size="sm" asChild>
-                    <Link to="/setup">Resume</Link>
+                    <Link to="/setup">Resume setup</Link>
                   </UiButton>
                   <UiButton
                     type="button"
@@ -570,6 +570,7 @@ export default function AppsCatalogPageClient() {
               <Alert
                 variant="success"
                 layout="banner"
+                live
                 data-testid="apps-connected-toast"
               >
                 <CheckCircleIcon aria-hidden />

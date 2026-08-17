@@ -271,6 +271,15 @@ describe("step-rail timeline semantics", () => {
     );
   });
 
+  test("rail stacks above a Neutral plate and under the indicator", () => {
+    expect(SOURCE).toContain(
+      '"relative z-20 flex shrink-0 items-center justify-center rounded-full border leading-none',
+    );
+    expect(SOURCE).toContain('"pointer-events-none absolute z-10 overflow-hidden"');
+    expect(SOURCE).not.toContain("z-[1]");
+    expect(SOURCE).not.toContain('"relative z-10 flex shrink-0 items-center justify-center rounded-full');
+  });
+
   test("line fill and indicator chrome honor prefers-reduced-motion", () => {
     expect(SOURCE).toContain(
       "motion-reduce:transition-none motion-reduce:delay-0",
