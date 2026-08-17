@@ -352,17 +352,88 @@ func (b *temporalBackend) ListRuns(ctx context.Context, req *gestalt.ListWorkflo
 	// First page only: continuation pages stay a single ListWorkflow RPC.
 	// Omitted aggregates mean "unknown" (SDK contract), not zero.
 	if len(nextPageToken) == 0 {
-		b.attachListRunAggregates(ctx, req, query, out)
+		b.attachListRunAggregates(ctx, req, query, resp, out)
 	}
 	return out, nil
 }
 
+func listRunHasStatusFilter(req *gestalt.ListWorkflowProviderRunsRequest) bool {
+	if req == nil || req.Status == gestalt.WorkflowRunStatusValueUnspecified {
+		return false
+	}
+	name := workflowRunStatusName(req.Status)
+	return name != "" && name != "unspecified"
+}
+
+func visibilityPageIsComplete(listResp *workflowservicepb.ListWorkflowExecutionsResponse) bool {
+	return listResp != nil && len(listResp.GetNextPageToken()) == 0
+}
+
+func addRunStatusCount(counts *gestalt.WorkflowRunStatusCounts, status gestalt.WorkflowRunStatus, n int64) {
+	if counts == nil {
+		return
+	}
+	switch status {
+	case gestalt.WorkflowRunStatusValuePending:
+		counts.Pending += n
+	case gestalt.WorkflowRunStatusValueRunning:
+		counts.Running += n
+	case gestalt.WorkflowRunStatusValueSucceeded:
+		counts.Succeeded += n
+	case gestalt.WorkflowRunStatusValueFailed:
+		counts.Failed += n
+	case gestalt.WorkflowRunStatusValueCanceled:
+		counts.Canceled += n
+	}
+}
+
+// statusCountsFromVisibilityExecutions counts known GestaltRunStatus values on
+// a complete page. Executions without a mappable status stay in total_count
+// only. That matches CountWorkflow histogram buckets, which filter by status;
+// it is not a reason to CountWorkflow again.
+func statusCountsFromVisibilityExecutions(executions []*workflowpb.WorkflowExecutionInfo) *gestalt.WorkflowRunStatusCounts {
+	counts := &gestalt.WorkflowRunStatusCounts{}
+	for _, info := range executions {
+		if info == nil {
+			continue
+		}
+		name := payloadString(info.GetSearchAttributes().GetIndexedFields()[searchAttrRunStatus.GetName()])
+		addRunStatusCount(counts, workflowRunStatusValues[name], 1)
+	}
+	return counts
+}
+
 // attachListRunAggregates fills visibility totals for the first list page.
-// total_count uses the same filter as the page; status_counts is the
-// provider+target_app histogram with status cleared. Failures leave fields
-// unset rather than failing the list.
-func (b *temporalBackend) attachListRunAggregates(ctx context.Context, req *gestalt.ListWorkflowProviderRunsRequest, query string, out *gestalt.ListWorkflowProviderRunsResponse) {
+// total_count is visibility cardinality (including unlistable executions), not
+// len(runs). Failures leave fields unset rather than failing the list.
+//
+// A complete first page already is the result set: use it. CountWorkflow is
+// only for a truncated page, where the list is a prefix. Temporal Count
+// cannot GROUP BY GestaltDefinitionId, so grouped Runs must not fan out
+// counts for small (complete) groups.
+//
+// status_counts is the status-cleared histogram for tabs. It can be read from
+// a complete unfiltered page; a status-filtered or truncated page still needs
+// CountWorkflow. Definition-scoped lists omit it (grouped Runs has no tabs).
+func (b *temporalBackend) attachListRunAggregates(ctx context.Context, req *gestalt.ListWorkflowProviderRunsRequest, query string, listResp *workflowservicepb.ListWorkflowExecutionsResponse, out *gestalt.ListWorkflowProviderRunsResponse) {
 	definitionScoped := req != nil && strings.TrimSpace(req.DefinitionID) != ""
+	if visibilityPageIsComplete(listResp) {
+		total := int64(len(listResp.GetExecutions()))
+		out.TotalCount = &total
+		if definitionScoped {
+			return
+		}
+		if !listRunHasStatusFilter(req) {
+			out.StatusCounts = statusCountsFromVisibilityExecutions(listResp.GetExecutions())
+			return
+		}
+		counts, err := b.countWorkflowsByStatus(ctx, req)
+		if err == nil {
+			out.StatusCounts = counts
+		}
+		return
+	}
+
 	if definitionScoped {
 		total, err := b.countWorkflows(ctx, query)
 		if err == nil {
@@ -418,7 +489,6 @@ func (b *temporalBackend) countWorkflowsByStatus(ctx context.Context, req *gesta
 	base := &gestalt.ListWorkflowProviderRunsRequest{}
 	if req != nil {
 		base.TargetApp = req.TargetApp
-		// Preserve KnownApps so histogram ownership matches list/total filters
 		base.KnownApps = append([]string(nil), req.KnownApps...)
 	}
 	type statusCount struct {
@@ -444,18 +514,7 @@ func (b *temporalBackend) countWorkflowsByStatus(ctx context.Context, req *gesta
 		if result.err != nil {
 			return nil, result.err
 		}
-		switch result.status {
-		case gestalt.WorkflowRunStatusValuePending:
-			counts.Pending = result.total
-		case gestalt.WorkflowRunStatusValueRunning:
-			counts.Running = result.total
-		case gestalt.WorkflowRunStatusValueSucceeded:
-			counts.Succeeded = result.total
-		case gestalt.WorkflowRunStatusValueFailed:
-			counts.Failed = result.total
-		case gestalt.WorkflowRunStatusValueCanceled:
-			counts.Canceled = result.total
-		}
+		addRunStatusCount(counts, result.status, result.total)
 	}
 	return counts, nil
 }
