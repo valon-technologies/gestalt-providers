@@ -426,7 +426,7 @@ func (p *Provider) tokenExchange(ctx context.Context, req *gestalt.TokenRequest)
 	if err != nil {
 		return nil, err
 	}
-	issued, err := p.grants.issue(ctx, introspectResp.Subject, issuedScope, clientID, grantCategoryAPIToken, ttl)
+	issued, err := p.grants.issue(ctx, p.grantOwnerForIssue(ctx, introspectResp.Subject), issuedScope, clientID, grantCategoryAPIToken, ttl)
 	if err != nil {
 		return nil, err
 	}
@@ -539,7 +539,21 @@ func (p *Provider) grantStore() (*grantStore, error) {
 	return p.grants, nil
 }
 
+// grantOwnerForIssue picks the subject List/Get/Revoke will use for a new
+// API-token grant. A host-verified caller (Settings) owns grants by the
+// canonical subject. Token-only callers (CLI) have no canonical caller, so
+// the grant stays under the subject_token's stored subject.
+func (p *Provider) grantOwnerForIssue(ctx context.Context, tokenSubject string) string {
+	if caller, err := p.callerSubject(ctx); err == nil && caller != "" {
+		return caller
+	}
+	return strings.TrimSpace(tokenSubject)
+}
+
 func (p *Provider) callerSubject(ctx context.Context) (string, error) {
+	if subject := strings.TrimSpace(gestalt.TrustedCallerSubjectFromContext(ctx)); subject != "" {
+		return subject, nil
+	}
 	call := gestalt.IdentityCallContextFromContext(ctx)
 	if subject := strings.TrimSpace(call.CallerSubjectID); subject != "" {
 		return subject, nil

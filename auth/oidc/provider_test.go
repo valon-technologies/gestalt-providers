@@ -837,6 +837,121 @@ func TestTokenExchangeAttenuatesScope(t *testing.T) {
 	}
 }
 
+func TestTokenExchangeGrantOwner(t *testing.T) {
+	emailSubject := "user:owner@example.com"
+	canonicalSubject := "user:11111111-1111-1111-1111-111111111111"
+	otherSubject := "user:22222222-2222-2222-2222-222222222222"
+
+	tests := []struct {
+		name        string
+		exchangeCtx func(context.Context) context.Context
+		listCtx     func(context.Context) context.Context
+		wantOwner   string
+		wantHidden  []string
+	}{
+		{
+			name: "host trusted caller subject",
+			exchangeCtx: func(ctx context.Context) context.Context {
+				return gestalt.WithTrustedCallerSubject(ctx, canonicalSubject)
+			},
+			listCtx: func(ctx context.Context) context.Context {
+				return gestalt.WithTrustedCallerSubject(ctx, canonicalSubject)
+			},
+			wantOwner:  canonicalSubject,
+			wantHidden: []string{emailSubject},
+		},
+		{
+			name: "identity call caller subject",
+			exchangeCtx: func(ctx context.Context) context.Context {
+				return gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
+					CallerSubjectID: canonicalSubject,
+				})
+			},
+			listCtx: func(ctx context.Context) context.Context {
+				return gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
+					CallerSubjectID: canonicalSubject,
+				})
+			},
+			wantOwner:  canonicalSubject,
+			wantHidden: []string{emailSubject},
+		},
+		{
+			name: "trusted caller wins over conflicting call context",
+			exchangeCtx: func(ctx context.Context) context.Context {
+				ctx = gestalt.WithTrustedCallerSubject(ctx, canonicalSubject)
+				return gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
+					CallerSubjectID: otherSubject,
+				})
+			},
+			listCtx: func(ctx context.Context) context.Context {
+				return gestalt.WithTrustedCallerSubject(ctx, canonicalSubject)
+			},
+			wantOwner:  canonicalSubject,
+			wantHidden: []string{emailSubject, otherSubject},
+		},
+		{
+			name: "token-only caller keeps introspect subject",
+			exchangeCtx: func(ctx context.Context) context.Context {
+				return ctx
+			},
+			listCtx: func(ctx context.Context) context.Context {
+				return gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
+					CallerSubjectID: emailSubject,
+				})
+			},
+			wantOwner:  emailSubject,
+			wantHidden: []string{canonicalSubject},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := New()
+			attachGrantStore(t, p)
+			ctx := context.Background()
+
+			session, err := p.grants.issue(ctx, emailSubject, "openid", defaultOAuthClientID, grantCategorySession, time.Hour)
+			if err != nil {
+				t.Fatalf("issue(session) error = %v", err)
+			}
+
+			tokenResp, err := p.Token(tt.exchangeCtx(ctx), &gestalt.TokenRequest{
+				GrantType:        grantTypeTokenExchange,
+				SubjectToken:     session.accessToken,
+				SubjectTokenType: subjectTokenTypeAccessToken,
+			})
+			if err != nil {
+				t.Fatalf("Token() error = %v", err)
+			}
+			if tokenResp == nil || strings.TrimSpace(tokenResp.GrantID) == "" {
+				t.Fatal("Token() missing grant id")
+			}
+
+			for _, hidden := range tt.wantHidden {
+				if ids := p.grants.listGrantIDs(ctx, hidden); len(ids) != 0 {
+					t.Fatalf("listGrantIDs(%q) = %v, want none", hidden, ids)
+				}
+			}
+			ownerIDs := p.grants.listGrantIDs(ctx, tt.wantOwner)
+			if len(ownerIDs) != 1 || ownerIDs[0] != tokenResp.GrantID {
+				t.Fatalf("listGrantIDs(owner) = %v, want [%q]", ownerIDs, tokenResp.GrantID)
+			}
+
+			listCtx := tt.listCtx(ctx)
+			listResp, err := p.ListGrants(listCtx, &gestalt.ListGrantsRequest{})
+			if err != nil {
+				t.Fatalf("ListGrants() error = %v", err)
+			}
+			if len(listResp.GrantIDs) != 1 || listResp.GrantIDs[0] != tokenResp.GrantID {
+				t.Fatalf("ListGrants() = %v, want [%q]", listResp.GrantIDs, tokenResp.GrantID)
+			}
+			if _, err := p.GetGrant(listCtx, &gestalt.GetGrantRequest{GrantID: tokenResp.GrantID}); err != nil {
+				t.Fatalf("GetGrant() error = %v", err)
+			}
+		})
+	}
+}
+
 func TestTokenExchangeExpiresIn(t *testing.T) {
 	p := New()
 	attachGrantStore(t, p)
