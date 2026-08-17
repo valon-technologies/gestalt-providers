@@ -50,6 +50,7 @@ import {
   ASSISTANT_HOST_GROUPS,
   assistantHostDocsHash,
   assistantHostsInGroup,
+  type AssistantHost,
   type BuildInstallAgentId,
 } from "@/lib/assistantHosts";
 import {
@@ -64,16 +65,10 @@ import {
 import { cn } from "@/lib/cn";
 import { DOCS_PATH } from "@/lib/constants";
 import { SETUP_PRODUCT_NAME } from "@/lib/buildPaths";
+import { resolveGestaltPublicOrigin } from "@/lib/gestaltPublicOrigin";
 
 function gestaltMcpBaseUrl(): string {
-  const configured = import.meta.env.VITE_GESTALT_PUBLIC_ORIGIN?.trim();
-  if (configured) return configured.replace(/\/$/, "");
-  if (typeof window === "undefined") return "https://your-gestalt-host";
-  const { origin, hostname } = window.location;
-  if (hostname === "localhost" || hostname === "127.0.0.1") {
-    return "https://your-gestalt-host";
-  }
-  return origin;
+  return resolveGestaltPublicOrigin();
 }
 
 function cursorMcpInstallHref(mcpUrl: string, apiToken: string): string {
@@ -88,15 +83,15 @@ function cursorMcpInstallHref(mcpUrl: string, apiToken: string): string {
   return `cursor://anysphere.cursor-deeplink/mcp/install?name=${encodeURIComponent("gestalt")}&config=${encodeURIComponent(base64)}`;
 }
 
-function hostIcon(id: BuildInstallAgentId): ReactNode {
-  switch (id) {
+function hostIcon(host: AssistantHost): ReactNode {
+  const iconClass = "size-12 shrink-0 text-foreground";
+  switch (host.iconKey) {
     case "claude":
-    case "claude-code":
-      return <ClaudeIcon className="size-12 shrink-0 text-[#D97757]" />;
+      return <ClaudeIcon className={iconClass} />;
     case "chatgpt":
-      return <ChatGptIcon className="size-12 shrink-0 text-foreground" />;
+      return <ChatGptIcon className={iconClass} />;
     case "cursor":
-      return <CursorIcon className="size-12 shrink-0 text-foreground" />;
+      return <CursorIcon className={iconClass} />;
     case "codex":
       return <CodexIcon className="size-12 shrink-0" />;
     case "other":
@@ -176,7 +171,7 @@ export function AssistantPickerStepActions({
                         "items-center gap-2.5",
                       )}
                     >
-                      {hostIcon(host.id)}
+                      {hostIcon(host)}
                       <span
                         data-choice-title
                         className="text-sm font-medium text-foreground"
@@ -197,7 +192,7 @@ export function AssistantPickerStepActions({
 
 function CreateTokenFirstAlert() {
   return (
-    <Alert variant="info" data-testid="build-install-token-needed">
+    <Alert variant="info" live={false} data-testid="build-install-token-needed">
       <AlertTitle>Create a token first</AlertTitle>
       <AlertDescription>
         We can only add Gestalt with a token created in this session. Existing
@@ -234,15 +229,12 @@ function RecipeSteps({
 function ClaudeConnectorRecipe({
   mcpUrl,
   bearerValue,
-  hasMcpCredential,
 }: {
   mcpUrl: string;
   bearerValue: string;
-  hasMcpCredential: boolean;
 }) {
   return (
     <div className="space-y-4">
-      {!hasMcpCredential ? <CreateTokenFirstAlert /> : null}
       <RecipeSteps testId="build-install-claude-recipe">
         <li>{CLAUDE_INSTALL_OPEN}</li>
         <li>
@@ -280,15 +272,12 @@ function ClaudeConnectorRecipe({
 function ChatGptConnectorRecipe({
   mcpUrl,
   tokenValue,
-  hasMcpCredential,
 }: {
   mcpUrl: string;
   tokenValue: string;
-  hasMcpCredential: boolean;
 }) {
   return (
     <div className="space-y-4">
-      {!hasMcpCredential ? <CreateTokenFirstAlert /> : null}
       <RecipeSteps testId="build-install-chatgpt-recipe">
         <li>{CHATGPT_INSTALL_DEVELOPER_MODE}</li>
         <li>
@@ -367,10 +356,10 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
 
   return (
     <div className="w-full space-y-4" data-testid="build-mcp-install-single">
+      {!hasMcpCredential ? <CreateTokenFirstAlert /> : null}
+
       {agent === "cursor" ? (
         <div className="space-y-4">
-          {!hasMcpCredential ? <CreateTokenFirstAlert /> : null}
-
           <RadioGroup
             value={cursorMethod}
             onValueChange={(value) =>
@@ -492,7 +481,6 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
         <ClaudeConnectorRecipe
           mcpUrl={mcpUrl}
           bearerValue={bearerValue}
-          hasMcpCredential={hasMcpCredential}
         />
       ) : null}
 
@@ -500,7 +488,6 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
         <ChatGptConnectorRecipe
           mcpUrl={mcpUrl}
           tokenValue={tokenForSnippets}
-          hasMcpCredential={hasMcpCredential}
         />
       ) : null}
 

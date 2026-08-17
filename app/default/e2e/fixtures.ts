@@ -666,7 +666,11 @@ export async function seedSetupSession(page: Page, seed: SetupSessionSeed) {
         }
       }
       if (s.mcpInstalled) {
-        sessionStorage.setItem("gestalt.build.mcpInstalled", "1");
+        const agents = s.installAgent ? [s.installAgent] : [];
+        sessionStorage.setItem(
+          "gestalt.build.mcpInstalledAgents",
+          JSON.stringify(agents),
+        );
       }
       if (s.activeExemplarId) {
         sessionStorage.setItem(

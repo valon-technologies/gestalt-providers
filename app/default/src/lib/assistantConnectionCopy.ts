@@ -1,8 +1,6 @@
-/** Canonical copy for Gestalt MCP vs native plugins vs Toolshed skills. */
+/** Canonical copy for Gestalt MCP vs native plugins vs assistant skills. */
 
 export const MCP_DOCS_TITLE = "MCP setup";
-
-export const MCP_CODEX_HASH = "mcp-codex";
 
 export const WELCOME_ASSISTANT_EXAMPLES =
   "Ask in plain English in Claude, ChatGPT, Cursor, or Codex";
@@ -11,7 +9,7 @@ export const ASSISTANT_PICKER_DESCRIPTION =
   "Pick Claude, ChatGPT, Cursor, or another assistant you already use. You can add more later.";
 
 export const TOKEN_STEP_DESCRIPTION =
-  "Your assistant uses this token to reach Gestalt. We can only show the secret once, so create a new one here.";
+  "Your assistant uses this token to reach Gestalt. We can only show the token value once, so create a new one here.";
 
 export const CLAUDE_CONNECTOR_SETTINGS_HREF =
   "https://claude.ai/settings/connectors";
@@ -46,7 +44,7 @@ export const CHATGPT_INSTALL_URL =
   "Name it Gestalt and paste this MCP server URL.";
 
 export const CHATGPT_INSTALL_TOKEN =
-  "If ChatGPT asks how to authenticate, choose Token or API key (not OAuth) and paste the token from the previous step.";
+  "If ChatGPT asks how to authenticate, choose Token or API key (not OAuth) and copy the token below.";
 
 export const CHATGPT_INSTALL_ENABLE =
   "Start a new chat. In the composer, open +, then Developer mode, and select Gestalt.";
@@ -60,7 +58,7 @@ export const MCP_OVERLAP_HEADING =
 export const ASSISTANT_OVERLAP_TITLE = "One path per app";
 
 export const ASSISTANT_OVERLAP_SHORT =
-  "Use Gestalt MCP for workspace apps your company connected here. Skip Codex native plugins and Toolshed skills that hit the same app (for example Notion). Turn those on only when you need something Gestalt does not expose.";
+  "Use Gestalt MCP for workspace apps your company connected here. Skip Codex native plugins and assistant skills that connect to the same app (for example Notion). Turn those on only when you need something Gestalt does not expose.";
 
 export const CONNECT_ANOTHER_ASSISTANT_LABEL = "Connect another assistant";
 

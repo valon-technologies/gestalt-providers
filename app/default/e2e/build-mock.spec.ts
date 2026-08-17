@@ -466,10 +466,10 @@ test.describe("Setup page", () => {
     await page.getByRole("button", { name: "Create token" }).click();
     await expect(page.getByText("Token created.")).toBeVisible();
     await expect(
-      page.getByText("Done. You will not see the full secret again."),
+      page.getByText("Continue to copy your token in the next step."),
     ).toBeVisible();
     await expect(
-      page.getByText("ci-pipeline is selected. Continue to add Gestalt."),
+      page.getByText("ci-pipeline is ready. Continue to add Gestalt."),
     ).toBeVisible();
     await expect(page.getByTestId("build-step-next")).toBeEnabled();
     await expect(page.getByTestId("build-step-next")).toContainText(
@@ -528,7 +528,7 @@ test.describe("Setup page", () => {
     await page.getByRole("button", { name: "Create token" }).click();
     await expect(page.getByText("Token created.")).toBeVisible();
     await expect(
-      page.getByText("Workspace is selected. Continue to add Gestalt."),
+      page.getByText("Workspace is ready. Continue to add Gestalt."),
     ).toBeVisible();
     await expect(page.getByTestId("build-existing-token-list")).toHaveCount(0);
     await expect(page.getByTestId("build-step-next")).toBeEnabled();
@@ -1058,5 +1058,39 @@ test.describe("Setup page", () => {
     await page.getByRole("button", { name: "Retry" }).click();
     await expect(page.getByRole("searchbox", { name: "Search apps" })).toBeVisible();
     await expect(page.getByText("Oncall")).toBeVisible();
+  });
+
+  test("switching assistant after setup opens install for the new host", async ({
+    authenticatedPage: page,
+  }) => {
+    await mockTokens(page, [defaultToken]);
+    await seedSetupSession(page, {
+      introSeen: true,
+      installAgent: "cursor",
+      mcpInstalled: true,
+      selectedTokenId: "tok_123",
+      activeExemplarId: "aiSpendTracker",
+      trySeen: true,
+    });
+    await mockIntegrations(
+      page,
+      catalogFixtures.map((item) =>
+        item.name === "slack" ? withConnectedConnection(item) : item,
+      ),
+    );
+
+    await page.goto("/setup");
+    await expect(
+      page.getByRole("heading", { name: "You're all set" }),
+    ).toBeVisible();
+    await page.getByRole("link", { name: /Connect another assistant/ }).click();
+    await expect(page).toHaveURL(/\/setup\/assistant$/);
+    await page.getByTestId("build-install-card-chatgpt").click();
+    await page.goto("/setup");
+    await expect(page).toHaveURL(/\/setup\/install$/);
+    await expect(page.getByTestId("build-install-chatgpt-recipe")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "You're all set" }),
+    ).toHaveCount(0);
   });
 });

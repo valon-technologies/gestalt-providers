@@ -15,6 +15,16 @@ export type BuildInstallAgentId =
 
 export type AssistantHostGroupId = "chat" | "coding" | "other";
 
+export type AssistantHostIconKey =
+  | "claude"
+  | "chatgpt"
+  | "cursor"
+  | "codex"
+  | "other";
+
+/** Setup AgentConsole composition skin — not an AgentConsole prop. */
+export type AssistantHostConsoleSkin = "claude" | "codex" | "cursor";
+
 export type McpDocsHash =
   | "mcp-claude"
   | "mcp-chatgpt"
@@ -31,6 +41,8 @@ export type AssistantHost = {
   docsTabLabel: string;
   testId: string;
   installDescription: string;
+  iconKey: AssistantHostIconKey;
+  consoleSkin: AssistantHostConsoleSkin;
 };
 
 export const ASSISTANT_HOST_GROUPS: ReadonlyArray<{
@@ -52,6 +64,8 @@ export const ASSISTANT_HOSTS: readonly AssistantHost[] = [
     testId: "build-install-card-claude",
     installDescription:
       "Add a custom connector in Claude on the web or in the Claude desktop app.",
+    iconKey: "claude",
+    consoleSkin: "claude",
   },
   {
     id: "chatgpt",
@@ -62,6 +76,8 @@ export const ASSISTANT_HOSTS: readonly AssistantHost[] = [
     testId: "build-install-card-chatgpt",
     installDescription:
       "Add Gestalt as a developer-mode app in ChatGPT.",
+    iconKey: "chatgpt",
+    consoleSkin: "codex",
   },
   {
     id: "cursor",
@@ -71,6 +87,8 @@ export const ASSISTANT_HOSTS: readonly AssistantHost[] = [
     docsTabLabel: "Cursor",
     testId: "build-install-card-cursor",
     installDescription: "Connect Cursor so it can use your Gestalt apps.",
+    iconKey: "cursor",
+    consoleSkin: "cursor",
   },
   {
     id: "claude-code",
@@ -81,6 +99,8 @@ export const ASSISTANT_HOSTS: readonly AssistantHost[] = [
     testId: "build-install-card-claude-code",
     installDescription:
       "Run this command in your terminal from a project folder.",
+    iconKey: "claude",
+    consoleSkin: "claude",
   },
   {
     id: "codex",
@@ -91,6 +111,8 @@ export const ASSISTANT_HOSTS: readonly AssistantHost[] = [
     testId: "build-install-card-codex",
     installDescription:
       "Run these commands in Terminal on the Mac where Codex Desktop is installed.",
+    iconKey: "codex",
+    consoleSkin: "codex",
   },
   {
     id: "other",
@@ -101,6 +123,8 @@ export const ASSISTANT_HOSTS: readonly AssistantHost[] = [
     testId: "build-install-card-other",
     installDescription:
       "Paste this address into your assistant with your token.",
+    iconKey: "other",
+    consoleSkin: "claude",
   },
 ];
 

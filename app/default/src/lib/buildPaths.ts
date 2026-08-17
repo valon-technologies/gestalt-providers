@@ -16,9 +16,6 @@ import {
 import { SETUP_PATH } from "@/lib/constants";
 import { normalizeIntegrationStatus } from "@/lib/integrationStatus";
 
-export type { BuildInstallAgentId } from "@/lib/assistantHosts";
-export { isBuildInstallAgentId } from "@/lib/assistantHosts";
-
 export type BuildStepId =
   | "welcome"
   | "assistant"
@@ -213,7 +210,7 @@ export const BUILD_STEPS: BuildStep[] = [
     description: TOKEN_STEP_DESCRIPTION,
     ctaLabel: "Continue",
     to: `${SETUP_PATH}/token`,
-    isComplete: (snapshot) => buildAuthorizeStepComplete(snapshot),
+    isComplete: (snapshot) => buildMcpCredentialReady(snapshot),
   },
   {
     id: "install",
@@ -259,29 +256,6 @@ export function isSetupTokenGrantId(id: string): boolean {
   );
 }
 
-/**
- * Keep a session-minted grant visible on the token step when the server list
- * has not caught up (or never will). Pass `grantId` only while Setup still
- * holds that grant's plaintext.
- */
-export function tokensIncludingSessionGrant(
-  tokens: APIToken[],
-  session: { grantId: string; name?: string; createdAt?: string },
-): APIToken[] {
-  const grantId = session.grantId.trim();
-  if (!isSetupTokenGrantId(grantId)) return tokens;
-  if (tokens.some((token) => token.id === grantId)) return tokens;
-  const name = session.name?.trim();
-  return [
-    {
-      id: grantId,
-      ...(name && name !== grantId ? { name } : {}),
-      createdAt: session.createdAt ?? new Date().toISOString(),
-    },
-    ...tokens,
-  ];
-}
-
 /** Pre-split Connect URL — redirect to the token step. */
 export const LEGACY_SETUP_CONNECT_STEP_ID = "connect";
 
@@ -290,9 +264,10 @@ export const DEFAULT_BUILD_TOKEN_NAME = "Gestalt";
 
 export const SETUP_TOKEN_CREATE_ITEM_TITLE = "Create a token";
 
-export const SETUP_TOKEN_SELECTED_ITEM_TITLE = "Token selected";
+export const SETUP_TOKEN_SELECTED_ITEM_TITLE = "Token ready";
 
-export const SETUP_TOKEN_CREATE_DONE = "Done. You will not see the full secret again.";
+export const SETUP_TOKEN_CREATE_DONE =
+  "Continue to copy your token in the next step.";
 
 export const SETUP_TOKEN_SELECTED_PENDING = "Create a token first.";
 
@@ -300,34 +275,14 @@ export const SETUP_TOKEN_NEXT_DISABLED_TITLE = "Create a token before continuing
 
 export function setupTokenSelectedReadyCopy(name: string): string {
   const label = name.trim() || "Your token";
-  return `${label} is selected. Continue to add Gestalt.`;
+  return `${label} is ready. Continue to add Gestalt.`;
 }
 
 /**
- * Authorize is ready when this session holds a minted secret bound to the
+ * Token step is done when this session holds a minted secret bound to the
  * selected grant. A filled create-token name is not enough. Listed grants
  * cannot be reused: the API never returns the secret after mint.
  */
-export function buildAuthorizeSelectionReady(
-  snapshot: Pick<
-    BuildWorkspaceSnapshot,
-    "apiToken" | "apiTokenGrantId" | "selectedTokenId"
-  >,
-): boolean {
-  return buildMcpCredentialReady(snapshot);
-}
-
-/** Token step is done when this session holds a minted secret bound to the grant. */
-export function buildAuthorizeStepComplete(
-  snapshot: Pick<
-    BuildWorkspaceSnapshot,
-    "apiToken" | "apiTokenGrantId" | "selectedTokenId"
-  >,
-): boolean {
-  return buildMcpCredentialReady(snapshot);
-}
-
-/** Plaintext bearer secret bound to the current grant selection — required for MCP install. */
 export function buildMcpCredentialReady(
   snapshot: Pick<
     BuildWorkspaceSnapshot,
@@ -586,6 +541,8 @@ export function resolveExemplarOpenPath(
 }
 
 export const MCP_INSTALLED_STORAGE_KEY = "gestalt.build.mcpInstalled";
+export const MCP_INSTALLED_AGENTS_STORAGE_KEY =
+  "gestalt.build.mcpInstalledAgents";
 export const BUILD_EXEMPLAR_STORAGE_KEY = "gestalt.build.activeExemplarId";
 /** Welcome-seen flag (legacy key `introSeen` retained for in-flight sessions). */
 export const BUILD_INTRO_SEEN_STORAGE_KEY = "gestalt.build.introSeen";
@@ -617,7 +574,7 @@ export function buildInstallStepTitle(installAgentId: string): string {
 export function buildInstallStepDescription(installAgentId: string): string {
   return (
     assistantHostById(installAgentId)?.installDescription ??
-    `Paste this address into your assistant with your token.`
+    assistantHostById("other")!.installDescription
   );
 }
 
@@ -643,12 +600,66 @@ export function isLegacySetupConnectStepId(value: string): boolean {
   return value === LEGACY_SETUP_CONNECT_STEP_ID;
 }
 
+export function mcpInstalledForAgent(
+  installedAgents: readonly string[],
+  agentId: string,
+): boolean {
+  return isBuildInstallAgentId(agentId) && installedAgents.includes(agentId);
+}
+
+export function addMcpInstalledAgent(
+  installedAgents: readonly BuildInstallAgentId[],
+  agentId: string,
+): BuildInstallAgentId[] {
+  if (!isBuildInstallAgentId(agentId)) return [...installedAgents];
+  if (installedAgents.includes(agentId)) return [...installedAgents];
+  return [...installedAgents, agentId];
+}
+
+export function readMcpInstalledAgents(): BuildInstallAgentId[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.sessionStorage.getItem(MCP_INSTALLED_AGENTS_STORAGE_KEY);
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(isBuildInstallAgentId);
+      }
+    }
+    if (readSessionFlag(MCP_INSTALLED_STORAGE_KEY)) {
+      const agent = readStoredInstallAgent();
+      return agent ? [agent] : [];
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+export function writeMcpInstalledAgents(ids: readonly BuildInstallAgentId[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(
+      MCP_INSTALLED_AGENTS_STORAGE_KEY,
+      JSON.stringify(ids),
+    );
+    window.sessionStorage.removeItem(MCP_INSTALLED_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function readMcpInstalledFlag(): boolean {
-  return readSessionFlag(MCP_INSTALLED_STORAGE_KEY);
+  return readMcpInstalledAgents().length > 0;
 }
 
 export function writeMcpInstalledFlag(value: boolean): void {
-  writeSessionFlag(MCP_INSTALLED_STORAGE_KEY, value);
+  if (!value) {
+    writeMcpInstalledAgents([]);
+    return;
+  }
+  const agent = readStoredInstallAgent();
+  writeMcpInstalledAgents(agent ? [agent] : []);
 }
 
 export function readIntroSeenFlag(): boolean {

@@ -29,7 +29,6 @@ import {
   docsSubsectionLabel,
 } from "./docs-data";
 import {
-  ASSISTANT_OVERLAP_SHORT,
   CHATGPT_INSTALL_AUTH_NOTE,
   CHATGPT_INSTALL_CREATE_APP,
   CHATGPT_INSTALL_DEVELOPER_MODE,
@@ -44,15 +43,13 @@ import {
   CLAUDE_INSTALL_OPEN,
   CLAUDE_INSTALL_OPEN_CONNECTORS,
   CLAUDE_INSTALL_REQUEST_HEADER,
-  MCP_CODEX_HASH,
   MCP_DOCS_TITLE,
 } from "@/lib/assistantConnectionCopy";
-import { MCP_CLIENT_TABS } from "@/lib/assistantHosts";
+import { MCP_CLIENT_TABS, assistantHostById } from "@/lib/assistantHosts";
 import { SETUP_PATH } from "@/lib/constants";
+import { resolveGestaltPublicOrigin } from "@/lib/gestaltPublicOrigin";
 import { DOCS_PAGE_TOP_GAP } from "./docs-chrome";
 import { DocsLink } from "./DocsLink";
-
-const FALLBACK_ORIGIN = "https://your-gestalt-host";
 
 const mcpTabs = MCP_CLIENT_TABS;
 
@@ -503,7 +500,7 @@ export function McpDocsPage() {
       <DocsPageBody>
         <p>
           Gestalt exposes one MCP endpoint for all connected workspace apps.
-          Create an API token first, in the UI at{" "}
+          Create a token first, in the UI at{" "}
           <DocsLink to={DOCS_SETTINGS_TOKENS_HREF}>Settings → API tokens</DocsLink>
           , or with <Code>gestalt tokens create</Code> (see{" "}
           <DocsLink to={DOCS_TOKENS_PATH}>Manage API Tokens</DocsLink>
@@ -516,7 +513,7 @@ export function McpDocsPage() {
           up in this UI.
         </p>
         <p>
-          Toolshed skills are markdown playbooks (runbooks, SQL patterns, team
+          Assistant skills are markdown playbooks (runbooks, SQL patterns, team
           conventions). They do not replace Gestalt app connections. Enable a
           skill when you want procedural guidance, not when you need live API
           access.
@@ -528,7 +525,6 @@ export function McpDocsPage() {
           for Notion and leave the Codex Notion plugin off to avoid duplicate
           tools and conflicting auth.
         </p>
-        <p>{ASSISTANT_OVERLAP_SHORT}</p>
         <p>
           On workspaces with authentication disabled, omit the bearer-token flag
           and header blocks shown below.
@@ -618,7 +614,7 @@ export function TroubleshootingDocsPage() {
           Desktop, then restart the app. Check that{" "}
           <Code>GESTALT_API_KEY</Code> is set in the shell where you ran the
           command, or export it in your profile. Full steps:{" "}
-          <DocsLink to={DOCS_MCP_PATH} hash={MCP_CODEX_HASH}>
+          <DocsLink to={DOCS_MCP_PATH} hash={assistantHostById("codex")!.docsHash}>
             Codex Desktop MCP setup
           </DocsLink>
           .
@@ -1109,12 +1105,10 @@ function McpClientTabs({ origin }: { origin: string }) {
 }
 
 function useDeploymentOrigin() {
-  const [origin, setOrigin] = useState(() =>
-    typeof window === "undefined" ? FALLBACK_ORIGIN : window.location.origin,
-  );
+  const [origin, setOrigin] = useState(() => resolveGestaltPublicOrigin());
 
   useEffect(() => {
-    setOrigin(window.location.origin);
+    setOrigin(resolveGestaltPublicOrigin());
   }, []);
 
   return origin;

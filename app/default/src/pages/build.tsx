@@ -107,7 +107,6 @@ import {
 import {
   BUILD_STEPS,
   buildInstallAgentSelected,
-  buildAuthorizeSelectionReady,
   buildMcpCredentialReady,
   buildStepDescription,
   buildStepTitle,
@@ -134,7 +133,6 @@ import {
   setupDataSourceIntegrations,
   writeSetupSkipped,
   type BuildExemplar,
-  type BuildInstallAgentId,
   type BuildStep,
   type BuildStepId,
   type BuildWorkspaceSnapshot,
@@ -143,7 +141,7 @@ import {
   CONNECT_ANOTHER_ASSISTANT_LABEL,
   WELCOME_ASSISTANT_EXAMPLES,
 } from "@/lib/assistantConnectionCopy";
-import { assistantHostById } from "@/lib/assistantHosts";
+import { assistantHostById, type BuildInstallAgentId } from "@/lib/assistantHosts";
 import { cn } from "@/lib/cn";
 import { DOCS_PATH, SETUP_PATH } from "@/lib/constants";
 import {
@@ -545,9 +543,7 @@ type BuildAgentSkin = "claude" | "codex" | "cursor";
 function buildAgentSkin(
   installAgentId: BuildInstallAgentId | "",
 ): BuildAgentSkin {
-  if (installAgentId === "cursor") return "cursor";
-  if (installAgentId === "codex" || installAgentId === "chatgpt") return "codex";
-  return "claude";
+  return assistantHostById(installAgentId)?.consoleSkin ?? "claude";
 }
 
 function buildAgentProductLabel(
@@ -895,11 +891,6 @@ function BuildStepPanel({
   onMarkWelcomeSeen: () => void;
   onGoToStep: (id: BuildStepId) => void;
 }) {
-  const authorizeReady = buildAuthorizeSelectionReady({
-    apiToken,
-    apiTokenGrantId,
-    selectedTokenId,
-  });
   const mcpCredentialReady = buildMcpCredentialReady({
     apiToken,
     apiTokenGrantId,
@@ -1015,7 +1006,7 @@ function BuildStepPanel({
           }
           nextDisabled={
             (step.id === "assistant" && !installReady) ||
-            (step.id === "token" && !authorizeReady) ||
+            (step.id === "token" && !mcpCredentialReady) ||
             (step.id === "apps" &&
               !setupAppsStepComplete({
                 integrations,

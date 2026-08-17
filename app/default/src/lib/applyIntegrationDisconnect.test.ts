@@ -44,10 +44,11 @@ describe("applyDisconnectToIntegration", () => {
 
     expect(connection?.instances).toEqual([]);
     expect(connection?.connected).toBe(false);
-    expect(connection?.actions).toEqual(["connect"]);
+    expect(connection?.actions).toBeUndefined();
     expect(status.connections[0]?.instances).toEqual([]);
     expect(status.connected).toBe(false);
     expect(status.connections[0]?.canConnect).toBe(true);
+    expect(status.connections[0]?.actions).toContain("connect");
     expect(connectionSurfaceMode(status)).toBe("connect");
   });
 
@@ -63,7 +64,26 @@ describe("applyDisconnectToIntegration", () => {
 
     expect(names).toEqual(["personal"]);
     expect(next.connections?.[0]?.connected).toBe(true);
-    expect(next.connections?.[0]?.actions).toEqual(["disconnect", "add_instance"]);
+    expect(next.connections?.[0]?.actions).toBeUndefined();
+    expect(normalizeIntegrationStatus(next).connections[0]?.actions).toEqual(
+      expect.arrayContaining(["disconnect", "add_instance"]),
+    );
+    expect(
+      normalizeIntegrationStatus(next).connections[0]?.actions,
+    ).not.toContain("select_instance");
+  });
+
+  test("falls back to a remaining preferred account after removing the named preferred", () => {
+    const linked = gmailLinked([
+      { name: "work", connection: "default", preferred: true },
+      { name: "personal", connection: "default", preferred: true },
+    ]);
+    linked.connections![0]!.preferredInstance = "work";
+    const next = applyDisconnectToIntegration(linked, {
+      instance: "work",
+      connection: "default",
+    });
+    expect(next.connections?.[0]?.preferredInstance).toBe("personal");
   });
 
   test("clears every account when disconnecting the connection as a whole", () => {
@@ -77,6 +97,10 @@ describe("applyDisconnectToIntegration", () => {
 
     expect(next.connections?.[0]?.instances).toEqual([]);
     expect(next.connections?.[0]?.connected).toBe(false);
+    expect(next.connections?.[0]?.actions).toBeUndefined();
+    expect(
+      normalizeIntegrationStatus(next).connections[0]?.actions,
+    ).toContain("connect");
   });
 
   test("does not touch a different connection on the same app", () => {

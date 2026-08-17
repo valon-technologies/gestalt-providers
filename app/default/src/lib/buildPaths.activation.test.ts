@@ -4,8 +4,8 @@ import {
   BUILD_CREATE_NEW_TOKEN_ID,
   BUILD_STEPS,
   BUILD_USE_EXISTING_TOKEN_ID,
-  buildAuthorizeSelectionReady,
   buildInstallStepTitle,
+  buildMcpCredentialReady,
   buildStepDescription,
   buildStepTitle,
   catalogLoadStateFromQuery,
@@ -15,13 +15,13 @@ import {
   isSetupDataSourceApp,
   isSetupTokenGrantId,
   isWorkspaceWarm,
+  mcpInstalledForAgent,
   sessionApiTokenBoundToSelection,
   setupAppsConnected,
   setupAppsHasConnectable,
   setupAppsStepComplete,
   setupDataSourceIntegrations,
   setupTokenSelectedReadyCopy,
-  tokensIncludingSessionGrant,
   type BuildWorkspaceSnapshot,
 } from "@/lib/buildPaths";
 
@@ -425,10 +425,10 @@ describe("setup data-source apps", () => {
   });
 });
 
-describe("buildAuthorizeSelectionReady", () => {
+describe("buildMcpCredentialReady", () => {
   test("a filled create-token name is not enough to continue", () => {
     expect(
-      buildAuthorizeSelectionReady({
+      buildMcpCredentialReady({
         apiToken: "",
         apiTokenGrantId: "",
         selectedTokenId: "new",
@@ -438,7 +438,7 @@ describe("buildAuthorizeSelectionReady", () => {
 
   test("a minted secret bound to the new grant is enough", () => {
     expect(
-      buildAuthorizeSelectionReady({
+      buildMcpCredentialReady({
         apiToken: "gst_x",
         apiTokenGrantId: "tok_new",
         selectedTokenId: "tok_new",
@@ -448,7 +448,7 @@ describe("buildAuthorizeSelectionReady", () => {
 
   test("picking a listed token is not enough without a session secret", () => {
     expect(
-      buildAuthorizeSelectionReady({
+      buildMcpCredentialReady({
         apiToken: "",
         apiTokenGrantId: "",
         selectedTokenId: "tok_1",
@@ -458,10 +458,10 @@ describe("buildAuthorizeSelectionReady", () => {
 
   test("selected-step copy names the minted token", () => {
     expect(setupTokenSelectedReadyCopy("ci-pipeline")).toBe(
-      "ci-pipeline is selected. Continue to add Gestalt.",
+      "ci-pipeline is ready. Continue to add Gestalt.",
     );
     expect(setupTokenSelectedReadyCopy("  ")).toBe(
-      "Your token is selected. Continue to add Gestalt.",
+      "Your token is ready. Continue to add Gestalt.",
     );
   });
 });
@@ -480,45 +480,22 @@ describe("sessionApiTokenBoundToSelection", () => {
   });
 });
 
-describe("tokensIncludingSessionGrant", () => {
-  test("isSetupTokenGrantId rejects radio sentinels", () => {
+describe("isSetupTokenGrantId", () => {
+  test("rejects radio sentinels", () => {
     expect(isSetupTokenGrantId(BUILD_CREATE_NEW_TOKEN_ID)).toBe(false);
     expect(isSetupTokenGrantId(BUILD_USE_EXISTING_TOKEN_ID)).toBe(false);
     expect(isSetupTokenGrantId("")).toBe(false);
     expect(isSetupTokenGrantId("tok_new")).toBe(true);
   });
+});
 
-  test("prepends a session-minted grant the server list omitted", () => {
-    const listed = tokensIncludingSessionGrant([token], {
-      grantId: "tok_new",
-      name: "Workspace assistant",
-      createdAt: "2026-08-14T15:00:00Z",
-    });
-    expect(listed.map((item) => item.id)).toEqual(["tok_new", "tok_1"]);
-    expect(listed[0]).toEqual({
-      id: "tok_new",
-      name: "Workspace assistant",
-      createdAt: "2026-08-14T15:00:00Z",
-    });
-  });
-
-  test("does not duplicate a grant the server already returned", () => {
+describe("mcpInstalledForAgent", () => {
+  test("install complete is scoped to the acknowledged assistant", () => {
+    expect(mcpInstalledForAgent(["cursor"], "cursor")).toBe(true);
+    expect(mcpInstalledForAgent(["cursor"], "chatgpt")).toBe(false);
+    expect(mcpInstalledForAgent(["cursor"], "")).toBe(false);
     expect(
-      tokensIncludingSessionGrant([token], {
-        grantId: "tok_1",
-        name: "Test",
-      }),
-    ).toEqual([token]);
-  });
-
-  test("does not inject radio sentinels or an unbound grant", () => {
-    expect(
-      tokensIncludingSessionGrant([token], {
-        grantId: BUILD_CREATE_NEW_TOKEN_ID,
-      }),
-    ).toEqual([token]);
-    expect(tokensIncludingSessionGrant([token], { grantId: "" })).toEqual([
-      token,
-    ]);
+      isBuildComplete(completeSnapshot({ mcpInstalled: false })),
+    ).toBe(false);
   });
 });

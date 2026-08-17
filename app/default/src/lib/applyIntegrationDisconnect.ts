@@ -3,7 +3,6 @@ import type {
   CredentialState,
   InstanceInfo,
   Integration,
-  IntegrationAction,
   IntegrationStatus,
 } from "./api";
 
@@ -12,18 +11,15 @@ export type IntegrationDisconnectSpec = {
   connection?: string;
 };
 
-const ACCOUNT_MUTATION_ACTIONS = new Set<IntegrationAction>([
-  "disconnect",
-  "add_instance",
-  "select_instance",
-]);
-
 /**
  * Apply a successful disconnect to the catalog entry.
  *
  * The integrations list is the canonical record of linked accounts. After
  * DELETE succeeds, the UI must reflect that mutation immediately — not wait
  * for a later GET to catch up.
+ *
+ * Mutate structural connection state only. Clear `actions` so
+ * `normalizeIntegrationStatus` remains the single derivation path.
  */
 export function applyDisconnectToIntegration(
   integration: Integration,
@@ -78,7 +74,7 @@ function applyDisconnectToConnection(
     ...connection,
     instances: remaining,
     preferredInstance,
-    actions: actionsAfterPartialDisconnect(connection.actions, remaining.length),
+    actions: undefined,
   };
 }
 
@@ -120,15 +116,6 @@ function preferredInstanceName(
   return remaining.find((instance) => instance.preferred)?.name;
 }
 
-function actionsAfterPartialDisconnect(
-  actions: IntegrationAction[] | undefined,
-  remainingCount: number,
-): IntegrationAction[] | undefined {
-  if (!actions) return actions;
-  if (remainingCount > 1) return actions;
-  return actions.filter((action) => action !== "select_instance");
-}
-
 function emptiedConnection(connection: ConnectionDefInfo): ConnectionDefInfo {
   return {
     ...connection,
@@ -143,7 +130,7 @@ function emptiedConnection(connection: ConnectionDefInfo): ConnectionDefInfo {
       connection.healthState === "unhealthy"
         ? connection.healthState
         : "not_applicable",
-    actions: actionsAfterAccountsRemoved(connection),
+    actions: undefined,
   };
 }
 
@@ -161,18 +148,4 @@ function statusAfterAccountsRemoved(
     return status;
   }
   return "needs_user_connection";
-}
-
-function actionsAfterAccountsRemoved(
-  connection: ConnectionDefInfo,
-): IntegrationAction[] {
-  const kept = (connection.actions ?? []).filter(
-    (action) => !ACCOUNT_MUTATION_ACTIONS.has(action),
-  );
-  const hasConnect =
-    kept.includes("connect") || kept.includes("reconnect");
-  if (!hasConnect && (connection.authTypes?.length ?? 0) > 0) {
-    return [...kept, "connect"];
-  }
-  return kept;
 }

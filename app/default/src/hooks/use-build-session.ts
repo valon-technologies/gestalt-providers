@@ -1,8 +1,10 @@
 import { useCallback, useState } from "react";
 import {
+  addMcpInstalledAgent,
+  mcpInstalledForAgent,
   readActiveExemplarId,
   readIntroSeenFlag,
-  readMcpInstalledFlag,
+  readMcpInstalledAgents,
   readTrySeenFlag,
   readStoredApiToken,
   readStoredApiTokenGrantId,
@@ -12,7 +14,7 @@ import {
   sessionApiTokenBoundToSelection,
   writeActiveExemplarId,
   writeIntroSeenFlag,
-  writeMcpInstalledFlag,
+  writeMcpInstalledAgents,
   writeTrySeenFlag,
   writeStoredApiToken,
   writeStoredApiTokenGrantId,
@@ -20,8 +22,8 @@ import {
   writeStoredTokenName,
   writeStoredInstallAgent,
   type BuildExemplarId,
-  type BuildInstallAgentId,
 } from "@/lib/buildPaths";
+import type { BuildInstallAgentId } from "@/lib/assistantHosts";
 
 export type BuildSession = {
   apiToken: string;
@@ -56,7 +58,13 @@ export function useBuildSession(): BuildSession {
   const [selectedInstallAgent, setSelectedInstallAgentState] = useState<
     BuildInstallAgentId | ""
   >(readStoredInstallAgent);
-  const [mcpInstalled, setMcpInstalled] = useState(readMcpInstalledFlag);
+  const [mcpInstalledAgents, setMcpInstalledAgents] = useState(
+    readMcpInstalledAgents,
+  );
+  const mcpInstalled = mcpInstalledForAgent(
+    mcpInstalledAgents,
+    selectedInstallAgent,
+  );
   const [activeExemplarId, setActiveExemplarIdState] =
     useState(readActiveExemplarId);
   const [welcomeSeen, setWelcomeSeen] = useState(readIntroSeenFlag);
@@ -105,9 +113,12 @@ export function useBuildSession(): BuildSession {
   }, []);
 
   const markMcpInstalled = useCallback(() => {
-    writeMcpInstalledFlag(true);
-    setMcpInstalled(true);
-  }, []);
+    setMcpInstalledAgents((current) => {
+      const next = addMcpInstalledAgent(current, selectedInstallAgent);
+      writeMcpInstalledAgents(next);
+      return next;
+    });
+  }, [selectedInstallAgent]);
 
   const setActiveExemplarId = useCallback((id: BuildExemplarId) => {
     writeActiveExemplarId(id);

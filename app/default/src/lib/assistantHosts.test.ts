@@ -17,6 +17,13 @@ describe("assistant host catalog", () => {
     expect(new Set(testIds).size).toBe(testIds.length);
   });
 
+  test("every host has picker icon and console skin metadata", () => {
+    for (const host of ASSISTANT_HOSTS) {
+      expect(host.iconKey).toBeTruthy();
+      expect(host.consoleSkin).toBeTruthy();
+    }
+  });
+
   test("lists Claude and ChatGPT as chat hosts, separate from Claude Code", () => {
     expect(assistantHostById("claude")?.label).toBe("Claude");
     expect(assistantHostById("claude")?.group).toBe("chat");

@@ -48,11 +48,7 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Alert,
-  AlertDescription,
-} from "@/components/ui/alert";
-import { CopyableCode } from "@/components/ui/copyable-code";
+import { TokenPlaintextReveal } from "@/components/TokenPlaintextReveal";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -63,7 +59,6 @@ import {
 import { SelectionCheck } from "@/components/ui/selection-check";
 import { Spinner } from "@/components/ui/spinner";
 import { IsoDateField } from "@/components/ui/iso-date-field";
-import { CircleAlert } from "lucide-react";
 import { filterIntegrations } from "@/lib/integrationSearch";
 import { cn } from "@/lib/cn";
 
@@ -682,27 +677,11 @@ const TokenCreateForm = React.forwardRef<
       ) : null}
 
       {showPlaintext ? (
-        <div className="space-y-4">
-          <div className="space-y-3">
-            <div
-              className="w-fit max-w-full"
-              role="group"
-              aria-label="API token"
-            >
-              <CopyableCode value={plaintext} tooltip="Copy token" />
-            </div>
-            <Alert
-              variant="warning"
-              className="inline-grid w-max min-w-0 max-w-full"
-            >
-              <CircleAlert aria-hidden />
-              <AlertDescription className="font-normal">
-                {plaintextResultDescription}
-              </AlertDescription>
-            </Alert>
-          </div>
-          {plaintextResultActions}
-        </div>
+        <TokenPlaintextReveal
+          plaintext={plaintext}
+          description={plaintextResultDescription}
+          actions={plaintextResultActions}
+        />
       ) : null}
 
       {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
