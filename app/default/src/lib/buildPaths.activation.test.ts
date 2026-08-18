@@ -156,7 +156,7 @@ function completeSnapshot(
     tokens: [token],
     catalogLoadState: "ready",
     activeExemplarId: "aiSpendTracker",
-    mcpInstalled: true,
+    mcpInstalledAgents: ["cursor"],
     apiToken: "gst_x",
     apiTokenGrantId: "tok_1",
     tokenName: "Workspace assistant",
@@ -202,7 +202,7 @@ describe("isBuildComplete", () => {
   });
 
   test("is incomplete without an MCP install ack", () => {
-    expect(isBuildComplete(completeSnapshot({ mcpInstalled: false }))).toBe(
+    expect(isBuildComplete(completeSnapshot({ mcpInstalledAgents: [] }))).toBe(
       false,
     );
   });
@@ -260,7 +260,7 @@ describe("firstIncompleteStepId", () => {
           selectedTokenId: "",
           apiToken: "",
           apiTokenGrantId: "",
-          mcpInstalled: false,
+          mcpInstalledAgents: [],
         }),
       ),
     ).toBe("assistant");
@@ -273,14 +273,14 @@ describe("firstIncompleteStepId", () => {
           selectedTokenId: "",
           apiToken: "",
           apiTokenGrantId: "",
-          mcpInstalled: false,
+          mcpInstalledAgents: [],
         }),
       ),
     ).toBe("token");
   });
 
   test("stops at install until MCP is acknowledged", () => {
-    expect(firstIncompleteStepId(completeSnapshot({ mcpInstalled: false }))).toBe(
+    expect(firstIncompleteStepId(completeSnapshot({ mcpInstalledAgents: [] }))).toBe(
       "install",
     );
   });
@@ -494,8 +494,11 @@ describe("mcpInstalledForAgent", () => {
     expect(mcpInstalledForAgent(["cursor"], "cursor")).toBe(true);
     expect(mcpInstalledForAgent(["cursor"], "chatgpt")).toBe(false);
     expect(mcpInstalledForAgent(["cursor"], "")).toBe(false);
-    expect(
-      isBuildComplete(completeSnapshot({ mcpInstalled: false })),
-    ).toBe(false);
+    const otherAssistant = completeSnapshot({
+      installAgentId: "chatgpt",
+      mcpInstalledAgents: ["cursor"],
+    });
+    expect(isBuildComplete(otherAssistant)).toBe(false);
+    expect(firstIncompleteStepId(otherAssistant)).toBe("install");
   });
 });

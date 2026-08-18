@@ -1,7 +1,6 @@
 import { useCallback, useState } from "react";
 import {
   addMcpInstalledAgent,
-  mcpInstalledForAgent,
   readActiveExemplarId,
   readIntroSeenFlag,
   readMcpInstalledAgents,
@@ -35,7 +34,7 @@ export type BuildSession = {
   setSelectedTokenId: (id: string) => void;
   selectedInstallAgent: BuildInstallAgentId | "";
   setSelectedInstallAgent: (id: BuildInstallAgentId | "") => void;
-  mcpInstalled: boolean;
+  mcpInstalledAgents: readonly BuildInstallAgentId[];
   markMcpInstalled: () => void;
   activeExemplarId: BuildExemplarId;
   setActiveExemplarId: (id: BuildExemplarId) => void;
@@ -60,10 +59,6 @@ export function useBuildSession(): BuildSession {
   >(readStoredInstallAgent);
   const [mcpInstalledAgents, setMcpInstalledAgents] = useState(
     readMcpInstalledAgents,
-  );
-  const mcpInstalled = mcpInstalledForAgent(
-    mcpInstalledAgents,
-    selectedInstallAgent,
   );
   const [activeExemplarId, setActiveExemplarIdState] =
     useState(readActiveExemplarId);
@@ -145,7 +140,7 @@ export function useBuildSession(): BuildSession {
     setSelectedTokenId,
     selectedInstallAgent,
     setSelectedInstallAgent,
-    mcpInstalled,
+    mcpInstalledAgents,
     markMcpInstalled,
     activeExemplarId,
     setActiveExemplarId,

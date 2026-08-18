@@ -76,7 +76,11 @@ export interface BuildWorkspaceSnapshot {
    */
   catalogLoadState: CatalogLoadState;
   activeExemplarId: BuildExemplarId;
-  mcpInstalled: boolean;
+  /**
+   * Assistants acknowledged on the Install step in this session.
+   * Completeness is derived with {@link mcpInstalledForAgent}.
+   */
+  mcpInstalledAgents: readonly BuildInstallAgentId[];
   apiToken: string;
   /** Grant id the plaintext {@link apiToken} was issued for — empty when unset. */
   apiTokenGrantId: string;
@@ -218,7 +222,8 @@ export const BUILD_STEPS: BuildStep[] = [
     description: `Add ${SETUP_PRODUCT_NAME} so your assistant can reach this workspace.`,
     ctaLabel: "Continue",
     to: `${SETUP_PATH}/install`,
-    isComplete: (snapshot) => snapshot.mcpInstalled,
+    isComplete: (snapshot) =>
+      mcpInstalledForAgent(snapshot.mcpInstalledAgents, snapshot.installAgentId),
   },
   {
     id: "apps",
@@ -419,7 +424,7 @@ export function sessionApiTokenBoundToSelection(
 export function buildWorkspaceSnapshotFromSession(
   session: {
     activeExemplarId: BuildExemplarId;
-    mcpInstalled: boolean;
+    mcpInstalledAgents: readonly BuildInstallAgentId[];
     apiToken: string;
     apiTokenGrantId: string;
     tokenName: string;
@@ -437,7 +442,7 @@ export function buildWorkspaceSnapshotFromSession(
     tokens,
     catalogLoadState,
     activeExemplarId: session.activeExemplarId,
-    mcpInstalled: session.mcpInstalled,
+    mcpInstalledAgents: session.mcpInstalledAgents,
     apiToken: session.apiToken,
     apiTokenGrantId: session.apiTokenGrantId,
     tokenName: session.tokenName,
@@ -647,19 +652,6 @@ export function writeMcpInstalledAgents(ids: readonly BuildInstallAgentId[]): vo
   } catch {
     /* ignore */
   }
-}
-
-export function readMcpInstalledFlag(): boolean {
-  return readMcpInstalledAgents().length > 0;
-}
-
-export function writeMcpInstalledFlag(value: boolean): void {
-  if (!value) {
-    writeMcpInstalledAgents([]);
-    return;
-  }
-  const agent = readStoredInstallAgent();
-  writeMcpInstalledAgents(agent ? [agent] : []);
 }
 
 export function readIntroSeenFlag(): boolean {

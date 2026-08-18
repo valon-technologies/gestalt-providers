@@ -138,6 +138,85 @@ describe("applyDisconnectToIntegration", () => {
     expect(next.connections?.[1]?.connected).toBe(false);
     expect(normalizeIntegrationStatus(next).connected).toBe(false);
   });
+
+  test("keeps not_required credentials when the last account is removed", () => {
+    const next = applyDisconnectToIntegration(
+      {
+        name: "internal-docs",
+        connections: [
+          {
+            name: "default",
+            authTypes: ["oauth"],
+            connected: true,
+            credentialState: "not_required",
+            status: "ready",
+            healthState: "not_applicable",
+            actions: ["disconnect"],
+            instances: [{ name: "work", connection: "default" }],
+          },
+        ],
+      },
+      { instance: "work", connection: "default" },
+    );
+    const connection = next.connections?.[0];
+
+    expect(connection?.credentialState).toBe("not_required");
+    expect(connection?.connected).toBe(false);
+    expect(connection?.actions).toBeUndefined();
+  });
+
+  test("keeps admin and unavailable status when the last account is removed", () => {
+    for (const status of ["needs_admin_configuration", "unavailable"] as const) {
+      const next = applyDisconnectToIntegration(
+        {
+          name: "locked-app",
+          connections: [
+            {
+              name: "default",
+              authTypes: ["oauth"],
+              connected: true,
+              credentialState: "connected",
+              status,
+              healthState: "not_applicable",
+              actions: ["disconnect"],
+              instances: [{ name: "work", connection: "default" }],
+            },
+          ],
+        },
+        { instance: "work", connection: "default" },
+      );
+
+      expect(next.connections?.[0]?.status).toBe(status);
+      expect(next.connections?.[0]?.actions).toBeUndefined();
+    }
+  });
+
+  test("keeps unhealthy health when the last account is removed", () => {
+    const next = applyDisconnectToIntegration(
+      {
+        name: "gmail",
+        connections: [
+          {
+            name: "default",
+            authTypes: ["oauth"],
+            connected: true,
+            credentialState: "connected",
+            status: "degraded",
+            healthState: "unhealthy",
+            actions: ["disconnect"],
+            instances: [{ name: "work", connection: "default" }],
+          },
+        ],
+      },
+      { instance: "work", connection: "default" },
+    );
+    const connection = next.connections?.[0];
+
+    expect(connection?.healthState).toBe("unhealthy");
+    expect(connection?.status).toBe("needs_user_connection");
+    expect(connection?.credentialState).toBe("missing");
+    expect(connection?.actions).toBeUndefined();
+  });
 });
 
 describe("applyDisconnectToIntegrations", () => {

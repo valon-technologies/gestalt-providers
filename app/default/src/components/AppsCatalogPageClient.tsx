@@ -319,7 +319,7 @@ export default function AppsCatalogPageClient() {
       buildWorkspaceSnapshotFromSession(
         {
           activeExemplarId: session.activeExemplarId,
-          mcpInstalled: session.mcpInstalled,
+          mcpInstalledAgents: session.mcpInstalledAgents,
           apiToken: session.apiToken,
           apiTokenGrantId: session.apiTokenGrantId,
           tokenName: session.tokenName,
@@ -337,7 +337,7 @@ export default function AppsCatalogPageClient() {
       tokens,
       catalogLoadState,
       session.activeExemplarId,
-      session.mcpInstalled,
+      session.mcpInstalledAgents,
       session.apiToken,
       session.apiTokenGrantId,
       session.tokenName,
