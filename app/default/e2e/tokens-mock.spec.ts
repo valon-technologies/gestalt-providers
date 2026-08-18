@@ -88,9 +88,9 @@ test.describe("Token Management", () => {
     await page.getByRole("radio", { name: /all apps/i }).click();
     await page.getByRole("button", { name: "Create token" }).click();
 
-    await expect(page.getByRole("textbox", { name: "API token" })).toHaveValue(
-      "gestalt_abc123secret",
-    );
+    await expect(page.getByRole("group", { name: "API token" })).toBeVisible();
+    await expect(page.getByText("gestalt_abc123secret")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Copy token" })).toBeVisible();
     await expect(
       page.getByText(/Copy this token now\. We won't show the full value again/),
     ).toBeVisible();
@@ -143,9 +143,9 @@ test.describe("Token Management", () => {
     await page.getByRole("radio", { name: /all apps/i }).click();
     await page.getByRole("button", { name: "Create token" }).click();
 
-    await expect(page.getByRole("textbox", { name: "API token" })).toHaveValue(
-      "gestalt_race_secret",
-    );
+    await expect(page.getByRole("group", { name: "API token" })).toBeVisible();
+    await expect(page.getByText("gestalt_race_secret")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Copy token" })).toBeVisible();
 
     await page.getByRole("link", { name: "Done" }).click();
     await expect(page).toHaveURL(/\/settings\/tokens$/);

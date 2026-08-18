@@ -43,28 +43,21 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupButton,
-  InputGroupInput,
-} from "@/components/ui/input-group";
-import {
   Alert,
   AlertDescription,
 } from "@/components/ui/alert";
+import { CopyableCode } from "@/components/ui/copyable-code";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
 import {
   CalendarIcon,
-  CheckIcon,
   ChevronDownIcon,
-  CopyIcon,
   SearchIcon,
 } from "@/components/icons";
 import { SelectionCheck } from "@/components/ui/selection-check";
 import { Spinner } from "@/components/ui/spinner";
 import { IsoDateField } from "@/components/ui/iso-date-field";
-import { Info } from "lucide-react";
+import { CircleAlert } from "lucide-react";
 import { filterIntegrations } from "@/lib/integrationSearch";
 import { cn } from "@/lib/cn";
 
@@ -201,7 +194,6 @@ const TokenCreateForm = React.forwardRef<
   const [error, setError] = useState<string | null>(null);
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [plaintext, setPlaintext] = useState<string | null>(null);
-  const [tokenCopied, setTokenCopied] = useState(false);
 
   const [expirationIdSelected, setExpirationIdSelected] =
     useState<ExpirationOption["id"]>("30d");
@@ -305,7 +297,6 @@ const TokenCreateForm = React.forwardRef<
       const result = await createToken(trimmedName, scopes, expiresIn);
       if (showPlaintextResult) {
         setPlaintext(result.token);
-        setTokenCopied(false);
         onRevealChange?.(true);
       }
       if (!isNameControlled) {
@@ -675,37 +666,16 @@ const TokenCreateForm = React.forwardRef<
 
       {showPlaintext ? (
         <div className="space-y-4">
-          <div className="space-y-2">
-            <InputGroup>
-              <InputGroupInput
-                value={plaintext}
-                readOnly
-                aria-label="API token"
-                className="font-mono text-sm"
-                onFocus={(event) => event.currentTarget.select()}
-              />
-              <InputGroupAddon align="inline-end">
-                <InputGroupButton
-                  size="icon-xs"
-                  aria-label={tokenCopied ? "Copied" : "Copy token"}
-                  title={tokenCopied ? "Copied" : "Copy"}
-                  onClick={() => {
-                    void navigator.clipboard.writeText(plaintext).then(() => {
-                      setTokenCopied(true);
-                      window.setTimeout(() => setTokenCopied(false), 2000);
-                    });
-                  }}
-                >
-                  {tokenCopied ? (
-                    <CheckIcon className="size-3.5" />
-                  ) : (
-                    <CopyIcon className="size-3.5" />
-                  )}
-                </InputGroupButton>
-              </InputGroupAddon>
-            </InputGroup>
-            <Alert>
-              <Info aria-hidden />
+          <div className="space-y-3">
+            <div
+              className="w-fit max-w-full"
+              role="group"
+              aria-label="API token"
+            >
+              <CopyableCode value={plaintext} tooltip="Copy token" />
+            </div>
+            <Alert variant="warning">
+              <CircleAlert aria-hidden />
               <AlertDescription className="font-normal">
                 {plaintextResultDescription}
               </AlertDescription>
