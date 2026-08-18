@@ -215,7 +215,7 @@ export function BuildIndexRedirect() {
 
   if (tokensQuery.isError && !tokensQuery.data) {
     return (
-      <Container as="main" className="py-12">
+      <Container as="main">
         <div className="mx-auto flex min-h-[50vh] w-full max-w-4xl items-center justify-center">
           <ErrorNotice
             message={userFacingError(tokensQuery.error, TOKENS_UNAVAILABLE)}

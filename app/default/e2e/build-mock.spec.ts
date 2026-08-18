@@ -911,7 +911,7 @@ test.describe("Setup page", () => {
     );
   });
 
-  test("slow apps catalog does not block token setup", async ({
+  test("slow apps catalog does not block setup", async ({
     authenticatedPage: page,
   }) => {
     let catalogReleased = false;
@@ -925,20 +925,20 @@ test.describe("Setup page", () => {
       await route.fulfill({ json: catalogFixtures });
     });
 
-    await page.goto("/build");
+    await page.goto("/setup");
 
-    await expect(page).toHaveURL(/\/build\/intro$/);
-    await expect(page.getByTestId("build-intro")).toBeVisible();
-    await expect(page.getByText("Loading Build…")).toHaveCount(0);
+    await expect(page).toHaveURL(/\/setup\/welcome$/);
+    await expect(page.getByTestId("build-welcome")).toBeVisible();
+    await expect(page.getByText("Loading setup…")).toHaveCount(0);
     expect(catalogReleased).toBe(false);
 
-    await page.getByTestId("build-intro-continue").click();
-    await expect(page).toHaveURL(/\/build\/authorize$/);
-    await expect(page.getByTestId("build-step-panel")).toBeVisible();
+    await page.getByTestId("build-welcome-continue").click();
+    await expect(page).toHaveURL(/\/setup\/assistant$/);
+    await expect(page.getByTestId("build-install-radio")).toBeVisible();
     expect(catalogReleased).toBe(false);
   });
 
-  test("connect shows retry when the apps catalog returns 503", async ({
+  test("apps step shows retry when the catalog returns 503", async ({
     authenticatedPage: page,
   }) => {
     let fail = true;
@@ -958,16 +958,17 @@ test.describe("Setup page", () => {
       await route.fulfill({ json: catalogFixtures });
     });
     await mockTokens(page, [defaultToken]);
-    await page.addInitScript(() => {
-      sessionStorage.setItem("gestalt.build.introSeen", "1");
-      sessionStorage.setItem("gestalt.build.selectedTokenId", "tok_123");
-      sessionStorage.setItem("gestalt.build.mcpInstalled", "1");
-      sessionStorage.setItem("gestalt.build.activeExemplarId", "oncall");
+    await seedSetupSession(page, {
+      introSeen: true,
+      selectedTokenId: "tok_123",
+      mcpInstalled: true,
+      installAgent: "claude",
+      activeExemplarId: "oncall",
     });
 
-    await page.goto("/build");
+    await page.goto("/setup");
 
-    await expect(page).toHaveURL(/\/build\/connect$/);
+    await expect(page).toHaveURL(/\/setup\/apps$/);
     await expect(page.getByTestId("error-notice")).toBeVisible();
     await expect(
       page.getByText("Couldn't load apps. Try again."),
@@ -979,7 +980,7 @@ test.describe("Setup page", () => {
     await expect(page.getByTestId("build-connect-apps")).toBeVisible();
   });
 
-  test("authorize select-apps catalog 503 recovers on retry", async ({
+  test("token select-apps catalog 503 recovers on retry", async ({
     authenticatedPage: page,
   }) => {
     let fail = true;
@@ -999,11 +1000,11 @@ test.describe("Setup page", () => {
       await route.fulfill({ json: catalogFixtures });
     });
 
-    await page.addInitScript(() => {
-      sessionStorage.setItem("gestalt.build.introSeen", "1");
-      sessionStorage.setItem("gestalt.build.selectedTokenId", "new");
+    await seedSetupSession(page, {
+      introSeen: true,
+      installAgent: "cursor",
     });
-    await page.goto("/build/authorize");
+    await page.goto("/setup/token");
     await page.getByRole("radio", { name: "Only select apps" }).click();
 
     await expect(page.getByTestId("error-notice")).toBeVisible();
