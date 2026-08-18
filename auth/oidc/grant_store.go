@@ -274,32 +274,42 @@ func (s *grantStore) introspect(ctx context.Context, token string) gestalt.Intro
 	}
 }
 
-func (s *grantStore) listGrantIDs(ctx context.Context, subject string) []string {
-	records, err := s.grants.Index(grantIndexBySubject).GetAll(ctx, subject)
-	if errors.Is(err, gestalt.ErrNotFound) {
-		return nil
-	}
-	if err != nil {
+func (s *grantStore) listGrantIDs(ctx context.Context, subjects []string) []string {
+	if len(subjects) == 0 {
 		return nil
 	}
 	now := s.currentTime()
-	ids := make([]string, 0, len(records))
-	for _, record := range records {
-		if recordString(record, "category") != grantCategoryAPIToken {
+	ids := make([]string, 0)
+	seen := map[string]struct{}{}
+	for _, subject := range subjects {
+		records, err := s.grants.Index(grantIndexBySubject).GetAll(ctx, subject)
+		if errors.Is(err, gestalt.ErrNotFound) {
 			continue
 		}
-		if recordBool(record, "revoked") || !recordTime(record, "expires_at").After(now) {
-			continue
+		if err != nil {
+			return nil
 		}
-		if id := recordString(record, "id"); id != "" {
-			ids = append(ids, id)
+		for _, record := range records {
+			if recordString(record, "category") != grantCategoryAPIToken {
+				continue
+			}
+			if recordBool(record, "revoked") || !recordTime(record, "expires_at").After(now) {
+				continue
+			}
+			if id := recordString(record, "id"); id != "" {
+				if _, ok := seen[id]; ok {
+					continue
+				}
+				seen[id] = struct{}{}
+				ids = append(ids, id)
+			}
 		}
 	}
 	sort.Strings(ids)
 	return ids
 }
 
-func (s *grantStore) getGrant(ctx context.Context, grantID, subject string) (*gestalt.GetGrantResponse, error) {
+func (s *grantStore) getGrant(ctx context.Context, grantID string, subjects []string) (*gestalt.GetGrantResponse, error) {
 	record, err := s.grants.Get(ctx, grantID)
 	if err != nil {
 		if errors.Is(err, gestalt.ErrNotFound) {
@@ -307,7 +317,7 @@ func (s *grantStore) getGrant(ctx context.Context, grantID, subject string) (*ge
 		}
 		return nil, fmt.Errorf("oidc auth: get grant %q: %w", grantID, err)
 	}
-	if recordString(record, "subject") != subject || recordBool(record, "revoked") {
+	if !grantSubjectMatches(recordString(record, "subject"), subjects) || recordBool(record, "revoked") {
 		return nil, grantNotFound(grantID)
 	}
 	if recordString(record, "category") != grantCategoryAPIToken {
@@ -319,7 +329,7 @@ func (s *grantStore) getGrant(ctx context.Context, grantID, subject string) (*ge
 	return grantResponseFromRecord(record), nil
 }
 
-func (s *grantStore) revokeGrant(ctx context.Context, grantID, subject string) error {
+func (s *grantStore) revokeGrant(ctx context.Context, grantID string, subjects []string) error {
 	record, err := s.grants.Get(ctx, grantID)
 	if err != nil {
 		if errors.Is(err, gestalt.ErrNotFound) {
@@ -327,7 +337,7 @@ func (s *grantStore) revokeGrant(ctx context.Context, grantID, subject string) e
 		}
 		return fmt.Errorf("oidc auth: get grant %q: %w", grantID, err)
 	}
-	if recordString(record, "subject") != subject {
+	if !grantSubjectMatches(recordString(record, "subject"), subjects) {
 		return grantNotFound(grantID)
 	}
 	if recordString(record, "category") != grantCategoryAPIToken {

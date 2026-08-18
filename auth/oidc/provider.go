@@ -295,6 +295,7 @@ func (p *Provider) Token(ctx context.Context, req *gestalt.TokenRequest) (*gesta
 	if req == nil {
 		return nil, fmt.Errorf("oidc auth: token request is required")
 	}
+	ctx = gestalt.AuthCallContextFromIncoming(ctx)
 	grantType := strings.TrimSpace(req.GrantType)
 	if grantType == "" {
 		grantType = grantTypeAuthorizationCode
@@ -426,7 +427,8 @@ func (p *Provider) tokenExchange(ctx context.Context, req *gestalt.TokenRequest)
 	if err != nil {
 		return nil, err
 	}
-	issued, err := p.grants.issue(ctx, p.grantOwnerForIssue(ctx, introspectResp.Subject), issuedScope, clientID, grantCategoryAPIToken, ttl)
+	storageSubject := p.canonicalGrantSubject(ctx, introspectResp.Subject)
+	issued, err := p.grants.issue(ctx, storageSubject, issuedScope, clientID, grantCategoryAPIToken, ttl)
 	if err != nil {
 		return nil, err
 	}
@@ -496,7 +498,8 @@ func (p *Provider) ListGrants(ctx context.Context, _ *gestalt.ListGrantsRequest)
 	if err != nil {
 		return nil, err
 	}
-	return &gestalt.ListGrantsResponse{GrantIDs: grants.listGrantIDs(ctx, subject)}, nil
+	subjects := p.grantOwnerSubjects(ctx, subject)
+	return &gestalt.ListGrantsResponse{GrantIDs: grants.listGrantIDs(ctx, subjects)}, nil
 }
 
 func (p *Provider) GetGrant(ctx context.Context, req *gestalt.GetGrantRequest) (*gestalt.GetGrantResponse, error) {
@@ -511,7 +514,8 @@ func (p *Provider) GetGrant(ctx context.Context, req *gestalt.GetGrantRequest) (
 	if err != nil {
 		return nil, err
 	}
-	return grants.getGrant(ctx, strings.TrimSpace(req.GrantID), subject)
+	subjects := p.grantOwnerSubjects(ctx, subject)
+	return grants.getGrant(ctx, strings.TrimSpace(req.GrantID), subjects)
 }
 
 func (p *Provider) RevokeGrant(ctx context.Context, req *gestalt.RevokeGrantRequest) (*gestalt.RevokeGrantResponse, error) {
@@ -526,7 +530,8 @@ func (p *Provider) RevokeGrant(ctx context.Context, req *gestalt.RevokeGrantRequ
 	if err != nil {
 		return nil, err
 	}
-	if err := grants.revokeGrant(ctx, strings.TrimSpace(req.GrantID), subject); err != nil {
+	subjects := p.grantOwnerSubjects(ctx, subject)
+	if err := grants.revokeGrant(ctx, strings.TrimSpace(req.GrantID), subjects); err != nil {
 		return nil, err
 	}
 	return &gestalt.RevokeGrantResponse{}, nil

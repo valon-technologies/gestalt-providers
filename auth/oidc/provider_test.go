@@ -661,7 +661,7 @@ func TestGrantStorePersistsAcrossRestart(t *testing.T) {
 	if resp.Subject != subject {
 		t.Fatalf("introspect subject = %q, want %q", resp.Subject, subject)
 	}
-	ids := restarted.grants.listGrantIDs(ctx, subject)
+	ids := restarted.grants.listGrantIDs(ctx, []string{subject})
 	if len(ids) != 1 || ids[0] != grantID {
 		t.Fatalf("listGrantIDs() = %v, want [%q]", ids, grantID)
 	}
@@ -796,7 +796,7 @@ func TestTokenExchangeAttenuatesScope(t *testing.T) {
 			if err != nil {
 				t.Fatalf("issue() error = %v", err)
 			}
-			beforeIDs := p.grants.listGrantIDs(ctx, subject)
+			beforeIDs := p.grants.listGrantIDs(ctx, []string{subject})
 
 			tokenResp, err := p.Token(ctx, &gestalt.TokenRequest{
 				GrantType:        grantTypeTokenExchange,
@@ -811,7 +811,7 @@ func TestTokenExchangeAttenuatesScope(t *testing.T) {
 				if !strings.Contains(err.Error(), tt.wantErrSubstr) {
 					t.Fatalf("Token() error = %v, want substring %q", err, tt.wantErrSubstr)
 				}
-				afterIDs := p.grants.listGrantIDs(ctx, subject)
+				afterIDs := p.grants.listGrantIDs(ctx, []string{subject})
 				if len(afterIDs) != len(beforeIDs) {
 					t.Fatalf("grant count = %d, want %d after rejected exchange", len(afterIDs), len(beforeIDs))
 				}
@@ -928,11 +928,11 @@ func TestTokenExchangeGrantOwner(t *testing.T) {
 			}
 
 			for _, hidden := range tt.wantHidden {
-				if ids := p.grants.listGrantIDs(ctx, hidden); len(ids) != 0 {
+				if ids := p.grants.listGrantIDs(ctx, []string{hidden}); len(ids) != 0 {
 					t.Fatalf("listGrantIDs(%q) = %v, want none", hidden, ids)
 				}
 			}
-			ownerIDs := p.grants.listGrantIDs(ctx, tt.wantOwner)
+			ownerIDs := p.grants.listGrantIDs(ctx, []string{tt.wantOwner})
 			if len(ownerIDs) != 1 || ownerIDs[0] != tokenResp.GrantID {
 				t.Fatalf("listGrantIDs(owner) = %v, want [%q]", ownerIDs, tokenResp.GrantID)
 			}
@@ -1079,7 +1079,7 @@ func TestIssueFailsWhenTokenHashAddFails(t *testing.T) {
 	if issued != nil {
 		t.Fatalf("issue() = %#v, want nil on failure", issued)
 	}
-	ids := store.listGrantIDs(ctx, "user:fail@example.com")
+	ids := store.listGrantIDs(ctx, []string{"user:fail@example.com"})
 	if len(ids) != 0 {
 		t.Fatalf("listGrantIDs() = %v, want no grants after aborted issue", ids)
 	}
@@ -1102,7 +1102,7 @@ func TestIssueFailsWhenTransactionCommitFails(t *testing.T) {
 	if issued != nil {
 		t.Fatalf("issue() = %#v, want nil on failure", issued)
 	}
-	ids := store.listGrantIDs(ctx, "user:fail@example.com")
+	ids := store.listGrantIDs(ctx, []string{"user:fail@example.com"})
 	if len(ids) != 0 {
 		t.Fatalf("listGrantIDs() = %v, want no grants after failed commit", ids)
 	}
