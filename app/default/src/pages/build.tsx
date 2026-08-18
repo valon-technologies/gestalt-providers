@@ -143,8 +143,7 @@ import {
   resolveExemplarOpenPath,
   SETUP_PRODUCT_NAME,
   isSetupDataSourceApp,
-  setupAppsConnected,
-  setupAppsHasConnectable,
+  setupAppsStepComplete,
   setupDataSourceIntegrations,
   writeSetupSkipped,
   type BuildExemplar,
@@ -1351,8 +1350,14 @@ function BuildStepPanel({
             (step.id === "assistant" && !installReady) ||
             (step.id === "token" && !authorizeReady) ||
             (step.id === "apps" &&
-              !setupAppsConnected({ integrations }) &&
-              setupAppsHasConnectable({ integrations }))
+              !setupAppsStepComplete({
+                integrations,
+                catalogLoadState: catalogError
+                  ? "failed"
+                  : catalogSettled
+                    ? "ready"
+                    : "pending",
+              }))
           }
           nextDisabledTitle={
             step.id === "assistant"

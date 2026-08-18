@@ -974,6 +974,7 @@ test.describe("Setup page", () => {
       page.getByText("Couldn't load apps. Try again."),
     ).toBeVisible();
     await expect(page.getByTestId("build-connect-apps")).toHaveCount(0);
+    await expect(page.getByTestId("build-step-next")).toBeDisabled();
 
     fail = false;
     await page.getByRole("button", { name: "Retry" }).click();
