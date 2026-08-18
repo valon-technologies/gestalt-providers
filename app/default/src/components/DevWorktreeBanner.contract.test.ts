@@ -19,12 +19,21 @@ const NAV = readFileSync(
 );
 
 describe("DevWorktreeBanner", () => {
-  test("uses Registry Alert banner layout and semantic warning wash", () => {
-    expect(SOURCE).toContain('layout="banner"');
+  test("uses Registry Banner for shell chrome, not Alert", () => {
+    expect(SOURCE).toContain('from "@/components/ui/banner"');
     expect(SOURCE).toContain('variant="warning"');
-    expect(SOURCE).toContain("rounded-none border-b border-border");
+    expect(SOURCE).toContain("<BannerTitle>Worktree</BannerTitle>");
+    expect(SOURCE).toContain("<BannerDescription>{name}</BannerDescription>");
+    expect(SOURCE).toContain("<BannerIcon>");
+    expect(SOURCE).toContain("<GitBranch");
     expect(SOURCE).toContain('data-testid="dev-worktree-banner"');
     expect(SOURCE).toContain("readDevWorktreeName");
+    expect(SOURCE).not.toContain('from "@/components/ui/alert"');
+    expect(SOURCE).not.toMatch(/<Alert[\s>]/);
+    expect(SOURCE).not.toContain('layout="banner"');
+    expect(SOURCE).not.toContain("rounded-none");
+    expect(SOURCE).not.toContain("border-b");
+    expect(SOURCE).not.toContain("live={false}");
     expect(SOURCE).not.toMatch(/\b(amber|grove|ember)-/);
   });
 
