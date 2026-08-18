@@ -82,7 +82,7 @@ function BannerTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="banner-title"
-      className={cn("min-w-0 shrink-0 font-medium tracking-tight", className)}
+      className={cn("min-w-0 shrink-0 wrap-break-word font-medium tracking-tight", className)}
       {...props}
     />
   );
@@ -96,7 +96,7 @@ function BannerDescription({ className, ...props }: React.ComponentProps<"div">)
     <div
       data-slot="banner-description"
       className={cn(
-        "min-w-0 flex-1 text-foreground group-has-[[data-slot=banner-title]]/banner:text-muted-foreground",
+        "min-w-0 flex-1 wrap-break-word text-foreground group-has-[[data-slot=banner-title]]/banner:text-muted-foreground",
         className,
       )}
       {...props}

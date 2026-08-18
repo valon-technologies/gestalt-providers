@@ -56,7 +56,8 @@ Registry `banner` is vendored here (`Banner` / `BannerIcon` / `BannerTitle` /
 page/app-level system-message chrome: square, no border, no default live role.
 `BannerTitle` is the optional kind label (worktree name, impersonation
 target); keep it a sibling of `BannerDescription` so the root gap is the space
-between them. Description mutes when Title is present. Geometry is owned —
+between them. Title and Description wrap unbroken strings (`wrap-break-word`);
+do not truncate. Description mutes when Title is present. Geometry is owned —
 do not pass `rounded-none` or `border-b` at the call site. Sticky placement
 stays on `__root.tsx`. Prefer `@/lib/cn`. Dev worktree chrome composes Banner,
 not Alert.

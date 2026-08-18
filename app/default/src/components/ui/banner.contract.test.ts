@@ -53,7 +53,7 @@ describe("Banner title + description pairing", () => {
   test("ships BannerTitle as a sibling slot", () => {
     expect(SOURCE).toContain("function BannerTitle");
     expect(SOURCE).toContain('data-slot="banner-title"');
-    expect(SOURCE).toContain("min-w-0 shrink-0 font-medium tracking-tight");
+    expect(SOURCE).toContain("min-w-0 shrink-0 wrap-break-word font-medium tracking-tight");
     expect(SOURCE).not.toContain("line-clamp");
     expect(SOURCE).not.toContain("truncate");
     expect(SOURCE).toContain(
@@ -65,5 +65,10 @@ describe("Banner title + description pairing", () => {
     expect(SOURCE).toContain(
       "group-has-[[data-slot=banner-title]]/banner:text-muted-foreground",
     );
+  });
+
+  test("Title and Description wrap unbroken strings", () => {
+    expect(SOURCE).toMatch(/BannerTitle[\s\S]*?wrap-break-word/);
+    expect(SOURCE).toMatch(/BannerDescription[\s\S]*?wrap-break-word/);
   });
 });
