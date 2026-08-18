@@ -20,6 +20,8 @@ import {
   badgeVariantFromTone,
 } from "@/lib/catalogFilters";
 import {
+  connectionNeedsReconnect,
+  NEEDS_RECONNECT_LABEL,
   normalizeIntegrationStatus,
   statusTone,
   type ConnectionContext,
@@ -149,6 +151,9 @@ export interface IntegrationConnectionPanelProps {
 }
 
 function shouldShowIntegrationSummary(status: NormalizedIntegrationStatus): boolean {
+  if (status.connections.some(connectionNeedsReconnect)) {
+    return true;
+  }
   if (status.connected && status.status === "ready") {
     return false;
   }
@@ -156,6 +161,9 @@ function shouldShowIntegrationSummary(status: NormalizedIntegrationStatus): bool
 }
 
 function shouldShowConnectionStatusText(connection: NormalizedConnection): boolean {
+  if (connectionNeedsReconnect(connection)) {
+    return true;
+  }
   if (connection.connected && connection.status === "ready") {
     return false;
   }
@@ -642,7 +650,11 @@ export default function IntegrationConnectionPanel({
                   connection.status === "needs_instance_selection" ||
                   normalizedStatus.status === "needs_instance_selection",
                 connectionKeyLabel: showConnectionKey ? connectionKeyLabel : null,
+                soleLinkedAccount:
+                  connectionNeedsReconnect(connection) &&
+                  connection.instances.length === 1,
               });
+              const loginRejected = connectionNeedsReconnect(connection);
               const { primary: identityPrimary, additional: identityAdditional } =
                 accountIdentityLines(instance.identity);
               const canUseAccount =
@@ -675,9 +687,19 @@ export default function IntegrationConnectionPanel({
                       <div className="flex flex-wrap items-center gap-2">
                         <ItemTitle>{instanceLabel}</ItemTitle>
                         {accountDescription === "In use" ? (
-                          <Badge variant="success" size="sm">
-                            {accountDescription}
-                          </Badge>
+                          <>
+                            <Badge
+                              variant={loginRejected ? "outline" : "success"}
+                              size="sm"
+                            >
+                              {accountDescription}
+                            </Badge>
+                            {loginRejected ? (
+                              <Badge variant="warning" size="sm">
+                                {NEEDS_RECONNECT_LABEL}
+                              </Badge>
+                            ) : null}
+                          </>
                         ) : null}
                       </div>
                       {identityPrimary ? (

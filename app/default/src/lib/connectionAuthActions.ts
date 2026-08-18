@@ -45,9 +45,9 @@ export function hasConnectionParams(
 
 function normalizeActionKinds(connection: NormalizedConnection): ConnectionAuthKind[] {
   const kinds: ConnectionAuthKind[] = [];
+  if (connection.canReconnect) kinds.push("reconnect");
   if (connection.canConnect) kinds.push("connect");
   if (connection.canAddInstance) kinds.push("add_instance");
-  if (connection.canReconnect) kinds.push("reconnect");
   return kinds;
 }
 
@@ -101,11 +101,14 @@ export function buildAuthActions(
       connection.isSubjectOwned && normalizeActionKinds(connection).length > 0,
   );
   const showConnectionNames = actionableConnections.length > 1;
+  const hasReconnect = connections.some((connection) => connection.canReconnect);
   const actions: ConnectionAuthAction[] = [];
 
   for (const connection of actionableConnections) {
     for (const kind of normalizeActionKinds(connection)) {
       for (const authType of connection.authTypes) {
+        const demoteOtherMethods =
+          hasReconnect && (kind === "connect" || kind === "add_instance");
         actions.push({
           key: `${connection.key}:${kind}:${authType}`,
           kind,
@@ -119,9 +122,11 @@ export function buildAuthActions(
             showConnectionNames,
           ),
           variant:
-            authType === "manual" && connection.authTypes.includes("oauth")
+            demoteOtherMethods
               ? "secondary"
-              : "default",
+              : authType === "manual" && connection.authTypes.includes("oauth")
+                ? "secondary"
+                : "default",
           requiresInstanceName: kind === "add_instance",
         });
       }

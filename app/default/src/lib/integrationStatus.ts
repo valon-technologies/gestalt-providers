@@ -68,6 +68,29 @@ export type NormalizedIntegrationStatus = {
   hasUsefulStatusDetail: boolean;
 };
 
+/** Rollup and instance chrome when a saved login no longer works. */
+export const NEEDS_RECONNECT_LABEL = "Needs reconnect" as const;
+
+export function connectionNeedsReconnect(
+  connection: NormalizedConnection,
+): boolean {
+  return (
+    connection.canReconnect ||
+    connection.credentialState === "invalid" ||
+    connection.healthState === "unhealthy"
+  );
+}
+
+export function integrationNeedsReconnect(
+  status: NormalizedIntegrationStatus,
+): boolean {
+  return (
+    status.credentialState === "invalid" ||
+    status.healthState === "unhealthy" ||
+    status.connections.some(connectionNeedsReconnect)
+  );
+}
+
 const STATUSES: IntegrationStatus[] = [
   "ready",
   "degraded",
@@ -182,7 +205,12 @@ export function normalizeIntegrationStatus(
     healthState,
     actions,
     connections,
-    summaryLabel: integrationSummaryLabel(status, credentialState, context),
+    summaryLabel: integrationSummaryLabel(
+      status,
+      credentialState,
+      healthState,
+      context,
+    ),
     tone: statusTone(status, credentialState, healthState),
     connected,
     hasActionableConnections,
@@ -340,9 +368,15 @@ function normalizeConnection(
       isNoAuth,
     );
   const actions = validActions(raw.actions);
-  const inferredActions = actions.length
-    ? actions
-    : inferConnectionActions(raw, authTypes, status, isNoAuth);
+  const inferredActions = ensureReconnectAction(
+    actions.length
+      ? actions
+      : inferConnectionActions(raw, authTypes, status, isNoAuth),
+    authTypes,
+    credentialState,
+    healthState,
+    raw.instances?.length ?? 0,
+  );
   const disconnectable =
     inferredActions.includes("disconnect");
   const connected =
@@ -360,6 +394,7 @@ function normalizeConnection(
   const summaryLabel = connectionSummaryLabel(
     status,
     credentialState,
+    healthState,
     isNoAuth,
     context,
   );
@@ -611,6 +646,20 @@ function inferConnectionActions(
   return actions;
 }
 
+function ensureReconnectAction(
+  actions: IntegrationAction[],
+  authTypes: AuthType[],
+  credentialState: CredentialState,
+  healthState: HealthState,
+  instanceCount: number,
+): IntegrationAction[] {
+  if (authTypes.length === 0 || instanceCount < 1) return actions;
+  const loginRejected =
+    credentialState === "invalid" || healthState === "unhealthy";
+  if (!loginRejected || actions.includes("reconnect")) return actions;
+  return ["reconnect", ...actions.filter((action) => action !== "connect")];
+}
+
 /**
  * Alternative auth methods (OAuth vs API key vs PAT) are OR, not AND.
  * Once any connection is product-connected, unused methods stay as add-account
@@ -708,8 +757,12 @@ function inferIntegrationStatus(
 function integrationSummaryLabel(
   status: IntegrationStatus,
   credentialState: CredentialState,
+  healthState: HealthState,
   context: ConnectionContext,
 ): string {
+  if (credentialState === "invalid" || healthState === "unhealthy") {
+    return NEEDS_RECONNECT_LABEL;
+  }
   if (credentialState === "not_required" && status === "ready") {
     return "Ready";
   }
@@ -725,6 +778,7 @@ function integrationSummaryLabel(
 function connectionSummaryLabel(
   status: IntegrationStatus,
   credentialState: CredentialState,
+  healthState: HealthState,
   isNoAuth: boolean,
   context: ConnectionContext,
 ): string {
@@ -732,6 +786,9 @@ function connectionSummaryLabel(
   // integration chrome. Do not surface “no credentials required”.
   if (isNoAuth && credentialState === "not_required") {
     return statusDisplayLabel(status, context);
+  }
+  if (credentialState === "invalid" || healthState === "unhealthy") {
+    return NEEDS_RECONNECT_LABEL;
   }
   if (credentialState === "connected" && status === "ready") {
     return context === "managed_subject" ? "Identity connected" : "Connected";

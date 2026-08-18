@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { Integration } from "@/lib/api";
-import { connectEntryPlan } from "./connectionAuthActions";
+import { buildAuthActions, connectEntryPlan } from "./connectionAuthActions";
+import { normalizeIntegrationStatus } from "./integrationStatus";
 
 function stub(partial: Partial<Integration> & Pick<Integration, "name">): Integration {
   return {
@@ -104,5 +105,42 @@ describe("connectEntryPlan", () => {
         }),
       ),
     ).toEqual({ kind: "form", view: "oauth_params" });
+  });
+});
+
+describe("buildAuthActions", () => {
+  test("leads with Reconnect and demotes other methods when a login is dead", () => {
+    const status = normalizeIntegrationStatus(
+      stub({
+        name: "notion",
+        connections: [
+          {
+            name: "OAuth",
+            displayName: "OAuth",
+            authTypes: ["oauth"],
+            credentialState: "invalid",
+            healthState: "unhealthy",
+            status: "needs_user_connection",
+            actions: ["reconnect", "disconnect", "add_instance"],
+            instances: [{ name: "default" }],
+          },
+          {
+            name: "ApiKey",
+            displayName: "API key",
+            authTypes: ["manual"],
+            credentialState: "missing",
+            status: "needs_user_connection",
+            actions: ["connect"],
+          },
+        ],
+      }),
+    );
+    const actions = buildAuthActions(status.connections);
+    expect(actions[0]?.kind).toBe("reconnect");
+    expect(actions[0]?.label).toMatch(/Reconnect/);
+    expect(actions[0]?.variant).toBe("default");
+    const other = actions.filter((action) => action.kind !== "reconnect");
+    expect(other.length).toBeGreaterThan(0);
+    expect(other.every((action) => action.variant === "secondary")).toBe(true);
   });
 });

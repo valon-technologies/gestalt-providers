@@ -96,4 +96,33 @@ describe("integration summaryLabel — credential absence silent", () => {
     expect(connected.summaryLabel).toBe("Connected");
     expect(hasCredentialSurface(connected)).toBe(true);
   });
+
+  test("rejected stored login is Needs reconnect, not Connected or Not connected", () => {
+    const status = normalizeIntegrationStatus(
+      stub({
+        name: "notion",
+        status: "needs_user_connection",
+        credentialState: "invalid",
+        healthState: "unhealthy",
+        connections: [
+          {
+            name: "OAuth",
+            displayName: "OAuth",
+            status: "needs_user_connection",
+            credentialState: "invalid",
+            healthState: "unhealthy",
+            connected: false,
+            authTypes: ["oauth"],
+            actions: ["disconnect"],
+            instances: [{ name: "default", preferred: true }],
+          },
+        ],
+      }),
+      "current_user",
+    );
+    expect(status.summaryLabel).toBe("Needs reconnect");
+    expect(status.connections[0]?.summaryLabel).toBe("Needs reconnect");
+    expect(status.connections[0]?.canReconnect).toBe(true);
+    expect(status.tone).toBe("danger");
+  });
 });

@@ -179,6 +179,56 @@ describe("connection surface copy", () => {
     expect(overviewConnectionAttention(status)).toBeNull();
   });
 
+  test("dead preferred login stays manage and asks to reconnect", () => {
+    const status = normalizeIntegrationStatus(
+      stub({
+        name: "notion",
+        status: "needs_user_connection",
+        credentialState: "invalid",
+        healthState: "unhealthy",
+        connections: [
+          {
+            name: "OAuth",
+            displayName: "OAuth",
+            status: "needs_user_connection",
+            credentialState: "invalid",
+            healthState: "unhealthy",
+            connected: false,
+            authTypes: ["oauth"],
+            actions: ["reconnect", "disconnect"],
+            instances: [{ name: "default" }],
+          },
+          {
+            name: "ApiKey",
+            displayName: "API key",
+            status: "needs_user_connection",
+            credentialState: "missing",
+            authTypes: ["manual"],
+            actions: ["connect"],
+          },
+        ],
+      }),
+    );
+    expect(connectionSurfaceMode(status)).toBe("manage");
+    expect(status.summaryLabel).toBe("Needs reconnect");
+    const surface = connectionSurfaceCopyForStatus(status);
+    expect(surface.description).toMatch(/needs a new sign-in/);
+    expect(surface.trustNote).toMatch(/once access is restored/);
+    const notice = overviewConnectionAttention(status);
+    expect(notice?.title).toBe("Needs reconnect");
+    expect(notice?.actionLabel).toBe("Reconnect on Connection");
+    const panelNotice = connectionPanelAttention(status.connections[0]!);
+    expect(panelNotice?.title).toBe("Needs reconnect");
+    expect(panelNotice?.description).toMatch(/saved sign-in/);
+    expect(
+      accountRelationshipLabel({
+        preferred: false,
+        needsInstanceSelection: false,
+        soleLinkedAccount: true,
+      }),
+    ).toBe("In use");
+  });
+
   test("overview attention is omitted when ready", () => {
     const status = normalizeIntegrationStatus(
       stub({

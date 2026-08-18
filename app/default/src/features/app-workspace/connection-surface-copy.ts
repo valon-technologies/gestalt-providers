@@ -1,4 +1,5 @@
 import {
+  integrationNeedsReconnect,
   normalizeIntegrationStatus,
   statusTone,
   type ConnectionContext,
@@ -46,6 +47,14 @@ export function connectionSurfaceMode(
     const hasManageable = status.connections.some((connection) => !connection.isNoAuth);
     if (!hasManageable) return "none";
   }
+
+  const hasLinkedAccount = status.connections.some(
+    (connection) =>
+      connection.instances.length > 0 ||
+      connection.canReconnect ||
+      connection.canDisconnect,
+  );
+  if (hasLinkedAccount) return "manage";
 
   const needsFirstConnect =
     status.status === "needs_user_connection" ||
@@ -95,7 +104,7 @@ export function connectionSurfaceCopy(
       return {
         title: CONNECTION_SURFACE_TITLE,
         description:
-          "Accounts linked to this app. Only one is in use at a time — switch below, disconnect to revoke access, or add another account.",
+          "Accounts linked to this app. Only one is in use at a time. Switch below, disconnect to revoke access, or add another account.",
         trustNote:
           "This workspace acts through the account marked In use.",
       };
@@ -109,6 +118,15 @@ export function connectionSurfaceCopy(
 export function connectionSurfaceCopyForStatus(
   status: NormalizedIntegrationStatus,
 ): ConnectionSurfaceCopy {
+  if (integrationNeedsReconnect(status)) {
+    return {
+      title: CONNECTION_SURFACE_TITLE,
+      description:
+        "The account in use needs a new sign-in before this workspace can use this app. Reconnect it, switch to another account, or add one.",
+      trustNote:
+        "This workspace will act through the account in use once access is restored.",
+    };
+  }
   if (status.status === "needs_instance_selection") {
     return {
       title: CONNECTION_SURFACE_TITLE,
@@ -170,8 +188,10 @@ export function accountRelationshipLabel(args: {
   preferred?: boolean;
   needsInstanceSelection: boolean;
   connectionKeyLabel?: string | null;
+  /** Sole linked account on a connection that needs reconnect, even if preferred was stripped. */
+  soleLinkedAccount?: boolean;
 }): string {
-  if (args.preferred) return "In use";
+  if (args.preferred || args.soleLinkedAccount) return "In use";
   if (args.needsInstanceSelection) return "Available";
   if (args.connectionKeyLabel) return args.connectionKeyLabel;
   return "Not in use";
@@ -287,7 +307,8 @@ export function overviewConnectionAttention(
   status: NormalizedIntegrationStatus,
 ): OverviewConnectionAttention | null {
   // Connect CTA owns first-time connect; do not duplicate as an Alert.
-  if (status.status === "needs_user_connection") return null;
+  const reconnecting = integrationNeedsReconnect(status);
+  if (status.status === "needs_user_connection" && !reconnecting) return null;
   if (status.tone !== "warning" && status.tone !== "danger") return null;
 
   switch (status.status) {
@@ -295,7 +316,7 @@ export function overviewConnectionAttention(
       return {
         title: status.summaryLabel,
         description:
-          "More than one account is available. Pick which one this workspace should use — until then this app is not connected.",
+          "More than one account is available. Pick which one this workspace should use. Until then this app is not connected.",
         actionLabel: "Choose an account",
       };
     case "needs_admin_configuration":
@@ -319,7 +340,7 @@ export function overviewConnectionAttention(
         actionLabel: "View Connection",
       };
     default:
-      if (status.connections.some((connection) => connection.canReconnect)) {
+      if (reconnecting) {
         return {
           title: status.summaryLabel,
           description: "Reconnect to restore access for this app.",
@@ -346,7 +367,16 @@ export type ConnectionPanelAttention = {
 export function connectionPanelAttention(
   connection: NormalizedConnection,
 ): ConnectionPanelAttention | null {
-  if (connection.status === "needs_user_connection") return null;
+  if (
+    connection.status === "needs_user_connection" &&
+    !(
+      connection.canReconnect ||
+      connection.credentialState === "invalid" ||
+      connection.healthState === "unhealthy"
+    )
+  ) {
+    return null;
+  }
   const tone = statusTone(
     connection.status,
     connection.credentialState,
@@ -359,7 +389,7 @@ export function connectionPanelAttention(
       return {
         title: connection.summaryLabel,
         description:
-          "More than one account is available. Pick which one this workspace should use — until then this app is not connected.",
+          "More than one account is available. Pick which one this workspace should use. Until then this app is not connected.",
       };
     case "needs_admin_configuration":
       return {
@@ -379,10 +409,15 @@ export function connectionPanelAttention(
         description: "This connection is unavailable right now.",
       };
     default:
-      if (connection.canReconnect) {
+      if (
+        connection.canReconnect ||
+        connection.credentialState === "invalid" ||
+        connection.healthState === "unhealthy"
+      ) {
         return {
           title: connection.summaryLabel,
-          description: "Reconnect to restore access for this connection.",
+          description:
+            "This app no longer accepts the saved sign-in for this account. Reconnect to restore access.",
         };
       }
       return {
