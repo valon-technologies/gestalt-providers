@@ -551,6 +551,10 @@ func (p *Provider) grantOwnerForIssue(ctx context.Context, tokenSubject string) 
 }
 
 func (p *Provider) callerSubject(ctx context.Context) (string, error) {
+	// Token create arrives on the raw gRPC context. List/Get/Revoke are
+	// wrapped by the SDK. Reconstruct the host-verified caller here so both
+	// paths own grants as the same person.
+	ctx = gestalt.AuthCallContextFromIncoming(ctx)
 	if subject := strings.TrimSpace(gestalt.TrustedCallerSubjectFromContext(ctx)); subject != "" {
 		return subject, nil
 	}
