@@ -18,6 +18,7 @@ describe("assistant install guidance", () => {
     expect(SOURCE).toContain(
       '<Callout variant="info" data-testid="setup-overlap-callout">',
     );
+    expect(SOURCE).toContain("assistantOverlapBody(agent)");
     expect(SOURCE).not.toContain("live={false}");
     expect(SOURCE).toContain('from "@/components/ui/alert"');
     expect(SOURCE).not.toContain("@/components/Callout");

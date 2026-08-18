@@ -382,6 +382,18 @@ export function setupAppsStepComplete(
   );
 }
 
+/** Why Connect apps Next is off, or null when the step is complete. */
+export function setupAppsContinueBlockedReason(
+  snapshot: Pick<BuildWorkspaceSnapshot, "integrations" | "catalogLoadState">,
+): string | null {
+  if (setupAppsStepComplete(snapshot)) return null;
+  if (snapshot.catalogLoadState === "pending") return "Loading apps…";
+  if (snapshot.catalogLoadState === "failed") {
+    return "Couldn't load apps. Try again.";
+  }
+  return "Connect at least one app to continue";
+}
+
 /** Map a catalog query onto {@link CatalogLoadState}. */
 export function catalogLoadStateFromQuery(query: {
   isPending: boolean;

@@ -32,6 +32,7 @@ import {
   consumeConnectionReturnPath,
 } from "@/lib/authReturn";
 import { appPath } from "@/lib/mount";
+import { appIsConnectedCopy } from "@/lib/oauthConnectConfirm";
 import { CONNECTION_CONNECTED_LABEL } from "@/features/app-workspace/connection-surface-copy";
 import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
@@ -556,7 +557,7 @@ export default function AppsCatalogPageClient() {
               >
                 <CheckCircleIcon aria-hidden />
                 <AlertTitle>
-                  {connectedSuccessLabel} connected successfully.
+                  {appIsConnectedCopy(connectedSuccessLabel)}
                 </AlertTitle>
                 <AlertActions>
                   <UiButton

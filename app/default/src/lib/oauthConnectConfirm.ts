@@ -11,6 +11,10 @@ export function isConnectedInCatalog(
   return Boolean(item && normalizeIntegrationStatus(item).connected);
 }
 
+export function appIsConnectedCopy(label: string): string {
+  return `${label} is connected.`;
+}
+
 /** Reload the catalog and report whether this app is connected now. */
 export async function refetchIntegrationConnected(
   queryClient: QueryClient,

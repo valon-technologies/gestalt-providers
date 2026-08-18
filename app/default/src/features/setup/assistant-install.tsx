@@ -26,8 +26,8 @@ import {
   MoreHorizontalIcon,
 } from "@/components/icons";
 import {
-  ASSISTANT_OVERLAP_SHORT,
   ASSISTANT_OVERLAP_TITLE,
+  assistantOverlapBody,
   CHATGPT_INSTALL_AUTH_NOTE,
   CHATGPT_INSTALL_CREATE_APP,
   CHATGPT_INSTALL_DEVELOPER_MODE,
@@ -564,7 +564,7 @@ export function SingleAgentMcpInstall({
       <Callout variant="info" data-testid="setup-overlap-callout">
         <Info aria-hidden="true" />
         <AlertTitle>{ASSISTANT_OVERLAP_TITLE}</AlertTitle>
-        <AlertDescription>{ASSISTANT_OVERLAP_SHORT}</AlertDescription>
+        <AlertDescription>{assistantOverlapBody(agent)}</AlertDescription>
       </Callout>
 
       <p className="flex items-start gap-2 text-sm text-muted-foreground text-pretty">

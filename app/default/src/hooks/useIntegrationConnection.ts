@@ -12,8 +12,8 @@ import {
 } from "@/lib/api";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import type { Integration } from "@/lib/api";
-import { rememberConnectionReturnPath } from "@/lib/authReturn";
-import { refetchIntegrationConnected } from "@/lib/oauthConnectConfirm";
+import { rememberConnectionReturnPath, sanitizeAuthReturnPath } from "@/lib/authReturn";
+import { appIsConnectedCopy, refetchIntegrationConnected } from "@/lib/oauthConnectConfirm";
 import {
   closeOAuthPopup,
   navigateOAuthPopup,
@@ -120,12 +120,20 @@ export function useIntegrationConnection({
         queryClient,
         integration.name,
       );
-    } catch {
-      connected = false;
+    } catch (err) {
+      setLoading(false);
+      setError(
+        userFacingError(
+          err,
+          `Couldn't confirm ${label} is connected. Try again.`,
+          "connect",
+        ),
+      );
+      return;
     }
     setLoading(false);
     if (connected) {
-      toast.success(`${label} connected successfully.`);
+      toast.success(appIsConnectedCopy(label));
     }
     onConnectedRef.current?.();
     onFlowCompleteRef.current?.();
@@ -140,15 +148,17 @@ export function useIntegrationConnection({
     setLoading(true);
     setError(null);
     try {
+      const oauthReturnPath =
+        returnPath === undefined ? undefined : sanitizeAuthReturnPath(returnPath);
       const { url } = await startOAuth(
         integration.name,
         undefined,
         connectionParams,
         instance,
         connection,
-        returnPath,
+        oauthReturnPath,
       );
-      rememberConnectionReturnPath(returnPath);
+      rememberConnectionReturnPath(oauthReturnPath);
       if (popup && !popup.closed) {
         navigateOAuthPopup(popup, url);
         stopWatchingOAuthPopupRef.current?.();
@@ -179,19 +189,21 @@ export function useIntegrationConnection({
     setSubmitting(true);
     setError(null);
     try {
+      const oauthReturnPath =
+        returnPath === undefined ? undefined : sanitizeAuthReturnPath(returnPath);
       const result = await connectManual(
         integration.name,
         credential,
         connectionParams,
         instance,
         connection,
-        returnPath,
+        oauthReturnPath,
       );
       if (result.status === "selection_required") {
         if (!result.pendingToken) {
           throw new Error("Connection setup is incomplete. Try again.");
         }
-        rememberConnectionReturnPath(returnPath);
+        rememberConnectionReturnPath(oauthReturnPath);
         onFlowComplete?.();
         setPendingSelection({
           action: resolveAPIPath(
@@ -201,7 +213,7 @@ export function useIntegrationConnection({
         });
       } else {
         onFlowComplete?.();
-        toast.success(`${label} connected successfully.`);
+        toast.success(appIsConnectedCopy(label));
         onConnected?.();
       }
       return true;

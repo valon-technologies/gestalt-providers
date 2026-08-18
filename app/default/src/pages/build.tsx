@@ -1,6 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Clock } from "lucide-react";
-import { toast } from "sonner";
 import {
   Link,
   Navigate,
@@ -128,7 +127,7 @@ import {
   resolveExemplarOpenPath,
   SETUP_PRODUCT_NAME,
   isSetupDataSourceApp,
-  setupAppsStepComplete,
+  setupAppsContinueBlockedReason,
   setupDataSourceIntegrations,
   tryStepCatalogApp,
   writeSetupSkipped,
@@ -136,6 +135,7 @@ import {
   type BuildStep,
   type BuildStepId,
   type BuildWorkspaceSnapshot,
+  type CatalogLoadState,
 } from "@/lib/buildPaths";
 import {
   CONNECT_ANOTHER_ASSISTANT_LABEL,
@@ -494,6 +494,7 @@ export default function BuildStepPage() {
             void integrationsQuery.refetch();
           }}
           integrations={snapshot.integrations}
+          catalogLoadState={snapshot.catalogLoadState}
           activeExemplar={activeExemplar}
           apiToken={session.apiToken}
           apiTokenGrantId={session.apiTokenGrantId}
@@ -875,6 +876,7 @@ function BuildStepPanel({
   catalogRetrying,
   onRetryCatalog,
   integrations,
+  catalogLoadState,
   activeExemplar,
   apiToken,
   apiTokenGrantId,
@@ -897,6 +899,7 @@ function BuildStepPanel({
   catalogRetrying: boolean;
   onRetryCatalog: () => void;
   integrations: Integration[];
+  catalogLoadState: CatalogLoadState;
   activeExemplar: BuildExemplar;
   apiToken: string;
   apiTokenGrantId: string;
@@ -916,6 +919,10 @@ function BuildStepPanel({
     apiTokenGrantId,
   });
   const installReady = isBuildInstallAgentId(installAgentId);
+  const appsContinueBlocked = setupAppsContinueBlockedReason({
+    integrations,
+    catalogLoadState,
+  });
 
   function handleStepNext(id: BuildStepId) {
     if (step.id === "install") {
@@ -924,6 +931,7 @@ function BuildStepPanel({
       const to = BUILD_STEPS.findIndex((s) => s.id === id);
       if (to > from) onMarkMcpInstalled();
     }
+    if (step.id === "apps" && appsContinueBlocked) return;
     onGoToStep(id);
   }
 
@@ -1026,15 +1034,7 @@ function BuildStepPanel({
             (step.id === "assistant" && !installReady) ||
             (step.id === "token" && !mcpCredentialReady) ||
             (step.id === "install" && !mcpCredentialReady) ||
-            (step.id === "apps" &&
-              !setupAppsStepComplete({
-                integrations,
-                catalogLoadState: catalogError
-                  ? "failed"
-                  : catalogSettled
-                    ? "ready"
-                    : "pending",
-              }))
+            (step.id === "apps" && appsContinueBlocked !== null)
           }
           nextDisabledTitle={
             step.id === "assistant"
@@ -1042,9 +1042,7 @@ function BuildStepPanel({
               : step.id === "token" || step.id === "install"
                 ? SETUP_TOKEN_NEXT_DISABLED_TITLE
                 : step.id === "apps"
-                  ? catalogError && !catalogHasApps
-                    ? "Load apps before continuing"
-                    : "Connect at least one app to continue"
+                  ? (appsContinueBlocked ?? undefined)
                   : undefined
           }
         />
@@ -1110,6 +1108,11 @@ function BuildStepPager({
             disabled={nextDisabled}
             aria-disabled={nextDisabled}
             title={nextDisabled ? nextDisabledTitle : undefined}
+            aria-label={
+              nextDisabled && nextDisabledTitle
+                ? `${nextTitle}. ${nextDisabledTitle}`
+                : undefined
+            }
           />
         </StepPagerNext>
       ) : terminalNext ? (
@@ -1158,7 +1161,6 @@ function AuthorizeStepActions({
   ) {
     onApiToken(plaintext, created.id);
     onTokenName(created.name);
-    toast.success("Token created.");
     await onTokensChanged();
   }
 

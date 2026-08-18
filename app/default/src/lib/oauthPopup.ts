@@ -7,9 +7,9 @@ export type OAuthPopup = Pick<Window, "closed" | "close"> & {
 };
 
 /**
- * Google always returns to the API host (valon.tools). That callback page
- * closes itself — but only if this tab opened it with window.open. Navigating
- * this tab away replaces Setup with the callback, and close() is a no-op.
+ * Google always returns to the API host. That callback page closes itself,
+ * but only if this tab opened it with window.open. Navigating this tab away
+ * replaces Setup with the callback, and close() is a no-op.
  */
 export function openOAuthPopup(): OAuthPopup | null {
   if (typeof window === "undefined") return null;
@@ -31,7 +31,8 @@ export function watchOAuthPopup(
   onReturned: () => void,
 ): () => void {
   let finished = false;
-  let sawOpen = false;
+  /** True if the handle was live when we started, or we later saw it open. */
+  let sawOpen = !popup.closed;
 
   const finish = () => {
     if (finished) return;

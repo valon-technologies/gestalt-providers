@@ -21,6 +21,17 @@ describe("watchOAuthPopup", () => {
     expect(onReturned).toHaveBeenCalledOnce();
   });
 
+  test("refreshes when an already-open window closes before the first poll", () => {
+    vi.useFakeTimers();
+    const popup = { closed: false, close() {}, location: { assign() {} } };
+    const onReturned = vi.fn();
+    watchOAuthPopup(popup, onReturned);
+
+    popup.closed = true;
+    vi.advanceTimersByTime(400);
+    expect(onReturned).toHaveBeenCalledOnce();
+  });
+
   test("does not treat an immediately severed handle as a finished sign-in", () => {
     vi.useFakeTimers();
     const popup = { closed: true, close() {}, location: { assign() {} } };

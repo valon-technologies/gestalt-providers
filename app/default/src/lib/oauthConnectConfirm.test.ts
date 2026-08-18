@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { Integration } from "@/lib/api";
-import { isConnectedInCatalog } from "./oauthConnectConfirm";
+import { isConnectedInCatalog, appIsConnectedCopy } from "./oauthConnectConfirm";
 
 function stub(partial: Partial<Integration> & Pick<Integration, "name">): Integration {
   return {
@@ -50,5 +50,11 @@ describe("isConnectedInCatalog", () => {
     expect(isConnectedInCatalog([connected], "slack")).toBe(false);
     expect(isConnectedInCatalog(undefined, "bigquery")).toBe(false);
     expect(isConnectedInCatalog([], "bigquery")).toBe(false);
+  });
+});
+
+describe("appIsConnectedCopy", () => {
+  test("names the app without filler", () => {
+    expect(appIsConnectedCopy("BigQuery")).toBe("BigQuery is connected.");
   });
 });

@@ -508,7 +508,6 @@ test.describe("Setup page", () => {
     await expect(page.getByRole("button", { name: "Create token" })).toBeVisible();
     await expect(page.getByTestId("build-step-next")).toBeDisabled();
     await page.getByRole("button", { name: "Create token" }).click();
-    await expect(page.getByText("Token created.")).toBeVisible();
     await expect(page.getByTestId("build-token-create-item")).toContainText(
       "Token created",
     );
@@ -576,7 +575,6 @@ test.describe("Setup page", () => {
     await page.getByLabel("Token name").fill("Workspace");
     await expect(page.getByTestId("build-step-next")).toBeDisabled();
     await page.getByRole("button", { name: "Create token" }).click();
-    await expect(page.getByText("Token created.")).toBeVisible();
     await expect(page.getByTestId("build-token-create-item")).toContainText(
       "Token created",
     );

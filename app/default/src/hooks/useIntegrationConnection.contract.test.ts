@@ -21,16 +21,15 @@ describe("useIntegrationConnection OAuth", () => {
   test("toasts OAuth success only after the catalog shows the app connected", () => {
     expect(SOURCE).toContain("refetchIntegrationConnected");
     expect(SOURCE).toContain("void finishOAuthPopup()");
-    expect(SOURCE).toContain(
-      "toast.success(`${label} connected successfully.`)",
-    );
+    expect(SOURCE).toContain("appIsConnectedCopy(label)");
+    expect(SOURCE).not.toContain("connected successfully");
   });
 
   test("remembers the connect page before a same-tab fallback or account picker", () => {
-    expect(SOURCE).toContain("rememberConnectionReturnPath(returnPath)");
+    expect(SOURCE).toContain("sanitizeAuthReturnPath(returnPath)");
     expect(SOURCE).toContain("window.location.href = url");
     expect(SOURCE).toMatch(
-      /rememberConnectionReturnPath\(returnPath\);\s*onFlowComplete\?/,
+      /rememberConnectionReturnPath\(oauthReturnPath\);\s*onFlowComplete\?/,
     );
   });
 });

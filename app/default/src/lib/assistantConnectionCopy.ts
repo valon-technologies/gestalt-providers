@@ -55,6 +55,9 @@ export const CHATGPT_INSTALL_AUTH_NOTE =
 export const ASSISTANT_OVERLAP_TITLE = "One path per app";
 
 export const ASSISTANT_OVERLAP_SHORT =
+  "Use Gestalt MCP for workspace apps your company connected here. Skip other connectors to the same app (for example Notion). Turn those on only when you need something Gestalt does not expose.";
+
+export const ASSISTANT_OVERLAP_CODEX =
   "Use Gestalt MCP for workspace apps your company connected here. Skip Codex native plugins and assistant skills that connect to the same app (for example Notion). Turn those on only when you need something Gestalt does not expose.";
 
 export const CONNECT_ANOTHER_ASSISTANT_LABEL = "Connect another assistant";
@@ -79,3 +82,8 @@ export const SETUP_TOKEN_CREATE_DONE = "Your token is saved.";
 export const SETUP_TOKEN_CREATE_DIFFERENT = "Create a different token";
 
 export const SETUP_TOKEN_NEXT_DISABLED_TITLE = "Create a token before continuing";
+
+/** Codex names native plugins. Other hosts keep the generic overlap body. */
+export function assistantOverlapBody(agentId: string): string {
+  return agentId === "codex" ? ASSISTANT_OVERLAP_CODEX : ASSISTANT_OVERLAP_SHORT;
+}

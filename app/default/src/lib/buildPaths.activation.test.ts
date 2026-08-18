@@ -18,6 +18,7 @@ import {
   isWorkspaceWarm,
   mcpInstalledForAgent,
   setupAppsConnected,
+  setupAppsContinueBlockedReason,
   setupAppsHasConnectable,
   setupAppsStepComplete,
   setupDataSourceIntegrations,
@@ -427,6 +428,39 @@ describe("setup data-source apps", () => {
       "ready",
     );
   });
+
+  test("disables Connect apps Next until the catalog load agrees with completion", () => {
+    expect(
+      setupAppsContinueBlockedReason({
+        integrations: [],
+        catalogLoadState: "pending",
+      }),
+    ).toBe("Loading apps…");
+    expect(
+      setupAppsContinueBlockedReason({
+        integrations: [],
+        catalogLoadState: "failed",
+      }),
+    ).toBe("Couldn't load apps. Try again.");
+    expect(
+      setupAppsContinueBlockedReason({
+        integrations: [disconnectedIntegration],
+        catalogLoadState: "ready",
+      }),
+    ).toBe("Connect at least one app to continue");
+    expect(
+      setupAppsContinueBlockedReason({
+        integrations: [],
+        catalogLoadState: "ready",
+      }),
+    ).toBeNull();
+    expect(
+      setupAppsContinueBlockedReason({
+        integrations: [connectedIntegration],
+        catalogLoadState: "failed",
+      }),
+    ).toBeNull();
+  });
 });
 
 describe("buildMcpCredentialReady", () => {
@@ -536,16 +570,16 @@ describe("tryStepCatalogApp", () => {
   test("builds a catalog tile when the app is missing from the workspace", () => {
     expect(
       tryStepCatalogApp({
-        appId: "oncall",
-        label: "Oncall",
-        description: "Open Oncall in Gestalt.",
-        mountedPath: "/oncall",
+        appId: "example-app",
+        label: "Example app",
+        description: "Open Example app in Gestalt.",
+        mountedPath: "/example-app",
       }),
     ).toEqual({
-      name: "oncall",
-      displayName: "Oncall",
-      description: "Open Oncall in Gestalt.",
-      mountedPath: "/oncall",
+      name: "example-app",
+      displayName: "Example app",
+      description: "Open Example app in Gestalt.",
+      mountedPath: "/example-app",
     });
   });
 });
