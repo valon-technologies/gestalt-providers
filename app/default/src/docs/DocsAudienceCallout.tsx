@@ -5,8 +5,10 @@ import { DOCS_SETTINGS_TOKENS_HREF } from "./docs-data";
 import { DocsLink } from "./DocsLink";
 
 /**
- * Admin-audience callout owned by docs chrome, rendered when
- * `DocsNavItem.audience === "admin"` so the IA model enforces the notice.
+ * Admin-audience callout for pages with `DocsNavItem.audience === "admin"`.
+ * Render it in the page body after the intro, before the first command
+ * heading. DocsShell does not inject it: placement is reading-order and
+ * page-owned.
  *
  * Persistent orientation chrome (not a transient status flash): use Callout,
  * not Alert. Keep `variant="info"` for the wash.

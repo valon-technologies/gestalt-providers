@@ -1,22 +1,27 @@
-import { MCP_DOCS_TITLE, ASSISTANT_OVERLAP_TITLE } from "@/lib/assistantConnectionCopy";
+import { ASSISTANT_OVERLAP_TITLE } from "@/lib/assistantConnectionCopy";
 import { DOCS_PATH } from "@/lib/constants";
 import { SETTINGS_TOKENS_PATH } from "@/lib/managed-identity-paths";
 
 /**
  * Docs information architecture — single source of truth for:
- * - left-rail destinations (grouped by journey)
+ * - left-rail destinations (grouped by client posture)
  * - on-this-page subsections
  * - audience (user vs admin)
  * - next/prev journey edges used by page footers
  *
+ * Two setups: assistants (browser connect, token, MCP; no Gestalt CLI) and
+ * terminal (install CLI, then CLI connect / invoke / workflows). Linear
+ * `docsNavItems` order is that sequence so the journey footer matches.
+ *
  * Product surfaces that mint personal API tokens live under Settings
- * (`SETTINGS_TOKENS_PATH`). Never label that UI "Authorization" — that word is
+ * (`SETTINGS_TOKENS_PATH`). Never label that UI "Authorization". That word is
  * reserved for granting app access (`/docs/authorization`).
  */
 
 export const DOCS_GETTING_STARTED_PATH = `${DOCS_PATH}/getting-started` as const;
 export const DOCS_CONNECT_PATH = `${DOCS_PATH}/connect` as const;
 export const DOCS_INVOKE_PATH = `${DOCS_PATH}/invoke` as const;
+export const DOCS_CLI_PATH = `${DOCS_PATH}/cli` as const;
 export const DOCS_WORKFLOWS_PATH = `${DOCS_PATH}/workflows` as const;
 export const DOCS_TOKENS_PATH = `${DOCS_PATH}/tokens` as const;
 export const DOCS_AUTHORIZATION_PATH = `${DOCS_PATH}/authorization` as const;
@@ -28,7 +33,12 @@ export const DOCS_SETTINGS_TOKENS_HREF = SETTINGS_TOKENS_PATH;
 
 export type DocsAudience = "user" | "admin";
 
-export type DocsNavGroupId = "setup" | "automate" | "administer";
+export type DocsNavGroupId =
+  | "setup"
+  | "assistants"
+  | "terminal"
+  | "administer"
+  | "help";
 
 export interface DocsSubsection {
   id: string;
@@ -55,8 +65,10 @@ export const DOCS_NAV_GROUPS: ReadonlyArray<{
   label: string;
 }> = [
   { id: "setup", label: "Setup" },
-  { id: "automate", label: "Automate" },
+  { id: "assistants", label: "Assistants" },
+  { id: "terminal", label: "Terminal" },
   { id: "administer", label: "Administer" },
+  { id: "help", label: "Help" },
 ];
 
 export const docsNavItems: DocsNavItem[] = [
@@ -67,58 +79,73 @@ export const docsNavItems: DocsNavItem[] = [
     group: "setup",
     audience: "user",
     subsections: [
-      { id: "install", label: "Install" },
-      { id: "point-cli", label: "Point the CLI at this workspace" },
-      { id: "authenticate", label: "Authenticate" },
-      { id: "authorization", label: "Grant App Access" },
-      { id: "agent-environments", label: "Configure cloud environments" },
-      { id: "workflows", label: "Inspect Workflows" },
+      { id: "connect-apps", label: "Connect Apps" },
+      { id: "create-token", label: "Create an API token" },
+      { id: "next-steps", label: "Next steps" },
+    ],
+  },
+  {
+    id: "tokens",
+    href: DOCS_TOKENS_PATH,
+    label: "API Tokens",
+    group: "setup",
+    audience: "user",
+    subsections: [
+      { id: "tokens-use", label: "What to do with the token" },
+      { id: "tokens-cli", label: "Create from the terminal" },
+    ],
+  },
+  {
+    id: "mcp",
+    href: DOCS_MCP_PATH,
+    label: "MCP Clients",
+    group: "assistants",
+    audience: "user",
+    // MCP destination tabs and client recipes stay hash-backed (no TOC ids).
+    subsections: [
+      { id: "mcp-connect", label: "Choose your assistant" },
+      { id: "mcp-overlap", label: ASSISTANT_OVERLAP_TITLE },
+      { id: "mcp-env", label: "Store the token on your computer" },
+      { id: "mcp-cloud", label: "Configure cloud environments" },
+      { id: "mcp-verify", label: "Verify your tools" },
+    ],
+  },
+  {
+    id: "cli",
+    href: DOCS_CLI_PATH,
+    label: "Gestalt CLI",
+    group: "terminal",
+    audience: "user",
+    subsections: [
+      { id: "cli-install", label: "Install the CLI" },
+      { id: "cli-point", label: "Point the CLI at this workspace" },
+      { id: "cli-authenticate", label: "Authenticate from the terminal" },
     ],
   },
   {
     id: "connect",
     href: DOCS_CONNECT_PATH,
     label: "Connect Apps",
-    group: "setup",
+    group: "terminal",
     audience: "user",
-    subsections: [],
+    subsections: [
+      { id: "connect-cli", label: "Connect from the terminal" },
+    ],
   },
   {
     id: "invoke",
     href: DOCS_INVOKE_PATH,
     label: "Invoke Operations",
-    group: "setup",
+    group: "terminal",
     audience: "user",
     // Option switchers use hash values without matching DOM ids (sticky chrome).
     subsections: [],
   },
   {
-    id: "tokens",
-    href: DOCS_TOKENS_PATH,
-    label: "Manage API Tokens",
-    group: "automate",
-    audience: "user",
-    subsections: [],
-  },
-  {
-    id: "mcp",
-    href: DOCS_MCP_PATH,
-    label: MCP_DOCS_TITLE,
-    group: "automate",
-    audience: "user",
-    // Client options are hash-backed SegmentedControl values, not headings.
-    subsections: [
-      {
-        id: "mcp-overlap",
-        label: ASSISTANT_OVERLAP_TITLE,
-      },
-    ],
-  },
-  {
     id: "workflows",
     href: DOCS_WORKFLOWS_PATH,
     label: "Inspect Workflows",
-    group: "automate",
+    group: "terminal",
     audience: "user",
     subsections: [
       { id: "wf-help", label: "Start with help" },
@@ -142,7 +169,7 @@ export const docsNavItems: DocsNavItem[] = [
     id: "troubleshooting",
     href: DOCS_TROUBLESHOOTING_PATH,
     label: "Troubleshooting",
-    group: "administer",
+    group: "help",
     audience: "user",
     subsections: [
       { id: "ts-not-authenticated", label: "The CLI says you are not authenticated" },
@@ -191,7 +218,7 @@ export function docsNavItemsByGroup(
 /**
  * Linear journey edges for StepPager. Forward/back follow sidebar order so the
  * nav array is the only sequence to maintain. Soft prose prerequisites are not
- * modeled on nav items — journey edges and hand-authored copy stay separate.
+ * modeled on nav items. Journey edges and hand-authored copy stay separate.
  */
 export function getDocsJourneyEdges(item: DocsNavItem): {
   previous: DocsNavLink | null;

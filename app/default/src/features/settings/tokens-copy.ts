@@ -24,11 +24,11 @@ export const SETTINGS_TOKEN_CREATE_DESCRIPTION =
 export const SETTINGS_TOKEN_CREATED_TITLE = "Token created";
 
 export const SETTINGS_TOKEN_CREATED_DESCRIPTION =
-  "Copy the secret below, then return to your token list.";
+  "Copy the secret below. Next, open API Tokens in Docs and pick your assistant.";
 
 /** One-time secret alert after mint — settings-native, not Build tutorial. */
 export const SETTINGS_TOKEN_PLAINTEXT_DESCRIPTION =
-  "Copy this token now. We won't show the full value again. Store it in your secret manager or shell environment.";
+  "Copy this token now. We won't show the full value again. Open API Tokens in Docs for the next steps.";
 
 export const SETTINGS_TOKEN_CREATE_CANCEL = "Cancel";
 

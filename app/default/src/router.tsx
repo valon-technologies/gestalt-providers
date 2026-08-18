@@ -7,6 +7,7 @@ import {
 import DocsShell from "@/docs/DocsShell";
 import {
   AuthorizationDocsPage,
+  CliDocsPage,
   ConnectDocsPage,
   GettingStartedDocsPage,
   InvokeDocsPage,
@@ -68,8 +69,13 @@ function DocsInvokeRoute() {
   return <InvokeDocsPage />;
 }
 
+function DocsCliRoute() {
+  useDocumentTitle("Gestalt CLI");
+  return <CliDocsPage />;
+}
+
 function DocsTokensRoute() {
-  useDocumentTitle("Manage API Tokens");
+  useDocumentTitle("API Tokens");
   return <TokensDocsPage />;
 }
 
@@ -84,7 +90,7 @@ function DocsWorkflowsRoute() {
 }
 
 function DocsMcpRoute() {
-  useDocumentTitle("MCP setup");
+  useDocumentTitle("MCP Clients");
   return <McpDocsPage />;
 }
 
@@ -518,6 +524,12 @@ const docsInvokeRoute = createRoute({
   component: DocsInvokeRoute,
 });
 
+const docsCliRoute = createRoute({
+  getParentRoute: () => docsLayoutRoute,
+  path: "/cli",
+  component: DocsCliRoute,
+});
+
 const docsTokensRoute = createRoute({
   getParentRoute: () => docsLayoutRoute,
   path: "/tokens",
@@ -601,6 +613,7 @@ const routeTree = rootRoute.addChildren([
     docsGettingStartedRoute,
     docsConnectRoute,
     docsInvokeRoute,
+    docsCliRoute,
     docsTokensRoute,
     docsAuthorizationRoute,
     docsWorkflowsRoute,

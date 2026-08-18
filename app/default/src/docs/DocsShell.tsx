@@ -10,7 +10,6 @@ import { useScrollSpy } from "@/hooks/use-scroll-spy";
 import { usePageLayoutAnchorOffsetPx } from "@/lib/page-layout-anchor-offset";
 import { pageLayoutContentTopStyle, PAGE_LAYOUT_READING_COLUMN_CLASS } from "@/lib/page-layout-content-top";
 import { getActiveDocsNavItem } from "./docs-data";
-import { DocsAudienceCallout } from "./DocsAudienceCallout";
 import { DocsMobileNav, DocsNavList } from "./DocsMobileNav";
 import { DocsJourneyFooter } from "./DocsJourneyFooter";
 
@@ -137,7 +136,6 @@ export default function DocsShell({
               On-this-page lives only in PageLayout Aside (xl+); no stacked
               duplicate below that breakpoint — nav already covers the page.
             */}
-            {activeItem.audience === "admin" ? <DocsAudienceCallout /> : null}
             {children}
             <DocsJourneyFooter item={activeItem} />
           </article>

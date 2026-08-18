@@ -16,7 +16,7 @@ import {
 /**
  * Mobile stand-in for the docs Pane. Same destinations as the desktop rail,
  * inside PageLayoutPaneMobileNav (Menu bar → overlay). SegmentedControl is
- * wrong for 8 grouped pages.
+ * wrong for grouped docs destinations.
  */
 export function DocsMobileNav({
   pathname,

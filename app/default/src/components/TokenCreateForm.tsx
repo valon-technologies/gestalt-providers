@@ -110,7 +110,7 @@ interface TokenCreateFormProps {
 
 /** Safe default when a caller shows plaintext without surface-specific copy. */
 const DEFAULT_PLAINTEXT_RESULT_DESCRIPTION =
-  "Copy this token now. We won't show the full value again. Store it in your secret manager or shell environment.";
+  "Copy this token now. We won't show the full value again. Open API Tokens in Docs for the next steps.";
 
 export type TokenCreateFormHandle = {
   create: () => Promise<boolean>;

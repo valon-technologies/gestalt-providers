@@ -17,6 +17,7 @@ describe("settings tokens copy", () => {
 
   it("uses settings-native one-time secret copy (not Build tutorial framing)", () => {
     expect(SETTINGS_TOKEN_PLAINTEXT_DESCRIPTION).toMatch(/won't show the full value again/i);
+    expect(SETTINGS_TOKEN_PLAINTEXT_DESCRIPTION).toMatch(/API Tokens in Docs/i);
     expect(SETTINGS_TOKEN_PLAINTEXT_DESCRIPTION).not.toMatch(/this example/i);
   });
 });
