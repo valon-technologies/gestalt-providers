@@ -667,7 +667,11 @@ const TokenCreateForm = React.forwardRef<
       {showPlaintext ? (
         <div className="space-y-4">
           <div className="space-y-3">
-            <div className="w-fit max-w-full">
+            <div
+              className="w-fit max-w-full"
+              role="group"
+              aria-label="API token"
+            >
               <CopyableCode value={plaintext} tooltip="Copy token" />
             </div>
             <Alert variant="warning">

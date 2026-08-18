@@ -92,6 +92,7 @@ test.describe("Token Management", () => {
     await page.getByRole("radio", { name: /all apps/i }).click();
     await page.getByRole("button", { name: "Create token" }).click();
 
+    await expect(page.getByRole("group", { name: "API token" })).toBeVisible();
     await expect(page.getByText("gestalt_abc123secret")).toBeVisible();
     await expect(page.getByRole("button", { name: "Copy token" })).toBeVisible();
     await expect(
@@ -146,6 +147,7 @@ test.describe("Token Management", () => {
     await page.getByRole("radio", { name: /all apps/i }).click();
     await page.getByRole("button", { name: "Create token" }).click();
 
+    await expect(page.getByRole("group", { name: "API token" })).toBeVisible();
     await expect(page.getByText("gestalt_race_secret")).toBeVisible();
     await expect(page.getByRole("button", { name: "Copy token" })).toBeVisible();
 
