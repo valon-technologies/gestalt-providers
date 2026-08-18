@@ -631,7 +631,9 @@ export type SetupSessionSeed = {
 /** Seed Setup sessionStorage so later steps can resume past earlier gates. */
 export async function seedSetupSession(page: Page, seed: SetupSessionSeed) {
   await page.addInitScript(
-    (s: SetupSessionSeed & { defaultToken: string }) => {
+    (s: SetupSessionSeed & { defaultToken: string; appliedKey: string }) => {
+      if (sessionStorage.getItem(s.appliedKey) === "1") return;
+      sessionStorage.setItem(s.appliedKey, "1");
       if (s.introSeen) {
         sessionStorage.setItem("gestalt.build.introSeen", "1");
       }
@@ -685,7 +687,11 @@ export async function seedSetupSession(page: Page, seed: SetupSessionSeed) {
         sessionStorage.setItem("gestalt.build.tokenName", s.tokenName);
       }
     },
-    { ...seed, defaultToken: SETUP_SESSION_API_TOKEN },
+    {
+      ...seed,
+      defaultToken: SETUP_SESSION_API_TOKEN,
+      appliedKey: "gestalt.e2e.setupSessionApplied",
+    },
   );
 }
 

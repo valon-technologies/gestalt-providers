@@ -117,6 +117,7 @@ import {
   DEFAULT_BUILD_TOKEN_NAME,
   firstIncompleteStepId,
   getExemplar,
+  isBuildStepUnlocked,
   SETUP_TOKEN_CREATE_DONE,
   SETUP_TOKEN_CREATE_ITEM_TITLE,
   SETUP_TOKEN_NEXT_DISABLED_TITLE,
@@ -141,7 +142,7 @@ import {
   CONNECT_ANOTHER_ASSISTANT_LABEL,
   WELCOME_ASSISTANT_EXAMPLES,
 } from "@/lib/assistantConnectionCopy";
-import { assistantHostById, type BuildInstallAgentId } from "@/lib/assistantHosts";
+import { assistantHostById, type AssistantHostConsoleSkin, type BuildInstallAgentId } from "@/lib/assistantHosts";
 import { cn } from "@/lib/cn";
 import { DOCS_PATH, SETUP_PATH } from "@/lib/constants";
 import {
@@ -368,9 +369,6 @@ export default function BuildStepPage() {
     ? buildStepTitle(currentStep, session.selectedInstallAgent)
     : "Setup";
   useDocumentTitle(currentStep ? `${stepTitle} · Setup` : "Setup");
-  useEffect(() => {
-    if (currentStep?.id === "try") session.markTrySeen();
-  }, [currentStep?.id, session.markTrySeen]);
 
   if (legacyConnect) {
     return (
@@ -404,6 +402,22 @@ export default function BuildStepPage() {
     catalog.status === "unavailable"
       ? userFacingError(catalog.error, APPS_CATALOG_UNAVAILABLE)
       : null;
+
+  const stepUnlocked = isBuildStepUnlocked(stepId, (step) =>
+    step.isComplete(snapshot),
+  );
+  const catalogGate = stepId === "apps" || stepId === "try";
+  if (
+    !stepUnlocked &&
+    (!catalogGate || (tokensReady && catalogSettled))
+  ) {
+    const dest = firstIncompleteStepId(snapshot);
+    if (dest !== stepId) {
+      return (
+        <Navigate to="/setup/$stepId" params={{ stepId: dest }} replace />
+      );
+    }
+  }
 
   const activeExemplar = getExemplar(session.activeExemplarId);
 
@@ -485,6 +499,7 @@ export default function BuildStepPage() {
           onRefreshTokens={refreshTokens}
           onMarkMcpInstalled={session.markMcpInstalled}
           onMarkWelcomeSeen={session.markWelcomeSeen}
+          onMarkTrySeen={session.markTrySeen}
           onGoToStep={goToStep}
         />
       </div>
@@ -538,11 +553,9 @@ function ClaudePixelIcon({ className }: { className?: string }) {
  * Setup-page skin ids — composition variants, not an AgentConsole prop.
  * Palettes are Registry exports (`AGENT_CONSOLE_THEME_*`).
  */
-type BuildAgentSkin = "claude" | "codex" | "cursor";
-
 function buildAgentSkin(
   installAgentId: BuildInstallAgentId | "",
-): BuildAgentSkin {
+): AssistantHostConsoleSkin {
   return assistantHostById(installAgentId)?.consoleSkin ?? "claude";
 }
 
@@ -573,7 +586,7 @@ function BuildAgentConsolePreview({
   reply,
   cwd,
 }: {
-  variant: BuildAgentSkin;
+  variant: AssistantHostConsoleSkin;
   productLabel: string;
   prompt: string;
   /** When set, sequence: type prompt → think → type reply. */
@@ -866,6 +879,7 @@ function BuildStepPanel({
   onRefreshTokens,
   onMarkMcpInstalled,
   onMarkWelcomeSeen,
+  onMarkTrySeen,
   onGoToStep,
 }: {
   step: BuildStep;
@@ -889,6 +903,7 @@ function BuildStepPanel({
   onRefreshTokens: () => void | Promise<void>;
   onMarkMcpInstalled: () => void;
   onMarkWelcomeSeen: () => void;
+  onMarkTrySeen: () => void;
   onGoToStep: (id: BuildStepId) => void;
 }) {
   const mcpCredentialReady = buildMcpCredentialReady({
@@ -900,6 +915,7 @@ function BuildStepPanel({
 
   function handleStepNext(id: BuildStepId) {
     if (step.id === "install") {
+      if (!mcpCredentialReady) return;
       const from = BUILD_STEPS.findIndex((s) => s.id === step.id);
       const to = BUILD_STEPS.findIndex((s) => s.id === id);
       if (to > from) onMarkMcpInstalled();
@@ -987,6 +1003,7 @@ function BuildStepPanel({
               exemplar={activeExemplar}
               integrations={integrations}
               installAgentId={selectedInstallAgent}
+              onMarkTrySeen={onMarkTrySeen}
             />
           </>
         )
@@ -1007,6 +1024,7 @@ function BuildStepPanel({
           nextDisabled={
             (step.id === "assistant" && !installReady) ||
             (step.id === "token" && !mcpCredentialReady) ||
+            (step.id === "install" && !mcpCredentialReady) ||
             (step.id === "apps" &&
               !setupAppsStepComplete({
                 integrations,
@@ -1020,7 +1038,7 @@ function BuildStepPanel({
           nextDisabledTitle={
             step.id === "assistant"
               ? "Choose your assistant before continuing"
-              : step.id === "token"
+              : step.id === "token" || step.id === "install"
                 ? SETUP_TOKEN_NEXT_DISABLED_TITLE
                 : step.id === "apps"
                   ? catalogError && !catalogHasApps
@@ -1218,11 +1236,16 @@ function InvokeStepActions({
   exemplar,
   integrations,
   installAgentId,
+  onMarkTrySeen,
 }: {
   exemplar: BuildExemplar;
   integrations: Integration[];
   installAgentId: BuildInstallAgentId | "";
+  onMarkTrySeen: () => void;
 }) {
+  useEffect(() => {
+    onMarkTrySeen();
+  }, [onMarkTrySeen]);
   const integration = integrations.find((item) => item.name === exemplar.id);
   const open = resolveExemplarOpenPath(exemplar, integration);
   const displayName = integration?.displayName?.trim() || exemplar.label;

@@ -9,7 +9,7 @@ export const ASSISTANT_PICKER_DESCRIPTION =
   "Pick Claude, ChatGPT, Cursor, or another assistant you already use. You can add more later.";
 
 export const TOKEN_STEP_DESCRIPTION =
-  "Your assistant uses this token to reach Gestalt. We can only show the token value once, so create a new one here.";
+  "Your assistant uses this token to reach Gestalt. We only show the full value once, on the Add Gestalt step.";
 
 export const CLAUDE_CONNECTOR_SETTINGS_HREF =
   "https://claude.ai/settings/connectors";
@@ -50,7 +50,7 @@ export const CHATGPT_INSTALL_ENABLE =
   "Start a new chat. In the composer, open +, then Developer mode, and select Gestalt.";
 
 export const CHATGPT_INSTALL_AUTH_NOTE =
-  "Gestalt signs requests with this token. If ChatGPT only offers OAuth, go back and choose Claude or another assistant that accepts a bearer token.";
+  "Gestalt signs requests with this token. If ChatGPT only offers OAuth, go back and choose Claude or another assistant that accepts a token in the Authorization header.";
 
 export const MCP_OVERLAP_HEADING =
   "Gestalt MCP, skills, and native plugins";

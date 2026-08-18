@@ -17,4 +17,10 @@ describe("assistant install guidance", () => {
       '<Alert variant="info" live={false} data-testid="setup-overlap-callout">',
     );
   });
+
+  test("install recipes require a session-minted token", () => {
+    expect(SOURCE).not.toContain("gst_api_YOUR_TOKEN");
+    expect(SOURCE).toContain("{hasMcpCredential && agent === \"cursor\" ? (");
+    expect(SOURCE).toContain("{hasMcpCredential && agent === \"chatgpt\" ? (");
+  });
 });

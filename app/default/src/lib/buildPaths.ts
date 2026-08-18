@@ -272,14 +272,20 @@ export const SETUP_TOKEN_CREATE_ITEM_TITLE = "Create a token";
 export const SETUP_TOKEN_SELECTED_ITEM_TITLE = "Token ready";
 
 export const SETUP_TOKEN_CREATE_DONE =
-  "Continue to copy your token in the next step.";
+  "Your token is saved. Copy it on the Add Gestalt step.";
 
 export const SETUP_TOKEN_SELECTED_PENDING = "Create a token first.";
 
 export const SETUP_TOKEN_NEXT_DISABLED_TITLE = "Create a token before continuing";
 
 export function setupTokenSelectedReadyCopy(name: string): string {
-  const label = name.trim() || "Your token";
+  const label = name.trim();
+  if (
+    !label ||
+    label.toLowerCase() === SETUP_PRODUCT_NAME.toLowerCase()
+  ) {
+    return "Your token is ready. Continue to add Gestalt.";
+  }
   return `${label} is ready. Continue to add Gestalt.`;
 }
 
@@ -300,6 +306,16 @@ export function buildMcpCredentialReady(
   return token.length > 0 && grantId.length > 0 && grantId === selected;
 }
 
+/** True when every step before `targetId` is done. Direct URLs must honor this. */
+export function isBuildStepUnlocked(
+  targetId: BuildStepId,
+  isStepDone: (step: BuildStep) => boolean,
+): boolean {
+  const targetIdx = BUILD_STEPS.findIndex((step) => step.id === targetId);
+  if (targetIdx === -1) return false;
+  return BUILD_STEPS.slice(0, targetIdx).every(isStepDone);
+}
+
 export function canNavigateToBuildStep(
   targetId: BuildStepId,
   currentId: BuildStepId,
@@ -309,7 +325,7 @@ export function canNavigateToBuildStep(
   const currentIdx = BUILD_STEPS.findIndex((step) => step.id === currentId);
   if (targetIdx === -1 || currentIdx === -1) return false;
   if (targetIdx <= currentIdx) return true;
-  return BUILD_STEPS.slice(0, targetIdx).every(isStepDone);
+  return isBuildStepUnlocked(targetId, isStepDone);
 }
 
 const BUILD_STEP_IDS = new Set<string>(BUILD_STEPS.map((step) => step.id));

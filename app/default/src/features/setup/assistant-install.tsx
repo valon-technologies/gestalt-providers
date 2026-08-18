@@ -67,10 +67,6 @@ import { DOCS_PATH } from "@/lib/constants";
 import { SETUP_PRODUCT_NAME } from "@/lib/buildPaths";
 import { resolveGestaltPublicOrigin } from "@/lib/gestaltPublicOrigin";
 
-function gestaltMcpBaseUrl(): string {
-  return resolveGestaltPublicOrigin();
-}
-
 function cursorMcpInstallHref(mcpUrl: string, apiToken: string): string {
   const config = {
     url: mcpUrl,
@@ -323,33 +319,28 @@ export function SingleAgentMcpInstall({
   hasMcpCredential: boolean;
   onMarkMcpInstalled: () => void;
 }) {
-  const mcpBase = gestaltMcpBaseUrl();
+  const mcpBase = resolveGestaltPublicOrigin();
   const mcpUrl = `${mcpBase}/mcp`;
-  const tokenForSnippets = hasMcpCredential ? apiToken : "gst_api_YOUR_TOKEN";
-  const bearerValue = `Bearer ${tokenForSnippets}`;
-  const cursorInstallHref = hasMcpCredential
-    ? cursorMcpInstallHref(mcpUrl, apiToken)
-    : null;
-  const [cursorMethod, setCursorMethod] = useState<"open" | "paste">(
-    hasMcpCredential ? "open" : "paste",
-  );
+  const bearerValue = `Bearer ${apiToken}`;
+  const cursorInstallHref = cursorMcpInstallHref(mcpUrl, apiToken);
+  const [cursorMethod, setCursorMethod] = useState<"open" | "paste">("open");
 
   const cursorConfig = `{
   "mcpServers": {
     "gestalt": {
       "url": "${mcpUrl}",
       "headers": {
-        "Authorization": "Bearer ${tokenForSnippets}"
+        "Authorization": "Bearer ${apiToken}"
       }
     }
   }
 }`;
 
   const claudeCodeCommand = `claude mcp add --transport http --scope project \\
-  --header "Authorization: Bearer ${tokenForSnippets}" \\
+  --header "Authorization: Bearer ${apiToken}" \\
   gestalt "${mcpUrl}"`;
 
-  const codexCommand = `export GESTALT_API_KEY=${tokenForSnippets}
+  const codexCommand = `export GESTALT_API_KEY=${apiToken}
 codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
 
   const mcpDocsHash = assistantHostDocsHash(agent);
@@ -358,7 +349,7 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
     <div className="w-full space-y-4" data-testid="build-mcp-install-single">
       {!hasMcpCredential ? <CreateTokenFirstAlert /> : null}
 
-      {agent === "cursor" ? (
+      {hasMcpCredential && agent === "cursor" ? (
         <div className="space-y-4">
           <RadioGroup
             value={cursorMethod}
@@ -405,26 +396,15 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
                   className={choiceCardFormFieldsClassName}
                   onPointerDown={(event) => event.stopPropagation()}
                 >
-                  {cursorInstallHref ? (
-                    <Button asChild>
-                      <a
-                        href={cursorInstallHref}
-                        data-testid="build-add-to-cursor"
-                        onClick={() => onMarkMcpInstalled()}
-                      >
-                        Add in Cursor
-                      </a>
-                    </Button>
-                  ) : (
-                    <Button
-                      type="button"
-                      disabled
+                  <Button asChild>
+                    <a
+                      href={cursorInstallHref}
                       data-testid="build-add-to-cursor"
-                      title="Create a token first so Cursor can sign in."
+                      onClick={() => onMarkMcpInstalled()}
                     >
                       Add in Cursor
-                    </Button>
-                  )}
+                    </a>
+                  </Button>
                 </CollapsibleContent>
               </Collapsible>
             </div>
@@ -477,21 +457,21 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
         </div>
       ) : null}
 
-      {agent === "claude" ? (
+      {hasMcpCredential && agent === "claude" ? (
         <ClaudeConnectorRecipe
           mcpUrl={mcpUrl}
           bearerValue={bearerValue}
         />
       ) : null}
 
-      {agent === "chatgpt" ? (
+      {hasMcpCredential && agent === "chatgpt" ? (
         <ChatGptConnectorRecipe
           mcpUrl={mcpUrl}
-          tokenValue={tokenForSnippets}
+          tokenValue={apiToken}
         />
       ) : null}
 
-      {agent === "claude-code" ? (
+      {hasMcpCredential && agent === "claude-code" ? (
         <div data-testid="build-install-claude-code-snippet">
           <CodeBlock
             variant="outline"
@@ -502,7 +482,7 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
         </div>
       ) : null}
 
-      {agent === "codex" ? (
+      {hasMcpCredential && agent === "codex" ? (
         <div className="space-y-4" data-testid="build-install-codex-snippet">
           <p className="text-sm text-muted-foreground text-pretty">
             {CODEX_INSTALL_PREAMBLE}
@@ -519,7 +499,7 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
         </div>
       ) : null}
 
-      {agent === "other" ? (
+      {hasMcpCredential && agent === "other" ? (
         <div className="space-y-2">
           <CopyableCode value={mcpUrl} tooltip="Copy connection URL" />
         </div>

@@ -11,6 +11,7 @@ import {
   catalogLoadStateFromQuery,
   firstIncompleteStepId,
   isActivationDue,
+  isBuildStepUnlocked,
   isBuildComplete,
   isSetupDataSourceApp,
   isSetupTokenGrantId,
@@ -463,6 +464,27 @@ describe("buildMcpCredentialReady", () => {
     expect(setupTokenSelectedReadyCopy("  ")).toBe(
       "Your token is ready. Continue to add Gestalt.",
     );
+    expect(setupTokenSelectedReadyCopy("Gestalt")).toBe(
+      "Your token is ready. Continue to add Gestalt.",
+    );
+  });
+});
+
+describe("isBuildStepUnlocked", () => {
+  test("lets people open a step only after earlier steps are done", () => {
+    const missingToken = completeSnapshot({
+      selectedTokenId: "",
+      apiToken: "",
+      apiTokenGrantId: "",
+      mcpInstalledAgents: [],
+    });
+    const isDone = (step: (typeof BUILD_STEPS)[number]) =>
+      step.isComplete(missingToken);
+    expect(isBuildStepUnlocked("welcome", isDone)).toBe(true);
+    expect(isBuildStepUnlocked("assistant", isDone)).toBe(true);
+    expect(isBuildStepUnlocked("token", isDone)).toBe(true);
+    expect(isBuildStepUnlocked("install", isDone)).toBe(false);
+    expect(isBuildStepUnlocked("apps", isDone)).toBe(false);
   });
 });
 

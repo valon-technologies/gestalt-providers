@@ -362,6 +362,22 @@ test.describe("Setup page", () => {
     await expect(page.getByTestId("build-token-setup")).toBeVisible();
   });
 
+  test("install without a session token sends people back to create a token", async ({
+    authenticatedPage: page,
+  }) => {
+    await mockTokens(page, [defaultToken]);
+    await seedSetupSession(page, {
+      introSeen: true,
+      installAgent: "cursor",
+    });
+
+    await page.goto("/setup/install");
+    await expect(page).toHaveURL(/\/setup\/token$/);
+    await expect(page.getByTestId("build-token-setup")).toBeVisible();
+    await expect(page.getByTestId("build-mcp-install-single")).toHaveCount(0);
+    await expect(page.getByTestId("build-step-next")).toBeDisabled();
+  });
+
   test("MCP snippets reflect assistant choice on install", async ({
     authenticatedPage: page,
   }) => {
@@ -466,7 +482,7 @@ test.describe("Setup page", () => {
     await page.getByRole("button", { name: "Create token" }).click();
     await expect(page.getByText("Token created.")).toBeVisible();
     await expect(
-      page.getByText("Continue to copy your token in the next step."),
+      page.getByText("Your token is saved. Copy it on the Add Gestalt step."),
     ).toBeVisible();
     await expect(
       page.getByText("ci-pipeline is ready. Continue to add Gestalt."),
