@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { Info } from "lucide-react";
-import { Callout } from "@/components/Callout";
-import { AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { AlertDescription, AlertTitle, Callout } from "@/components/ui/alert";
 import { DOCS_SETTINGS_TOKENS_HREF } from "./docs-data";
 import { DocsLink } from "./DocsLink";
 

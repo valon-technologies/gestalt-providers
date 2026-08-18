@@ -1,8 +1,7 @@
 import type { ReactNode } from "react";
 import { Info } from "lucide-react";
 
-import { Callout } from "@/components/Callout";
-import { AlertDescription } from "@/components/ui/alert";
+import { AlertDescription, Callout } from "@/components/ui/alert";
 import { CopyableCode } from "@/components/ui/copyable-code";
 
 /**

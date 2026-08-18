@@ -19,6 +19,8 @@ describe("assistant install guidance", () => {
       '<Callout variant="info" data-testid="setup-overlap-callout">',
     );
     expect(SOURCE).not.toContain("live={false}");
+    expect(SOURCE).toContain('from "@/components/ui/alert"');
+    expect(SOURCE).not.toContain("@/components/Callout");
   });
 
   test("install recipes require a session-minted token", () => {

@@ -31,22 +31,20 @@ When lifting a shared UI kit control into `src/components/ui/`:
 
 ## Alert
 
-Registry `alert` is vendored here. Status washes stay borderless;
-`variant="outline"` is quiet Card chrome for CLI tips (no Tip primitive). Default
-and banner keep Title and Description in one copy column beside a leading `>svg`.
+Registry `alert` is vendored here (`Alert`, `Callout`, `AlertIcon`, and the
+collapsible parts). Status washes stay borderless; `variant="outline"` is quiet
+Card chrome for CLI tips (no Tip primitive). Default and banner keep Title and
+Description in one copy column beside a leading `AlertIcon` or `>svg`.
 Description stacks under Title with `mt-1.5`. Description stays `text-foreground`
 on default. `layout` is geometry only (default stacked grid vs wrapping banner).
 Live region follows layout + variant, same as Registry: default (except outline)
 is `role="alert"`; banner, chrome, and outline are not. Persistent in-page
-guidance is `Callout` in `src/components/Callout.tsx`, which reuses exported
-`alertSurfaceVariants` / `alertLayoutVariants` and does not set `role="alert"`.
-Do not add a consumer `live` prop or `AlertIcon` here; those are not in
-Registry. Grid layout (vs Registry flex) stays local so Title stacks on
-Description — document it here; this repo cannot publish Registry. Banner uses a
-container query so actions wrap under the copy when the bar is narrow.
-Collapsible secondary help: `collapsible` + `AlertTrigger` +
-`AlertCollapsibleContent` (+ optional `animateSize`). Drawer CSS lives in
-`globals.css`. Button `secondary` on washes uses ink-alpha
+guidance is `Callout` from this same module — stacked default grid, no live
+region. Do not add a consumer `live` prop, and do not pick `layout="banner"` to
+silence an Alert. Banner uses a container query so actions wrap under the copy
+when the bar is narrow. Collapsible secondary help: `collapsible` +
+`AlertTrigger` + `AlertCollapsibleContent` (+ optional `animateSize`). Drawer CSS
+lives in `globals.css`. Button `secondary` on washes uses ink-alpha
 (`secondarySurfaceFillClassName`), not solid `bg-secondary`.
 
 ## Button / Input / Field / Label / Select

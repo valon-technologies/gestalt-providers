@@ -30,7 +30,6 @@ import { CONNECTION_RETURN_PATH_STORAGE_KEY } from "@/lib/constants";
 import { sanitizeAuthReturnPath } from "@/lib/authReturn";
 import { appPath } from "@/lib/mount";
 import { CONNECTION_CONNECTED_LABEL } from "@/features/app-workspace/connection-surface-copy";
-import { Callout } from "@/components/Callout";
 import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
 import PluginSearchBar from "@/components/PluginSearchBar";
@@ -60,6 +59,7 @@ import {
   AlertActions,
   AlertDescription,
   AlertTitle,
+  Callout,
 } from "@/components/ui/alert";
 import { Button as UiButton } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";

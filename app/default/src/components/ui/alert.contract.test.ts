@@ -32,7 +32,16 @@ describe("Alert", () => {
     expect(SOURCE).toContain('Omit<React.ComponentProps<"div">, "role">');
     expect(SOURCE).not.toContain("live: liveProp");
     expect(SOURCE).not.toContain("live?: boolean");
-    expect(SOURCE).not.toContain("function AlertIcon");
+  });
+
+  test("exports Callout and AlertIcon from the same Registry item", () => {
+    expect(SOURCE).toContain("function Callout");
+    expect(SOURCE).toContain("function AlertIcon");
+    expect(SOURCE).toContain('data-slot="callout"');
+    expect(SOURCE).toContain("role={undefined}");
+    expect(SOURCE).toContain("export {\n  Alert,\n  Callout,\n  AlertIcon,");
+    expect(SOURCE).not.toContain("alertSurfaceVariants,");
+    expect(SOURCE).not.toContain("alertLayoutVariants,");
   });
 
   test("default and banner baseline first-line copy when AlertActions are present", () => {

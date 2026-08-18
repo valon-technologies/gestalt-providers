@@ -32,9 +32,10 @@ import { cn } from "@/lib/cn";
 // Alert no longer ships a full `border` box on status washes.
 //
 // Composition (agents / call sites — keep the parts as direct children):
-// - Optional leading icon → a direct `>svg` child (decorative; `aria-hidden`).
+// - Optional leading icon → `AlertIcon` or a direct `>svg` child. AlertIcon is
+//   decorative and hidden from assistive technology.
 // - Sole primary message → `AlertTitle` (or Description alone).
-// - Default layout is the stacked callout: icon rail + copy column. Title sits
+// - Default layout is the stacked notice: icon rail + copy column. Title sits
 //   beside the icon; Description stays in that same copy column under the title.
 //   Title+Description stack is Description `mt-1.5` (both layouts). Description
 //   stays `text-foreground` on default. Banner still mutes Description when a
@@ -49,10 +50,8 @@ import { cn } from "@/lib/cn";
 //   Collapsible + alertVariants unless you need a non-Alert root). Quiet CLI tips
 //   use `variant="outline"` (+ optional `animateSize`); status recovery uses a wash.
 //
-// `layout` is geometry only. Live region follows layout + variant, same as Registry:
-// default (except outline) is `role="alert"`; banner, chrome, and outline are not.
-// Persistent in-page guidance is `Callout` in `src/components/`, not a silenced Alert.
-// - `default` — stacked callout grid (icon | copy | actions). Title and
+// `layout` is geometry only.
+// - `default` — stacked notice grid (icon | copy | actions). Title and
 //   Description share column 2; Description stacks under Title.
 // - `banner` — a WRAPPING control bar: CSS grid keeps Title + Description in a
 //   copy column while actions move to a right-aligned second row when needed.
@@ -60,6 +59,11 @@ import { cn } from "@/lib/cn";
 //   Description, where it would wrap under the icon.
 // - `chrome` — wash/chrome + radius only. Used automatically when `collapsible` is set; also
 //   available via `alertVariants` for rare non-Alert Collapsible roots.
+//
+// Alert default (except outline) is an assertive live region (`role="alert"`).
+// Banner, chrome, and outline are not. Standing in-page guidance that must not
+// announce is `Callout`: the same stacked default grid, no live region. Do not
+// pick `layout="banner"` just to silence an Alert, and do not add a `live` flag.
 const alertVariantClasses = {
   default: "bg-muted",
   // Quiet Card chrome — optional tip / CLI help (no status wash).
@@ -187,6 +191,7 @@ function Alert(props: AlertProps) {
     ...divProps
   } = props;
   const resolvedLayout = layout ?? "default";
+  // banner / chrome / outline are structural surfaces, not assertive live regions.
   const live = resolvedLayout === "default" && variant !== "outline";
   return (
     <div
@@ -206,6 +211,57 @@ function Alert(props: AlertProps) {
         </div>
       </div>
     </div>
+  );
+}
+
+type CalloutProps = Omit<React.ComponentProps<"div">, "role"> &
+  Pick<AlertVariantProps, "variant">;
+
+/**
+ * Standing in-page help that reuses Alert wash and stacked default layout.
+ * Not a live region — status flashes belong on `Alert`.
+ *
+ * Compose with `AlertIcon` / `AlertTitle` / `AlertDescription` / `AlertActions`
+ * and a leading `>svg` the same way as Alert.
+ */
+function Callout({
+  className,
+  variant = "default",
+  children,
+  ...divProps
+}: CalloutProps) {
+  return (
+    <div
+      data-slot="callout"
+      data-layout="default"
+      data-variant={variant ?? "default"}
+      className={cn(alertSurfaceVariants({ variant }), className)}
+      {...divProps}
+      role={undefined}
+    >
+      <div data-slot="alert-content" className="w-full">
+        <div
+          data-slot="alert-layout"
+          className={alertLayoutVariants({ layout: "default" })}
+        >
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AlertIcon({ className, ...props }: Omit<React.ComponentProps<"div">, "aria-hidden">) {
+  return (
+    <div
+      data-slot="alert-icon"
+      className={cn(
+        "flex size-4 shrink-0 items-center justify-center text-base leading-none [&>svg]:size-4",
+        className,
+      )}
+      {...props}
+      aria-hidden="true"
+    />
   );
 }
 
@@ -345,12 +401,12 @@ function AlertCollapsibleContent({
 
 export {
   Alert,
+  Callout,
+  AlertIcon,
   AlertTitle,
   AlertDescription,
   AlertActions,
   AlertTrigger,
   AlertCollapsibleContent,
   alertVariants,
-  alertSurfaceVariants,
-  alertLayoutVariants,
 };

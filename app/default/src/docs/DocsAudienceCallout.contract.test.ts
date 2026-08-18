@@ -15,5 +15,7 @@ describe("DocsAudienceCallout", () => {
     expect(SOURCE).not.toContain("live={false}");
     expect(SOURCE).not.toContain("AlertIcon");
     expect(SOURCE).toContain("<AlertTitle>For admins</AlertTitle>");
+    expect(SOURCE).toContain('from "@/components/ui/alert"');
+    expect(SOURCE).not.toContain("@/components/Callout");
   });
 });

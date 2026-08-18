@@ -1,11 +1,11 @@
 import { useState, type ComponentType, type ReactNode } from "react";
 import { Info, Lightbulb } from "lucide-react";
 import { Link } from "@tanstack/react-router";
-import { Callout } from "@/components/Callout";
 import {
   AlertActions,
   AlertDescription,
   AlertTitle,
+  Callout,
 } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { CodeBlock } from "@/components/ui/code-block";
