@@ -46,6 +46,15 @@ describe("assistant install guidance", () => {
     );
   });
 
+  test("Claude Code Authorization header uses gestaltMcpBearerValue", () => {
+    expect(SOURCE).toContain(
+      '--header "Authorization: ${gestaltMcpBearerValue(apiToken)}"',
+    );
+    expect(SOURCE).not.toContain(
+      '--header "Authorization: Bearer ${apiToken}"',
+    );
+  });
+
   test("Other install shows MCP URL, Authorization, and client config", () => {
     expect(SOURCE).toContain('data-testid="build-install-other-recipe"');
     expect(SOURCE).toContain("gestaltMcpClientConfigJson");

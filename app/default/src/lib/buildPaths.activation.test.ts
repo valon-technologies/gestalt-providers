@@ -348,7 +348,9 @@ describe("buildStepTitle", () => {
     const token = BUILD_STEPS.find((step) => step.id === "token")!;
     expect(buildStepTitle(token, "cursor")).toBe("Create a token");
     expect(token.description).toContain("Your assistant uses this token");
-    expect(token.description).toContain("Add Gestalt fills it into the commands");
+    expect(token.description).toContain(
+      "Setup fills it into the install commands",
+    );
     expect(token.description).not.toContain("We only show");
     expect(token.description).not.toContain("coding agent");
   });

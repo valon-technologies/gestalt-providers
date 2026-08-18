@@ -15,6 +15,17 @@ export function appIsConnectedCopy(label: string): string {
   return `${label} is connected.`;
 }
 
+/**
+ * After an OAuth popup closes, tell the operator only if the catalog
+ * shows this app as connected. Popup close is not proof of connect.
+ */
+export function oauthConnectedToastMessage(
+  connected: boolean,
+  label: string,
+): string | null {
+  return connected ? appIsConnectedCopy(label) : null;
+}
+
 /** Reload the catalog and report whether this app is connected now. */
 export async function refetchIntegrationConnected(
   queryClient: QueryClient,

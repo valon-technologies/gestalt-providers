@@ -1104,6 +1104,12 @@ test.describe("Setup page", () => {
     await expect(page).toHaveURL(/\/apps/);
     await expect(page.getByRole("heading", { name: "Apps" })).toBeVisible();
     await expect(page.getByTestId("setup-resume-banner")).toBeVisible();
+    await expect(page.getByTestId("setup-resume-banner")).toContainText(
+      "Pick up where you left off.",
+    );
+    await expect(page.getByTestId("setup-resume-banner")).not.toContainText(
+      "Choose your assistant",
+    );
     await page.goto("/apps");
     await expect(page).toHaveURL(/\/apps/);
     await expect(page.getByRole("heading", { name: "Apps" })).toBeVisible();

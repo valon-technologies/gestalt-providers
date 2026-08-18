@@ -19,9 +19,16 @@ describe("useIntegrationConnection OAuth", () => {
   });
 
   test("toasts OAuth success only after the catalog shows the app connected", () => {
+    const finishFn = SOURCE.slice(SOURCE.indexOf("async function finishOAuthPopup"));
+    const finishBody = finishFn.slice(
+      0,
+      finishFn.indexOf("async function handleStartOAuth"),
+    );
     expect(SOURCE).toContain("refetchIntegrationConnected");
     expect(SOURCE).toContain("void finishOAuthPopup()");
-    expect(SOURCE).toContain("appIsConnectedCopy(label)");
+    expect(finishBody).toContain("oauthConnectedToastMessage(connected, label)");
+    expect(finishBody).toContain("toast.success(toastMessage)");
+    expect(finishBody).not.toContain("toast.success(appIsConnectedCopy");
     expect(SOURCE).not.toContain("connected successfully");
   });
 

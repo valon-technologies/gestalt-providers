@@ -43,6 +43,10 @@ describe("TokenPlaintextReveal", () => {
     expect(node.querySelector('[role="textbox"]')).toBeNull();
     expect(node.querySelector("input")).toBeNull();
     expect(node.querySelector('[role="alert"]')).toBeNull();
+    expect(node.querySelector('[role="status"]')?.textContent).toContain(
+      "Token created. Copy it now.",
+    );
     expect(node.textContent).toContain("gst_test_token");
+    expect(document.activeElement).toBe(node.querySelector("button"));
   });
 });

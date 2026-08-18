@@ -9,7 +9,11 @@ export const ASSISTANT_PICKER_DESCRIPTION =
   "Pick the assistant you already use. You can add more later.";
 
 export const TOKEN_STEP_DESCRIPTION =
-  "Your assistant uses this token to reach Gestalt. Add Gestalt fills it into the commands for you.";
+  "Your assistant uses this token to reach Gestalt. Setup fills it into the install commands for you.";
+
+export const SETUP_RESUME_BANNER_TITLE = "Finish setup";
+
+export const SETUP_RESUME_BANNER_BODY = "Pick up where you left off.";
 
 export const CLAUDE_CONNECTOR_SETTINGS_HREF =
   "https://claude.ai/settings/connectors";

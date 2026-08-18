@@ -341,7 +341,7 @@ function ClaudeCodeInstallRecipe({
   apiToken,
 }: HostInstallRecipeProps) {
   const claudeCodeCommand = `claude mcp add --transport http --scope project \\
-  --header "Authorization: Bearer ${apiToken}" \\
+  --header "Authorization: ${gestaltMcpBearerValue(apiToken)}" \\
   gestalt "${mcpUrl}"`;
   return (
     <div data-testid="build-install-claude-code-snippet">

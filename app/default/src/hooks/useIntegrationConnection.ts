@@ -13,7 +13,11 @@ import {
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import type { Integration } from "@/lib/api";
 import { rememberConnectionReturnPath, sanitizeAuthReturnPath } from "@/lib/authReturn";
-import { appIsConnectedCopy, refetchIntegrationConnected } from "@/lib/oauthConnectConfirm";
+import {
+  appIsConnectedCopy,
+  oauthConnectedToastMessage,
+  refetchIntegrationConnected,
+} from "@/lib/oauthConnectConfirm";
 import {
   closeOAuthPopup,
   navigateOAuthPopup,
@@ -132,8 +136,9 @@ export function useIntegrationConnection({
       return;
     }
     setLoading(false);
-    if (connected) {
-      toast.success(appIsConnectedCopy(label));
+    const toastMessage = oauthConnectedToastMessage(connected, label);
+    if (toastMessage) {
+      toast.success(toastMessage);
     }
     onConnectedRef.current?.();
     onFlowCompleteRef.current?.();

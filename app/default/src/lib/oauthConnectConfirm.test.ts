@@ -3,7 +3,11 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Integration } from "@/lib/api";
-import { isConnectedInCatalog, appIsConnectedCopy } from "./oauthConnectConfirm";
+import {
+  appIsConnectedCopy,
+  isConnectedInCatalog,
+  oauthConnectedToastMessage,
+} from "./oauthConnectConfirm";
 
 function stub(partial: Partial<Integration> & Pick<Integration, "name">): Integration {
   return {
@@ -59,6 +63,13 @@ describe("isConnectedInCatalog", () => {
 describe("appIsConnectedCopy", () => {
   test("names the app without filler", () => {
     expect(appIsConnectedCopy("BigQuery")).toBe("BigQuery is connected.");
+  });
+});
+
+describe("oauthConnectedToastMessage", () => {
+  test("toasts only after the catalog shows the app connected", () => {
+    expect(oauthConnectedToastMessage(true, "Slack")).toBe("Slack is connected.");
+    expect(oauthConnectedToastMessage(false, "Slack")).toBeNull();
   });
 });
 

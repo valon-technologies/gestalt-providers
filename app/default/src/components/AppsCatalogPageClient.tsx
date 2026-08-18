@@ -91,6 +91,10 @@ import {
   writeResumeBannerDismissed,
 } from "@/lib/buildPaths";
 import {
+  SETUP_RESUME_BANNER_BODY,
+  SETUP_RESUME_BANNER_TITLE,
+} from "@/lib/assistantConnectionCopy";
+import {
   APPS_CATALOG_UNAVAILABLE,
   userFacingError,
 } from "@/lib/user-facing-error";
@@ -525,11 +529,8 @@ export default function AppsCatalogPageClient() {
           <div className="mb-6 space-y-3">
             {showResumeBanner ? (
               <Callout variant="info" data-testid="setup-resume-banner">
-                <AlertTitle>Finish setup</AlertTitle>
-                <AlertDescription>
-                  Pick up where you left off. Choose your assistant and finish
-                  install.
-                </AlertDescription>
+                <AlertTitle>{SETUP_RESUME_BANNER_TITLE}</AlertTitle>
+                <AlertDescription>{SETUP_RESUME_BANNER_BODY}</AlertDescription>
                 <AlertActions>
                   <UiButton variant="secondary" size="sm" asChild>
                     <Link to="/setup">Resume setup</Link>
