@@ -13,6 +13,7 @@ import {
   alertVariantFromTone,
   canManageApp,
   catalogCardActivateRoute,
+  catalogCardShowsConnectAction,
   catalogInstallState,
   catalogShowOpenAppButton,
   getAppSurfaces,
@@ -187,10 +188,7 @@ export default function IntegrationCard({
     installState === "connected" &&
     (compact || useAppDetailConnection);
   const showAddButton =
-    !readOnly &&
-    (installState === "mount_only" ||
-      installState === "not_connected" ||
-      connectLabel !== null);
+    !readOnly && catalogCardShowsConnectAction(installState, connectLabel);
   const showOpenAppButton =
     !compact &&
     !readOnly &&

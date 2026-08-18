@@ -1,6 +1,7 @@
 import type { Integration } from "@/lib/api";
 import {
   hasCredentialSurface,
+  integrationNeedsReconnect,
   normalizeIntegrationStatus,
   type ConnectionContext,
   type NormalizedIntegrationStatus,
@@ -144,6 +145,9 @@ function outcomeStatusFromTone(
 export function overviewConnectionOutcomeStatus(
   status: NormalizedIntegrationStatus,
 ): "success" | "failure" | "warning" | "pending" | "unknown" {
+  if (integrationNeedsReconnect(status)) {
+    return outcomeStatusFromTone(status.tone);
+  }
   if (
     status.status === "needs_user_connection" ||
     status.credentialState === "missing"
@@ -158,6 +162,9 @@ function needsFirstUserConnection(
 ): boolean {
   // Reconnect is "Needs fix", not first-time "To connect".
   if (status.connections.some((connection) => connection.canReconnect)) {
+    return false;
+  }
+  if (integrationNeedsReconnect(status)) {
     return false;
   }
   // Unused alternative methods still advertise `connect`. That is Add account
@@ -185,7 +192,7 @@ function needsAttentionBeyondConnect(
     status.status === "needs_admin_configuration" ||
     status.status === "needs_instance_selection" ||
     status.status === "unavailable" ||
-    status.connections.some((connection) => connection.canReconnect) ||
+    integrationNeedsReconnect(status) ||
     status.tone === "danger" ||
     status.tone === "warning"
   );
@@ -318,11 +325,28 @@ export function filterCatalogIntegrations(
   return sortCatalogIntegrations(filtered, context);
 }
 
+/**
+ * Catalog trailing + / Add is first-time connect chrome, not reconnect.
+ * Dead logins already have Needs reconnect attention plus card navigation.
+ */
+export function catalogCardShowsConnectAction(
+  installState: CatalogInstallState,
+  connectLabel: "Connect" | "Reconnect" | null,
+): boolean {
+  if (installState === "needs_attention") return false;
+  return (
+    installState === "mount_only" ||
+    installState === "not_connected" ||
+    connectLabel !== null
+  );
+}
+
 export function primaryConnectLabel(
   integration: Integration,
   context: ConnectionContext = "current_user",
 ): "Connect" | "Reconnect" | null {
   const status = normalizeIntegrationStatus(integration, context);
+  if (integrationNeedsReconnect(status)) return "Reconnect";
   const canReconnect = status.connections.some(
     (connection) => connection.canReconnect,
   );

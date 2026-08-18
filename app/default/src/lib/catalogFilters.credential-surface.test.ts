@@ -2,7 +2,10 @@ import { describe, expect, test } from "vitest";
 
 import {
   appShowsCredentialSurface,
+  catalogCardShowsConnectAction,
+  catalogInstallState,
   overviewConnectionOutcomeStatus,
+  primaryConnectLabel,
 } from "./catalogFilters";
 import { normalizeIntegrationStatus } from "./integrationStatus";
 import type { Integration } from "@/lib/api";
@@ -55,6 +58,37 @@ describe("overviewConnectionOutcomeStatus", () => {
       }),
     );
     expect(overviewConnectionOutcomeStatus(status)).toBe("success");
+  });
+
+  test("dead preferred login is failure attention, not pending first-time connect", () => {
+    const integration = stub({
+      name: "notion",
+      status: "needs_user_connection",
+      credentialState: "invalid",
+      healthState: "unhealthy",
+      connections: [
+        {
+          name: "OAuth",
+          status: "needs_user_connection",
+          credentialState: "invalid",
+          healthState: "unhealthy",
+          connected: false,
+          authTypes: ["oauth"],
+          actions: ["reconnect", "disconnect"],
+          instances: [{ name: "default", preferred: true }],
+        },
+      ],
+    });
+    const status = normalizeIntegrationStatus(integration);
+    expect(overviewConnectionOutcomeStatus(status)).toBe("failure");
+    expect(catalogInstallState(integration)).toBe("needs_attention");
+    expect(primaryConnectLabel(integration)).toBe("Reconnect");
+    expect(
+      catalogCardShowsConnectAction(
+        catalogInstallState(integration),
+        primaryConnectLabel(integration),
+      ),
+    ).toBe(false);
   });
 });
 

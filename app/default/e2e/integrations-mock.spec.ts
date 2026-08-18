@@ -157,6 +157,39 @@ const USER_CONNECTION_ACTIONS_INTEGRATION: Integration = {
   ],
 };
 
+const DEAD_PREFERRED_LOGIN_INTEGRATION: Integration = {
+  name: "notion",
+  displayName: "Notion",
+  status: "needs_user_connection",
+  credentialState: "invalid",
+  healthState: "unhealthy",
+  connections: [
+    {
+      name: "OAuth",
+      displayName: "OAuth",
+      credentialMode: "subject",
+      ownerKind: "current_user",
+      status: "needs_user_connection",
+      credentialState: "invalid",
+      healthState: "unhealthy",
+      connected: false,
+      authTypes: ["oauth"],
+      actions: ["reconnect", "disconnect"],
+      instances: [{ name: "default", preferred: true }],
+    },
+    {
+      name: "ApiKey",
+      displayName: "API key",
+      credentialMode: "subject",
+      ownerKind: "current_user",
+      status: "needs_user_connection",
+      credentialState: "missing",
+      authTypes: ["manual"],
+      actions: ["connect"],
+    },
+  ],
+};
+
 const SELECT_INSTANCE_INTEGRATION: Integration = {
   name: "select-instance-svc",
   displayName: "Select Instance Service",
@@ -818,6 +851,26 @@ test.describe("Integrations", () => {
     await expect(panel.getByRole("button", { name: "Add connection" })).toBeVisible();
     await expect(panel.getByRole("button", { name: "Reconnect" })).toBeVisible();
     await expect(panel.getByRole("button", { name: "Disconnect" })).toHaveCount(2);
+  });
+
+  test("dead preferred login keeps In use and leads with Reconnect", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, [DEAD_PREFERRED_LOGIN_INTEGRATION]);
+
+    await page.goto("/apps");
+    const card = page.getByTestId("integration-card-notion");
+    await expect(card.getByText("Needs reconnect")).toBeVisible();
+    await expect(card.getByLabel("Connected")).toHaveCount(0);
+    await expect(card.getByRole("button", { name: /Add Notion/i })).toHaveCount(0);
+
+    const panel = await openAppConnection(page, "notion");
+    await expect(panel.getByText("In use", { exact: true })).toBeVisible();
+    await expect(panel.getByText("Needs reconnect").first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Reconnect OAuth" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Connect with API key" })).toBeVisible();
+    await expect(panel.getByText("Not connected")).toHaveCount(0);
   });
 
   test("select-instance status shows account cards with Use this account", async ({
