@@ -252,6 +252,11 @@ when there is no previous). Use `asChild` for `<button>` or router `Link`.
 Surfaces: `solid` (default) / `outline` / `ghost`. Setup uses `variant="ghost"`.
 Not `Pagination` (dataset paging) and not `Stepper` (in-flow process rail).
 Strip `"use client"`; prefer `@/lib/cn`. Hairline is semantic `border-border`.
+Destination cards stay content-width (`w-fit max-w-full self-start`); the
+title track is `max-content`, not `1fr`, so the Next caret sits beside the
+label. Do not cap cards at `max-w-xs`: that forces an early wrap and the
+box does not shrink back to the wrapped lines. The pager row uses
+`items-start` so a taller neighbor cannot stretch the other card.
 
 ## Tabs
 
@@ -293,8 +298,9 @@ with `activationMode="linear"` and `size="default"`. Unreachable upcoming
 steps are `disabled` (same rule as step navigation), so they do not take
 hover, press, or click. Completed checks default to
 `completedChrome="outcome"` (green fill, white check, ink connectors).
-Pass `completedChrome="accent"` for gold. TimelineSteps keeps gold via
-`stepRailCompletedChromeAccentClassName`. Do not restyle Stepper chrome at the
+Pass `completedChrome="accent"` for gold. TimelineSteps defaults to gold
+(`completedChrome="accent"`). Pass `completedChrome="outcome"` for green fill
+and a white check (Setup token success). Do not restyle Stepper chrome at the
 call site (layout-only wrappers OK). Step hover wash stays on the trigger;
 the rail is `z-10` and the indicator is `z-20` so the connector stays visible
 through the plate. Keep `isolate` on `StepperItem` (no z-index on the trigger).

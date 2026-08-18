@@ -12,6 +12,14 @@ import {
 } from "@/lib/api";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import type { Integration } from "@/lib/api";
+import { rememberConnectionReturnPath } from "@/lib/authReturn";
+import { refetchIntegrationConnected } from "@/lib/oauthConnectConfirm";
+import {
+  closeOAuthPopup,
+  navigateOAuthPopup,
+  openOAuthPopup,
+  watchOAuthPopup,
+} from "@/lib/oauthPopup";
 import { commitIntegrationDisconnect } from "@/lib/queries";
 import { userFacingError } from "@/lib/user-facing-error";
 
@@ -87,17 +95,48 @@ export function useIntegrationConnection({
   const [pendingSelection, setPendingSelection] =
     useState<PendingSelection | null>(null);
   const pendingSelectionFormRef = useRef<HTMLFormElement>(null);
+  const stopWatchingOAuthPopupRef = useRef<(() => void) | null>(null);
+  const onConnectedRef = useRef(onConnected);
+  const onFlowCompleteRef = useRef(onFlowComplete);
+  onConnectedRef.current = onConnected;
+  onFlowCompleteRef.current = onFlowComplete;
 
   useEffect(() => {
     if (!pendingSelection) return;
     pendingSelectionFormRef.current?.submit();
   }, [pendingSelection]);
 
+  useEffect(
+    () => () => {
+      stopWatchingOAuthPopupRef.current?.();
+    },
+    [],
+  );
+
+  async function finishOAuthPopup() {
+    let connected = false;
+    try {
+      connected = await refetchIntegrationConnected(
+        queryClient,
+        integration.name,
+      );
+    } catch {
+      connected = false;
+    }
+    setLoading(false);
+    if (connected) {
+      toast.success(`${label} connected successfully.`);
+    }
+    onConnectedRef.current?.();
+    onFlowCompleteRef.current?.();
+  }
+
   async function handleStartOAuth(
     instance?: string,
     connection?: string,
     connectionParams?: Record<string, string>,
   ): Promise<boolean> {
+    const popup = openOAuthPopup();
     setLoading(true);
     setError(null);
     try {
@@ -109,9 +148,20 @@ export function useIntegrationConnection({
         connection,
         returnPath,
       );
+      rememberConnectionReturnPath(returnPath);
+      if (popup && !popup.closed) {
+        navigateOAuthPopup(popup, url);
+        stopWatchingOAuthPopupRef.current?.();
+        stopWatchingOAuthPopupRef.current = watchOAuthPopup(popup, () => {
+          stopWatchingOAuthPopupRef.current = null;
+          void finishOAuthPopup();
+        });
+        return true;
+      }
       window.location.href = url;
       return true;
     } catch (err) {
+      closeOAuthPopup(popup);
       setError(
         userFacingError(err, "Couldn't start sign-in. Try again.", "sign_in"),
       );
@@ -141,6 +191,7 @@ export function useIntegrationConnection({
         if (!result.pendingToken) {
           throw new Error("Connection setup is incomplete. Try again.");
         }
+        rememberConnectionReturnPath(returnPath);
         onFlowComplete?.();
         setPendingSelection({
           action: resolveAPIPath(

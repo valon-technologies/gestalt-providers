@@ -28,25 +28,10 @@ import {
   DOCS_WORKFLOWS_PATH,
   docsSubsectionLabel,
 } from "./docs-data";
-import {
-  CHATGPT_INSTALL_AUTH_NOTE,
-  CHATGPT_INSTALL_CREATE_APP,
-  CHATGPT_INSTALL_DEVELOPER_MODE,
-  CHATGPT_INSTALL_ENABLE,
-  CHATGPT_INSTALL_TOKEN,
-  CHATGPT_INSTALL_URL,
-  CHATGPT_PLUGINS_HREF,
-  CLAUDE_CONNECTOR_SETTINGS_HREF,
-  CLAUDE_INSTALL_ADD_CONNECTOR,
-  CLAUDE_INSTALL_ENABLE,
-  CLAUDE_INSTALL_HEADERS_NOTE,
-  CLAUDE_INSTALL_OPEN,
-  CLAUDE_INSTALL_OPEN_CONNECTORS,
-  CLAUDE_INSTALL_REQUEST_HEADER,
-  MCP_DOCS_TITLE,
-} from "@/lib/assistantConnectionCopy";
+import { MCP_DOCS_TITLE } from "@/lib/assistantConnectionCopy";
 import { MCP_CLIENT_TABS, assistantHostById } from "@/lib/assistantHosts";
 import { SETUP_PATH } from "@/lib/constants";
+import { gestaltMcpClientConfigJson } from "@/lib/gestaltMcpClientConfig";
 import { resolveGestaltPublicOrigin } from "@/lib/gestaltPublicOrigin";
 import { DOCS_PAGE_TOP_GAP } from "./docs-chrome";
 import { DocsLink } from "./DocsLink";
@@ -63,7 +48,7 @@ type McpTabId = (typeof mcpTabs)[number]["id"];
 type AgentEnvironmentTabId = (typeof agentEnvironmentTabs)[number]["id"];
 
 const mcpTabIds = mcpTabs.map((tab) => tab.id);
-const defaultMcpTabId: McpTabId = "mcp-claude";
+const defaultMcpTabId: McpTabId = mcpTabs[0]!.id;
 
 const agentEnvironmentTabIds = agentEnvironmentTabs.map((tab) => tab.id);
 const defaultAgentEnvironmentTabId: AgentEnvironmentTabId = "agent-claude-code";
@@ -934,48 +919,6 @@ function McpClientTabs({ origin }: { origin: string }) {
       value={activeTabId as McpTabId}
       onValueChange={setActiveTabId}
     >
-      {activeTabId === "mcp-claude" ? (
-        <>
-          <p>{CLAUDE_INSTALL_OPEN}</p>
-          <p>
-            {CLAUDE_INSTALL_OPEN_CONNECTORS}{" "}
-            <DocsLink href={CLAUDE_CONNECTOR_SETTINGS_HREF}>
-              Open Connectors
-            </DocsLink>
-          </p>
-          <p>{CLAUDE_INSTALL_ADD_CONNECTOR}</p>
-          <CodeBlock chrome="inset" language="text" code={`${origin}/mcp`} />
-          <p>{CLAUDE_INSTALL_REQUEST_HEADER}</p>
-          <CodeBlock
-            chrome="inset"
-            language="text"
-            code="Bearer gst_api_your_token_here"
-          />
-          <p>{CLAUDE_INSTALL_ENABLE}</p>
-          <p>{CLAUDE_INSTALL_HEADERS_NOTE}</p>
-        </>
-      ) : null}
-
-      {activeTabId === "mcp-chatgpt" ? (
-        <>
-          <p>{CHATGPT_INSTALL_DEVELOPER_MODE}</p>
-          <p>
-            {CHATGPT_INSTALL_CREATE_APP}{" "}
-            <DocsLink href={CHATGPT_PLUGINS_HREF}>Open Plugins</DocsLink>
-          </p>
-          <p>{CHATGPT_INSTALL_URL}</p>
-          <CodeBlock chrome="inset" language="text" code={`${origin}/mcp`} />
-          <p>{CHATGPT_INSTALL_TOKEN}</p>
-          <CodeBlock
-            chrome="inset"
-            language="text"
-            code="gst_api_your_token_here"
-          />
-          <p>{CHATGPT_INSTALL_ENABLE}</p>
-          <p>{CHATGPT_INSTALL_AUTH_NOTE}</p>
-        </>
-      ) : null}
-
       {activeTabId === "mcp-claude-code" ? (
         <>
           <p>
@@ -1087,16 +1030,10 @@ function McpClientTabs({ origin }: { origin: string }) {
           />
           <CodeBlock chrome="inset"
             language="json"
-            code={`{
-  "mcpServers": {
-    "gestalt": {
-      "url": "${origin}/mcp",
-      "headers": {
-        "Authorization": "Bearer gst_api_your_token_here"
-      }
-    }
-  }
-}`}
+            code={gestaltMcpClientConfigJson({
+              url: `${origin}/mcp`,
+              token: "gst_api_your_token_here",
+            })}
           />
         </>
       ) : null}

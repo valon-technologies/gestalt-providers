@@ -1,4 +1,4 @@
-import { test as base, expect, type Page, type Route } from "@playwright/test";
+import { test as base, expect, type Locator, type Page, type Route } from "@playwright/test";
 import type {
   APIToken,
   AppAdminIdentity,
@@ -628,6 +628,13 @@ export type SetupSessionSeed = {
   trySeen?: boolean;
   tokenName?: string;
 };
+
+/** OAuth opens a popup so Setup and the catalog stay on this page. */
+export async function clickOpensOAuthPopup(locator: Locator): Promise<Page> {
+  const popupPromise = locator.page().waitForEvent("popup");
+  await locator.click();
+  return popupPromise;
+}
 
 /** Seed Setup sessionStorage so later steps can resume past earlier gates. */
 export async function seedSetupSession(page: Page, seed: SetupSessionSeed) {

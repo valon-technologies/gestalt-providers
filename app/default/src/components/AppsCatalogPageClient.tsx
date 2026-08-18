@@ -26,8 +26,11 @@ import {
 } from "@/lib/catalogFilters";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import { normalizeIntegrationStatus } from "@/lib/integrationStatus";
-import { CONNECTION_RETURN_PATH_STORAGE_KEY } from "@/lib/constants";
-import { sanitizeAuthReturnPath } from "@/lib/authReturn";
+import {
+  clearConnectionReturnPath,
+  connectionReturnRedirectHref,
+  consumeConnectionReturnPath,
+} from "@/lib/authReturn";
 import { appPath } from "@/lib/mount";
 import { CONNECTION_CONNECTED_LABEL } from "@/features/app-workspace/connection-surface-copy";
 import Container from "@/components/Container";
@@ -165,6 +168,7 @@ export default function AppsCatalogPageClient() {
   const tokensQuery = useTokensQuery();
   const invalidateIntegrations = useInvalidateIntegrations();
   const activationCheckedRef = useRef(false);
+  const connectionReturnConsumedRef = useRef(false);
   const [resumeBannerDismissed, setResumeBannerDismissed] = useState(
     readResumeBannerDismissed,
   );
@@ -378,30 +382,19 @@ export default function AppsCatalogPageClient() {
 
   useEffect(() => {
     if (!connectedNotice) {
-      window.sessionStorage.removeItem(CONNECTION_RETURN_PATH_STORAGE_KEY);
+      clearConnectionReturnPath();
       return;
     }
+    if (connectionReturnConsumedRef.current) return;
+    connectionReturnConsumedRef.current = true;
 
-    const returnPath = window.sessionStorage.getItem(
-      CONNECTION_RETURN_PATH_STORAGE_KEY,
+    const redirectHref = connectionReturnRedirectHref(
+      consumeConnectionReturnPath(),
+      window.location.pathname,
     );
-    window.sessionStorage.removeItem(CONNECTION_RETURN_PATH_STORAGE_KEY);
-    if (returnPath) {
-      const safePath = sanitizeAuthReturnPath(returnPath);
-      const nextURL = new URL(safePath, window.location.origin);
-      if (
-        nextURL.origin === window.location.origin &&
-        nextURL.pathname.startsWith("/")
-      ) {
-        const search = Object.fromEntries(nextURL.searchParams.entries());
-        void navigate({
-          to: nextURL.pathname,
-          replace: true,
-          hash: nextURL.hash || undefined,
-          ...(Object.keys(search).length > 0 ? { search } : {}),
-        });
-        return;
-      }
+    if (redirectHref) {
+      window.location.replace(redirectHref);
+      return;
     }
 
     void navigate({ to: "/apps", replace: true });
@@ -694,7 +687,7 @@ export default function AppsCatalogPageClient() {
                   title={CONNECTION_CONNECTED_LABEL}
                   description="Apps you’re already connected to. Use Open app when available, or the card menu to manage the app."
                 />
-                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                <div className="grid grid-cols-1 items-stretch gap-6 sm:grid-cols-2">
                   {installed.map((integration) => (
                     <IntegrationCard
                       key={integration.name}
@@ -725,7 +718,7 @@ export default function AppsCatalogPageClient() {
                   title={bucket.label}
                   description={bucket.description}
                 />
-                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                <div className="grid grid-cols-1 items-stretch gap-6 sm:grid-cols-2">
                   {sectionApps.map((integration) => (
                     <IntegrationCard
                       key={integration.name}

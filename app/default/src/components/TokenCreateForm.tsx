@@ -657,9 +657,9 @@ const TokenCreateForm = React.forwardRef<
           </FieldGroup>
 
           {showSubmit || submitAccessory ? (
-            <div className={cn("space-y-6", actionsClassName)}>
+            <div className={cn("w-full space-y-6", actionsClassName)}>
               <Separator />
-              <div className="flex flex-row flex-nowrap items-center justify-end gap-3">
+              <div className="flex w-full flex-row flex-nowrap items-center justify-end gap-3">
                 {submitAccessory}
                 {showSubmit ? (
                   <Button

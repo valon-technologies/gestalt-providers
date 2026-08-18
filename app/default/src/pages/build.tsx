@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { Clock } from "lucide-react";
 import { toast } from "sonner";
 import {
   Link,
@@ -49,6 +50,7 @@ import {
   TimelineStepsTitle,
 } from "@/components/ui/timeline-steps";
 import { Button } from "@/components/ui/button";
+import { Link as UiLink } from "@/components/ui/link";
 import { ChipGroup, ChipGroupItem } from "@/components/ui/chip-group";
 import {
   Stepper,
@@ -89,6 +91,10 @@ import {
   AssistantPickerStepActions,
   SingleAgentMcpInstall,
 } from "@/features/setup/assistant-install";
+import {
+  SETUP_TOKEN_CREATE_CONTENT_CLASS,
+  SETUP_TOKEN_CREATE_TRACK,
+} from "@/features/setup/token-create-layout";
 import { useBuildSession } from "@/hooks/use-build-session";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import {
@@ -124,6 +130,7 @@ import {
   isSetupDataSourceApp,
   setupAppsStepComplete,
   setupDataSourceIntegrations,
+  tryStepCatalogApp,
   writeSetupSkipped,
   type BuildExemplar,
   type BuildStep,
@@ -132,8 +139,10 @@ import {
 } from "@/lib/buildPaths";
 import {
   CONNECT_ANOTHER_ASSISTANT_LABEL,
+  SETUP_TOKEN_CREATE_DIFFERENT,
   SETUP_TOKEN_CREATE_DONE,
   SETUP_TOKEN_CREATE_ITEM_TITLE,
+  SETUP_TOKEN_CREATED_ITEM_TITLE,
   SETUP_TOKEN_NEXT_DISABLED_TITLE,
   WELCOME_ASSISTANT_EXAMPLES,
 } from "@/lib/assistantConnectionCopy";
@@ -143,7 +152,6 @@ import {
   type AssistantHostConsoleSkin,
   type BuildInstallAgentId,
 } from "@/lib/assistantHosts";
-import { cn } from "@/lib/cn";
 import { DOCS_PATH, SETUP_PATH } from "@/lib/constants";
 import {
   APPS_CATALOG_UNAVAILABLE,
@@ -831,7 +839,10 @@ function WelcomeStorytelling({
         </li>
       </ul>
 
-      <p className="text-sm text-muted-foreground">About 5 minutes</p>
+      <p className="flex items-center gap-1.5 text-sm text-muted-foreground-soft">
+        <Clock className="size-3.5" aria-hidden />
+        About 5 minutes
+      </p>
 
       <StepPager variant="ghost" aria-label="Continue">
         <button
@@ -1157,6 +1168,7 @@ function AuthorizeStepActions({
     <TimelineSteps
       orientation="vertical"
       size="sm"
+      completedChrome="outcome"
       className="w-full max-w-xl"
       data-testid="build-token-setup"
       aria-label="Create a token"
@@ -1168,13 +1180,30 @@ function AuthorizeStepActions({
       >
         <TimelineStepsHeader>
           <TimelineStepsIcon />
-          <TimelineStepsTitle>{SETUP_TOKEN_CREATE_ITEM_TITLE}</TimelineStepsTitle>
+          <TimelineStepsTitle>
+            {credentialReady
+              ? SETUP_TOKEN_CREATED_ITEM_TITLE
+              : SETUP_TOKEN_CREATE_ITEM_TITLE}
+          </TimelineStepsTitle>
         </TimelineStepsHeader>
-        <TimelineStepsContent>
+        <TimelineStepsContent
+          className={credentialReady ? undefined : SETUP_TOKEN_CREATE_CONTENT_CLASS}
+        >
           {credentialReady ? (
-            <TimelineStepsDescription>
-              {SETUP_TOKEN_CREATE_DONE}
-            </TimelineStepsDescription>
+            <div className="space-y-3">
+              <TimelineStepsDescription>
+                {SETUP_TOKEN_CREATE_DONE}
+              </TimelineStepsDescription>
+              <UiLink asChild className="inline cursor-pointer p-0 text-[0.875em]">
+                <button
+                  type="button"
+                  data-testid="build-token-create-different"
+                  onClick={() => onApiToken("")}
+                >
+                  {SETUP_TOKEN_CREATE_DIFFERENT}
+                </button>
+              </UiLink>
+            </div>
           ) : (
             <TokenCreateForm
               name={tokenName}
@@ -1183,6 +1212,9 @@ function AuthorizeStepActions({
               onCreated={handleTokenCreated}
               showPlaintextResult={false}
               fieldOrientation="horizontal"
+              className={SETUP_TOKEN_CREATE_TRACK.form}
+              controlsClassName={SETUP_TOKEN_CREATE_TRACK.controls}
+              actionsClassName={SETUP_TOKEN_CREATE_TRACK.actions}
             />
           )}
         </TimelineStepsContent>
@@ -1208,6 +1240,14 @@ function InvokeStepActions({
   const integration = integrations.find((item) => item.name === exemplar.id);
   const open = resolveExemplarOpenPath(exemplar, integration);
   const displayName = integration?.displayName?.trim() || exemplar.label;
+  const featuredApp = tryStepCatalogApp({
+    appId: exemplar.id,
+    catalog: integration,
+    label: displayName,
+    description: integration?.description?.trim() || exemplar.need,
+    mountedPath: open.kind === "mount" ? open.href : undefined,
+  });
+  const tryReturnPath = `${SETUP_PATH}/try`;
   const invokeAppLabel =
     integrations.find((item) => item.name === exemplar.invokeAppId)
       ?.displayName?.trim() || exemplar.invokeAppId;
@@ -1284,17 +1324,11 @@ function InvokeStepActions({
             </SectionHeaderDescription>
           </SectionHeaderContent>
         </SectionHeader>
-        <div className="max-w-md">
-          <BuildStoreAppCard
-            name={exemplar.id}
-            label={displayName}
-            description={
-              integration?.description?.trim() ||
-              exemplar.need
-            }
-            iconSvg={integration?.iconSvg}
-            href={open.href}
-            testId="build-open-exemplar"
+        <div className="w-full" data-testid="build-open-exemplar">
+          <IntegrationCard
+            integration={featuredApp}
+            returnPath={tryReturnPath}
+            actions="launch"
           />
         </div>
       </div>
@@ -1308,79 +1342,36 @@ function InvokeStepActions({
             </SectionHeaderDescription>
           </SectionHeaderContent>
         </SectionHeader>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 items-stretch gap-6 sm:grid-cols-2">
           {exemplar.relatedAppIds.map((appId) => {
             const related = integrations.find((item) => item.name === appId);
             const label =
               related?.displayName?.trim() || companionAppLabel(appId);
-            const href = related?.mountedPath?.trim()
-              ? related.mountedPath.trim()
-              : `/apps/${encodeURIComponent(appId)}`;
             return (
-              <BuildStoreAppCard
+              <div
                 key={appId}
-                name={appId}
-                label={label}
-                description={
-                  related?.description?.trim() ||
-                  `Open ${label} in Gestalt.`
-                }
-                iconSvg={related?.iconSvg}
-                href={href}
-              />
+                className="h-full"
+                data-testid={`build-open-app-${appId}`}
+              >
+                <IntegrationCard
+                  integration={tryStepCatalogApp({
+                    appId,
+                    catalog: related,
+                    label,
+                    description:
+                      related?.description?.trim() ||
+                      `Open ${label} in Gestalt.`,
+                    mountedPath: related?.mountedPath?.trim(),
+                  })}
+                  returnPath={tryReturnPath}
+                  actions="launch"
+                />
+              </div>
             );
           })}
         </div>
       </div>
     </div>
-  );
-}
-
-/** Catalog-style solid card — opens the app in a new tab (no connect chrome). */
-function BuildStoreAppCard({
-  name,
-  label,
-  description,
-  iconSvg,
-  href,
-  testId,
-}: {
-  name: string;
-  label: string;
-  description: string;
-  iconSvg?: string;
-  href: string;
-  testId?: string;
-}) {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      data-testid={testId ?? `build-open-app-${name}`}
-      className={cn(
-        "flex items-start gap-4 rounded-xl bg-neutral-hover p-4 text-foreground",
-        "transition-[background-color] duration-hover-out ease-out-quart",
-        "hover:bg-neutral-dark-hover hover:duration-hover-in active:bg-neutral-dark-pressed",
-        "focus-ring rounded-xl",
-      )}
-    >
-      <IntegrationIcon
-        iconSvg={iconSvg}
-        name={name}
-        displayName={label}
-        size="xl"
-        variant="bare"
-      />
-      <span className="min-w-0">
-        <span className="block text-base font-heading text-foreground">
-          {label}
-        </span>
-        <span className="mt-1 block line-clamp-2 text-sm text-muted-foreground">
-          {description}
-        </span>
-      </span>
-    </a>
   );
 }
 
@@ -1469,7 +1460,7 @@ function ConnectStepActions({
       return (
         <div
           key={appId}
-          className="rounded-xl bg-neutral-hover p-3 text-foreground"
+          className="h-full rounded-xl bg-neutral-hover p-3 text-foreground"
           data-testid={`build-connect-app-${appId}`}
         >
           <div className="flex items-start gap-3">
@@ -1477,7 +1468,6 @@ function ConnectStepActions({
               name={appId}
               displayName={companionAppLabel(appId)}
               size="md"
-              variant="bare"
             />
             <div className="min-w-0 flex-1">
               <p className="text-sm font-heading text-foreground">
@@ -1493,14 +1483,13 @@ function ConnectStepActions({
     }
 
     return (
-      <div key={appId} data-testid={`build-connect-app-${appId}`}>
+      <div key={appId} className="h-full" data-testid={`build-connect-app-${appId}`}>
         <IntegrationCard
           integration={integration}
           returnPath={returnPath}
           onConnected={() => void refreshIntegrations()}
           onDisconnected={() => void refreshIntegrations()}
-          connectionEntry="modal"
-          density="compact"
+          actions="connect"
         />
       </div>
     );

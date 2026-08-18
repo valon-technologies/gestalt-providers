@@ -269,7 +269,7 @@ test.describe("Docs page", () => {
       "Use Gestalt MCP for workspace apps",
     );
     await expect(page.locator("article")).toContainText(
-      "Open Claude on the web or in the Claude desktop app",
+      "claude mcp add --transport http",
     );
     const mcpSwitch = page.getByRole("radiogroup", {
       name: "MCP client configuration",
@@ -278,18 +278,15 @@ test.describe("Docs page", () => {
       .locator("xpath=ancestor::*[@data-docs-option-switcher][1]")
       .locator(":scope > div")
       .last();
-    await expect(mcpSwitch.getByRole("radio", { name: "Claude", exact: true })).toBeVisible();
-    await expect(mcpSwitch.getByRole("radio", { name: "ChatGPT" })).toBeVisible();
+    await expect(mcpSwitch.getByRole("radio", { name: "Claude", exact: true })).toHaveCount(0);
+    await expect(mcpSwitch.getByRole("radio", { name: "ChatGPT" })).toHaveCount(0);
     await expect(
       mcpSwitch.getByRole("radio", { name: "Claude Code", exact: true }),
     ).toBeVisible();
     await expect(mcpSwitch.getByRole("radio", { name: "Codex" })).toBeVisible();
     await expect(mcpSwitch.getByRole("radio", { name: "Cursor" })).toBeVisible();
-    await mcpSwitch.getByRole("radio", { name: "ChatGPT" }).click();
-    await expect(page).toHaveURL(/\/docs\/mcp#mcp-chatgpt$/);
-    await expect(mcpPanel).toContainText("Developer mode");
-    await mcpSwitch.getByRole("radio", { name: "Claude Code", exact: true }).click();
-    await expect(page).toHaveURL(/\/docs\/mcp#mcp-claude-code$/);
+    await expect(mcpSwitch.getByRole("radio", { name: "Claude Code", exact: true })).toBeChecked();
+    await expect(page).toHaveURL(/\/docs\/mcp(#mcp-claude-code)?$/);
     await expect(mcpPanel).toContainText("claude mcp add --transport http");
     await expect(page.locator("article")).toContainText(
       "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh",
@@ -303,9 +300,6 @@ test.describe("Docs page", () => {
     await expect(
       page.getByRole("article").getByRole("link", { name: "Manage API Tokens", exact: true }),
     ).toHaveAttribute("href", "/docs/tokens");
-    await expect(
-      mcpSwitch.getByRole("radio", { name: "Claude", exact: true }),
-    ).toBeVisible();
     await mcpSwitch.getByRole("radio", { name: "Codex" }).click();
     await expect(page).toHaveURL(/\/docs\/mcp#mcp-codex$/);
     await expect(mcpPanel).toContainText(

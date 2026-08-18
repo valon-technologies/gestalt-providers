@@ -3,13 +3,13 @@
 export const MCP_DOCS_TITLE = "MCP setup";
 
 export const WELCOME_ASSISTANT_EXAMPLES =
-  "Ask in plain English in Claude, ChatGPT, Cursor, or Codex";
+  "Ask in plain English in Claude Code, Cursor, or Codex";
 
 export const ASSISTANT_PICKER_DESCRIPTION =
-  "Pick Claude, ChatGPT, Cursor, or another assistant you already use. You can add more later.";
+  "Pick the assistant you already use. You can add more later.";
 
 export const TOKEN_STEP_DESCRIPTION =
-  "Your assistant uses this token to reach Gestalt. We only show the full value once, on the Add Gestalt step.";
+  "Your assistant uses this token to reach Gestalt. Add Gestalt fills it into the commands for you.";
 
 export const CLAUDE_CONNECTOR_SETTINGS_HREF =
   "https://claude.ai/settings/connectors";
@@ -60,16 +60,22 @@ export const ASSISTANT_OVERLAP_SHORT =
 export const CONNECT_ANOTHER_ASSISTANT_LABEL = "Connect another assistant";
 
 export const CODEX_INSTALL_PREAMBLE =
-  "Codex Desktop reads MCP servers from your local Codex config. Paste the commands below into Terminal (not the Codex chat). They save your API token in the shell session, then register this workspace as an MCP server named gestalt.";
+  "Codex reads MCP servers from your local Codex config. Paste the commands below into Terminal (not the Codex chat). They save your API token in the shell session, then register this workspace as an MCP server named gestalt.";
 
 export const CODEX_INSTALL_POSTAMBLE =
-  "Restart Codex Desktop if Gestalt tools do not show up.";
+  "Restart Codex if Gestalt tools do not show up.";
+
+export const CURSOR_AGENT_INSTALL_PREAMBLE =
+  "Cursor Agent reads MCP servers from .cursor/mcp.json in your project. Paste this config, then start Agent from that folder.";
 
 export const MCP_SETUP_DOCS_LINK_LABEL = "MCP setup docs";
 
 export const SETUP_TOKEN_CREATE_ITEM_TITLE = "Create a token";
 
-export const SETUP_TOKEN_CREATE_DONE =
-  "Your token is saved. Copy it on the Add Gestalt step.";
+export const SETUP_TOKEN_CREATED_ITEM_TITLE = "Token created";
+
+export const SETUP_TOKEN_CREATE_DONE = "Your token is saved.";
+
+export const SETUP_TOKEN_CREATE_DIFFERENT = "Create a different token";
 
 export const SETUP_TOKEN_NEXT_DISABLED_TITLE = "Create a token before continuing";

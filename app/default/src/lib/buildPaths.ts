@@ -515,6 +515,35 @@ export function resolveExemplarOpenPath(
   };
 }
 
+/**
+ * Catalog Integration for a Try-step store tile. Live catalog fields win;
+ * label, description, and known mount fill gaps so Setup never forks a
+ * second card primitive.
+ */
+export function tryStepCatalogApp(args: {
+  appId: string;
+  catalog?: Integration;
+  label: string;
+  description: string;
+  mountedPath?: string;
+}): Integration {
+  const { appId, catalog, label, description, mountedPath } = args;
+  if (catalog) {
+    return {
+      ...catalog,
+      displayName: catalog.displayName?.trim() || label,
+      description: catalog.description?.trim() || description,
+      mountedPath: catalog.mountedPath?.trim() || mountedPath,
+    };
+  }
+  return {
+    name: appId,
+    displayName: label,
+    description,
+    mountedPath,
+  };
+}
+
 export const MCP_INSTALLED_STORAGE_KEY = "gestalt.build.mcpInstalled";
 export const MCP_INSTALLED_AGENTS_STORAGE_KEY =
   "gestalt.build.mcpInstalledAgents";

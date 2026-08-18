@@ -1,4 +1,4 @@
-import { test, expect, mockIntegrations, mockManualConnect, mockTokens } from "./fixtures";
+import { test, expect, mockIntegrations, mockManualConnect, mockTokens, clickOpensOAuthPopup } from "./fixtures";
 import type { Page } from "@playwright/test";
 import type { Integration } from "../src/lib/api";
 
@@ -805,13 +805,16 @@ test.describe("Integrations", () => {
     });
 
     const panel = await openAppConnection(page, "dual-oauth-svc");
+    const surface = page.getByTestId("app-admin-connection");
 
-    await expect(panel.getByRole("button", { name: "Connect with OAuth" })).toBeVisible();
-    await expect(panel.getByRole("button", { name: "Connect with MCP" })).toBeVisible();
+    await expect(surface.getByRole("button", { name: "Connect with OAuth" })).toBeVisible();
+    await expect(surface.getByRole("button", { name: "Connect with MCP" })).toBeVisible();
     await expect(panel.getByText("MCP passthrough", { exact: true })).toHaveCount(0);
 
-    await panel.getByRole("button", { name: "Connect with MCP" }).click();
-    await page.waitForURL("about:blank");
+    await clickOpensOAuthPopup(
+      surface.getByRole("button", { name: "Connect with MCP" }),
+    );
+    await expect(page).toHaveURL(/\/apps\/dual-oauth-svc\/connection$/);
 
     expect(requestBody).toMatchObject({
       integration: "dual-oauth-svc",
@@ -928,13 +931,16 @@ test.describe("Integrations", () => {
     });
 
     const panel = await openAppConnection(page, "team-svc");
+    const surface = page.getByTestId("app-admin-connection");
 
-    await panel.getByRole("button", { name: "Connect with personal" }).click();
-    await expect(panel.getByRole("button", { name: "Connecting..." })).toBeVisible();
-    await expect(panel.getByRole("button", { name: "Connect with workspace" })).toBeVisible();
+    await surface.getByRole("button", { name: "Connect with personal" }).click();
+    await expect(surface.getByRole("button", { name: "Connecting..." })).toBeVisible();
+    await expect(surface.getByRole("button", { name: "Connect with workspace" })).toBeVisible();
 
     releaseOAuthRequest?.();
-    await expect(panel.getByText("oauth failed")).toBeVisible();
+    await expect(
+      panel.getByText("Couldn't start sign-in. Try again."),
+    ).toBeVisible();
   });
 
   test("manual auth reconnect opens token form on connection page", async ({

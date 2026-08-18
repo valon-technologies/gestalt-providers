@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/collapsible";
 import {
   ChatGptIcon,
+  ClaudeCodeIcon,
   ClaudeIcon,
   CodexIcon,
   CursorIcon,
@@ -43,12 +44,13 @@ import {
   CLAUDE_INSTALL_REQUEST_HEADER,
   CODEX_INSTALL_POSTAMBLE,
   CODEX_INSTALL_PREAMBLE,
+  CURSOR_AGENT_INSTALL_PREAMBLE,
   MCP_SETUP_DOCS_LINK_LABEL,
 } from "@/lib/assistantConnectionCopy";
 import {
-  ASSISTANT_HOST_GROUPS,
+  ASSISTANT_HOST_PICKER_GRID_CLASS,
+  ASSISTANT_HOSTS_IN_PICKER,
   assistantHostById,
-  assistantHostsInGroup,
   type AssistantHost,
   type BuildInstallAgentId,
 } from "@/lib/assistantHosts";
@@ -64,13 +66,17 @@ import {
 import { cn } from "@/lib/cn";
 import { DOCS_PATH } from "@/lib/constants";
 import { SETUP_PRODUCT_NAME } from "@/lib/buildPaths";
+import {
+  gestaltMcpBearerValue,
+  gestaltMcpClientConfigJson,
+} from "@/lib/gestaltMcpClientConfig";
 import { resolveGestaltPublicOrigin } from "@/lib/gestaltPublicOrigin";
 
 function cursorMcpInstallHref(mcpUrl: string, apiToken: string): string {
   const config = {
     url: mcpUrl,
     headers: {
-      Authorization: `Bearer ${apiToken}`,
+      Authorization: gestaltMcpBearerValue(apiToken),
     },
   };
   const json = JSON.stringify(config);
@@ -82,9 +88,11 @@ function hostIcon(host: AssistantHost): ReactNode {
   const iconClass = "size-12 shrink-0 text-foreground";
   switch (host.iconKey) {
     case "claude":
-      return <ClaudeIcon className={iconClass} />;
+      return <ClaudeIcon className="size-12 shrink-0" />;
+    case "claude-code":
+      return <ClaudeCodeIcon className="size-12 shrink-0" />;
     case "chatgpt":
-      return <ChatGptIcon className={iconClass} />;
+      return <ChatGptIcon className="size-12 shrink-0" />;
     case "cursor":
       return <CursorIcon className={iconClass} />;
     case "codex":
@@ -98,13 +106,6 @@ function hostIcon(host: AssistantHost): ReactNode {
   }
 }
 
-function hostGridClass(groupId: string): string {
-  if (groupId === "coding") {
-    return "grid grid-cols-2 gap-3 sm:grid-cols-3";
-  }
-  return "grid grid-cols-2 gap-3";
-}
-
 export function AssistantPickerStepActions({
   selectedAgent,
   onSelectedAgent,
@@ -116,69 +117,45 @@ export function AssistantPickerStepActions({
     <RadioGroup
       value={selectedAgent || undefined}
       onValueChange={(value) => onSelectedAgent(value as BuildInstallAgentId)}
-      className="flex flex-col gap-6"
+      className={ASSISTANT_HOST_PICKER_GRID_CLASS}
       data-testid="build-install-radio"
       aria-label="Choose your assistant"
     >
-      {ASSISTANT_HOST_GROUPS.map((group) => {
-        const headingId = `assistant-group-${group.id}`;
+      {ASSISTANT_HOSTS_IN_PICKER.map((host) => {
+        const inputId = `build-assistant-${host.id}`;
         return (
-          <div
-            key={group.id}
-            role="group"
-            aria-labelledby={headingId}
-            className="space-y-2"
+          <Label
+            key={host.id}
+            htmlFor={inputId}
+            data-testid={host.testId}
+            className={cn(
+              choiceCardNoIndicatorClassName,
+              choiceCardHoverClassName,
+              "h-full items-center text-center",
+            )}
           >
-            <p
-              id={headingId}
-              className={
-                group.id === "other"
-                  ? "sr-only"
-                  : "text-sm font-medium text-foreground"
-              }
+            <RadioGroupItem
+              focusRing="none"
+              value={host.id}
+              id={inputId}
+              className={choiceCardRadioHiddenClassName}
+              aria-label={host.label}
+            />
+            <div
+              className={cn(
+                choiceCardContentNoIndicatorClassName,
+                "items-center gap-2.5",
+              )}
             >
-              {group.label}
-            </p>
-            <div className={hostGridClass(group.id)}>
-              {assistantHostsInGroup(group.id).map((host) => {
-                const inputId = `build-assistant-${host.id}`;
-                return (
-                  <Label
-                    key={host.id}
-                    htmlFor={inputId}
-                    data-testid={host.testId}
-                    className={cn(
-                      choiceCardNoIndicatorClassName,
-                      choiceCardHoverClassName,
-                      "h-full items-center text-center",
-                    )}
-                  >
-                    <RadioGroupItem
-                      focusRing="none"
-                      value={host.id}
-                      id={inputId}
-                      className={choiceCardRadioHiddenClassName}
-                      aria-label={host.label}
-                    />
-                    <div
-                      className={cn(
-                        choiceCardContentNoIndicatorClassName,
-                        "items-center gap-2.5",
-                      )}
-                    >
-                      {hostIcon(host)}
-                      <span
-                        data-choice-title
-                        className="text-sm font-medium text-foreground"
-                      >
-                        {host.label}
-                      </span>
-                    </div>
-                  </Label>
-                );
-              })}
+              {hostIcon(host)}
+              <span
+                data-choice-title
+                className="text-sm font-medium text-foreground"
+              >
+                {host.label}
+              </span>
             </div>
-          </div>
+          </Label>
         );
       })}
     </RadioGroup>
@@ -313,6 +290,26 @@ type HostInstallRecipeProps = {
   onMarkMcpInstalled: () => void;
 };
 
+function CursorMcpConfigBlock({
+  mcpUrl,
+  apiToken,
+}: {
+  mcpUrl: string;
+  apiToken: string;
+}) {
+  return (
+    <CodeBlock
+      variant="outline"
+      code={gestaltMcpClientConfigJson({
+        url: mcpUrl,
+        token: apiToken,
+      })}
+      language="json"
+      filename=".cursor/mcp.json"
+    />
+  );
+}
+
 function CursorInstallRecipe({
   mcpUrl,
   apiToken,
@@ -320,16 +317,6 @@ function CursorInstallRecipe({
 }: HostInstallRecipeProps) {
   const [cursorMethod, setCursorMethod] = useState<"open" | "paste">("open");
   const cursorInstallHref = cursorMcpInstallHref(mcpUrl, apiToken);
-  const cursorConfig = `{
-  "mcpServers": {
-    "gestalt": {
-      "url": "${mcpUrl}",
-      "headers": {
-        "Authorization": "Bearer ${apiToken}"
-      }
-    }
-  }
-}`;
 
   return (
     <div className="space-y-4">
@@ -423,12 +410,7 @@ function CursorInstallRecipe({
               className={choiceCardFormFieldsClassName}
               onPointerDown={(event) => event.stopPropagation()}
             >
-              <CodeBlock
-                variant="outline"
-                code={cursorConfig}
-                language="json"
-                filename=".cursor/mcp.json"
-              />
+              <CursorMcpConfigBlock mcpUrl={mcpUrl} apiToken={apiToken} />
             </CollapsibleContent>
           </Collapsible>
         </div>
@@ -441,7 +423,7 @@ function ClaudeInstallRecipe({ mcpUrl, apiToken }: HostInstallRecipeProps) {
   return (
     <ClaudeConnectorRecipe
       mcpUrl={mcpUrl}
-      bearerValue={`Bearer ${apiToken}`}
+      bearerValue={gestaltMcpBearerValue(apiToken)}
     />
   );
 }
@@ -490,10 +472,51 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
   );
 }
 
-function OtherInstallRecipe({ mcpUrl }: HostInstallRecipeProps) {
+function CursorAgentInstallRecipe({
+  mcpUrl,
+  apiToken,
+}: HostInstallRecipeProps) {
   return (
-    <div className="space-y-2">
-      <CopyableCode value={mcpUrl} tooltip="Copy connection URL" />
+    <div className="space-y-4" data-testid="build-install-cursor-agent-recipe">
+      <p className="text-sm text-muted-foreground text-pretty">
+        {CURSOR_AGENT_INSTALL_PREAMBLE}
+      </p>
+      <CursorMcpConfigBlock mcpUrl={mcpUrl} apiToken={apiToken} />
+    </div>
+  );
+}
+
+function OtherInstallRecipe({ mcpUrl, apiToken }: HostInstallRecipeProps) {
+  const bearerValue = gestaltMcpBearerValue(apiToken);
+  const clientConfig = gestaltMcpClientConfigJson({
+    url: mcpUrl,
+    token: apiToken,
+  });
+  return (
+    <div className="space-y-4" data-testid="build-install-other-recipe">
+      <div className="space-y-2">
+        <span className="block text-sm font-medium text-foreground">URL</span>
+        <div>
+          <CopyableCode value={mcpUrl} tooltip="Copy connection URL" />
+        </div>
+      </div>
+      <div className="space-y-2">
+        <span className="block text-sm font-medium text-foreground">
+          Authorization
+        </span>
+        <div>
+          <CopyableCode
+            value={bearerValue}
+            tooltip="Copy Authorization value"
+          />
+        </div>
+      </div>
+      <CodeBlock
+        variant="outline"
+        chrome="inset"
+        code={clientConfig}
+        language="json"
+      />
     </div>
   );
 }
@@ -503,6 +526,7 @@ export const HOST_INSTALL_RECIPES: Record<
   ComponentType<HostInstallRecipeProps>
 > = {
   cursor: CursorInstallRecipe,
+  "cursor-agent": CursorAgentInstallRecipe,
   claude: ClaudeInstallRecipe,
   chatgpt: ChatGptInstallRecipe,
   "claude-code": ClaudeCodeInstallRecipe,

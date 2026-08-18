@@ -224,6 +224,8 @@ describe("step-rail timeline semantics", () => {
     expect(rootMatch?.[1]).not.toContain("completed");
     expect(SOURCE).not.toContain("readStepRailChromeDelayMs");
     expect(TIMELINE_SOURCE).toContain("stepRailCompletedChromeAccentClassName");
+    expect(TIMELINE_SOURCE).toContain("stepRailCompletedChromeOutcomeClassName");
+    expect(TIMELINE_SOURCE).toContain('completedChrome = "accent"');
   });
 
   test("vertical fill grows downward and stepper stubs meet the next circle", () => {

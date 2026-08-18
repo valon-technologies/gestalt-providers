@@ -29,9 +29,29 @@ describe("assistant install guidance", () => {
     expect(SOURCE).toContain("!hasMcpCredential");
   });
 
+  test("picker lists sibling hosts from the catalog", () => {
+    expect(SOURCE).toContain("ASSISTANT_HOSTS_IN_PICKER.map");
+    expect(SOURCE).toContain("ASSISTANT_HOST_PICKER_GRID_CLASS");
+    expect(SOURCE).not.toContain("ASSISTANT_HOST_GROUPS");
+    expect(SOURCE).not.toContain("assistantHostsInGroup");
+    expect(SOURCE).toContain("ClaudeCodeIcon");
+    expect(SOURCE).toContain('<ClaudeCodeIcon className="size-12 shrink-0" />');
+    expect(SOURCE).not.toContain("<ClaudeCodeIcon className={iconClass} />");
+    expect(SOURCE).toContain('<ChatGptIcon className="size-12 shrink-0" />');
+    expect(SOURCE).not.toContain("<ChatGptIcon className={iconClass} />");
+    expect(SOURCE).toContain("CursorAgentInstallRecipe");
+  });
+
   test("every assistant host has an install recipe", () => {
     expect(Object.keys(HOST_INSTALL_RECIPES).sort()).toEqual(
       ASSISTANT_HOSTS.map((host) => host.id).sort(),
     );
+  });
+
+  test("Other install shows MCP URL, Authorization, and client config", () => {
+    expect(SOURCE).toContain('data-testid="build-install-other-recipe"');
+    expect(SOURCE).toContain("gestaltMcpClientConfigJson");
+    expect(SOURCE).toContain("gestaltMcpBearerValue");
+    expect(SOURCE).toContain("function OtherInstallRecipe({ mcpUrl, apiToken }");
   });
 });

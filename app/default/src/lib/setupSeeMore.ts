@@ -1,13 +1,13 @@
 import type { Integration } from "@/lib/api";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 
-/** First page of optional apps on Setup Connect (compact 4-col grid). */
+/** First page of optional apps on Setup Connect (two-column card grid). */
 export const SETUP_APPS_PAGE_SIZE = 8;
 
 export const SETUP_APPS_CATEGORY_ALL = "all";
 
 export const SETUP_APPS_GRID_CLASS =
-  "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4";
+  "grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2";
 
 /** Overlapping marks on the See-more trigger — ChatGPT plugins store pattern. */
 export const SETUP_SEE_MORE_ICON_COUNT = 3;

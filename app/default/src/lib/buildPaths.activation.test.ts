@@ -21,6 +21,7 @@ import {
   setupAppsHasConnectable,
   setupAppsStepComplete,
   setupDataSourceIntegrations,
+  tryStepCatalogApp,
   type BuildWorkspaceSnapshot,
 } from "@/lib/buildPaths";
 
@@ -319,12 +320,18 @@ describe("buildStepTitle", () => {
       "Add Gestalt in Claude Code",
     );
     expect(buildStepTitle(install, "chatgpt")).toBe("Add Gestalt in ChatGPT");
-    expect(buildInstallStepTitle("codex")).toBe("Add Gestalt in Codex Desktop");
+    expect(buildInstallStepTitle("codex")).toBe("Add Gestalt in Codex");
     expect(buildStepDescription(install, "cursor")).toBe(
       "Connect Cursor so it can use your Gestalt apps.",
     );
     expect(buildStepDescription(install, "codex")).toBe(
-      "Run these commands in Terminal on the Mac where Codex Desktop is installed.",
+      "Run these commands in Terminal on the Mac where Codex is installed.",
+    );
+    expect(buildStepDescription(install, "cursor-agent")).toBe(
+      "Paste this into .cursor/mcp.json. Cursor Agent reads the same MCP config as Cursor.",
+    );
+    expect(buildStepDescription(install, "other")).toBe(
+      "Use these MCP settings in any client that accepts a URL and an Authorization header.",
     );
   });
 
@@ -340,6 +347,8 @@ describe("buildStepTitle", () => {
     const token = BUILD_STEPS.find((step) => step.id === "token")!;
     expect(buildStepTitle(token, "cursor")).toBe("Create a token");
     expect(token.description).toContain("Your assistant uses this token");
+    expect(token.description).toContain("Add Gestalt fills it into the commands");
+    expect(token.description).not.toContain("We only show");
     expect(token.description).not.toContain("coding agent");
   });
 });
@@ -495,5 +504,48 @@ describe("mcpInstalledForAgent", () => {
     });
     expect(isBuildComplete(otherAssistant)).toBe(false);
     expect(firstIncompleteStepId(otherAssistant)).toBe("install");
+  });
+});
+
+describe("tryStepCatalogApp", () => {
+  test("uses live catalog fields and fills mount and copy gaps", () => {
+    expect(
+      tryStepCatalogApp({
+        appId: "aiSpendTracker",
+        catalog: {
+          name: "aiSpendTracker",
+          displayName: "AI Spend Tracker",
+          description: "Live description",
+          iconSvg: "<svg></svg>",
+          credentialState: "connected",
+          status: "ready",
+        },
+        label: "Fallback",
+        description: "Fallback copy",
+        mountedPath: "/ai-spend",
+      }),
+    ).toMatchObject({
+      name: "aiSpendTracker",
+      displayName: "AI Spend Tracker",
+      description: "Live description",
+      iconSvg: "<svg></svg>",
+      mountedPath: "/ai-spend",
+    });
+  });
+
+  test("builds a catalog tile when the app is missing from the workspace", () => {
+    expect(
+      tryStepCatalogApp({
+        appId: "oncall",
+        label: "Oncall",
+        description: "Open Oncall in Gestalt.",
+        mountedPath: "/oncall",
+      }),
+    ).toEqual({
+      name: "oncall",
+      displayName: "Oncall",
+      description: "Open Oncall in Gestalt.",
+      mountedPath: "/oncall",
+    });
   });
 });

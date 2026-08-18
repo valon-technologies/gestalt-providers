@@ -96,6 +96,8 @@ describe("docs IA invariants", () => {
     );
     expect(content).toContain("docsSubsectionLabel");
     expect(content).not.toMatch(/<Subheading[^>]*title=/);
+    expect(content).not.toContain('activeTabId === "mcp-claude"');
+    expect(content).not.toContain('activeTabId === "mcp-chatgpt"');
     for (const item of docsNavItems) {
       for (const subsection of item.subsections) {
         expect(content).toContain(`<Subheading id="${subsection.id}" />`);
