@@ -326,8 +326,10 @@ test.describe("Setup page", () => {
     await expect(
       page.getByText("Connect Cursor so it can use your Gestalt apps."),
     ).toBeVisible();
-    await expect(page.getByTestId("build-install-cursor-method")).toBeVisible();
-    await expect(page.getByRole("radio", { name: "Open Cursor" })).toBeChecked();
+    await expect(page.getByTestId("build-install-cursor-recipe")).toBeVisible();
+    await expect(page.getByTestId("build-install-cursor-method")).toHaveCount(0);
+    await expect(page.getByRole("radio", { name: "Open Cursor" })).toHaveCount(0);
+    await expect(page.getByText("Paste the config yourself")).toHaveCount(0);
     await expect(page.getByTestId("build-add-to-cursor")).toBeEnabled();
     await expect(page.getByTestId("build-add-to-cursor")).toHaveAttribute(
       "href",
@@ -336,9 +338,9 @@ test.describe("Setup page", () => {
     await expect(page.getByTestId("build-add-to-cursor")).toHaveText(
       "Add in Cursor",
     );
-    await page.getByText("Paste the config yourself").click();
-    await expect(page.getByText(".cursor/mcp.json")).toBeVisible();
+    await expect(page.getByText(".cursor/mcp.json")).toHaveCount(0);
     await expect(page.getByRole("link", { name: "MCP setup docs" })).toBeVisible();
+    await expect(page.getByTestId("setup-overlap-callout")).toHaveCount(0);
 
     await page.goto("/setup/token");
     await expect(page.getByTestId("build-token-setup")).toBeVisible();
@@ -435,7 +437,7 @@ test.describe("Setup page", () => {
     await page.getByTestId("build-step-next").click();
     await expect(page.getByRole("heading", { name: "Add Gestalt in Codex" })).toBeVisible();
     await expect(page.getByTestId("build-install-codex-snippet")).toBeVisible();
-    await expect(page.getByTestId("setup-overlap-callout")).toBeVisible();
+    await expect(page.getByTestId("setup-overlap-callout")).toHaveCount(0);
     await expect(page.getByText("Paste the commands below into Terminal")).toBeVisible();
 
     await page.goto("/setup/assistant");
@@ -659,9 +661,24 @@ test.describe("Setup page", () => {
       page.locator('[data-slot="page-header"] [data-slot="eyebrow"]'),
     ).toHaveCount(0);
     await expect(page.getByTestId("build-connect-apps")).toBeVisible();
+    await expect(page.getByTestId("setup-overlap-callout")).toBeVisible();
+    await expect(page.getByTestId("setup-overlap-callout")).toContainText(
+      "One path per app",
+    );
+    await expect(page.getByTestId("setup-overlap-callout")).toContainText(
+      "Skip other connectors",
+    );
+    await expect(page.getByTestId("setup-overlap-callout")).not.toContainText(
+      "Codex native plugins",
+    );
+    await expect(page.getByRole("heading", { name: "Suggested" })).toHaveCount(
+      0,
+    );
     await expect(
-      page.getByRole("heading", { name: "Suggested" }),
-    ).toBeVisible();
+      page
+        .getByTestId("build-connect-apps-suggested")
+        .locator('[data-slot="eyebrow"]'),
+    ).toHaveText("Suggested");
     await expect(page.getByTestId("build-connect-app-pagerduty")).toBeVisible();
     await expect(page.getByTestId("build-connect-app-linear")).toBeVisible();
     await expect(page.getByTestId("build-connect-app-slack")).toBeVisible();
@@ -670,9 +687,14 @@ test.describe("Setup page", () => {
     );
     await expect(page.getByTestId("build-apps-category-chips")).toBeVisible();
     await expect(page.getByTestId("build-apps-category-all")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "More apps" })).toHaveCount(
+      0,
+    );
     await expect(
-      page.getByRole("heading", { name: "More apps" }),
-    ).toBeVisible();
+      page
+        .getByTestId("build-connect-apps-more")
+        .locator('[data-slot="eyebrow"]'),
+    ).toHaveText("More apps");
     await expect(page.getByTestId("build-connect-app-ashby")).toBeVisible();
     await expect(page.getByTestId("build-connect-app-gmail")).toBeVisible();
     await expect(page.getByTestId("build-connect-app-zendesk")).toHaveCount(0);
@@ -691,7 +713,12 @@ test.describe("Setup page", () => {
     await page.getByTestId("build-apps-category-communication").click();
     await expect(
       page.getByRole("heading", { name: "Communication" }),
-    ).toBeVisible();
+    ).toHaveCount(0);
+    await expect(
+      page
+        .getByTestId("build-connect-apps-more")
+        .locator('[data-slot="eyebrow"]'),
+    ).toHaveText("Communication");
     await expect(page.getByTestId("build-connect-app-gmail")).toBeVisible();
     await expect(page.getByTestId("build-connect-app-ashby")).toHaveCount(0);
     await expect(page.getByTestId("build-connect-app-slack")).toBeVisible();
@@ -699,14 +726,35 @@ test.describe("Setup page", () => {
 
     await page.getByTestId("build-apps-category-all").click();
     await expect(
-      page.getByRole("heading", { name: "More apps" }),
-    ).toBeVisible();
+      page
+        .getByTestId("build-connect-apps-more")
+        .locator('[data-slot="eyebrow"]'),
+    ).toHaveText("More apps");
     await expect(page.getByTestId("build-see-more-apps")).toContainText(
       "See Zendesk",
     );
     await page.getByTestId("build-see-more-apps").click();
     await expect(page.getByTestId("build-connect-app-zendesk")).toBeVisible();
     await expect(page.getByTestId("build-see-more-apps")).toHaveCount(0);
+  });
+
+  test("connect apps overlap names Codex plugins for Codex", async ({
+    authenticatedPage: page,
+  }) => {
+    await mockTokens(page, [defaultToken]);
+    await seedSetupSession(page, {
+      introSeen: true,
+      selectedTokenId: "tok_123",
+      mcpInstalled: true,
+      installAgent: "codex",
+      activeExemplarId: "oncall",
+    });
+
+    await page.goto("/setup/apps");
+    await expect(page.getByTestId("setup-overlap-callout")).toBeVisible();
+    await expect(page.getByTestId("setup-overlap-callout")).toContainText(
+      "Codex native plugins",
+    );
   });
 
   test("failed catalog does not skip the apps step", async ({

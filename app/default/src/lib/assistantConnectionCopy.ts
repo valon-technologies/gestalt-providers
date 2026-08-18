@@ -83,7 +83,7 @@ export const SETUP_TOKEN_CREATE_DIFFERENT = "Create a different token";
 
 export const SETUP_TOKEN_NEXT_DISABLED_TITLE = "Create a token before continuing";
 
-/** Codex names native plugins. Other hosts keep the generic overlap body. */
+/** Codex names native plugins. Other assistants keep the generic overlap body. */
 export function assistantOverlapBody(agentId: string): string {
   return agentId === "codex" ? ASSISTANT_OVERLAP_CODEX : ASSISTANT_OVERLAP_SHORT;
 }

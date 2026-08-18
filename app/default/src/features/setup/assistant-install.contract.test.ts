@@ -11,14 +11,11 @@ const SOURCE = readFileSync(
 );
 
 describe("assistant install guidance", () => {
-  test("persistent token and overlap callouts are not live regions", () => {
+  test("token needed callout is standing help, not a live region", () => {
     expect(SOURCE).toContain(
       '<Callout variant="info" data-testid="build-install-token-needed">',
     );
-    expect(SOURCE).toContain(
-      '<Callout variant="info" data-testid="setup-overlap-callout">',
-    );
-    expect(SOURCE).toContain("assistantOverlapBody(agent)");
+    expect(SOURCE).not.toContain("setup-overlap-callout");
     expect(SOURCE).not.toContain("live={false}");
     expect(SOURCE).toContain('from "@/components/ui/alert"');
     expect(SOURCE).not.toContain("@/components/Callout");
@@ -54,5 +51,14 @@ describe("assistant install guidance", () => {
     expect(SOURCE).toContain("gestaltMcpClientConfigJson");
     expect(SOURCE).toContain("gestaltMcpBearerValue");
     expect(SOURCE).toContain("function OtherInstallRecipe({ mcpUrl, apiToken }");
+  });
+
+  test("Cursor install is the one-click button; Cursor Agent keeps the paste recipe", () => {
+    expect(SOURCE).toContain('data-testid="build-install-cursor-recipe"');
+    expect(SOURCE).toContain('data-testid="build-add-to-cursor"');
+    expect(SOURCE).not.toContain("build-install-cursor-method");
+    expect(SOURCE).not.toContain("Paste the config yourself");
+    expect(SOURCE).toContain('data-testid="build-install-cursor-agent-recipe"');
+    expect(SOURCE).toContain("CursorMcpConfigBlock");
   });
 });

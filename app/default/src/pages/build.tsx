@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { Clock } from "lucide-react";
 import {
   Link,
@@ -37,6 +37,7 @@ import {
   SectionHeaderDescription,
   SectionHeaderTitle,
 } from "@/components/ui/section-header";
+import { Eyebrow } from "@/components/ui/eyebrow";
 import { CodeBlock } from "@/components/ui/code-block";
 import { CopyableCode } from "@/components/ui/copyable-code";
 import {
@@ -90,6 +91,7 @@ import {
   AssistantPickerStepActions,
   SingleAgentMcpInstall,
 } from "@/features/setup/assistant-install";
+import { SetupOverlapCallout } from "@/features/setup/overlap-callout";
 import {
   SETUP_TOKEN_CREATE_CONTENT_CLASS,
   SETUP_TOKEN_CREATE_TRACK,
@@ -988,6 +990,7 @@ function BuildStepPanel({
           catalogError={catalogError}
           catalogRetrying={catalogRetrying}
           onRetryCatalog={onRetryCatalog}
+          installAgentId={installAgentId}
         />
       ) : null}
 
@@ -1385,6 +1388,7 @@ function ConnectStepActions({
   catalogError,
   catalogRetrying,
   onRetryCatalog,
+  installAgentId,
 }: {
   exemplar: BuildExemplar;
   integrations: Integration[];
@@ -1393,10 +1397,13 @@ function ConnectStepActions({
   catalogError: string | null;
   catalogRetrying: boolean;
   onRetryCatalog: () => void;
+  installAgentId: BuildInstallAgentId | "";
 }) {
   const invalidateIntegrations = useInvalidateIntegrations();
   const [visibleMoreCount, setVisibleMoreCount] = useState(SETUP_APPS_PAGE_SIZE);
   const [categoryFilter, setCategoryFilter] = useState(SETUP_APPS_CATEGORY_ALL);
+  const suggestedLabelId = useId();
+  const moreLabelId = useId();
   const returnPath = `${SETUP_PATH}/apps`;
 
   async function refreshIntegrations() {
@@ -1498,101 +1505,107 @@ function ConnectStepActions({
   }
 
   return (
-    <div className="flex flex-col gap-10" data-testid="build-connect-apps">
+    <div className="flex flex-col gap-8" data-testid="build-connect-apps">
       {catalogNotice}
-      {suggested.length > 0 ? (
-        <div className="space-y-6">
-          <SectionHeader>
-            <SectionHeaderContent>
-              <SectionHeaderTitle>Suggested</SectionHeaderTitle>
-            </SectionHeaderContent>
-          </SectionHeader>
-          <div className={SETUP_APPS_GRID_CLASS}>
-            {suggested.map(({ appId, integration }) =>
-              renderConnectCard(appId, integration),
-            )}
-          </div>
-        </div>
-      ) : null}
-
-      {more.length > 0 ? (
-        <div className="space-y-6">
-          {categoryChips.length > 0 ? (
-            <ChipGroup
-              type="single"
-              size="sm"
-              value={effectiveCategory}
-              onValueChange={selectCategory}
-              aria-label="Filter apps by category"
-              data-testid="build-apps-category-chips"
-            >
-              <ChipGroupItem
-                value={SETUP_APPS_CATEGORY_ALL}
-                data-testid="build-apps-category-all"
-              >
-                All
-              </ChipGroupItem>
-              {categoryChips.map((bucket) => (
-                <ChipGroupItem
-                  key={bucket.id}
-                  value={bucket.id}
-                  data-testid={`build-apps-category-${bucket.id}`}
-                >
-                  {bucket.label}
-                </ChipGroupItem>
-              ))}
-            </ChipGroup>
-          ) : null}
-
-          <SectionHeader>
-            <SectionHeaderContent>
-              <SectionHeaderTitle>{moreSectionTitle}</SectionHeaderTitle>
-            </SectionHeaderContent>
-          </SectionHeader>
-
-          {filteredMore.length === 0 ? (
-            <div className="space-y-3" data-testid="build-apps-category-empty">
-              <p className="text-sm font-medium text-foreground">
-                No apps in this category
-              </p>
-              <p className="text-sm text-muted-foreground">
-                Try another category, or choose All to see every app.
-              </p>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => selectCategory(SETUP_APPS_CATEGORY_ALL)}
-              >
-                Show all apps
-              </Button>
+      <SetupOverlapCallout agentId={installAgentId} />
+      <div className="flex flex-col gap-10">
+        {suggested.length > 0 ? (
+          <section
+            className="space-y-3"
+            aria-labelledby={suggestedLabelId}
+            data-testid="build-connect-apps-suggested"
+          >
+            <Eyebrow id={suggestedLabelId} className="block">
+              Suggested
+            </Eyebrow>
+            <div className={SETUP_APPS_GRID_CLASS}>
+              {suggested.map(({ appId, integration }) =>
+                renderConnectCard(appId, integration),
+              )}
             </div>
-          ) : (
-            <>
-              <div className={SETUP_APPS_GRID_CLASS}>
-                {visibleMore.map((integration) =>
-                  renderConnectCard(integration.name, integration),
-                )}
-              </div>
-              {remainingMore.length > 0 ? (
-                <SeeMoreAppsTrigger
-                  remaining={remainingMore}
-                  onSeeMore={() =>
-                    setVisibleMoreCount((count) => count + SETUP_APPS_PAGE_SIZE)
-                  }
-                />
-              ) : null}
-            </>
-          )}
-        </div>
-      ) : null}
+          </section>
+        ) : null}
 
-      {missingFromCatalog.length > 0 ? (
-        <p className="text-sm text-muted-foreground">
-          Ask an admin to add missing apps to this workspace before you
-          continue.
-        </p>
-      ) : null}
+        {more.length > 0 ? (
+          <section
+            className="space-y-3"
+            aria-labelledby={moreLabelId}
+            data-testid="build-connect-apps-more"
+          >
+            <Eyebrow id={moreLabelId} className="block">
+              {moreSectionTitle}
+            </Eyebrow>
+            {categoryChips.length > 0 ? (
+              <ChipGroup
+                type="single"
+                size="sm"
+                value={effectiveCategory}
+                onValueChange={selectCategory}
+                aria-label="Filter apps by category"
+                data-testid="build-apps-category-chips"
+              >
+                <ChipGroupItem
+                  value={SETUP_APPS_CATEGORY_ALL}
+                  data-testid="build-apps-category-all"
+                >
+                  All
+                </ChipGroupItem>
+                {categoryChips.map((bucket) => (
+                  <ChipGroupItem
+                    key={bucket.id}
+                    value={bucket.id}
+                    data-testid={`build-apps-category-${bucket.id}`}
+                  >
+                    {bucket.label}
+                  </ChipGroupItem>
+                ))}
+              </ChipGroup>
+            ) : null}
+
+            {filteredMore.length === 0 ? (
+              <div className="space-y-3" data-testid="build-apps-category-empty">
+                <p className="text-sm font-medium text-foreground">
+                  No apps in this category
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Try another category, or choose All to see every app.
+                </p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => selectCategory(SETUP_APPS_CATEGORY_ALL)}
+                >
+                  Show all apps
+                </Button>
+              </div>
+            ) : (
+              <>
+                <div className={SETUP_APPS_GRID_CLASS}>
+                  {visibleMore.map((integration) =>
+                    renderConnectCard(integration.name, integration),
+                  )}
+                </div>
+                {remainingMore.length > 0 ? (
+                  <SeeMoreAppsTrigger
+                    remaining={remainingMore}
+                    onSeeMore={() =>
+                      setVisibleMoreCount((count) => count + SETUP_APPS_PAGE_SIZE)
+                    }
+                  />
+                ) : null}
+              </>
+            )}
+          </section>
+        ) : null}
+
+        {missingFromCatalog.length > 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Ask an admin to add missing apps to this workspace before you
+            continue.
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -1,5 +1,5 @@
-import { useState, type ComponentType, type ReactNode } from "react";
-import { Info, Lightbulb } from "lucide-react";
+import { type ComponentType, type ReactNode } from "react";
+import { Lightbulb } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import {
   AlertActions,
@@ -14,10 +14,6 @@ import { Label } from "@/components/ui/label";
 import { Link as UiLink } from "@/components/ui/link";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
-  Collapsible,
-  CollapsibleContent,
-} from "@/components/ui/collapsible";
-import {
   ChatGptIcon,
   ClaudeCodeIcon,
   ClaudeIcon,
@@ -26,8 +22,6 @@ import {
   MoreHorizontalIcon,
 } from "@/components/icons";
 import {
-  ASSISTANT_OVERLAP_TITLE,
-  assistantOverlapBody,
   CHATGPT_INSTALL_AUTH_NOTE,
   CHATGPT_INSTALL_CREATE_APP,
   CHATGPT_INSTALL_DEVELOPER_MODE,
@@ -56,12 +50,9 @@ import {
 } from "@/lib/assistantHosts";
 import {
   choiceCardContentNoIndicatorClassName,
-  choiceCardFormFieldsClassName,
-  choiceCardFormShellClassName,
   choiceCardHoverClassName,
   choiceCardNoIndicatorClassName,
   choiceCardRadioHiddenClassName,
-  radioLabelWrappedDisabledClassName,
 } from "@/lib/choice-card-chrome";
 import { cn } from "@/lib/cn";
 import { DOCS_PATH } from "@/lib/constants";
@@ -315,106 +306,19 @@ function CursorInstallRecipe({
   apiToken,
   onMarkMcpInstalled,
 }: HostInstallRecipeProps) {
-  const [cursorMethod, setCursorMethod] = useState<"open" | "paste">("open");
   const cursorInstallHref = cursorMcpInstallHref(mcpUrl, apiToken);
 
   return (
-    <div className="space-y-4">
-      <RadioGroup
-        value={cursorMethod}
-        onValueChange={(value) => setCursorMethod(value as "open" | "paste")}
-        className="flex max-w-xl flex-col gap-2"
-        data-testid="build-install-cursor-method"
-        aria-label="How to add Gestalt in Cursor"
-      >
-        <div className={choiceCardFormShellClassName}>
-          <Label
-            htmlFor="build-install-open-cursor"
-            className={cn(
-              "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
-              radioLabelWrappedDisabledClassName,
-            )}
-          >
-            <RadioGroupItem
-              focusRing="none"
-              value="open"
-              id="build-install-open-cursor"
-              className={choiceCardRadioHiddenClassName}
-              aria-label="Open Cursor"
-            />
-            <div className={choiceCardContentNoIndicatorClassName}>
-              <span
-                data-choice-title
-                className="text-sm font-medium text-foreground"
-              >
-                Open Cursor
-              </span>
-              <span
-                data-choice-desc
-                className="text-sm font-normal text-muted-foreground"
-              >
-                Adds Gestalt in one click.
-              </span>
-            </div>
-          </Label>
-          <Collapsible open={cursorMethod === "open"}>
-            <CollapsibleContent
-              className={choiceCardFormFieldsClassName}
-              onPointerDown={(event) => event.stopPropagation()}
-            >
-              <Button asChild>
-                <a
-                  href={cursorInstallHref}
-                  data-testid="build-add-to-cursor"
-                  onClick={() => onMarkMcpInstalled()}
-                >
-                  Add in Cursor
-                </a>
-              </Button>
-            </CollapsibleContent>
-          </Collapsible>
-        </div>
-
-        <div className={choiceCardFormShellClassName}>
-          <Label
-            htmlFor="build-install-paste-cursor"
-            className={cn(
-              "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
-              radioLabelWrappedDisabledClassName,
-            )}
-          >
-            <RadioGroupItem
-              focusRing="none"
-              value="paste"
-              id="build-install-paste-cursor"
-              className={choiceCardRadioHiddenClassName}
-              aria-label="Paste the config yourself"
-            />
-            <div className={choiceCardContentNoIndicatorClassName}>
-              <span
-                data-choice-title
-                className="text-sm font-medium text-foreground"
-              >
-                Paste the config yourself
-              </span>
-              <span
-                data-choice-desc
-                className="text-sm font-normal text-muted-foreground"
-              >
-                Copy this into Cursor if you cannot use the button.
-              </span>
-            </div>
-          </Label>
-          <Collapsible open={cursorMethod === "paste"}>
-            <CollapsibleContent
-              className={choiceCardFormFieldsClassName}
-              onPointerDown={(event) => event.stopPropagation()}
-            >
-              <CursorMcpConfigBlock mcpUrl={mcpUrl} apiToken={apiToken} />
-            </CollapsibleContent>
-          </Collapsible>
-        </div>
-      </RadioGroup>
+    <div data-testid="build-install-cursor-recipe">
+      <Button asChild>
+        <a
+          href={cursorInstallHref}
+          data-testid="build-add-to-cursor"
+          onClick={() => onMarkMcpInstalled()}
+        >
+          Add in Cursor
+        </a>
+      </Button>
     </div>
   );
 }
@@ -560,12 +464,6 @@ export function SingleAgentMcpInstall({
           onMarkMcpInstalled={onMarkMcpInstalled}
         />
       )}
-
-      <Callout variant="info" data-testid="setup-overlap-callout">
-        <Info aria-hidden="true" />
-        <AlertTitle>{ASSISTANT_OVERLAP_TITLE}</AlertTitle>
-        <AlertDescription>{assistantOverlapBody(agent)}</AlertDescription>
-      </Callout>
 
       <p className="flex items-start gap-2 text-sm text-muted-foreground text-pretty">
         <Lightbulb className="mt-0.5 size-4 shrink-0" aria-hidden />

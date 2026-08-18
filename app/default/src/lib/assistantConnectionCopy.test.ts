@@ -6,7 +6,7 @@ import {
 } from "./assistantConnectionCopy";
 
 describe("assistantOverlapBody", () => {
-  test("names Codex native plugins only on the Codex recipe", () => {
+  test("names Codex native plugins only when Codex is the selected assistant", () => {
     expect(assistantOverlapBody("codex")).toBe(ASSISTANT_OVERLAP_CODEX);
     expect(assistantOverlapBody("codex")).toMatch(/Codex native plugins/);
   });
