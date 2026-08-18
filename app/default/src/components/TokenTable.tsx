@@ -129,6 +129,7 @@ export default function TokenTable({ tokens }: TokenTableProps) {
       <Table variant="line">
         <TableHeader>
           <TableRow>
+            <TableHead>Name</TableHead>
             <TableHead>ID</TableHead>
             <TableHead>Scopes</TableHead>
             <TableHead>Created</TableHead>
@@ -141,6 +142,13 @@ export default function TokenTable({ tokens }: TokenTableProps) {
         <TableBody>
           {tokens.map((token) => (
             <TableRow key={token.id}>
+              <TableCell>
+                {token.name?.trim() ? (
+                  token.name
+                ) : (
+                  <span className="text-muted-foreground">No name</span>
+                )}
+              </TableCell>
               <TableCell>
                 <CopyableCode value={token.id} tooltip="Copy token ID" />
               </TableCell>
@@ -190,13 +198,18 @@ export default function TokenTable({ tokens }: TokenTableProps) {
               Any apps or scripts using it will lose API access.
             </AlertDialogDescription>
             {pendingToken ? (
-              <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                Token ID:{" "}
-                <CopyableCode
-                  value={pendingToken.id}
-                  tooltip="Copy token ID"
-                />
-              </p>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                {pendingToken.name?.trim() ? (
+                  <p>Token: {pendingToken.name}</p>
+                ) : null}
+                <p className="flex flex-wrap items-center gap-2">
+                  Token ID:{" "}
+                  <CopyableCode
+                    value={pendingToken.id}
+                    tooltip="Copy token ID"
+                  />
+                </p>
+              </div>
             ) : null}
           </AlertDialogHeader>
           <AlertDialogFooter>

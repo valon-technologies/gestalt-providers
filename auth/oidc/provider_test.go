@@ -1017,6 +1017,59 @@ func TestTokenExchangeExpiresIn(t *testing.T) {
 	}
 }
 
+func TestTokenExchangeStoresGrantName(t *testing.T) {
+	p := New()
+	attachGrantStore(t, p)
+	ctx := context.Background()
+	subject := "user:named@example.com"
+
+	session, err := p.grants.issue(ctx, subject, "openid", defaultOAuthClientID, grantCategorySession, time.Hour)
+	if err != nil {
+		t.Fatalf("issue(session) error = %v", err)
+	}
+
+	tokenResp, err := p.Token(ctx, &gestalt.TokenRequest{
+		GrantType:        grantTypeTokenExchange,
+		SubjectToken:     session.accessToken,
+		SubjectTokenType: subjectTokenTypeAccessToken,
+		Name:             "Workspace assistant",
+	})
+	if err != nil {
+		t.Fatalf("Token() error = %v", err)
+	}
+	if tokenResp == nil || strings.TrimSpace(tokenResp.GrantID) == "" {
+		t.Fatal("Token() missing grant id")
+	}
+
+	grant, err := p.GetGrant(gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
+		CallerSubjectID: subject,
+	}), &gestalt.GetGrantRequest{GrantID: tokenResp.GrantID})
+	if err != nil {
+		t.Fatalf("GetGrant() error = %v", err)
+	}
+	if grant.Name != "Workspace assistant" {
+		t.Fatalf("GetGrant() name = %q, want Workspace assistant", grant.Name)
+	}
+
+	unnamed, err := p.Token(ctx, &gestalt.TokenRequest{
+		GrantType:        grantTypeTokenExchange,
+		SubjectToken:     session.accessToken,
+		SubjectTokenType: subjectTokenTypeAccessToken,
+	})
+	if err != nil {
+		t.Fatalf("Token(unnamed) error = %v", err)
+	}
+	unnamedGrant, err := p.GetGrant(gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
+		CallerSubjectID: subject,
+	}), &gestalt.GetGrantRequest{GrantID: unnamed.GrantID})
+	if err != nil {
+		t.Fatalf("GetGrant(unnamed) error = %v", err)
+	}
+	if unnamedGrant.Name != "" {
+		t.Fatalf("GetGrant(unnamed) name = %q, want empty", unnamedGrant.Name)
+	}
+}
+
 func TestIssuePersistsGrantAndTokenHashTransactionally(t *testing.T) {
 	ctx := context.Background()
 	p := New()

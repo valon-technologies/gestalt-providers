@@ -10,11 +10,13 @@ import type { APIToken } from "../src/lib/api";
 const sampleTokens: APIToken[] = [
   {
     id: "tok-1",
+    name: "CI pipeline",
     scopes: ["my-app"],
     createdAt: "2026-01-15T10:00:00Z",
   },
   {
     id: "tok-2",
+    name: "Local CLI",
     scopes: ["other-app:read"],
     createdAt: "2026-02-20T14:30:00Z",
     expiresAt: "2027-02-20T14:30:00Z",
@@ -38,6 +40,8 @@ test.describe("Token Management", () => {
     await expect(page.getByLabel("Token name")).toHaveCount(0);
     await expect(page.getByText("tok-1")).toBeVisible();
     await expect(page.getByText("tok-2")).toBeVisible();
+    await expect(page.getByText("CI pipeline")).toBeVisible();
+    await expect(page.getByText("Local CLI")).toBeVisible();
     await expect(page.getByText("my-app")).toBeVisible();
     await expect(page.getByText("other-app:read")).toBeVisible();
   });
