@@ -11,6 +11,7 @@ import {
   getDocsJourneyEdges,
   docsSubsectionLabel,
 } from "./docs-data";
+import { ASSISTANT_OVERLAP_TITLE } from "@/lib/assistantConnectionCopy";
 
 describe("docs IA invariants", () => {
   it("keeps unique hrefs and ids", () => {
@@ -77,6 +78,7 @@ describe("docs IA invariants", () => {
     // Hash-backed SegmentedControl options must not appear as TOC targets —
     // DocsOptionSwitcher intentionally omits matching DOM ids.
     expect(mcp?.subsections.map((s) => s.id)).toEqual(["mcp-overlap"]);
+    expect(mcp?.subsections[0]?.label).toBe(ASSISTANT_OVERLAP_TITLE);
     expect(mcp?.subsections.some((s) => s.id.startsWith("mcp-claude"))).toBe(
       false,
     );

@@ -52,9 +52,6 @@ export const CHATGPT_INSTALL_ENABLE =
 export const CHATGPT_INSTALL_AUTH_NOTE =
   "Gestalt signs requests with this token. If ChatGPT only offers OAuth, go back and choose Claude or another assistant that accepts a token in the Authorization header.";
 
-export const MCP_OVERLAP_HEADING =
-  "Gestalt MCP, skills, and native plugins";
-
 export const ASSISTANT_OVERLAP_TITLE = "One path per app";
 
 export const ASSISTANT_OVERLAP_SHORT =
@@ -69,3 +66,10 @@ export const CODEX_INSTALL_POSTAMBLE =
   "Restart Codex Desktop if Gestalt tools do not show up.";
 
 export const MCP_SETUP_DOCS_LINK_LABEL = "MCP setup docs";
+
+export const SETUP_TOKEN_CREATE_ITEM_TITLE = "Create a token";
+
+export const SETUP_TOKEN_CREATE_DONE =
+  "Your token is saved. Copy it on the Add Gestalt step.";
+
+export const SETUP_TOKEN_NEXT_DISABLED_TITLE = "Create a token before continuing";

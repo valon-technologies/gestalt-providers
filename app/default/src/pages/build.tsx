@@ -41,7 +41,6 @@ import { CodeBlock } from "@/components/ui/code-block";
 import { CopyableCode } from "@/components/ui/copyable-code";
 import {
   TimelineSteps,
-  TimelineStepsConnector,
   TimelineStepsContent,
   TimelineStepsDescription,
   TimelineStepsHeader,
@@ -106,7 +105,6 @@ import {
 } from "@/lib/api";
 import {
   BUILD_STEPS,
-  buildInstallAgentSelected,
   buildMcpCredentialReady,
   buildStepDescription,
   buildStepTitle,
@@ -118,12 +116,6 @@ import {
   firstIncompleteStepId,
   getExemplar,
   isBuildStepUnlocked,
-  SETUP_TOKEN_CREATE_DONE,
-  SETUP_TOKEN_CREATE_ITEM_TITLE,
-  SETUP_TOKEN_NEXT_DISABLED_TITLE,
-  SETUP_TOKEN_SELECTED_ITEM_TITLE,
-  SETUP_TOKEN_SELECTED_PENDING,
-  setupTokenSelectedReadyCopy,
   isBuildComplete,
   isBuildStepId,
   isLegacySetupConnectStepId,
@@ -140,9 +132,17 @@ import {
 } from "@/lib/buildPaths";
 import {
   CONNECT_ANOTHER_ASSISTANT_LABEL,
+  SETUP_TOKEN_CREATE_DONE,
+  SETUP_TOKEN_CREATE_ITEM_TITLE,
+  SETUP_TOKEN_NEXT_DISABLED_TITLE,
   WELCOME_ASSISTANT_EXAMPLES,
 } from "@/lib/assistantConnectionCopy";
-import { assistantHostById, type AssistantHostConsoleSkin, type BuildInstallAgentId } from "@/lib/assistantHosts";
+import {
+  assistantHostById,
+  isBuildInstallAgentId,
+  type AssistantHostConsoleSkin,
+  type BuildInstallAgentId,
+} from "@/lib/assistantHosts";
 import { cn } from "@/lib/cn";
 import { DOCS_PATH, SETUP_PATH } from "@/lib/constants";
 import {
@@ -366,7 +366,7 @@ export default function BuildStepPage() {
     ? BUILD_STEPS.find((s) => s.id === stepId)!
     : null;
   const stepTitle = currentStep
-    ? buildStepTitle(currentStep, session.selectedInstallAgent)
+    ? buildStepTitle(currentStep, session.installAgentId)
     : "Setup";
   useDocumentTitle(currentStep ? `${stepTitle} · Setup` : "Setup");
 
@@ -466,10 +466,10 @@ export default function BuildStepPage() {
           <PageHeader>
             <PageHeaderContent size="md">
               <PageHeaderTitle>
-                {buildStepTitle(currentStep, session.selectedInstallAgent)}
+                {buildStepTitle(currentStep, session.installAgentId)}
               </PageHeaderTitle>
               <PageHeaderDescription>
-                {buildStepDescription(currentStep, session.selectedInstallAgent)}
+                {buildStepDescription(currentStep, session.installAgentId)}
               </PageHeaderDescription>
             </PageHeaderContent>
           </PageHeader>
@@ -492,10 +492,8 @@ export default function BuildStepPage() {
           onApiToken={session.setApiToken}
           tokenName={session.tokenName}
           onTokenName={session.setTokenName}
-          selectedTokenId={session.selectedTokenId}
-          onSelectedTokenId={session.setSelectedTokenId}
-          selectedInstallAgent={session.selectedInstallAgent}
-          onSelectedInstallAgent={session.setSelectedInstallAgent}
+          installAgentId={session.installAgentId}
+          onInstallAgentId={session.setInstallAgentId}
           onRefreshTokens={refreshTokens}
           onMarkMcpInstalled={session.markMcpInstalled}
           onMarkWelcomeSeen={session.markWelcomeSeen}
@@ -518,7 +516,7 @@ function isStepDone(
     case "welcome":
       return true;
     case "assistant":
-      return buildInstallAgentSelected(snapshot.installAgentId);
+      return isBuildInstallAgentId(snapshot.installAgentId);
     case "token":
       return true;
     case "install":
@@ -872,10 +870,8 @@ function BuildStepPanel({
   onApiToken,
   tokenName,
   onTokenName,
-  selectedTokenId,
-  onSelectedTokenId,
-  selectedInstallAgent,
-  onSelectedInstallAgent,
+  installAgentId,
+  onInstallAgentId,
   onRefreshTokens,
   onMarkMcpInstalled,
   onMarkWelcomeSeen,
@@ -896,10 +892,8 @@ function BuildStepPanel({
   onApiToken: (token: string, grantId?: string) => void;
   tokenName: string;
   onTokenName: (name: string) => void;
-  selectedTokenId: string;
-  onSelectedTokenId: (id: string) => void;
-  selectedInstallAgent: BuildInstallAgentId | "";
-  onSelectedInstallAgent: (id: BuildInstallAgentId | "") => void;
+  installAgentId: BuildInstallAgentId | "";
+  onInstallAgentId: (id: BuildInstallAgentId | "") => void;
   onRefreshTokens: () => void | Promise<void>;
   onMarkMcpInstalled: () => void;
   onMarkWelcomeSeen: () => void;
@@ -909,9 +903,8 @@ function BuildStepPanel({
   const mcpCredentialReady = buildMcpCredentialReady({
     apiToken,
     apiTokenGrantId,
-    selectedTokenId,
   });
-  const installReady = buildInstallAgentSelected(selectedInstallAgent);
+  const installReady = isBuildInstallAgentId(installAgentId);
 
   function handleStepNext(id: BuildStepId) {
     if (step.id === "install") {
@@ -942,8 +935,8 @@ function BuildStepPanel({
 
       {step.id === "assistant" ? (
         <AssistantPickerStepActions
-          selectedAgent={selectedInstallAgent}
-          onSelectedAgent={onSelectedInstallAgent}
+          selectedAgent={installAgentId}
+          onSelectedAgent={onInstallAgentId}
         />
       ) : null}
 
@@ -953,17 +946,14 @@ function BuildStepPanel({
           apiTokenGrantId={apiTokenGrantId}
           tokenName={tokenName}
           onTokenName={onTokenName}
-          selectedTokenId={selectedTokenId}
-          onSelectedTokenId={onSelectedTokenId}
           onApiToken={onApiToken}
           onTokensChanged={onRefreshTokens}
         />
       ) : null}
 
-      {step.id === "install" &&
-      buildInstallAgentSelected(selectedInstallAgent) ? (
+      {step.id === "install" && isBuildInstallAgentId(installAgentId) ? (
         <SingleAgentMcpInstall
-          agent={selectedInstallAgent as BuildInstallAgentId}
+          agent={installAgentId}
           apiToken={apiToken}
           hasMcpCredential={mcpCredentialReady}
           onMarkMcpInstalled={onMarkMcpInstalled}
@@ -1002,7 +992,7 @@ function BuildStepPanel({
             <InvokeStepActions
               exemplar={activeExemplar}
               integrations={integrations}
-              installAgentId={selectedInstallAgent}
+              installAgentId={installAgentId}
               onMarkTrySeen={onMarkTrySeen}
             />
           </>
@@ -1012,7 +1002,7 @@ function BuildStepPanel({
       {step.id !== "welcome" ? (
         <BuildStepPager
           stepId={step.id}
-          installAgentId={selectedInstallAgent}
+          installAgentId={installAgentId}
           onGoToStep={(id) => {
             void handleStepNext(id);
           }}
@@ -1130,8 +1120,6 @@ function AuthorizeStepActions({
   onApiToken,
   tokenName,
   onTokenName,
-  selectedTokenId,
-  onSelectedTokenId,
   onTokensChanged,
 }: {
   apiToken: string;
@@ -1139,39 +1127,31 @@ function AuthorizeStepActions({
   onApiToken: (token: string, grantId?: string) => void;
   tokenName: string;
   onTokenName: (name: string) => void;
-  selectedTokenId: string;
-  onSelectedTokenId: (id: string) => void;
   onTokensChanged: () => void | Promise<void>;
 }) {
   const credentialReady = buildMcpCredentialReady({
     apiToken,
     apiTokenGrantId,
-    selectedTokenId,
   });
 
   useEffect(() => {
     if (credentialReady) return;
-    const trimmed = tokenName.trim();
-    if (!trimmed || trimmed === selectedTokenId.trim()) {
-      if (tokenName !== DEFAULT_BUILD_TOKEN_NAME) {
-        onTokenName(DEFAULT_BUILD_TOKEN_NAME);
-      }
+    if (!tokenName.trim()) {
+      onTokenName(DEFAULT_BUILD_TOKEN_NAME);
     }
-  }, [credentialReady, tokenName, selectedTokenId, onTokenName]);
+  }, [credentialReady, tokenName, onTokenName]);
 
   async function handleTokenCreated(
     plaintext: string,
     created: { id: string; name: string },
   ) {
     onApiToken(plaintext, created.id);
-    onSelectedTokenId(created.id);
     onTokenName(created.name);
     toast.success("Token created.");
     await onTokensChanged();
   }
 
   const createStatus = credentialReady ? "completed" : "current";
-  const selectedStatus = credentialReady ? "completed" : "upcoming";
 
   return (
     <TimelineSteps
@@ -1205,27 +1185,6 @@ function AuthorizeStepActions({
               fieldOrientation="horizontal"
             />
           )}
-        </TimelineStepsContent>
-        <TimelineStepsConnector
-          orientation="vertical"
-          lineState={credentialReady ? "completed" : "pending"}
-        />
-      </TimelineStepsItem>
-      <TimelineStepsItem
-        status={selectedStatus}
-        index={1}
-        data-testid="build-token-selected-item"
-      >
-        <TimelineStepsHeader>
-          <TimelineStepsIcon />
-          <TimelineStepsTitle>{SETUP_TOKEN_SELECTED_ITEM_TITLE}</TimelineStepsTitle>
-        </TimelineStepsHeader>
-        <TimelineStepsContent>
-          <TimelineStepsDescription>
-            {credentialReady
-              ? setupTokenSelectedReadyCopy(tokenName)
-              : SETUP_TOKEN_SELECTED_PENDING}
-          </TimelineStepsDescription>
         </TimelineStepsContent>
       </TimelineStepsItem>
     </TimelineSteps>

@@ -86,11 +86,6 @@ export interface BuildWorkspaceSnapshot {
   apiTokenGrantId: string;
   /** Display name for the token chosen or drafted in this Setup session. */
   tokenName: string;
-  /**
-   * Grant id for the session-minted secret, or a leftover radio sentinel from
-   * older Setup (`new` / `existing`). Empty before the first mint.
-   */
-  selectedTokenId: string;
   /** Host assistant chosen on the Assistant step. */
   installAgentId: string;
   welcomeSeen: boolean;
@@ -206,7 +201,7 @@ export const BUILD_STEPS: BuildStep[] = [
     description: ASSISTANT_PICKER_DESCRIPTION,
     ctaLabel: "Continue",
     to: `${SETUP_PATH}/assistant`,
-    isComplete: (snapshot) => buildInstallAgentSelected(snapshot.installAgentId),
+    isComplete: (snapshot) => isBuildInstallAgentId(snapshot.installAgentId),
   },
   {
     id: "token",
@@ -267,43 +262,17 @@ export const LEGACY_SETUP_CONNECT_STEP_ID = "connect";
 /** Demo name prefilled when drafting a Setup token. */
 export const DEFAULT_BUILD_TOKEN_NAME = "Gestalt";
 
-export const SETUP_TOKEN_CREATE_ITEM_TITLE = "Create a token";
-
-export const SETUP_TOKEN_SELECTED_ITEM_TITLE = "Token ready";
-
-export const SETUP_TOKEN_CREATE_DONE =
-  "Your token is saved. Copy it on the Add Gestalt step.";
-
-export const SETUP_TOKEN_SELECTED_PENDING = "Create a token first.";
-
-export const SETUP_TOKEN_NEXT_DISABLED_TITLE = "Create a token before continuing";
-
-export function setupTokenSelectedReadyCopy(name: string): string {
-  const label = name.trim();
-  if (
-    !label ||
-    label.toLowerCase() === SETUP_PRODUCT_NAME.toLowerCase()
-  ) {
-    return "Your token is ready. Continue to add Gestalt.";
-  }
-  return `${label} is ready. Continue to add Gestalt.`;
-}
-
 /**
- * Token step is done when this session holds a minted secret bound to the
- * selected grant. A filled create-token name is not enough. Listed grants
- * cannot be reused: the API never returns the secret after mint.
+ * Token step is done when this session holds a minted secret bound to a real
+ * grant. A filled create-token name is not enough. Listed grants cannot be
+ * reused: the API never returns the secret after mint.
  */
 export function buildMcpCredentialReady(
-  snapshot: Pick<
-    BuildWorkspaceSnapshot,
-    "apiToken" | "apiTokenGrantId" | "selectedTokenId"
-  >,
+  snapshot: Pick<BuildWorkspaceSnapshot, "apiToken" | "apiTokenGrantId">,
 ): boolean {
   const token = snapshot.apiToken.trim();
   const grantId = snapshot.apiTokenGrantId.trim();
-  const selected = snapshot.selectedTokenId.trim();
-  return token.length > 0 && grantId.length > 0 && grantId === selected;
+  return token.length > 0 && isSetupTokenGrantId(grantId);
 }
 
 /** True when every step before `targetId` is done. Direct URLs must honor this. */
@@ -423,19 +392,6 @@ export function catalogLoadStateFromQuery(query: {
   return "ready";
 }
 
-/**
- * Session plaintext is valid only while it is bound to the current grant
- * selection. Empty bound ids never match, so stale secrets are dropped.
- */
-export function sessionApiTokenBoundToSelection(
-  boundGrantId: string,
-  selectedId: string,
-): boolean {
-  const bound = boundGrantId.trim();
-  const selected = selectedId.trim();
-  return bound.length > 0 && bound === selected && isSetupTokenGrantId(selected);
-}
-
 /** Assemble the Setup snapshot from session + catalog/token queries. */
 export function buildWorkspaceSnapshotFromSession(
   session: {
@@ -444,8 +400,7 @@ export function buildWorkspaceSnapshotFromSession(
     apiToken: string;
     apiTokenGrantId: string;
     tokenName: string;
-    selectedTokenId: string;
-    selectedInstallAgent: string;
+    installAgentId: string;
     welcomeSeen: boolean;
     trySeen: boolean;
   },
@@ -462,8 +417,7 @@ export function buildWorkspaceSnapshotFromSession(
     apiToken: session.apiToken,
     apiTokenGrantId: session.apiTokenGrantId,
     tokenName: session.tokenName,
-    selectedTokenId: session.selectedTokenId,
-    installAgentId: session.selectedInstallAgent,
+    installAgentId: session.installAgentId,
     welcomeSeen: session.welcomeSeen,
     trySeen: session.trySeen,
   };
@@ -572,6 +526,7 @@ export const BUILD_API_TOKEN_STORAGE_KEY = "gestalt.build.apiToken";
 export const BUILD_API_TOKEN_GRANT_ID_STORAGE_KEY =
   "gestalt.build.apiTokenGrantId";
 export const BUILD_TOKEN_NAME_STORAGE_KEY = "gestalt.build.tokenName";
+/** Leftover v1 radio selection; readers copy a real grant into apiTokenGrantId. */
 export const BUILD_SELECTED_TOKEN_ID_STORAGE_KEY =
   "gestalt.build.selectedTokenId";
 export const BUILD_INSTALL_AGENT_STORAGE_KEY = "gestalt.build.installAgent.v2";
@@ -579,10 +534,6 @@ const LEGACY_BUILD_INSTALL_AGENT_STORAGE_KEY = "gestalt.build.installAgent";
 export const SETUP_SKIPPED_STORAGE_KEY = "gestalt.setup.skipped";
 export const SETUP_RESUME_BANNER_DISMISSED_KEY =
   "gestalt.setup.resumeBannerDismissed";
-
-export function buildInstallAgentSelected(installAgentId: string): boolean {
-  return isBuildInstallAgentId(installAgentId);
-}
 
 export function buildInstallStepTitle(installAgentId: string): string {
   const host = assistantHostById(installAgentId);
@@ -777,9 +728,19 @@ export function writeStoredApiToken(token: string): void {
 export function readStoredApiTokenGrantId(): string {
   if (typeof window === "undefined") return "";
   try {
-    return (
-      window.sessionStorage.getItem(BUILD_API_TOKEN_GRANT_ID_STORAGE_KEY) ?? ""
-    );
+    const grant =
+      window.sessionStorage.getItem(BUILD_API_TOKEN_GRANT_ID_STORAGE_KEY) ?? "";
+    if (isSetupTokenGrantId(grant)) {
+      window.sessionStorage.removeItem(BUILD_SELECTED_TOKEN_ID_STORAGE_KEY);
+      return grant;
+    }
+    const selected =
+      window.sessionStorage.getItem(BUILD_SELECTED_TOKEN_ID_STORAGE_KEY) ?? "";
+    if (isSetupTokenGrantId(selected)) {
+      writeStoredApiTokenGrantId(selected);
+      return selected;
+    }
+    return "";
   } catch {
     return "";
   }
@@ -788,6 +749,7 @@ export function readStoredApiTokenGrantId(): string {
 export function writeStoredApiTokenGrantId(grantId: string): void {
   if (typeof window === "undefined") return;
   try {
+    window.sessionStorage.removeItem(BUILD_SELECTED_TOKEN_ID_STORAGE_KEY);
     if (grantId) {
       window.sessionStorage.setItem(
         BUILD_API_TOKEN_GRANT_ID_STORAGE_KEY,
@@ -816,30 +778,6 @@ export function writeStoredTokenName(name: string): void {
   if (typeof window === "undefined") return;
   try {
     window.sessionStorage.setItem(BUILD_TOKEN_NAME_STORAGE_KEY, name);
-  } catch {
-    /* ignore */
-  }
-}
-
-export function readStoredSelectedTokenId(): string {
-  if (typeof window === "undefined") return "";
-  try {
-    return (
-      window.sessionStorage.getItem(BUILD_SELECTED_TOKEN_ID_STORAGE_KEY) ?? ""
-    );
-  } catch {
-    return "";
-  }
-}
-
-export function writeStoredSelectedTokenId(id: string): void {
-  if (typeof window === "undefined") return;
-  try {
-    if (id) {
-      window.sessionStorage.setItem(BUILD_SELECTED_TOKEN_ID_STORAGE_KEY, id);
-    } else {
-      window.sessionStorage.removeItem(BUILD_SELECTED_TOKEN_ID_STORAGE_KEY);
-    }
   } catch {
     /* ignore */
   }

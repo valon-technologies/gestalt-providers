@@ -30,6 +30,7 @@ import { CONNECTION_RETURN_PATH_STORAGE_KEY } from "@/lib/constants";
 import { sanitizeAuthReturnPath } from "@/lib/authReturn";
 import { appPath } from "@/lib/mount";
 import { CONNECTION_CONNECTED_LABEL } from "@/features/app-workspace/connection-surface-copy";
+import { Callout } from "@/components/Callout";
 import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
 import PluginSearchBar from "@/components/PluginSearchBar";
@@ -317,17 +318,7 @@ export default function AppsCatalogPageClient() {
   const setupSnapshot = useMemo(
     () =>
       buildWorkspaceSnapshotFromSession(
-        {
-          activeExemplarId: session.activeExemplarId,
-          mcpInstalledAgents: session.mcpInstalledAgents,
-          apiToken: session.apiToken,
-          apiTokenGrantId: session.apiTokenGrantId,
-          tokenName: session.tokenName,
-          selectedTokenId: session.selectedTokenId,
-          selectedInstallAgent: session.selectedInstallAgent,
-          welcomeSeen: session.welcomeSeen,
-          trySeen: session.trySeen,
-        },
+        session,
         integrations,
         tokens,
         catalogLoadState,
@@ -341,8 +332,7 @@ export default function AppsCatalogPageClient() {
       session.apiToken,
       session.apiTokenGrantId,
       session.tokenName,
-      session.selectedTokenId,
-      session.selectedInstallAgent,
+      session.installAgentId,
       session.welcomeSeen,
       session.trySeen,
     ],
@@ -540,7 +530,7 @@ export default function AppsCatalogPageClient() {
         showResumeBanner ? (
           <div className="mb-6 space-y-3">
             {showResumeBanner ? (
-              <Alert variant="info" data-testid="setup-resume-banner">
+              <Callout variant="info" data-testid="setup-resume-banner">
                 <AlertTitle>Finish setup</AlertTitle>
                 <AlertDescription>
                   Pick up where you left off. Choose your assistant and finish
@@ -563,14 +553,12 @@ export default function AppsCatalogPageClient() {
                     <CloseIcon className="size-4" />
                   </UiButton>
                 </AlertActions>
-              </Alert>
+              </Callout>
             ) : null}
 
             {connectedSuccessLabel ? (
               <Alert
                 variant="success"
-                layout="banner"
-                live
                 data-testid="apps-connected-toast"
               >
                 <CheckCircleIcon aria-hidden />

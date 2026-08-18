@@ -262,7 +262,7 @@ test.describe("Docs page", () => {
     ).toBeVisible();
     await expect(
       page.getByRole("heading", {
-        name: "Gestalt MCP, skills, and native plugins",
+        name: "One path per app",
       }),
     ).toBeVisible();
     await expect(page.locator("article")).toContainText(

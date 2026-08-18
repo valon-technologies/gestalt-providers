@@ -17,12 +17,10 @@ import {
   isSetupTokenGrantId,
   isWorkspaceWarm,
   mcpInstalledForAgent,
-  sessionApiTokenBoundToSelection,
   setupAppsConnected,
   setupAppsHasConnectable,
   setupAppsStepComplete,
   setupDataSourceIntegrations,
-  setupTokenSelectedReadyCopy,
   type BuildWorkspaceSnapshot,
 } from "@/lib/buildPaths";
 
@@ -161,7 +159,6 @@ function completeSnapshot(
     apiToken: "gst_x",
     apiTokenGrantId: "tok_1",
     tokenName: "Workspace assistant",
-    selectedTokenId: "tok_1",
     installAgentId: "cursor",
     welcomeSeen: true,
     trySeen: true,
@@ -212,7 +209,6 @@ describe("isBuildComplete", () => {
     expect(
       isBuildComplete(
         completeSnapshot({
-          selectedTokenId: "",
           apiToken: "",
           apiTokenGrantId: "",
         }),
@@ -258,7 +254,6 @@ describe("firstIncompleteStepId", () => {
       firstIncompleteStepId(
         completeSnapshot({
           installAgentId: "",
-          selectedTokenId: "",
           apiToken: "",
           apiTokenGrantId: "",
           mcpInstalledAgents: [],
@@ -271,7 +266,6 @@ describe("firstIncompleteStepId", () => {
     expect(
       firstIncompleteStepId(
         completeSnapshot({
-          selectedTokenId: "",
           apiToken: "",
           apiTokenGrantId: "",
           mcpInstalledAgents: [],
@@ -432,48 +426,41 @@ describe("buildMcpCredentialReady", () => {
       buildMcpCredentialReady({
         apiToken: "",
         apiTokenGrantId: "",
-        selectedTokenId: "new",
       }),
     ).toBe(false);
   });
 
-  test("a minted secret bound to the new grant is enough", () => {
+  test("a minted secret bound to a real grant is enough", () => {
     expect(
       buildMcpCredentialReady({
         apiToken: "gst_x",
         apiTokenGrantId: "tok_new",
-        selectedTokenId: "tok_new",
       }),
     ).toBe(true);
+  });
+
+  test("a leftover radio sentinel is not a grant", () => {
+    expect(
+      buildMcpCredentialReady({
+        apiToken: "gst_x",
+        apiTokenGrantId: BUILD_CREATE_NEW_TOKEN_ID,
+      }),
+    ).toBe(false);
   });
 
   test("picking a listed token is not enough without a session secret", () => {
     expect(
       buildMcpCredentialReady({
         apiToken: "",
-        apiTokenGrantId: "",
-        selectedTokenId: "tok_1",
+        apiTokenGrantId: "tok_1",
       }),
     ).toBe(false);
-  });
-
-  test("selected-step copy names the minted token", () => {
-    expect(setupTokenSelectedReadyCopy("ci-pipeline")).toBe(
-      "ci-pipeline is ready. Continue to add Gestalt.",
-    );
-    expect(setupTokenSelectedReadyCopy("  ")).toBe(
-      "Your token is ready. Continue to add Gestalt.",
-    );
-    expect(setupTokenSelectedReadyCopy("Gestalt")).toBe(
-      "Your token is ready. Continue to add Gestalt.",
-    );
   });
 });
 
 describe("isBuildStepUnlocked", () => {
   test("lets people open a step only after earlier steps are done", () => {
     const missingToken = completeSnapshot({
-      selectedTokenId: "",
       apiToken: "",
       apiTokenGrantId: "",
       mcpInstalledAgents: [],
@@ -485,20 +472,6 @@ describe("isBuildStepUnlocked", () => {
     expect(isBuildStepUnlocked("token", isDone)).toBe(true);
     expect(isBuildStepUnlocked("install", isDone)).toBe(false);
     expect(isBuildStepUnlocked("apps", isDone)).toBe(false);
-  });
-});
-
-describe("sessionApiTokenBoundToSelection", () => {
-  test("keeps plaintext only when it is bound to the selected grant", () => {
-    expect(sessionApiTokenBoundToSelection("tok_1", "tok_1")).toBe(true);
-    expect(sessionApiTokenBoundToSelection("tok_1", "tok_2")).toBe(false);
-    expect(sessionApiTokenBoundToSelection("tok_1", "new")).toBe(false);
-  });
-
-  test("never treats an unbound secret as matching a selection", () => {
-    expect(sessionApiTokenBoundToSelection("", "tok_1")).toBe(false);
-    expect(sessionApiTokenBoundToSelection("", "new")).toBe(false);
-    expect(sessionApiTokenBoundToSelection("  ", "  ")).toBe(false);
   });
 });
 

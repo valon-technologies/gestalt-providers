@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { Info } from "lucide-react";
 
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Callout } from "@/components/Callout";
+import { AlertDescription } from "@/components/ui/alert";
 import { CopyableCode } from "@/components/ui/copyable-code";
 
 /**
@@ -27,12 +28,10 @@ export function TokenPlaintextReveal({
             tooltip="Copy token"
           />
         </div>
-        <Alert live={false}>
+        <Callout>
           <Info aria-hidden />
-          <AlertDescription className="font-normal">
-            {description}
-          </AlertDescription>
-        </Alert>
+          <AlertDescription>{description}</AlertDescription>
+        </Callout>
       </div>
       {actions}
     </div>

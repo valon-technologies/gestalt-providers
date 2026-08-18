@@ -618,8 +618,9 @@ export type SetupSessionSeed = {
   apiToken?: string;
   apiTokenGrantId?: string;
   /**
-   * Bind plaintext to `selectedTokenId`. Defaults to true when a grant id is
-   * set, so resume fixtures satisfy the token-step credential contract.
+   * Bind plaintext to the grant id. Defaults to true when a grant id is set,
+   * so resume fixtures satisfy the token-step credential contract.
+   * `selectedTokenId` is an alias for `apiTokenGrantId`.
    */
   bindCredential?: boolean;
   mcpInstalled?: boolean;
@@ -640,18 +641,10 @@ export async function seedSetupSession(page: Page, seed: SetupSessionSeed) {
       if (s.installAgent) {
         sessionStorage.setItem("gestalt.build.installAgent.v2", s.installAgent);
       }
-      if (s.selectedTokenId) {
-        sessionStorage.setItem(
-          "gestalt.build.selectedTokenId",
-          s.selectedTokenId,
-        );
-      }
-      const bind = s.bindCredential ?? Boolean(s.selectedTokenId);
-      if (bind && s.selectedTokenId) {
-        sessionStorage.setItem(
-          "gestalt.build.apiTokenGrantId",
-          s.apiTokenGrantId ?? s.selectedTokenId,
-        );
+      const grantId = s.apiTokenGrantId ?? s.selectedTokenId;
+      const bind = s.bindCredential ?? Boolean(grantId);
+      if (bind && grantId) {
+        sessionStorage.setItem("gestalt.build.apiTokenGrantId", grantId);
         sessionStorage.setItem(
           "gestalt.build.apiToken",
           s.apiToken ?? s.defaultToken,

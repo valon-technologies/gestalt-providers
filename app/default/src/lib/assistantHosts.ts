@@ -5,13 +5,15 @@
  * Session storage v1 used `claude` for Claude Code; readers migrate that.
  */
 
-export type BuildInstallAgentId =
+export type AssistantHostId =
   | "claude"
   | "chatgpt"
   | "cursor"
   | "claude-code"
   | "codex"
   | "other";
+
+export type BuildInstallAgentId = AssistantHostId;
 
 export type AssistantHostGroupId = "chat" | "coding" | "other";
 
@@ -34,7 +36,7 @@ export type McpDocsHash =
   | "mcp-other";
 
 export type AssistantHost = {
-  id: BuildInstallAgentId;
+  id: AssistantHostId;
   label: string;
   group: AssistantHostGroupId;
   docsHash: McpDocsHash;
@@ -148,10 +150,6 @@ export function assistantHostsInGroup(
   group: AssistantHostGroupId,
 ): readonly AssistantHost[] {
   return ASSISTANT_HOSTS.filter((host) => host.group === group);
-}
-
-export function assistantHostDocsHash(id: string): McpDocsHash {
-  return assistantHostById(id)?.docsHash ?? "mcp-other";
 }
 
 export const MCP_CLIENT_TABS: ReadonlyArray<{

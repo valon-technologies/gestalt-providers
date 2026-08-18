@@ -1,4 +1,4 @@
-import { MCP_DOCS_TITLE, MCP_OVERLAP_HEADING } from "@/lib/assistantConnectionCopy";
+import { MCP_DOCS_TITLE, ASSISTANT_OVERLAP_TITLE } from "@/lib/assistantConnectionCopy";
 import { DOCS_PATH } from "@/lib/constants";
 import { SETTINGS_TOKENS_PATH } from "@/lib/managed-identity-paths";
 
@@ -110,7 +110,7 @@ export const docsNavItems: DocsNavItem[] = [
     subsections: [
       {
         id: "mcp-overlap",
-        label: MCP_OVERLAP_HEADING,
+        label: ASSISTANT_OVERLAP_TITLE,
       },
     ],
   },

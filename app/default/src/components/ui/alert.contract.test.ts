@@ -24,16 +24,15 @@ describe("Alert", () => {
     expect(SOURCE).toContain("animateSize");
   });
 
-  test("live is independent of layout and defaults from layout plus variant", () => {
-    expect(SOURCE).toContain("live: liveProp");
+  test("live region follows layout plus variant, same as Registry", () => {
     expect(SOURCE).toContain(
-      'liveProp ?? (resolvedLayout === "default" && variant !== "outline")',
-    );
-    expect(SOURCE).toContain('role={resolvedLive ? "alert" : undefined}');
-    expect(SOURCE).toContain('Omit<React.ComponentProps<"div">, "role">');
-    expect(SOURCE).not.toContain(
       'const live = resolvedLayout === "default" && variant !== "outline"',
     );
+    expect(SOURCE).toContain('role={live ? "alert" : undefined}');
+    expect(SOURCE).toContain('Omit<React.ComponentProps<"div">, "role">');
+    expect(SOURCE).not.toContain("live: liveProp");
+    expect(SOURCE).not.toContain("live?: boolean");
+    expect(SOURCE).not.toContain("function AlertIcon");
   });
 
   test("default and banner baseline first-line copy when AlertActions are present", () => {
@@ -87,9 +86,6 @@ describe("Alert", () => {
   });
 
   test("default callout stacks icon with title then a type-scale body gap", () => {
-    expect(SOURCE).toContain("function AlertIcon");
-    expect(SOURCE).toContain('data-slot="alert-icon"');
-    expect(SOURCE).toContain('aria-hidden="true"');
     expect(SOURCE).toContain(
       '"w-full has-[[data-slot=alert-title]]:has-[[data-slot=alert-description]]:grid-rows-[auto_auto] has-[[data-slot=alert-title]]:has-[[data-slot=alert-description]]:items-start"',
     );

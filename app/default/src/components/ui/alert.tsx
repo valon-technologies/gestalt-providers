@@ -32,8 +32,7 @@ import { cn } from "@/lib/cn";
 // Alert no longer ships a full `border` box on status washes.
 //
 // Composition (agents / call sites — keep the parts as direct children):
-// - Optional leading icon → `AlertIcon` or a direct `>svg` child. AlertIcon is
-//   decorative and hidden from assistive technology.
+// - Optional leading icon → a direct `>svg` child (decorative; `aria-hidden`).
 // - Sole primary message → `AlertTitle` (or Description alone).
 // - Default layout is the stacked callout: icon rail + copy column. Title sits
 //   beside the icon; Description stays in that same copy column under the title.
@@ -50,7 +49,9 @@ import { cn } from "@/lib/cn";
 //   Collapsible + alertVariants unless you need a non-Alert root). Quiet CLI tips
 //   use `variant="outline"` (+ optional `animateSize`); status recovery uses a wash.
 //
-// `layout` is geometry only. It does not own the live region.
+// `layout` is geometry only. Live region follows layout + variant, same as Registry:
+// default (except outline) is `role="alert"`; banner, chrome, and outline are not.
+// Persistent in-page guidance is `Callout` in `src/components/`, not a silenced Alert.
 // - `default` — stacked callout grid (icon | copy | actions). Title and
 //   Description share column 2; Description stacks under Title.
 // - `banner` — a WRAPPING control bar: CSS grid keeps Title + Description in a
@@ -59,11 +60,6 @@ import { cn } from "@/lib/cn";
 //   Description, where it would wrap under the icon.
 // - `chrome` — wash/chrome + radius only. Used automatically when `collapsible` is set; also
 //   available via `alertVariants` for rare non-Alert Collapsible roots.
-//
-// `live` owns `role="alert"`. Omit to follow the default: true for a
-// default-layout variant except outline, false for banner, chrome, and outline.
-// Persistent in-page guidance uses default layout with `live={false}`. Do not pick
-// `layout="banner"` just to turn the live region off.
 const alertVariantClasses = {
   default: "bg-muted",
   // Quiet Card chrome — optional tip / CLI help (no status wash).
@@ -141,13 +137,6 @@ type AlertVariantProps = VariantProps<typeof alertVariants>;
 type AlertStaticProps = AlertVariantProps &
   Omit<React.ComponentProps<"div">, "role"> & {
     collapsible?: false;
-    /**
-     * Assertive live region (`role="alert"`). Omit to follow the default: true
-     * for a default-layout variant except outline, false for banner, chrome, and outline.
-     * Set false for persistent stacked chrome. Do not pick `layout="banner"`
-     * just to turn this off.
-     */
-    live?: boolean;
   };
 
 type AlertCollapsibleProps = AlertVariantProps &
@@ -194,13 +183,11 @@ function Alert(props: AlertProps) {
     variant,
     layout,
     collapsible: _collapsible,
-    live: liveProp,
     children,
     ...divProps
   } = props;
   const resolvedLayout = layout ?? "default";
-  const resolvedLive =
-    liveProp ?? (resolvedLayout === "default" && variant !== "outline");
+  const live = resolvedLayout === "default" && variant !== "outline";
   return (
     <div
       data-slot="alert"
@@ -208,7 +195,7 @@ function Alert(props: AlertProps) {
       data-variant={variant ?? "default"}
       className={cn(alertSurfaceVariants({ variant }), className)}
       {...divProps}
-      role={resolvedLive ? "alert" : undefined}
+      role={live ? "alert" : undefined}
     >
       <div
         data-slot="alert-content"
@@ -219,20 +206,6 @@ function Alert(props: AlertProps) {
         </div>
       </div>
     </div>
-  );
-}
-
-function AlertIcon({ className, ...props }: Omit<React.ComponentProps<"div">, "aria-hidden">) {
-  return (
-    <div
-      data-slot="alert-icon"
-      className={cn(
-        "flex size-4 shrink-0 items-center justify-center text-base leading-none [&>svg]:size-4",
-        className,
-      )}
-      {...props}
-      aria-hidden="true"
-    />
   );
 }
 
@@ -372,11 +345,12 @@ function AlertCollapsibleContent({
 
 export {
   Alert,
-  AlertIcon,
   AlertTitle,
   AlertDescription,
   AlertActions,
   AlertTrigger,
   AlertCollapsibleContent,
   alertVariants,
+  alertSurfaceVariants,
+  alertLayoutVariants,
 };

@@ -9,10 +9,11 @@ const SOURCE = readFileSync(
 );
 
 describe("DocsAudienceCallout", () => {
-  test("keeps stacked layout and turns the live region off", () => {
-    expect(SOURCE).toContain('<Alert variant="info" live={false}>');
-    expect(SOURCE).not.toMatch(/<Alert[^>]*layout="banner"/);
-    expect(SOURCE).toContain("<AlertIcon>");
+  test("uses Callout for stacked standing help, not a live Alert", () => {
+    expect(SOURCE).toContain('<Callout variant="info">');
+    expect(SOURCE).not.toMatch(/<Alert[\s>/]/);
+    expect(SOURCE).not.toContain("live={false}");
+    expect(SOURCE).not.toContain("AlertIcon");
     expect(SOURCE).toContain("<AlertTitle>For admins</AlertTitle>");
   });
 });

@@ -7,17 +7,14 @@ import {
   readTrySeenFlag,
   readStoredApiToken,
   readStoredApiTokenGrantId,
-  readStoredSelectedTokenId,
   readStoredTokenName,
   readStoredInstallAgent,
-  sessionApiTokenBoundToSelection,
   writeActiveExemplarId,
   writeIntroSeenFlag,
   writeMcpInstalledAgents,
   writeTrySeenFlag,
   writeStoredApiToken,
   writeStoredApiTokenGrantId,
-  writeStoredSelectedTokenId,
   writeStoredTokenName,
   writeStoredInstallAgent,
   type BuildExemplarId,
@@ -30,10 +27,8 @@ export type BuildSession = {
   setApiToken: (token: string, grantId?: string) => void;
   tokenName: string;
   setTokenName: (name: string) => void;
-  selectedTokenId: string;
-  setSelectedTokenId: (id: string) => void;
-  selectedInstallAgent: BuildInstallAgentId | "";
-  setSelectedInstallAgent: (id: BuildInstallAgentId | "") => void;
+  installAgentId: BuildInstallAgentId | "";
+  setInstallAgentId: (id: BuildInstallAgentId | "") => void;
   mcpInstalledAgents: readonly BuildInstallAgentId[];
   markMcpInstalled: () => void;
   activeExemplarId: BuildExemplarId;
@@ -51,10 +46,7 @@ export function useBuildSession(): BuildSession {
     readStoredApiTokenGrantId,
   );
   const [tokenName, setTokenNameState] = useState(readStoredTokenName);
-  const [selectedTokenId, setSelectedTokenIdState] = useState(
-    readStoredSelectedTokenId,
-  );
-  const [selectedInstallAgent, setSelectedInstallAgentState] = useState<
+  const [installAgentId, setInstallAgentIdState] = useState<
     BuildInstallAgentId | ""
   >(readStoredInstallAgent);
   const [mcpInstalledAgents, setMcpInstalledAgents] = useState(
@@ -78,42 +70,23 @@ export function useBuildSession(): BuildSession {
     setApiTokenState(trimmed);
   }, []);
 
-  const clearApiTokenUnlessGrant = useCallback((grantId: string) => {
-    if (sessionApiTokenBoundToSelection(readStoredApiTokenGrantId(), grantId)) {
-      return;
-    }
-    if (!readStoredApiToken() && !readStoredApiTokenGrantId()) {
-      return;
-    }
-    writeStoredApiToken("");
-    writeStoredApiTokenGrantId("");
-    setApiTokenState("");
-    setApiTokenGrantIdState("");
-  }, []);
-
   const setTokenName = useCallback((name: string) => {
     writeStoredTokenName(name);
     setTokenNameState(name);
   }, []);
 
-  const setSelectedTokenId = useCallback((id: string) => {
-    clearApiTokenUnlessGrant(id);
-    writeStoredSelectedTokenId(id);
-    setSelectedTokenIdState(id);
-  }, [clearApiTokenUnlessGrant]);
-
-  const setSelectedInstallAgent = useCallback((id: BuildInstallAgentId | "") => {
+  const setInstallAgentId = useCallback((id: BuildInstallAgentId | "") => {
     writeStoredInstallAgent(id);
-    setSelectedInstallAgentState(id);
+    setInstallAgentIdState(id);
   }, []);
 
   const markMcpInstalled = useCallback(() => {
     setMcpInstalledAgents((current) => {
-      const next = addMcpInstalledAgent(current, selectedInstallAgent);
+      const next = addMcpInstalledAgent(current, installAgentId);
       writeMcpInstalledAgents(next);
       return next;
     });
-  }, [selectedInstallAgent]);
+  }, [installAgentId]);
 
   const setActiveExemplarId = useCallback((id: BuildExemplarId) => {
     writeActiveExemplarId(id);
@@ -136,10 +109,8 @@ export function useBuildSession(): BuildSession {
     setApiToken,
     tokenName,
     setTokenName,
-    selectedTokenId,
-    setSelectedTokenId,
-    selectedInstallAgent,
-    setSelectedInstallAgent,
+    installAgentId,
+    setInstallAgentId,
     mcpInstalledAgents,
     markMcpInstalled,
     activeExemplarId,

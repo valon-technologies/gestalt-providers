@@ -1,11 +1,10 @@
-import { useState, type ReactNode } from "react";
+import { useState, type ComponentType, type ReactNode } from "react";
 import { Info, Lightbulb } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import { Callout } from "@/components/Callout";
 import {
-  Alert,
   AlertActions,
   AlertDescription,
-  AlertIcon,
   AlertTitle,
 } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -48,7 +47,7 @@ import {
 } from "@/lib/assistantConnectionCopy";
 import {
   ASSISTANT_HOST_GROUPS,
-  assistantHostDocsHash,
+  assistantHostById,
   assistantHostsInGroup,
   type AssistantHost,
   type BuildInstallAgentId,
@@ -186,9 +185,9 @@ export function AssistantPickerStepActions({
   );
 }
 
-function CreateTokenFirstAlert() {
+function CreateTokenFirstCallout() {
   return (
-    <Alert variant="info" live={false} data-testid="build-install-token-needed">
+    <Callout variant="info" data-testid="build-install-token-needed">
       <AlertTitle>Create a token first</AlertTitle>
       <AlertDescription>
         We can only add Gestalt with a token created in this session. Existing
@@ -201,7 +200,7 @@ function CreateTokenFirstAlert() {
           </Link>
         </Button>
       </AlertActions>
-    </Alert>
+    </Callout>
   );
 }
 
@@ -308,23 +307,19 @@ function ChatGptConnectorRecipe({
   );
 }
 
-export function SingleAgentMcpInstall({
-  agent,
-  apiToken,
-  hasMcpCredential,
-  onMarkMcpInstalled,
-}: {
-  agent: BuildInstallAgentId;
+type HostInstallRecipeProps = {
+  mcpUrl: string;
   apiToken: string;
-  hasMcpCredential: boolean;
   onMarkMcpInstalled: () => void;
-}) {
-  const mcpBase = resolveGestaltPublicOrigin();
-  const mcpUrl = `${mcpBase}/mcp`;
-  const bearerValue = `Bearer ${apiToken}`;
-  const cursorInstallHref = cursorMcpInstallHref(mcpUrl, apiToken);
-  const [cursorMethod, setCursorMethod] = useState<"open" | "paste">("open");
+};
 
+function CursorInstallRecipe({
+  mcpUrl,
+  apiToken,
+  onMarkMcpInstalled,
+}: HostInstallRecipeProps) {
+  const [cursorMethod, setCursorMethod] = useState<"open" | "paste">("open");
+  const cursorInstallHref = cursorMcpInstallHref(mcpUrl, apiToken);
   const cursorConfig = `{
   "mcpServers": {
     "gestalt": {
@@ -336,182 +331,217 @@ export function SingleAgentMcpInstall({
   }
 }`;
 
+  return (
+    <div className="space-y-4">
+      <RadioGroup
+        value={cursorMethod}
+        onValueChange={(value) => setCursorMethod(value as "open" | "paste")}
+        className="flex max-w-xl flex-col gap-2"
+        data-testid="build-install-cursor-method"
+        aria-label="How to add Gestalt in Cursor"
+      >
+        <div className={choiceCardFormShellClassName}>
+          <Label
+            htmlFor="build-install-open-cursor"
+            className={cn(
+              "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
+              radioLabelWrappedDisabledClassName,
+            )}
+          >
+            <RadioGroupItem
+              focusRing="none"
+              value="open"
+              id="build-install-open-cursor"
+              className={choiceCardRadioHiddenClassName}
+              aria-label="Open Cursor"
+            />
+            <div className={choiceCardContentNoIndicatorClassName}>
+              <span
+                data-choice-title
+                className="text-sm font-medium text-foreground"
+              >
+                Open Cursor
+              </span>
+              <span
+                data-choice-desc
+                className="text-sm font-normal text-muted-foreground"
+              >
+                Adds Gestalt in one click.
+              </span>
+            </div>
+          </Label>
+          <Collapsible open={cursorMethod === "open"}>
+            <CollapsibleContent
+              className={choiceCardFormFieldsClassName}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <Button asChild>
+                <a
+                  href={cursorInstallHref}
+                  data-testid="build-add-to-cursor"
+                  onClick={() => onMarkMcpInstalled()}
+                >
+                  Add in Cursor
+                </a>
+              </Button>
+            </CollapsibleContent>
+          </Collapsible>
+        </div>
+
+        <div className={choiceCardFormShellClassName}>
+          <Label
+            htmlFor="build-install-paste-cursor"
+            className={cn(
+              "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
+              radioLabelWrappedDisabledClassName,
+            )}
+          >
+            <RadioGroupItem
+              focusRing="none"
+              value="paste"
+              id="build-install-paste-cursor"
+              className={choiceCardRadioHiddenClassName}
+              aria-label="Paste the config yourself"
+            />
+            <div className={choiceCardContentNoIndicatorClassName}>
+              <span
+                data-choice-title
+                className="text-sm font-medium text-foreground"
+              >
+                Paste the config yourself
+              </span>
+              <span
+                data-choice-desc
+                className="text-sm font-normal text-muted-foreground"
+              >
+                Copy this into Cursor if you cannot use the button.
+              </span>
+            </div>
+          </Label>
+          <Collapsible open={cursorMethod === "paste"}>
+            <CollapsibleContent
+              className={choiceCardFormFieldsClassName}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <CodeBlock
+                variant="outline"
+                code={cursorConfig}
+                language="json"
+                filename=".cursor/mcp.json"
+              />
+            </CollapsibleContent>
+          </Collapsible>
+        </div>
+      </RadioGroup>
+    </div>
+  );
+}
+
+function ClaudeInstallRecipe({ mcpUrl, apiToken }: HostInstallRecipeProps) {
+  return (
+    <ClaudeConnectorRecipe
+      mcpUrl={mcpUrl}
+      bearerValue={`Bearer ${apiToken}`}
+    />
+  );
+}
+
+function ChatGptInstallRecipe({ mcpUrl, apiToken }: HostInstallRecipeProps) {
+  return <ChatGptConnectorRecipe mcpUrl={mcpUrl} tokenValue={apiToken} />;
+}
+
+function ClaudeCodeInstallRecipe({
+  mcpUrl,
+  apiToken,
+}: HostInstallRecipeProps) {
   const claudeCodeCommand = `claude mcp add --transport http --scope project \\
   --header "Authorization: Bearer ${apiToken}" \\
   gestalt "${mcpUrl}"`;
+  return (
+    <div data-testid="build-install-claude-code-snippet">
+      <CodeBlock
+        variant="outline"
+        chrome="inset"
+        code={claudeCodeCommand}
+        language="bash"
+      />
+    </div>
+  );
+}
 
+function CodexInstallRecipe({ mcpUrl, apiToken }: HostInstallRecipeProps) {
   const codexCommand = `export GESTALT_API_KEY=${apiToken}
 codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
+  return (
+    <div className="space-y-4" data-testid="build-install-codex-snippet">
+      <p className="text-sm text-muted-foreground text-pretty">
+        {CODEX_INSTALL_PREAMBLE}
+      </p>
+      <CodeBlock
+        variant="outline"
+        chrome="inset"
+        code={codexCommand}
+        language="bash"
+      />
+      <p className="text-sm text-muted-foreground text-pretty">
+        {CODEX_INSTALL_POSTAMBLE}
+      </p>
+    </div>
+  );
+}
 
-  const mcpDocsHash = assistantHostDocsHash(agent);
+function OtherInstallRecipe({ mcpUrl }: HostInstallRecipeProps) {
+  return (
+    <div className="space-y-2">
+      <CopyableCode value={mcpUrl} tooltip="Copy connection URL" />
+    </div>
+  );
+}
+
+export const HOST_INSTALL_RECIPES: Record<
+  BuildInstallAgentId,
+  ComponentType<HostInstallRecipeProps>
+> = {
+  cursor: CursorInstallRecipe,
+  claude: ClaudeInstallRecipe,
+  chatgpt: ChatGptInstallRecipe,
+  "claude-code": ClaudeCodeInstallRecipe,
+  codex: CodexInstallRecipe,
+  other: OtherInstallRecipe,
+};
+
+export function SingleAgentMcpInstall({
+  agent,
+  apiToken,
+  hasMcpCredential,
+  onMarkMcpInstalled,
+}: {
+  agent: BuildInstallAgentId;
+  apiToken: string;
+  hasMcpCredential: boolean;
+  onMarkMcpInstalled: () => void;
+}) {
+  const mcpUrl = `${resolveGestaltPublicOrigin()}/mcp`;
+  const Recipe = HOST_INSTALL_RECIPES[agent];
+  const mcpDocsHash = assistantHostById(agent)?.docsHash ?? "mcp-other";
 
   return (
     <div className="w-full space-y-4" data-testid="build-mcp-install-single">
-      {!hasMcpCredential ? <CreateTokenFirstAlert /> : null}
-
-      {hasMcpCredential && agent === "cursor" ? (
-        <div className="space-y-4">
-          <RadioGroup
-            value={cursorMethod}
-            onValueChange={(value) =>
-              setCursorMethod(value as "open" | "paste")
-            }
-            className="flex max-w-xl flex-col gap-2"
-            data-testid="build-install-cursor-method"
-            aria-label="How to add Gestalt in Cursor"
-          >
-            <div className={choiceCardFormShellClassName}>
-              <Label
-                htmlFor="build-install-open-cursor"
-                className={cn(
-                  "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
-                  radioLabelWrappedDisabledClassName,
-                )}
-              >
-                <RadioGroupItem
-                  focusRing="none"
-                  value="open"
-                  id="build-install-open-cursor"
-                  disabled={!hasMcpCredential}
-                  className={choiceCardRadioHiddenClassName}
-                  aria-label="Open Cursor"
-                />
-                <div className={choiceCardContentNoIndicatorClassName}>
-                  <span
-                    data-choice-title
-                    className="text-sm font-medium text-foreground"
-                  >
-                    Open Cursor
-                  </span>
-                  <span
-                    data-choice-desc
-                    className="text-sm font-normal text-muted-foreground"
-                  >
-                    Adds Gestalt in one click.
-                  </span>
-                </div>
-              </Label>
-              <Collapsible open={cursorMethod === "open"}>
-                <CollapsibleContent
-                  className={choiceCardFormFieldsClassName}
-                  onPointerDown={(event) => event.stopPropagation()}
-                >
-                  <Button asChild>
-                    <a
-                      href={cursorInstallHref}
-                      data-testid="build-add-to-cursor"
-                      onClick={() => onMarkMcpInstalled()}
-                    >
-                      Add in Cursor
-                    </a>
-                  </Button>
-                </CollapsibleContent>
-              </Collapsible>
-            </div>
-
-            <div className={choiceCardFormShellClassName}>
-              <Label
-                htmlFor="build-install-paste-cursor"
-                className={cn(
-                  "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
-                  radioLabelWrappedDisabledClassName,
-                )}
-              >
-                <RadioGroupItem
-                  focusRing="none"
-                  value="paste"
-                  id="build-install-paste-cursor"
-                  className={choiceCardRadioHiddenClassName}
-                  aria-label="Paste the config yourself"
-                />
-                <div className={choiceCardContentNoIndicatorClassName}>
-                  <span
-                    data-choice-title
-                    className="text-sm font-medium text-foreground"
-                  >
-                    Paste the config yourself
-                  </span>
-                  <span
-                    data-choice-desc
-                    className="text-sm font-normal text-muted-foreground"
-                  >
-                    Copy this into Cursor if you cannot use the button.
-                  </span>
-                </div>
-              </Label>
-              <Collapsible open={cursorMethod === "paste"}>
-                <CollapsibleContent
-                  className={choiceCardFormFieldsClassName}
-                  onPointerDown={(event) => event.stopPropagation()}
-                >
-                  <CodeBlock
-                    variant="outline"
-                    code={cursorConfig}
-                    language="json"
-                    filename=".cursor/mcp.json"
-                  />
-                </CollapsibleContent>
-              </Collapsible>
-            </div>
-          </RadioGroup>
-        </div>
-      ) : null}
-
-      {hasMcpCredential && agent === "claude" ? (
-        <ClaudeConnectorRecipe
+      {!hasMcpCredential ? (
+        <CreateTokenFirstCallout />
+      ) : (
+        <Recipe
           mcpUrl={mcpUrl}
-          bearerValue={bearerValue}
+          apiToken={apiToken}
+          onMarkMcpInstalled={onMarkMcpInstalled}
         />
-      ) : null}
+      )}
 
-      {hasMcpCredential && agent === "chatgpt" ? (
-        <ChatGptConnectorRecipe
-          mcpUrl={mcpUrl}
-          tokenValue={apiToken}
-        />
-      ) : null}
-
-      {hasMcpCredential && agent === "claude-code" ? (
-        <div data-testid="build-install-claude-code-snippet">
-          <CodeBlock
-            variant="outline"
-            chrome="inset"
-            code={claudeCodeCommand}
-            language="bash"
-          />
-        </div>
-      ) : null}
-
-      {hasMcpCredential && agent === "codex" ? (
-        <div className="space-y-4" data-testid="build-install-codex-snippet">
-          <p className="text-sm text-muted-foreground text-pretty">
-            {CODEX_INSTALL_PREAMBLE}
-          </p>
-          <CodeBlock
-            variant="outline"
-            chrome="inset"
-            code={codexCommand}
-            language="bash"
-          />
-          <p className="text-sm text-muted-foreground text-pretty">
-            {CODEX_INSTALL_POSTAMBLE}
-          </p>
-        </div>
-      ) : null}
-
-      {hasMcpCredential && agent === "other" ? (
-        <div className="space-y-2">
-          <CopyableCode value={mcpUrl} tooltip="Copy connection URL" />
-        </div>
-      ) : null}
-
-      <Alert variant="info" live={false} data-testid="setup-overlap-callout">
-        <AlertIcon>
-          <Info aria-hidden="true" />
-        </AlertIcon>
+      <Callout variant="info" data-testid="setup-overlap-callout">
+        <Info aria-hidden="true" />
         <AlertTitle>{ASSISTANT_OVERLAP_TITLE}</AlertTitle>
         <AlertDescription>{ASSISTANT_OVERLAP_SHORT}</AlertDescription>
-      </Alert>
+      </Callout>
 
       <p className="flex items-start gap-2 text-sm text-muted-foreground text-pretty">
         <Lightbulb className="mt-0.5 size-4 shrink-0" aria-hidden />

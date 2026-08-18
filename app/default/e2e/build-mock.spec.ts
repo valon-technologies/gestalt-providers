@@ -469,11 +469,11 @@ test.describe("Setup page", () => {
 
     await expect(page.getByTestId("build-token-setup")).toBeVisible();
     await expect(page.getByTestId("build-token-create-item")).toBeVisible();
-    await expect(page.getByTestId("build-token-selected-item")).toBeVisible();
+    await expect(page.getByTestId("build-token-selected-item")).toHaveCount(0);
     await expect(
       page.locator("label").filter({ hasText: "Use existing token" }),
     ).toHaveCount(0);
-    await expect(page.getByText("Create a token first.")).toBeVisible();
+    await expect(page.getByText("Create a token first.")).toHaveCount(0);
     await expect(page.getByLabel("Token name")).toBeVisible();
     await expect(page.getByLabel("Token name")).toHaveValue("Gestalt");
     await page.getByLabel("Token name").fill("ci-pipeline");
@@ -486,7 +486,7 @@ test.describe("Setup page", () => {
     ).toBeVisible();
     await expect(
       page.getByText("ci-pipeline is ready. Continue to add Gestalt."),
-    ).toBeVisible();
+    ).toHaveCount(0);
     await expect(page.getByTestId("build-step-next")).toBeEnabled();
     await expect(page.getByTestId("build-step-next")).toContainText(
       "Add Gestalt in Cursor",
@@ -842,7 +842,7 @@ test.describe("Setup page", () => {
     );
   });
 
-  test("token step is create then selected, and listed grants are not a choice", async ({
+  test("token step is create only, and listed grants are not a choice", async ({
     authenticatedPage: page,
   }) => {
     await mockTokens(page, [
@@ -869,7 +869,8 @@ test.describe("Setup page", () => {
     await expect(page.getByText("Expiration", { exact: true })).toBeVisible();
     await expect(page.getByText("App access", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Create token" })).toBeVisible();
-    await expect(page.getByText("Create a token first.")).toBeVisible();
+    await expect(page.getByTestId("build-token-selected-item")).toHaveCount(0);
+    await expect(page.getByText("Create a token first.")).toHaveCount(0);
     await expect(page.getByTestId("build-step-next")).toBeDisabled();
   });
 
