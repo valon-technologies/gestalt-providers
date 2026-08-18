@@ -113,6 +113,7 @@ export default function IntegrationCard({
   connectionContext = "current_user",
   actions = "manage",
   highlightQuery = "",
+  connectionStatusKnown = true,
 }: {
   integration: Integration;
   onConnected?: () => void | Promise<void>;
@@ -131,6 +132,11 @@ export default function IntegrationCard({
   actions?: IntegrationCardActions;
   /** Catalog search query — highlights matching tokens in title/description. */
   highlightQuery?: string;
+  /**
+   * False while the connection overlay is pending or failed. Do not infer
+   * Connect / Connected chrome from catalog schema alone.
+   */
+  connectionStatusKnown?: boolean;
 }) {
   const navigate = useNavigate();
   const label = getIntegrationLabel(integration);
@@ -175,11 +181,14 @@ export default function IntegrationCard({
     shouldShowIntegrationSettings(normalizedStatus, readOnly);
   /** Attention notice — inline Alert, not a status Badge. */
   const attentionMessage =
-    installState === "needs_attention" ? normalizedStatus.summaryLabel : null;
+    connectionStatusKnown && installState === "needs_attention"
+      ? normalizedStatus.summaryLabel
+      : null;
   const attentionAlertVariant = alertVariantFromTone(normalizedStatus.tone);
   const cardNavigationEnabled = !disableNavigation && !settingsOpen;
   /** Connected → More (Remove app). Discovery → Add when connectable. */
   const showInstalledMenu =
+    connectionStatusKnown &&
     policy.allowOverflow &&
     !compact &&
     useAppDetailConnection &&
@@ -187,16 +196,22 @@ export default function IntegrationCard({
     (installState === "connected" || installState === "needs_attention");
   /** Success checkmark only when healthy — attention rows keep Alert, not Connected. */
   const showInstalledCheck =
+    connectionStatusKnown &&
     policy.allowConnectedMark &&
     !readOnly &&
     installState === "connected" &&
     (compact || useAppDetailConnection);
   const showAddButton =
-    !readOnly && catalogCardShowsConnectAction(installState, connectLabel);
+    !readOnly &&
+    (installState === "mount_only" ||
+      (connectionStatusKnown &&
+        catalogCardShowsConnectAction(installState, connectLabel)));
   const showOpenAppButton =
     policy.allowOpenApp &&
     !readOnly &&
-    catalogShowOpenAppButton(integration, connectionContext);
+    (connectionStatusKnown
+      ? catalogShowOpenAppButton(integration, connectionContext)
+      : Boolean(mountedPath));
   /** Top-right utility chrome only — Open app is the bottom-right primary CTA. */
   const showTrailingChrome =
     showInstalledCheck ||

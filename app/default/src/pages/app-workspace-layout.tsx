@@ -14,7 +14,7 @@ import {
   useIntegrationsQuery,
   useInvalidateIntegrations,
   useWorkflowRunQuery,
-  workspaceIntegrationsPending,
+  workspaceConnectionView,
 } from "@/lib/queries";
 import { Code } from "@/components/ui/code";
 import Container from "@/components/Container";
@@ -69,7 +69,7 @@ import { APP_SECTION_CARD } from "@/features/app-workspace/app-workspace-shared"
 import { AppWorkspaceMobileNav } from "@/features/app-workspace/app-workspace-mobile-nav";
 import { AppWorkspaceNav } from "@/features/app-workspace/app-workspace-nav";
 import { PageLayout } from "@/components/ui/page-layout";
-import { userFacingError } from "@/lib/user-facing-error";
+import { userFacingError, CONNECTION_STATUS_UNAVAILABLE } from "@/lib/user-facing-error";
 import ErrorNotice from "@/components/ErrorNotice";
 import {
   PageHeader,
@@ -85,10 +85,14 @@ export default function AppWorkspaceLayout() {
   const invalidateIntegrations = useInvalidateIntegrations();
   const integration =
     integrationsQuery.data?.find((item) => item.name === app) ?? null;
-  const loading = workspaceIntegrationsPending(
-    integrationsQuery.isPending,
-    integrationsQuery.overlayPending,
-  );
+  const connectionView = workspaceConnectionView({
+    directoryPending: integrationsQuery.isPending,
+    overlayPending: integrationsQuery.overlayPending,
+    overlayError: integrationsQuery.overlayError,
+  });
+  const loading = connectionView.status === "loading";
+  const overlayUnavailable =
+    connectionView.status === "overlay_unavailable" ? connectionView.error : null;
   const label = integration ? getIntegrationLabel(integration) : app;
 
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -172,11 +176,8 @@ export default function AppWorkspaceLayout() {
   const error =
     integrationsQuery.error
       ? userFacingError(integrationsQuery.error, "Unable to load this app. Try again.")
-      : integrationsQuery.overlayError
-        ? userFacingError(
-            integrationsQuery.overlayError,
-            "Unable to load connection status. Try again.",
-          )
+      : overlayUnavailable
+        ? userFacingError(overlayUnavailable, CONNECTION_STATUS_UNAVAILABLE)
         : !loading && integrationsQuery.data && !integration && !isAdminChromePath
         ? `App “${app}” was not found in this workspace.`
         : null;
@@ -431,6 +432,17 @@ export default function AppWorkspaceLayout() {
                   <SpinnerIcon className="size-4 motion-safe:animate-spin" aria-hidden />
                   Loading app…
                 </p>
+              ) : overlayUnavailable ? (
+                <ErrorNotice
+                  message={userFacingError(
+                    overlayUnavailable,
+                    CONNECTION_STATUS_UNAVAILABLE,
+                  )}
+                  retrying={integrationsQuery.overlayFetching}
+                  onRetry={() => {
+                    void integrationsQuery.refetchOverlay();
+                  }}
+                />
               ) : (
                 <>
               {showRolloutBanner && registry?.rollout ? (

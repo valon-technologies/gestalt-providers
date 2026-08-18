@@ -142,6 +142,30 @@ export async function mockAppsDirectoryUnavailable(
   });
 }
 
+/** Catalog stays up; only the per-user connection overlay fails. */
+export async function mockAppConnectionsUnavailable(
+  page: Page,
+  recover: () => Integration[] | null,
+) {
+  await page.unroute("**/api/v1/me/app-connections");
+  await page.route("**/api/v1/me/app-connections", (route: Route, request) => {
+    if (request.method() !== "GET") {
+      route.fallback();
+      return;
+    }
+    const integrations = recover();
+    if (!integrations) {
+      route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Service Unavailable" }),
+      });
+      return;
+    }
+    route.fulfill({ json: connectionOverlayFromMock(integrations) });
+  });
+}
+
 function catalogEntriesFromMock(integrations: Integration[]) {
   return integrations.map((integration) => ({
     name: integration.name,

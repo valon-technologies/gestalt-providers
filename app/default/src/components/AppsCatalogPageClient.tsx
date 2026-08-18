@@ -77,6 +77,7 @@ import ErrorNotice from "@/components/ErrorNotice";
 import { useBuildSession } from "@/hooks/use-build-session";
 import {
   appsCatalogQueryStatus,
+  connectionOverlayKnown,
   useIntegrationsQuery,
   useInvalidateIntegrations,
   useTokensQuery,
@@ -96,6 +97,7 @@ import {
 } from "@/lib/assistantConnectionCopy";
 import {
   APPS_CATALOG_UNAVAILABLE,
+  CONNECTION_STATUS_UNAVAILABLE,
   userFacingError,
 } from "@/lib/user-facing-error";
 
@@ -183,6 +185,18 @@ export default function AppsCatalogPageClient() {
   const tokens = tokensQuery.data ?? [];
   const tokensReady = !tokensQuery.isPending;
   const integrationsReady = catalog.status !== "loading";
+  const overlayKnown = connectionOverlayKnown(
+    integrationsQuery.overlayEnabled,
+    integrationsQuery.overlayPending,
+    integrationsQuery.overlayError,
+  );
+  const overlayError =
+    integrationsQuery.overlayError
+      ? userFacingError(
+          integrationsQuery.overlayError,
+          CONNECTION_STATUS_UNAVAILABLE,
+        )
+      : null;
   // Full-page loading only on cold cache — revisits render immediately.
   const loading = catalog.status === "loading";
   const error =
@@ -235,12 +249,15 @@ export default function AppsCatalogPageClient() {
     ...facetFilter,
   });
   const { installed, sections: catalogSections } = useMemo(
-    () => groupCatalogForBrowse(filteredIntegrations),
-    [filteredIntegrations],
+    () =>
+      groupCatalogForBrowse(filteredIntegrations, {
+        connectionStatusKnown: overlayKnown,
+      }),
+    [filteredIntegrations, overlayKnown],
   );
   const needsAttentionApps = useMemo(
-    () => listNeedsAttention(filteredIntegrations),
-    [filteredIntegrations],
+    () => (overlayKnown ? listNeedsAttention(filteredIntegrations) : []),
+    [filteredIntegrations, overlayKnown],
   );
   const needsAttentionCopy =
     needsAttentionApps.length > 0
@@ -625,7 +642,18 @@ export default function AppsCatalogPageClient() {
             message={error}
             retrying={integrationsQuery.isFetching}
             onRetry={() => {
-              void integrationsQuery.refetch();
+              void integrationsQuery.refetchDirectory();
+            }}
+          />
+        )}
+
+        {overlayError && (
+          <ErrorNotice
+            className="mb-6"
+            message={overlayError}
+            retrying={integrationsQuery.overlayFetching}
+            onRetry={() => {
+              void integrationsQuery.refetchOverlay();
             }}
           />
         )}
@@ -695,6 +723,7 @@ export default function AppsCatalogPageClient() {
                       key={integration.name}
                       integration={integration}
                       highlightQuery={deferredQuery}
+                      connectionStatusKnown={overlayKnown}
                       onConnected={() =>
                         void refreshIntegrations({ background: true })
                       }
@@ -726,6 +755,7 @@ export default function AppsCatalogPageClient() {
                       key={integration.name}
                       integration={integration}
                       highlightQuery={deferredQuery}
+                      connectionStatusKnown={overlayKnown}
                       onConnected={() =>
                         void refreshIntegrations({ background: true })
                       }

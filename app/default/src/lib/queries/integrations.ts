@@ -62,6 +62,43 @@ export function workspaceIntegrationsPending(
   return directoryPending || overlayPending;
 }
 
+/**
+ * Overlay owns product-connected status. Composed listings already include it.
+ * Catalog-source rows are unknown until the overlay query succeeds.
+ */
+export function connectionOverlayKnown(
+  overlayEnabled: boolean,
+  overlayPending: boolean,
+  overlayError: Error | null,
+): boolean {
+  if (!overlayEnabled) {
+    return true;
+  }
+  return !overlayPending && overlayError == null;
+}
+
+export type WorkspaceConnectionView =
+  | { status: "loading" }
+  | { status: "overlay_unavailable"; error: Error }
+  | { status: "ready" };
+
+/** Gate for app workspace surfaces that show connection status. */
+export function workspaceConnectionView(input: {
+  directoryPending: boolean;
+  overlayPending: boolean;
+  overlayError: Error | null;
+}): WorkspaceConnectionView {
+  if (
+    workspaceIntegrationsPending(input.directoryPending, input.overlayPending)
+  ) {
+    return { status: "loading" };
+  }
+  if (input.overlayError) {
+    return { status: "overlay_unavailable", error: input.overlayError };
+  }
+  return { status: "ready" };
+}
+
 export function useAppsDirectoryQuery(
   options?: Omit<
     UseQueryOptions<AppsDirectory, Error>,
@@ -111,8 +148,12 @@ export function useIntegrationsQuery(
   return {
     ...directoryQuery,
     data,
+    overlayEnabled,
     overlayPending: overlayEnabled && connectionsQuery.isPending,
     overlayError: overlayEnabled ? connectionsQuery.error : null,
+    overlayFetching: overlayEnabled && connectionsQuery.isFetching,
+    refetchDirectory: () => directoryQuery.refetch(),
+    refetchOverlay: () => connectionsQuery.refetch(),
     refetch: () => directoryQuery.refetch(),
   };
 }

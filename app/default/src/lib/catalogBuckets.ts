@@ -197,11 +197,13 @@ export type CatalogBrowseLayout = {
  */
 export function groupCatalogForBrowse(
   integrations: Integration[],
+  options?: { connectionStatusKnown?: boolean },
 ): CatalogBrowseLayout {
+  const connectionStatusKnown = options?.connectionStatusKnown ?? true;
   const installed: Integration[] = [];
   const discovery: Integration[] = [];
   for (const integration of integrations) {
-    if (isCatalogInstalled(integration)) {
+    if (connectionStatusKnown && isCatalogInstalled(integration)) {
       installed.push(integration);
     } else {
       discovery.push(integration);

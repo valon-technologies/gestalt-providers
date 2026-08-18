@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import { APIError, APITimeoutError, type Integration } from "@/lib/api";
 import {
   appsCatalogQueryStatus,
+  connectionOverlayKnown,
   shouldRetryAppsCatalogQuery,
+  workspaceConnectionView,
   workspaceIntegrationsPending,
 } from "@/lib/queries/integrations";
 
@@ -73,5 +75,54 @@ describe("workspaceIntegrationsPending", () => {
     expect(workspaceIntegrationsPending(true, false)).toBe(true);
     expect(workspaceIntegrationsPending(false, true)).toBe(true);
     expect(workspaceIntegrationsPending(false, false)).toBe(false);
+  });
+});
+
+describe("connectionOverlayKnown", () => {
+  it("is known for composed listings that already include status", () => {
+    expect(connectionOverlayKnown(false, false, new Error("ignored"))).toBe(
+      true,
+    );
+  });
+
+  it("is unknown while the catalog overlay is pending or failed", () => {
+    expect(connectionOverlayKnown(true, true, null)).toBe(false);
+    expect(connectionOverlayKnown(true, false, new APIError(503, "down"))).toBe(
+      false,
+    );
+    expect(connectionOverlayKnown(true, false, null)).toBe(true);
+  });
+});
+
+describe("workspaceConnectionView", () => {
+  it("loads until directory and overlay settle", () => {
+    expect(
+      workspaceConnectionView({
+        directoryPending: false,
+        overlayPending: true,
+        overlayError: null,
+      }),
+    ).toEqual({ status: "loading" });
+  });
+
+  it("blocks status surfaces when overlay fails", () => {
+    const error = new APIError(503, "Service Unavailable");
+    expect(
+      workspaceConnectionView({
+        directoryPending: false,
+        overlayPending: false,
+        overlayError: error,
+      }),
+    ).toEqual({ status: "overlay_unavailable", error });
+  });
+
+  it("is ready when overlay succeeded or is not used", () => {
+    expect(
+      workspaceConnectionView({
+        directoryPending: false,
+        overlayPending: false,
+        overlayError: null,
+      }),
+    ).toEqual({ status: "ready" });
   });
 });

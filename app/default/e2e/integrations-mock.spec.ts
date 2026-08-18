@@ -1,4 +1,4 @@
-import { test, expect, mockIntegrations, mockManualConnect, mockTokens, clickOpensOAuthPopup, mockAppsDirectoryUnavailable } from "./fixtures";
+import { test, expect, mockIntegrations, mockManualConnect, mockTokens, clickOpensOAuthPopup, mockAppsDirectoryUnavailable, mockAppConnectionsUnavailable } from "./fixtures";
 import type { Locator, Page } from "@playwright/test";
 import type { Integration } from "../src/lib/api";
 
@@ -397,6 +397,66 @@ test.describe("Integrations", () => {
     await page.getByRole("button", { name: "Retry" }).click();
     await expect(page.getByTestId("plugin-grid")).toBeVisible();
     await expect(page.getByText("OAuth Service")).toBeVisible();
+  });
+
+  test("overlay 503 keeps the catalog and recovers connection status on retry", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    let fail = true;
+    await mockIntegrations(page, sampleIntegrations);
+    await mockAppConnectionsUnavailable(page, () =>
+      fail ? null : sampleIntegrations,
+    );
+    await mockTokens(page, []);
+
+    await page.goto("/apps");
+    await expect(page.getByText("OAuth Service")).toBeVisible();
+    await expect(page.getByTestId("error-notice")).toBeVisible();
+    await expect(
+      page.getByText("Unable to load connection status. Try again."),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Add OAuth Service" }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Add Manual Service" }),
+    ).toHaveCount(0);
+
+    fail = false;
+    await page.getByRole("button", { name: "Retry" }).click();
+    await expect(page.getByTestId("error-notice")).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Add OAuth Service" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Add Manual Service" }),
+    ).toBeVisible();
+  });
+
+  test("overlay 503 blocks the connection page until retry", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    let fail = true;
+    await mockIntegrations(page, sampleIntegrations);
+    await mockAppConnectionsUnavailable(page, () =>
+      fail ? null : sampleIntegrations,
+    );
+    await mockTokens(page, []);
+
+    await page.goto("/apps/manual-svc/connection");
+    await expect(page.getByTestId("error-notice")).toBeVisible();
+    await expect(
+      page.getByText("Unable to load connection status. Try again."),
+    ).toBeVisible();
+    await expect(page.getByTestId("app-admin-connection")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Connect" })).toHaveCount(0);
+
+    fail = false;
+    await page.getByRole("button", { name: "Retry" }).click();
+    await expect(page.getByTestId("app-admin-connection")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Connect" })).toBeVisible();
   });
 
   test("mounted ui cards navigate to app detail", async ({ authenticatedPage }) => {
