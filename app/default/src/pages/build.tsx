@@ -154,7 +154,7 @@ import {
   type AssistantHostConsoleSkin,
   type BuildInstallAgentId,
 } from "@/lib/assistantHosts";
-import { DOCS_PATH, SETUP_PATH } from "@/lib/constants";
+import { SETUP_PATH } from "@/lib/constants";
 import {
   APPS_CATALOG_UNAVAILABLE,
   TOKENS_UNAVAILABLE,

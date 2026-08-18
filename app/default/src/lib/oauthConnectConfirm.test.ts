@@ -1,4 +1,7 @@
 import { describe, expect, test } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Integration } from "@/lib/api";
 import { isConnectedInCatalog, appIsConnectedCopy } from "./oauthConnectConfirm";
 
@@ -56,5 +59,16 @@ describe("isConnectedInCatalog", () => {
 describe("appIsConnectedCopy", () => {
   test("names the app without filler", () => {
     expect(appIsConnectedCopy("BigQuery")).toBe("BigQuery is connected.");
+  });
+});
+
+describe("refetchIntegrationConnected", () => {
+  test("reloads the catalog with the same AbortSignal query as the apps list", () => {
+    const source = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "oauthConnectConfirm.ts"),
+      "utf8",
+    );
+    expect(source).toContain("queryFn: ({ signal }) => getIntegrations(signal)");
+    expect(source).not.toContain("queryFn: getIntegrations,");
   });
 });

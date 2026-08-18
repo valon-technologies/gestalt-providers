@@ -23,7 +23,7 @@ export async function refetchIntegrationConnected(
   await queryClient.invalidateQueries({ queryKey: queryKeys.integrations.root });
   const catalog = await queryClient.fetchQuery({
     queryKey: queryKeys.integrations.list(),
-    queryFn: getIntegrations,
+    queryFn: ({ signal }) => getIntegrations(signal),
   });
   return isConnectedInCatalog(catalog, integrationName);
 }
