@@ -1,4 +1,5 @@
 import {
+  connectionNeedsReconnect,
   integrationNeedsReconnect,
   normalizeIntegrationStatus,
   statusTone,
@@ -369,11 +370,7 @@ export function connectionPanelAttention(
 ): ConnectionPanelAttention | null {
   if (
     connection.status === "needs_user_connection" &&
-    !(
-      connection.canReconnect ||
-      connection.credentialState === "invalid" ||
-      connection.healthState === "unhealthy"
-    )
+    !connectionNeedsReconnect(connection)
   ) {
     return null;
   }
@@ -409,11 +406,7 @@ export function connectionPanelAttention(
         description: "This connection is unavailable right now.",
       };
     default:
-      if (
-        connection.canReconnect ||
-        connection.credentialState === "invalid" ||
-        connection.healthState === "unhealthy"
-      ) {
+      if (connectionNeedsReconnect(connection)) {
         return {
           title: connection.summaryLabel,
           description:

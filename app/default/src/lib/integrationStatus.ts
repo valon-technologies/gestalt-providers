@@ -68,7 +68,8 @@ export type NormalizedIntegrationStatus = {
   hasUsefulStatusDetail: boolean;
 };
 
-/** Rollup and instance chrome when a saved login no longer works. */
+/** Rollup and instance chrome when a saved login no longer works.
+ *  Presentation predicate only: action enablement is `canReconnect`. */
 export const NEEDS_RECONNECT_LABEL = "Needs reconnect" as const;
 
 export function connectionNeedsReconnect(

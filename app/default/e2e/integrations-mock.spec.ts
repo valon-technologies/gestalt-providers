@@ -828,6 +828,7 @@ test.describe("Integrations", () => {
     const card = page.getByTestId("integration-card-notion");
     await expect(card.getByText("Needs reconnect")).toBeVisible();
     await expect(card.getByLabel("Connected")).toHaveCount(0);
+    await expect(card.getByRole("button", { name: /Add Notion/i })).toHaveCount(0);
 
     const panel = await openAppConnection(page, "notion");
     await expect(panel.getByText("In use", { exact: true })).toBeVisible();

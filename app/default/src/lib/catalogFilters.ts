@@ -192,7 +192,6 @@ function needsAttentionBeyondConnect(
     status.status === "needs_admin_configuration" ||
     status.status === "needs_instance_selection" ||
     status.status === "unavailable" ||
-    status.connections.some((connection) => connection.canReconnect) ||
     integrationNeedsReconnect(status) ||
     status.tone === "danger" ||
     status.tone === "warning"
@@ -324,6 +323,22 @@ export function filterCatalogIntegrations(
     return matchesSearchQuery(haystack, query);
   });
   return sortCatalogIntegrations(filtered, context);
+}
+
+/**
+ * Catalog trailing + / Add is first-time connect chrome, not reconnect.
+ * Dead logins already have Needs reconnect attention plus card navigation.
+ */
+export function catalogCardShowsConnectAction(
+  installState: CatalogInstallState,
+  connectLabel: "Connect" | "Reconnect" | null,
+): boolean {
+  if (installState === "needs_attention") return false;
+  return (
+    installState === "mount_only" ||
+    installState === "not_connected" ||
+    connectLabel !== null
+  );
 }
 
 export function primaryConnectLabel(

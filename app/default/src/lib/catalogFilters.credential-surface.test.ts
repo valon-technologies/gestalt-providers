@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   appShowsCredentialSurface,
+  catalogCardShowsConnectAction,
   catalogInstallState,
   overviewConnectionOutcomeStatus,
   primaryConnectLabel,
@@ -82,6 +83,12 @@ describe("overviewConnectionOutcomeStatus", () => {
     expect(overviewConnectionOutcomeStatus(status)).toBe("failure");
     expect(catalogInstallState(integration)).toBe("needs_attention");
     expect(primaryConnectLabel(integration)).toBe("Reconnect");
+    expect(
+      catalogCardShowsConnectAction(
+        catalogInstallState(integration),
+        primaryConnectLabel(integration),
+      ),
+    ).toBe(false);
   });
 });
 
