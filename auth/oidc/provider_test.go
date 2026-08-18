@@ -16,6 +16,7 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"github.com/valon-technologies/gestalt/sdk/go/migrations"
+	"google.golang.org/grpc/metadata"
 )
 
 func TestAuthorizePKCEDoesNotExposeVerifier(t *testing.T) {
@@ -849,6 +850,18 @@ func TestTokenExchangeGrantOwner(t *testing.T) {
 		wantOwner   string
 		wantHidden  []string
 	}{
+		{
+			name: "incoming trusted-caller metadata",
+			exchangeCtx: func(ctx context.Context) context.Context {
+				md := metadata.Pairs(gestalt.TrustedCallerSubjectMetadataKey, canonicalSubject)
+				return metadata.NewIncomingContext(ctx, md)
+			},
+			listCtx: func(ctx context.Context) context.Context {
+				return gestalt.WithTrustedCallerSubject(ctx, canonicalSubject)
+			},
+			wantOwner:  canonicalSubject,
+			wantHidden: []string{emailSubject},
+		},
 		{
 			name: "host trusted caller subject",
 			exchangeCtx: func(ctx context.Context) context.Context {
