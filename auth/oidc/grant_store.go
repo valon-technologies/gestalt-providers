@@ -73,6 +73,7 @@ func grantStoreSchema() gestalt.ObjectStoreOptions {
 			{Name: "expires_at", Type: gestalt.TypeTime, NotNull: true},
 			{Name: "revoked", Type: gestalt.TypeBool, NotNull: true},
 			{Name: "category", Type: gestalt.TypeString, NotNull: true},
+			{Name: "name", Type: gestalt.TypeString},
 		},
 	}
 }
@@ -191,6 +192,10 @@ func (s *grantStore) evictExpiredPendingOAuth(ctx context.Context) error {
 }
 
 func (s *grantStore) issue(ctx context.Context, subject, scope, clientID, category string, ttl time.Duration) (*issuedGrant, error) {
+	return s.issueNamed(ctx, subject, scope, clientID, category, ttl, "")
+}
+
+func (s *grantStore) issueNamed(ctx context.Context, subject, scope, clientID, category string, ttl time.Duration, name string) (*issuedGrant, error) {
 	if strings.TrimSpace(clientID) == "" {
 		clientID = defaultOAuthClientID
 	}
@@ -205,6 +210,7 @@ func (s *grantStore) issue(ctx context.Context, subject, scope, clientID, catego
 	grantID := "grant-" + uuid.NewString()
 	accessToken := generateOpaqueToken()
 	tokenHash := hashToken(accessToken)
+	grantName := strings.TrimSpace(name)
 
 	tx, err := s.db.Transaction(
 		ctx,
@@ -226,6 +232,7 @@ func (s *grantStore) issue(ctx context.Context, subject, scope, clientID, catego
 		"expires_at": expiresAt,
 		"revoked":    false,
 		"category":   category,
+		"name":       grantName,
 	}); err != nil {
 		_ = tx.Abort(ctx)
 		return nil, fmt.Errorf("oidc auth: persist grant: %w", err)
@@ -357,6 +364,7 @@ func grantResponseFromRecord(record gestalt.Record) *gestalt.GetGrantResponse {
 	resp := &gestalt.GetGrantResponse{
 		CreatedAt: recordTime(record, "created_at").Unix(),
 		ExpiresAt: recordTime(record, "expires_at").Unix(),
+		Name:      strings.TrimSpace(recordString(record, "name")),
 	}
 	if scope := strings.TrimSpace(recordString(record, "scope")); scope != "" {
 		for _, part := range strings.Fields(scope) {

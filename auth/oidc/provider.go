@@ -426,7 +426,7 @@ func (p *Provider) tokenExchange(ctx context.Context, req *gestalt.TokenRequest)
 	if err != nil {
 		return nil, err
 	}
-	issued, err := p.grants.issue(ctx, p.grantOwnerForIssue(ctx, introspectResp.Subject), issuedScope, clientID, grantCategoryAPIToken, ttl)
+	issued, err := p.grants.issueNamed(ctx, p.grantOwnerForIssue(ctx, introspectResp.Subject), issuedScope, clientID, grantCategoryAPIToken, ttl, req.Name)
 	if err != nil {
 		return nil, err
 	}

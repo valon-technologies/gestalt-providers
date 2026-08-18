@@ -10,11 +10,13 @@ import type { APIToken } from "../src/lib/api";
 const sampleTokens: APIToken[] = [
   {
     id: "tok-1",
+    name: "CI pipeline",
     scopes: ["my-app"],
     createdAt: "2026-01-15T10:00:00Z",
   },
   {
     id: "tok-2",
+    name: "Local CLI",
     scopes: ["other-app:read"],
     createdAt: "2026-02-20T14:30:00Z",
     expiresAt: "2027-02-20T14:30:00Z",
@@ -38,6 +40,8 @@ test.describe("Token Management", () => {
     await expect(page.getByLabel("Token name")).toHaveCount(0);
     await expect(page.getByText("tok-1")).toBeVisible();
     await expect(page.getByText("tok-2")).toBeVisible();
+    await expect(page.getByText("CI pipeline")).toBeVisible();
+    await expect(page.getByText("Local CLI")).toBeVisible();
     await expect(page.getByText("my-app")).toBeVisible();
     await expect(page.getByText("other-app:read")).toBeVisible();
   });
@@ -88,9 +92,8 @@ test.describe("Token Management", () => {
     await page.getByRole("radio", { name: /all apps/i }).click();
     await page.getByRole("button", { name: "Create token" }).click();
 
-    await expect(page.getByRole("textbox", { name: "API token" })).toHaveValue(
-      "gestalt_abc123secret",
-    );
+    await expect(page.getByText("gestalt_abc123secret")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Copy token" })).toBeVisible();
     await expect(
       page.getByText(/Copy this token now\. We won't show the full value again/),
     ).toBeVisible();
@@ -143,9 +146,8 @@ test.describe("Token Management", () => {
     await page.getByRole("radio", { name: /all apps/i }).click();
     await page.getByRole("button", { name: "Create token" }).click();
 
-    await expect(page.getByRole("textbox", { name: "API token" })).toHaveValue(
-      "gestalt_race_secret",
-    );
+    await expect(page.getByText("gestalt_race_secret")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Copy token" })).toBeVisible();
 
     await page.getByRole("link", { name: "Done" }).click();
     await expect(page).toHaveURL(/\/settings\/tokens$/);
