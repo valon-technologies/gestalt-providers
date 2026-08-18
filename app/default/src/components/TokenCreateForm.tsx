@@ -26,9 +26,15 @@ import {
   type SelectedAppState,
 } from "@/lib/token-scope-selection";
 import {
+  appsCatalogQueryStatus,
   useIntegrationsQuery,
   useInvalidateTokens,
 } from "@/lib/queries";
+import ErrorNotice from "@/components/ErrorNotice";
+import {
+  APPS_CATALOG_UNAVAILABLE,
+  userFacingError,
+} from "@/lib/user-facing-error";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CheckboxTree } from "@/components/ui/checkbox-tree";
@@ -210,13 +216,18 @@ const TokenCreateForm = React.forwardRef<
   const integrationsQuery = useIntegrationsQuery({
     enabled: scopeMode === "select",
   });
-  const integrations = integrationsQuery.data ?? null;
+  const catalog = appsCatalogQueryStatus(integrationsQuery);
+  const integrations =
+    catalog.status === "loading" && catalog.integrations.length === 0
+      ? null
+      : catalog.integrations;
   const integrationsError =
-    integrationsQuery.error instanceof Error
-      ? integrationsQuery.error.message
-      : integrationsQuery.error
-        ? "Failed to load apps"
-        : null;
+    catalog.status === "unavailable"
+      ? userFacingError(catalog.error, APPS_CATALOG_UNAVAILABLE)
+      : null;
+  const blockingCatalogError =
+    Boolean(integrationsError) &&
+    (integrations === null || integrations.length === 0);
 
   const now = useMemo(() => new Date(), []);
   const expirationOptions = useMemo(() => buildExpirationOptions(), []);
@@ -573,11 +584,17 @@ const TokenCreateForm = React.forwardRef<
                         </div>
 
                         {integrationsError ? (
-                          <p className="px-3 pb-3 pt-2 text-sm text-ember-500">
-                            {integrationsError}
-                          </p>
-                        ) : integrations === null ||
-                          integrationsQuery.isPending ? (
+                          <div className="px-3 pb-3 pt-2">
+                            <ErrorNotice
+                              message={integrationsError}
+                              retrying={integrationsQuery.isFetching}
+                              onRetry={() => {
+                                void integrationsQuery.refetch();
+                              }}
+                            />
+                          </div>
+                        ) : null}
+                        {blockingCatalogError ? null : integrations === null ? (
                           <p className="flex items-center gap-1.5 px-3 pb-3 pt-2 text-sm text-muted-foreground">
                             <Spinner className="size-3" aria-hidden />
                             Loading apps…

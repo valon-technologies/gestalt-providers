@@ -68,8 +68,10 @@ import { usePageLayoutAnchorOffsetPx } from "@/lib/page-layout-anchor-offset";
 import { pageLayoutContentTopStyle } from "@/lib/page-layout-content-top";
 import { CheckCircleIcon, CloseIcon, SpinnerIcon } from "@/components/icons";
 import Button from "@/components/Button";
+import ErrorNotice from "@/components/ErrorNotice";
 import { useBuildSession } from "@/hooks/use-build-session";
 import {
+  appsCatalogQueryStatus,
   useIntegrationsQuery,
   useInvalidateIntegrations,
   useTokensQuery,
@@ -83,6 +85,10 @@ import {
   readSetupSkipped,
   writeResumeBannerDismissed,
 } from "@/lib/buildPaths";
+import {
+  APPS_CATALOG_UNAVAILABLE,
+  userFacingError,
+} from "@/lib/user-facing-error";
 
 function resolveConnectedAppLabel(
   connectedParam: string,
@@ -162,18 +168,18 @@ export default function AppsCatalogPageClient() {
     readResumeBannerDismissed,
   );
 
-  const integrations: Integration[] = integrationsQuery.data ?? [];
+  const catalog = appsCatalogQueryStatus(integrationsQuery);
+  const integrations: Integration[] = catalog.integrations;
   const tokens = tokensQuery.data ?? [];
   const tokensReady = !tokensQuery.isPending;
-  const integrationsReady = !integrationsQuery.isPending;
+  const integrationsReady = catalog.status !== "loading";
   // Full-page loading only on cold cache — revisits render immediately.
-  const loading = integrationsQuery.isPending;
+  const loading = catalog.status === "loading";
   const error =
-    integrationsQuery.error instanceof Error
-      ? integrationsQuery.error.message
-      : integrationsQuery.error
-        ? "Couldn't load apps. Refresh the page and try again."
-        : null;
+    catalog.status === "unavailable"
+      ? userFacingError(catalog.error, APPS_CATALOG_UNAVAILABLE)
+      : null;
+  const blockingCatalogError = Boolean(error) && integrations.length === 0;
 
   const [query, setQuery] = useState("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -496,11 +502,11 @@ export default function AppsCatalogPageClient() {
             <PluginSearchBar
               query={query}
               onQueryChange={setQuery}
-              disabled={loading || !!error || integrations.length === 0}
+              disabled={loading || blockingCatalogError || integrations.length === 0}
             />
           </PageHeaderActions>
         </PageHeader>
-        {!loading && !error && visibleFacets.length > 0 ? (
+        {!loading && !blockingCatalogError && visibleFacets.length > 0 ? (
           <ChipGroup
             type="multiple"
             size="sm"
@@ -619,33 +625,28 @@ export default function AppsCatalogPageClient() {
           </div>
         ) : null}
 
-        {loading && (
-          <p className="flex items-center gap-1.5 text-sm text-muted-foreground-soft">
+        {loading && integrations.length === 0 && (
+          <p
+            className="flex items-center gap-1.5 text-sm text-muted-foreground-soft"
+            data-testid="apps-catalog-loading"
+          >
             <SpinnerIcon className="size-4 animate-spin" aria-hidden />
-            Loading...
+            Loading apps…
           </p>
         )}
 
         {error && (
-          <div className="flex flex-col items-start gap-3">
-            <p className="text-sm text-ember-500">
-              {error === "Failed to load"
-                ? "Couldn't load apps. Refresh the page and try again."
-                : error}
-            </p>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => {
-                void integrationsQuery.refetch();
-              }}
-            >
-              Retry
-            </Button>
-          </div>
+          <ErrorNotice
+            className="mb-6"
+            message={error}
+            retrying={integrationsQuery.isFetching}
+            onRetry={() => {
+              void integrationsQuery.refetch();
+            }}
+          />
         )}
 
-        {!loading && !error && integrations.length === 0 && (
+        {!loading && !blockingCatalogError && integrations.length === 0 && (
           <p className="text-sm text-muted-foreground-soft">
             No apps are available yet. Ask your admin if you expected to see ones
             here.
@@ -653,7 +654,7 @@ export default function AppsCatalogPageClient() {
         )}
 
         {!loading &&
-          !error &&
+          !blockingCatalogError &&
           integrations.length > 0 &&
           !hasCatalogContent && (
             <div className="flex flex-col items-start gap-3">
@@ -691,7 +692,7 @@ export default function AppsCatalogPageClient() {
             </div>
           )}
 
-        {!loading && !error && hasCatalogContent ? (
+        {!loading && !blockingCatalogError && hasCatalogContent ? (
           <div className="space-y-12" data-testid="plugin-grid">
             {installed.length > 0 ? (
               <section

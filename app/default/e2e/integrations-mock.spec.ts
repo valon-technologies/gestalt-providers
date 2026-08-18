@@ -366,6 +366,41 @@ test.describe("Integrations", () => {
     ).toBeVisible();
   });
 
+  test("catalog 503 leaves loading and recovers on retry", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    let fail = true;
+    await page.route("**/api/v1/apps", async (route, request) => {
+      if (request.method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      if (fail) {
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "Service Unavailable" }),
+        });
+        return;
+      }
+      await route.fulfill({ json: sampleIntegrations });
+    });
+    await mockTokens(page, []);
+
+    await page.goto("/apps");
+    await expect(page.getByTestId("error-notice")).toBeVisible();
+    await expect(
+      page.getByText("Couldn't load apps. Try again."),
+    ).toBeVisible();
+    await expect(page.getByTestId("plugin-grid")).toHaveCount(0);
+
+    fail = false;
+    await page.getByRole("button", { name: "Retry" }).click();
+    await expect(page.getByTestId("plugin-grid")).toBeVisible();
+    await expect(page.getByText("OAuth Service")).toBeVisible();
+  });
+
   test("mounted ui cards navigate to app detail", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
     await mockIntegrations(page, [MOUNTED_UI_INTEGRATION]);

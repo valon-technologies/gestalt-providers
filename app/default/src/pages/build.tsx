@@ -109,6 +109,7 @@ import {
 import { useBuildSession } from "@/hooks/use-build-session";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import {
+  appsCatalogQueryStatus,
   useIntegrationsQuery,
   useInvalidateIntegrations,
   useInvalidateTokens,
@@ -142,8 +143,7 @@ import {
   resolveExemplarOpenPath,
   SETUP_PRODUCT_NAME,
   isSetupDataSourceApp,
-  setupAppsConnected,
-  setupAppsHasConnectable,
+  setupAppsStepComplete,
   setupDataSourceIntegrations,
   writeSetupSkipped,
   type BuildExemplar,
@@ -155,7 +155,11 @@ import {
 } from "@/lib/buildPaths";
 import { cn } from "@/lib/cn";
 import { DOCS_PATH, SETUP_PATH } from "@/lib/constants";
-import { userFacingError } from "@/lib/user-facing-error";
+import {
+  APPS_CATALOG_UNAVAILABLE,
+  TOKENS_UNAVAILABLE,
+  userFacingError,
+} from "@/lib/user-facing-error";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import {
   catalogBucketIdFor,
@@ -188,11 +192,14 @@ export function BuildIndexRedirect() {
   const session = useBuildSession();
   const integrationsQuery = useIntegrationsQuery();
   const tokensQuery = useTokensQuery();
+  const catalog = appsCatalogQueryStatus(integrationsQuery);
 
   const tokensReady = !tokensQuery.isPending;
-  const integrationsReady = !integrationsQuery.isPending;
+  const catalogSettled = catalog.status !== "loading";
 
-  if (!tokensReady || !integrationsReady) {
+  // Token setup does not need the apps catalog. Waiting on GET /api/v1/apps
+  // here is what turned a hung catalog into an infinite "Loading Build…".
+  if (tokensQuery.isPending && !tokensQuery.data) {
     return (
       <Container as="main">
         <div className="mx-auto flex min-h-[50vh] w-full max-w-4xl items-center justify-center">
@@ -205,11 +212,30 @@ export function BuildIndexRedirect() {
     );
   }
 
+  if (tokensQuery.isError && !tokensQuery.data) {
+    return (
+      <Container as="main">
+        <div className="mx-auto flex min-h-[50vh] w-full max-w-4xl items-center justify-center">
+          <ErrorNotice
+            message={userFacingError(tokensQuery.error, TOKENS_UNAVAILABLE)}
+            retrying={tokensQuery.isFetching}
+            onRetry={() => {
+              void tokensQuery.refetch();
+            }}
+          />
+        </div>
+      </Container>
+    );
+  }
+
   const snapshot = buildSnapshot(
     session,
-    integrationsQuery.data ?? [],
+    catalog.integrations,
     tokensQuery.data ?? [],
-    integrationsQuery,
+    {
+      isPending: catalog.status === "loading",
+      isError: catalog.status === "unavailable",
+    },
   );
 
   if (isBuildComplete(snapshot)) {
@@ -217,7 +243,7 @@ export function BuildIndexRedirect() {
   }
 
   const stepId = firstIncompleteStepId(snapshot, (step) =>
-    isStepDone(step, snapshot, tokensReady, integrationsReady),
+    isStepDone(step, snapshot, tokensReady, catalogSettled),
   );
 
   return <Navigate to="/setup/$stepId" params={{ stepId }} replace />;
@@ -362,27 +388,27 @@ export default function BuildStepPage() {
   }
 
   const tokensReady = !tokensQuery.isPending;
-  const integrationsReady = !integrationsQuery.isPending;
+  const catalog = appsCatalogQueryStatus(integrationsQuery);
+  const catalogSettled = catalog.status !== "loading";
+  const catalogHasApps = catalog.integrations.length > 0;
 
   const snapshot = buildSnapshot(
     session,
-    integrationsQuery.data ?? [],
+    catalog.integrations,
     tokensQuery.data ?? [],
-    integrationsQuery,
+    {
+      isPending: catalog.status === "loading",
+      isError: catalog.status === "unavailable",
+    },
   );
 
-  const error =
-    integrationsQuery.error != null
-      ? userFacingError(
-          integrationsQuery.error,
-          "Couldn't load this workspace. Try again.",
-        )
-      : tokensQuery.error != null
-        ? userFacingError(
-            tokensQuery.error,
-            "Couldn't load this workspace. Try again.",
-          )
-        : null;
+  const tokensError = tokensQuery.error
+    ? userFacingError(tokensQuery.error, TOKENS_UNAVAILABLE)
+    : null;
+  const catalogError =
+    catalog.status === "unavailable"
+      ? userFacingError(catalog.error, APPS_CATALOG_UNAVAILABLE)
+      : null;
 
   const activeExemplar = getExemplar(session.activeExemplarId);
 
@@ -391,7 +417,7 @@ export default function BuildStepPage() {
   }
 
   const stepIsDone = (step: BuildStep) =>
-    isStepDone(step, snapshot, tokensReady, integrationsReady);
+    isStepDone(step, snapshot, tokensReady, catalogSettled);
 
   function tryGoToStep(id: BuildStepId) {
     if (!stepId || !canNavigateToBuildStep(id, stepId, stepIsDone)) return;
@@ -412,15 +438,14 @@ export default function BuildStepPage() {
       itemTestId={(id) => `build-nav-${id}`}
       listTestId="build-step-nav"
     >
-      {error ? (
+      {tokensError ? (
         <ErrorNotice
           className="mb-8"
-          message={error}
+          message={tokensError}
           onRetry={() => {
-            void integrationsQuery.refetch();
             void tokensQuery.refetch();
           }}
-          retrying={integrationsQuery.isFetching || tokensQuery.isFetching}
+          retrying={tokensQuery.isFetching}
         />
       ) : null}
 
@@ -441,7 +466,13 @@ export default function BuildStepPage() {
         <BuildStepPanel
           step={currentStep}
           tokensReady={tokensReady}
-          integrationsReady={integrationsReady}
+          catalogSettled={catalogSettled}
+          catalogHasApps={catalogHasApps}
+          catalogError={catalogError}
+          catalogRetrying={integrationsQuery.isFetching}
+          onRetryCatalog={() => {
+            void integrationsQuery.refetch();
+          }}
           integrations={snapshot.integrations}
           tokens={snapshot.tokens}
           activeExemplar={activeExemplar}
@@ -470,7 +501,7 @@ function isStepDone(
   step: BuildStep,
   snapshot: BuildWorkspaceSnapshot,
   tokensReady: boolean,
-  integrationsReady: boolean,
+  catalogSettled: boolean,
 ): boolean {
   if (!step.isComplete(snapshot)) return false;
   switch (step.id) {
@@ -483,9 +514,9 @@ function isStepDone(
     case "install":
       return true;
     case "apps":
-      return integrationsReady;
+      return catalogSettled;
     case "try":
-      return integrationsReady;
+      return catalogSettled;
     default:
       return true;
   }
@@ -1145,7 +1176,11 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
 function BuildStepPanel({
   step,
   tokensReady,
-  integrationsReady,
+  catalogSettled,
+  catalogHasApps,
+  catalogError,
+  catalogRetrying,
+  onRetryCatalog,
   integrations,
   tokens,
   activeExemplar,
@@ -1167,7 +1202,11 @@ function BuildStepPanel({
 }: {
   step: BuildStep;
   tokensReady: boolean;
-  integrationsReady: boolean;
+  catalogSettled: boolean;
+  catalogHasApps: boolean;
+  catalogError: string | null;
+  catalogRetrying: boolean;
+  onRetryCatalog: () => void;
   integrations: Integration[];
   tokens: APIToken[];
   activeExemplar: BuildExemplar;
@@ -1215,7 +1254,7 @@ function BuildStepPanel({
       aria-busy={
         (step.id === "token" && !tokensReady) ||
         ((step.id === "apps" || step.id === "try") &&
-          (!tokensReady || !integrationsReady))
+          (!tokensReady || !catalogSettled))
       }
     >
       {step.id === "welcome" ? (
@@ -1261,16 +1300,38 @@ function BuildStepPanel({
         <ConnectStepActions
           exemplar={activeExemplar}
           integrations={integrations}
-          catalogReady={integrationsReady}
+          catalogSettled={catalogSettled}
+          catalogHasApps={catalogHasApps}
+          catalogError={catalogError}
+          catalogRetrying={catalogRetrying}
+          onRetryCatalog={onRetryCatalog}
         />
       ) : null}
 
       {step.id === "try" ? (
-        <InvokeStepActions
-          exemplar={activeExemplar}
-          integrations={integrations}
-          installAgentId={selectedInstallAgent}
-        />
+        catalogError && !catalogHasApps ? (
+          <ErrorNotice
+            message={catalogError}
+            retrying={catalogRetrying}
+            onRetry={onRetryCatalog}
+          />
+        ) : (
+          <>
+            {catalogError ? (
+              <ErrorNotice
+                className="mb-4"
+                message={catalogError}
+                retrying={catalogRetrying}
+                onRetry={onRetryCatalog}
+              />
+            ) : null}
+            <InvokeStepActions
+              exemplar={activeExemplar}
+              integrations={integrations}
+              installAgentId={selectedInstallAgent}
+            />
+          </>
+        )
       ) : null}
 
       {step.id !== "welcome" ? (
@@ -1289,8 +1350,14 @@ function BuildStepPanel({
             (step.id === "assistant" && !installReady) ||
             (step.id === "token" && !authorizeReady) ||
             (step.id === "apps" &&
-              !setupAppsConnected({ integrations }) &&
-              setupAppsHasConnectable({ integrations }))
+              !setupAppsStepComplete({
+                integrations,
+                catalogLoadState: catalogError
+                  ? "failed"
+                  : catalogSettled
+                    ? "ready"
+                    : "pending",
+              }))
           }
           nextDisabledTitle={
             step.id === "assistant"
@@ -1298,7 +1365,9 @@ function BuildStepPanel({
               : step.id === "token"
                 ? "Create a token so we can add it in your assistant"
                 : step.id === "apps"
-                  ? "Connect at least one app to continue"
+                  ? catalogError && !catalogHasApps
+                    ? "Load apps before continuing"
+                    : "Connect at least one app to continue"
                   : undefined
           }
         />
@@ -1935,11 +2004,19 @@ function BuildStoreAppCard({
 function ConnectStepActions({
   exemplar,
   integrations,
-  catalogReady,
+  catalogSettled,
+  catalogHasApps,
+  catalogError,
+  catalogRetrying,
+  onRetryCatalog,
 }: {
   exemplar: BuildExemplar;
   integrations: Integration[];
-  catalogReady: boolean;
+  catalogSettled: boolean;
+  catalogHasApps: boolean;
+  catalogError: string | null;
+  catalogRetrying: boolean;
+  onRetryCatalog: () => void;
 }) {
   const invalidateIntegrations = useInvalidateIntegrations();
   const [visibleMoreCount, setVisibleMoreCount] = useState(SETUP_APPS_PAGE_SIZE);
@@ -1955,7 +2032,19 @@ function ConnectStepActions({
     setVisibleMoreCount(SETUP_APPS_PAGE_SIZE);
   }
 
-  if (!catalogReady) {
+  const catalogNotice = catalogError ? (
+    <ErrorNotice
+      message={catalogError}
+      retrying={catalogRetrying}
+      onRetry={onRetryCatalog}
+    />
+  ) : null;
+
+  if (catalogError && !catalogHasApps) {
+    return catalogNotice;
+  }
+
+  if (!catalogSettled && !catalogHasApps) {
     return <p className="text-sm text-faint">Loading apps…</p>;
   }
 
@@ -2036,6 +2125,7 @@ function ConnectStepActions({
 
   return (
     <div className="flex flex-col gap-10" data-testid="build-connect-apps">
+      {catalogNotice}
       {suggested.length > 0 ? (
         <div className="space-y-6">
           <SectionHeader>

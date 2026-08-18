@@ -910,4 +910,112 @@ test.describe("Setup page", () => {
       "/apps",
     );
   });
+
+  test("slow apps catalog does not block setup", async ({
+    authenticatedPage: page,
+  }) => {
+    let catalogReleased = false;
+    await page.route("**/api/v1/apps", async (route, request) => {
+      if (request.method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+      catalogReleased = true;
+      await route.fulfill({ json: catalogFixtures });
+    });
+
+    await page.goto("/setup");
+
+    await expect(page).toHaveURL(/\/setup\/welcome$/);
+    await expect(page.getByTestId("build-welcome")).toBeVisible();
+    await expect(page.getByText("Loading setup…")).toHaveCount(0);
+    expect(catalogReleased).toBe(false);
+
+    await page.getByTestId("build-welcome-continue").click();
+    await expect(page).toHaveURL(/\/setup\/assistant$/);
+    await expect(page.getByTestId("build-install-radio")).toBeVisible();
+    expect(catalogReleased).toBe(false);
+  });
+
+  test("apps step shows retry when the catalog returns 503", async ({
+    authenticatedPage: page,
+  }) => {
+    let fail = true;
+    await page.route("**/api/v1/apps", async (route, request) => {
+      if (request.method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      if (fail) {
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "Service Unavailable" }),
+        });
+        return;
+      }
+      await route.fulfill({ json: catalogFixtures });
+    });
+    await mockTokens(page, [defaultToken]);
+    await seedSetupSession(page, {
+      introSeen: true,
+      selectedTokenId: "tok_123",
+      mcpInstalled: true,
+      installAgent: "claude",
+      activeExemplarId: "oncall",
+    });
+
+    await page.goto("/setup");
+
+    await expect(page).toHaveURL(/\/setup\/apps$/);
+    await expect(page.getByTestId("error-notice")).toBeVisible();
+    await expect(
+      page.getByText("Couldn't load apps. Try again."),
+    ).toBeVisible();
+    await expect(page.getByTestId("build-connect-apps")).toHaveCount(0);
+    await expect(page.getByTestId("build-step-next")).toBeDisabled();
+
+    fail = false;
+    await page.getByRole("button", { name: "Retry" }).click();
+    await expect(page.getByTestId("build-connect-apps")).toBeVisible();
+  });
+
+  test("token select-apps catalog 503 recovers on retry", async ({
+    authenticatedPage: page,
+  }) => {
+    let fail = true;
+    await page.route("**/api/v1/apps", async (route, request) => {
+      if (request.method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      if (fail) {
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "Service Unavailable" }),
+        });
+        return;
+      }
+      await route.fulfill({ json: catalogFixtures });
+    });
+
+    await seedSetupSession(page, {
+      introSeen: true,
+      installAgent: "cursor",
+    });
+    await page.goto("/setup/token");
+    await page.getByRole("radio", { name: "Only select apps" }).click();
+
+    await expect(page.getByTestId("error-notice")).toBeVisible();
+    await expect(
+      page.getByText("Couldn't load apps. Try again."),
+    ).toBeVisible();
+
+    fail = false;
+    await page.getByRole("button", { name: "Retry" }).click();
+    await expect(page.getByRole("searchbox", { name: "Search apps" })).toBeVisible();
+    await expect(page.getByText("Oncall")).toBeVisible();
+  });
 });
