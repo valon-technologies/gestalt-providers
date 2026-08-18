@@ -674,7 +674,10 @@ const TokenCreateForm = React.forwardRef<
             >
               <CopyableCode value={plaintext} tooltip="Copy token" />
             </div>
-            <Alert variant="warning">
+            <Alert
+              variant="warning"
+              className="inline-grid w-max min-w-0 max-w-full"
+            >
               <CircleAlert aria-hidden />
               <AlertDescription className="font-normal">
                 {plaintextResultDescription}
