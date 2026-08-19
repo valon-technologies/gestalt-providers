@@ -251,9 +251,10 @@ the call site (cards.md Card Collapsible). Do not restyle trigger hover/press
 Registry `description-list` is vendored here. Prefer over hand-rolled KV tables for
 read-only metadata. Use `surface="outline"` for standalone inspector / docs
 panels (Card outline fill/border, `rounded-lg` — not Card's `rounded-xl`).
-Default `surface="plain"` stays flush in a parent pane. Row vertical rhythm is
-`density="default"` (roomy) or `density="condensed"` (prior tight inspector) —
-owned on the list, not per-item `py-*`. Terms use
+Default `surface="plain"` stays flush in a parent pane. Compactness is
+`density="default"` (roomy padding and gutter) or `density="condensed"`
+(tight inspector / dialog rows, including a tighter term-to-value gap) —
+owned on the list, not per-item `py-*` or call-site `gap-*`. Terms use
 `font-display text-sm italic tracking-wide text-muted-foreground`. Status value
 tones use `--*-ink` canvas status tokens (bridged in `shared/theme.css` +
 `globals.css`).

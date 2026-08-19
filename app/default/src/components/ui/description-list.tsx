@@ -18,14 +18,15 @@ import { cn } from "@/lib/cn";
 // consumer can widen it once on the list. Hairline row separators are opt-out
 // via `divided`. `surface="outline"` composes Card outline fill/border (Stat
 // pattern) for inspector / docs panels without a hand-rolled bordered table.
-// `density` owns row vertical rhythm on the list (Tree / SelectionCheck pattern)
-// — default is roomy; condensed matches the prior tight inspector rows.
+// `density` owns compactness on the list (Tree / SelectionCheck pattern):
+// row padding, and for `row` the term-to-value gutter (gap-3 default, gap-2
+// condensed). Stacked keeps its own small gap between term and value.
 const TERM_WIDTH_DEFAULT = "7rem";
 
 const descriptionListVariants = cva("min-w-0 text-sm", {
   variants: {
     variant: {
-      row: "[&_[data-slot=description-item]]:flex [&_[data-slot=description-item]]:items-baseline [&_[data-slot=description-item]]:gap-3 [&_[data-slot=description-term]]:w-[var(--dl-term-width)] [&_[data-slot=description-term]]:shrink-0 [&_[data-slot=description-details]]:min-w-0 [&_[data-slot=description-details]]:flex-1",
+      row: "[&_[data-slot=description-item]]:flex [&_[data-slot=description-item]]:items-baseline [&_[data-slot=description-term]]:w-[var(--dl-term-width)] [&_[data-slot=description-term]]:shrink-0 [&_[data-slot=description-details]]:min-w-0 [&_[data-slot=description-details]]:flex-1",
       stacked:
         "[&_[data-slot=description-item]]:flex [&_[data-slot=description-item]]:flex-col [&_[data-slot=description-item]]:gap-0.5",
     },
@@ -36,7 +37,7 @@ const descriptionListVariants = cva("min-w-0 text-sm", {
     density: {
       // Roomy default — readable KV panels and outline cards.
       default: "[&_[data-slot=description-item]]:py-3",
-      // Tight inspector / span metadata (prior plain default).
+      // Tight inspector / dialog metadata (prior plain default).
       condensed: "[&_[data-slot=description-item]]:py-1.5",
     },
     surface: {
@@ -51,6 +52,18 @@ const descriptionListVariants = cva("min-w-0 text-sm", {
       ),
     },
   },
+  compoundVariants: [
+    {
+      variant: "row",
+      density: "default",
+      class: "[&_[data-slot=description-item]]:gap-3",
+    },
+    {
+      variant: "row",
+      density: "condensed",
+      class: "[&_[data-slot=description-item]]:gap-2",
+    },
+  ],
   defaultVariants: {
     variant: "row",
     divided: true,
