@@ -9,6 +9,12 @@ import {
   assistantDestinationTabs,
   defaultAssistantDestinationId,
 } from "./assistant-destinations";
+import {
+  ASSISTANT_DOCS_LANDING_HASH_ALIASES,
+  assistantDocsLandingHash,
+  assistantHostById,
+} from "@/lib/assistantHosts";
+import { resolveHashTabId } from "./docs-option-switcher";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -33,6 +39,35 @@ describe("assistant destination switcher", () => {
       expect(id.startsWith("dest-")).toBe(true);
       expect(id.startsWith("mcp-")).toBe(false);
     }
+  });
+
+  it("maps leftover mcp-claude and mcp-chatgpt hashes onto dest walkthroughs", () => {
+    expect(assistantDocsLandingHash(assistantHostById("claude"))).toBe(
+      "dest-claude",
+    );
+    expect(assistantDocsLandingHash(assistantHostById("chatgpt"))).toBe(
+      "dest-chatgpt",
+    );
+    expect(ASSISTANT_DOCS_LANDING_HASH_ALIASES).toEqual({
+      "mcp-claude": "dest-claude",
+      "mcp-chatgpt": "dest-chatgpt",
+    });
+    expect(
+      resolveHashTabId(
+        "mcp-chatgpt",
+        assistantDestinationIds,
+        defaultAssistantDestinationId,
+        ASSISTANT_DOCS_LANDING_HASH_ALIASES,
+      ),
+    ).toBe("dest-chatgpt");
+    expect(
+      resolveHashTabId(
+        "mcp-cursor",
+        assistantDestinationIds,
+        defaultAssistantDestinationId,
+        ASSISTANT_DOCS_LANDING_HASH_ALIASES,
+      ),
+    ).toBe(defaultAssistantDestinationId);
   });
 
   it("ships a walkthrough video for Claude and ChatGPT", () => {
@@ -63,7 +98,7 @@ describe("assistant destination switcher", () => {
       "utf8",
     );
     expect(source).toContain("Request headers");
-    expect(source).toContain("authorization");
+    expect(source).toContain("Authorization");
     expect(source).toContain("Developer mode");
     expect(source).toContain("Token or API key");
     expect(source).toContain("Create a token here");

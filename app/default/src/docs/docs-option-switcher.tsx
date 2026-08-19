@@ -1,11 +1,27 @@
-import { useId, type ReactNode } from "react";
+import { useEffect, useId, type ReactNode } from "react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   SegmentedControl,
   type SegmentedControlOption,
 } from "@/components/ui/segmented-control";
 
-export function useHashTab(ids: readonly string[], fallbackId: string) {
+export function resolveHashTabId(
+  hash: string,
+  ids: readonly string[],
+  fallbackId: string,
+  aliases: Readonly<Record<string, string>> = {},
+): string {
+  if (ids.includes(hash)) return hash;
+  const aliased = aliases[hash];
+  if (aliased && ids.includes(aliased)) return aliased;
+  return fallbackId;
+}
+
+export function useHashTab(
+  ids: readonly string[],
+  fallbackId: string,
+  aliases: Readonly<Record<string, string>> = {},
+) {
   const { hash, pathname } = useRouterState({
     select: (state) => ({
       hash: state.location.hash.replace(/^#/, ""),
@@ -13,7 +29,18 @@ export function useHashTab(ids: readonly string[], fallbackId: string) {
     }),
   });
   const navigate = useNavigate();
-  const activeId = ids.includes(hash) ? hash : fallbackId;
+  const activeId = resolveHashTabId(hash, ids, fallbackId, aliases);
+  const canonicalFromAlias = aliases[hash];
+
+  useEffect(() => {
+    if (
+      canonicalFromAlias &&
+      ids.includes(canonicalFromAlias) &&
+      canonicalFromAlias !== hash
+    ) {
+      void navigate({ to: pathname, hash: canonicalFromAlias, replace: true });
+    }
+  }, [canonicalFromAlias, hash, ids, navigate, pathname]);
 
   function selectTab(id: string) {
     void navigate({ to: pathname, hash: id, replace: true });
@@ -27,12 +54,15 @@ export function DocsOptionSwitcher<V extends string>({
   options,
   value,
   onValueChange,
+  hashAliases,
   children,
 }: {
   label: string;
   options: ReadonlyArray<SegmentedControlOption<V>>;
   value: V;
   onValueChange: (value: V) => void;
+  /** Extra hashes that should scroll this switcher (legacy aliases). */
+  hashAliases?: Readonly<Record<string, string>>;
   children: ReactNode;
 }) {
   // Stable panel id — never the option value. Hash-backed switchers write
@@ -41,12 +71,16 @@ export function DocsOptionSwitcher<V extends string>({
   const panelId = useId();
   const activeLabel =
     options.find((option) => option.value === value)?.label ?? label;
+  const hashIds = [
+    ...options.map((option) => option.value),
+    ...Object.keys(hashAliases ?? {}),
+  ].join(" ");
 
   return (
     <div
       data-typeset-chrome
       data-docs-option-switcher
-      data-docs-hash-ids={options.map((option) => option.value).join(" ")}
+      data-docs-hash-ids={hashIds}
       className="scroll-mt-[var(--page-layout-anchor-offset)]"
     >
       {/*

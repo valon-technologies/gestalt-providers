@@ -167,6 +167,33 @@ export function assistantHostById(
   return HOST_BY_ID.get(id as BuildInstallAgentId);
 }
 
+/**
+ * URL hash for "open docs for this host".
+ *
+ * `docsHash` still names the config-file recipe tab (`mcp-codex`, …).
+ * Claude and ChatGPT no longer have recipe tabs; their walkthroughs live
+ * under `dest-*`. Setup and other deep links must use this landing hash,
+ * not `docsHash`, or `#mcp-chatgpt` falls through to Claude.
+ */
+export function assistantDocsLandingHash(
+  host: AssistantHost | undefined,
+): string {
+  if (!host) return "mcp-other";
+  if (host.id === "claude") return "dest-claude";
+  if (host.id === "chatgpt") return "dest-chatgpt";
+  return host.docsHash;
+}
+
+/** Old recipe hashes that now select a dest-* walkthrough. */
+export const ASSISTANT_DOCS_LANDING_HASH_ALIASES: Readonly<
+  Record<string, string>
+> = Object.fromEntries(
+  ASSISTANT_HOSTS.flatMap((host) => {
+    const landing = assistantDocsLandingHash(host);
+    return landing === host.docsHash ? [] : [[host.docsHash, landing]];
+  }),
+);
+
 export const MCP_CLIENT_TABS: ReadonlyArray<{
   id: McpDocsHash;
   label: string;

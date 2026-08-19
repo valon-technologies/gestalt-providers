@@ -30,7 +30,11 @@ import {
   docsSubsectionLabel,
 } from "./docs-data";
 import { ASSISTANT_OVERLAP_TITLE } from "@/lib/assistantConnectionCopy";
-import { MCP_CLIENT_TABS, assistantHostById } from "@/lib/assistantHosts";
+import {
+  MCP_CLIENT_TABS,
+  assistantDocsLandingHash,
+  assistantHostById,
+} from "@/lib/assistantHosts";
 import { SETUP_PATH } from "@/lib/constants";
 import { gestaltMcpClientConfigJson } from "@/lib/gestaltMcpClientConfig";
 import { resolveGestaltPublicOrigin } from "@/lib/gestaltPublicOrigin";
@@ -160,8 +164,8 @@ export function GettingStartedDocsPage() {
           </DocsLink>
           , click Create token, give it a descriptive name, and copy the secret
           immediately. Then open{" "}
-          <DocsLink to={DOCS_MCP_PATH}>MCP Clients</DocsLink>, pick Claude or
-          ChatGPT, and follow those steps.
+          <DocsLink to={DOCS_MCP_PATH}>MCP Clients</DocsLink>, pick your
+          assistant, and follow those steps.
         </p>
         <div className="not-typeset">
           <Callout variant="warning">
@@ -625,8 +629,8 @@ export function McpDocsPage() {
 
         <Subheading id="mcp-connect" />
         <p>
-          Pick Claude or ChatGPT. Each option has three steps: create the token,
-          open the app, place the URL and token.
+          Pick Claude, ChatGPT, or Cursor. Each option has three steps: create
+          the token, open the app, then paste the URL and token.
         </p>
         <AssistantDestinationSwitcher origin={origin} />
 
@@ -781,7 +785,10 @@ export function TroubleshootingDocsPage() {
           Desktop, then restart the app. Check that{" "}
           <Code>GESTALT_API_KEY</Code> is set in the shell where you ran the
           command, or export it in your profile. Full steps:{" "}
-          <DocsLink to={DOCS_MCP_PATH} hash={assistantHostById("codex")!.docsHash}>
+          <DocsLink
+            to={DOCS_MCP_PATH}
+            hash={assistantDocsLandingHash(assistantHostById("codex"))}
+          >
             Codex Desktop MCP setup
           </DocsLink>
           .
@@ -1128,7 +1135,7 @@ function McpClientTabs({ origin }: { origin: string }) {
       {activeTabId === "mcp-other" ? (
         <>
           <p>
-            If the assistant has a connectors, tools, or custom MCP screen,
+            If the assistant has a connector, tools, or custom MCP screen,
             paste the URL and the token into those fields. If it uses a JSON
             config file, use the example below.
           </p>

@@ -105,7 +105,7 @@ test.describe("Docs page", () => {
       page.getByRole("heading", { name: "Create an API token" }),
     ).toBeVisible();
     await expect(page.locator("article")).toContainText(
-      "pick Claude or ChatGPT",
+      "pick your assistant",
     );
     await expect(page.getByText("How access works")).toBeVisible();
     const tokenWarning = page.getByText("This token is shown only once");
@@ -275,6 +275,12 @@ test.describe("Docs page", () => {
     await expect(page.locator("article")).toContainText(
       "gst_api_your_token_here",
     );
+    await tokensDestSwitch.getByRole("radio", { name: "Cursor" }).click();
+    await expect(page).toHaveURL(/\/docs\/tokens#dest-cursor$/);
+    await expect(page.locator("article")).toContainText(".cursor/mcp.json");
+    await expect(page.locator("article")).toContainText(
+      "Bearer gst_api_your_token_here",
+    );
     const settingsLinkBox = await page
       .locator("article")
       .getByRole("link", { name: "Settings → API tokens" })
@@ -318,6 +324,12 @@ test.describe("Docs page", () => {
     await expect(mcpDestSwitch.getByRole("radio", { name: "Claude" })).toBeChecked();
     await expect(mcpDestSwitch.getByRole("radio", { name: "ChatGPT" })).toBeVisible();
     await expect(page.locator("article video")).toBeVisible();
+    await page.goto("/docs/mcp#mcp-chatgpt");
+    await expect(page).toHaveURL(/\/docs\/mcp#dest-chatgpt$/);
+    await expect(
+      mcpDestSwitch.getByRole("radio", { name: "ChatGPT" }),
+    ).toBeChecked();
+    await expect(page.locator("article")).toContainText("Developer mode");
     await expect(
       page.getByRole("heading", { name: "Store the token on your computer" }),
     ).toBeVisible();
@@ -353,6 +365,8 @@ test.describe("Docs page", () => {
     await expect(mcpPanel).toContainText(
       'codex mcp add gestalt --url "$GESTALT_URL/mcp" --bearer-token-env-var GESTALT_API_KEY',
     );
+    await expect(mcpPanel).toContainText("Codex Desktop");
+    await expect(mcpPanel).toContainText("Cloud agents do not use local");
     await page.goto("/docs/mcp#mcp-cursor");
     await expect(mcpSwitch.getByRole("radio", { name: "Cursor" })).toBeChecked();
     await expect(mcpPanel).toContainText(".cursor/mcp.json");
@@ -394,6 +408,7 @@ test.describe("Docs page", () => {
       ),
     ).toBeVisible();
     await expect(agentPanel).toContainText(`GESTALT_URL=${expectedOrigin}`);
+    await expect(agentPanel).not.toContainText("export GESTALT_API_KEY");
     await expect(agentPanel).not.toContainText("BASE_URL");
     await expect(agentPanel).not.toContainText("dedicated secrets store");
     await agentSwitch.getByRole("radio", { name: "Codex Cloud" }).click();
@@ -403,6 +418,7 @@ test.describe("Docs page", () => {
     await expect(agentPanel).toContainText(
       "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh",
     );
+    await expect(agentPanel).not.toContainText("export GESTALT_API_KEY");
     await expect(agentPanel).not.toContainText("BASE_URL");
     await expect(agentPanel).toContainText(`GESTALT_URL=${expectedOrigin}`);
     await expect(agentPanel).toContainText(

@@ -10,6 +10,7 @@ import {
   defaultAssistantDestinationId,
   type AssistantDestinationId,
 } from "./assistant-destinations";
+import { ASSISTANT_DOCS_LANDING_HASH_ALIASES } from "@/lib/assistantHosts";
 import { DocsOptionSwitcher, useHashTab } from "./docs-option-switcher";
 
 export function AssistantDestinationSwitcher({
@@ -21,6 +22,7 @@ export function AssistantDestinationSwitcher({
   const [activeTabId, setActiveTabId] = useHashTab(
     assistantDestinationIds,
     defaultAssistantDestinationId,
+    ASSISTANT_DOCS_LANDING_HASH_ALIASES,
   );
   const activeId = activeTabId as AssistantDestinationId;
 
@@ -33,6 +35,7 @@ export function AssistantDestinationSwitcher({
       }))}
       value={activeId}
       onValueChange={setActiveTabId}
+      hashAliases={ASSISTANT_DOCS_LANDING_HASH_ALIASES}
     >
       {activeId === "dest-claude" ? (
         <ClaudeDestination mcpUrl={mcpUrl} />
@@ -69,7 +72,7 @@ function ClaudeDestination({ mcpUrl }: { mcpUrl: string }) {
         </li>
         <li>
           Place the token here: paste the server URL into the server URL field.
-          Open Request headers. Header name: <Code>authorization</Code>. Header
+          Open Request headers. Header name: <Code>Authorization</Code>. Header
           value: <Code>Bearer</Code>, a space, then your token. Click Add. In a
           chat, click +, then Connectors, and turn Gestalt on.
         </li>

@@ -4,6 +4,7 @@ import {
   ASSISTANT_HOSTS_IN_PICKER,
   MCP_CLIENT_TABS,
   assistantHostById,
+  assistantDocsLandingHash,
   isBuildInstallAgentId,
   normalizeStoredInstallAgentId,
 } from "./assistantHosts";
@@ -59,6 +60,19 @@ describe("assistant host catalog", () => {
     expect(assistantHostById("claude-code")?.iconKey).toBe("claude-code");
     expect(assistantHostById("cursor-agent")?.iconKey).toBe("cursor");
     expect(assistantHostById("cursor-agent")?.docsHash).toBe("mcp-cursor");
+    expect(assistantDocsLandingHash(assistantHostById("claude"))).toBe(
+      "dest-claude",
+    );
+    expect(assistantDocsLandingHash(assistantHostById("chatgpt"))).toBe(
+      "dest-chatgpt",
+    );
+    expect(assistantDocsLandingHash(assistantHostById("cursor"))).toBe(
+      "mcp-cursor",
+    );
+    expect(assistantDocsLandingHash(assistantHostById("codex"))).toBe(
+      "mcp-codex",
+    );
+    expect(assistantDocsLandingHash(undefined)).toBe("mcp-other");
     expect(assistantHostById("other")?.installDescription).toContain(
       "MCP settings",
     );
