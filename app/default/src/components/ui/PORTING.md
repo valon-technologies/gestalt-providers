@@ -41,11 +41,26 @@ Live region follows layout + variant, same as Registry: default (except outline)
 is `role="alert"`; banner, chrome, and outline are not. Persistent in-page
 guidance is `Callout` from this same module — stacked default grid, no live
 region. Do not add a consumer `live` prop, and do not pick `layout="banner"` to
-silence an Alert. Banner uses a container query so actions wrap under the copy
+silence an Alert. Alert `layout="banner"` is an in-page wrapping toolbar; do
+not fake full-bleed shell chrome with `rounded-none` / `border-b` — that is
+Banner. Alert banner uses a container query so actions wrap under the copy
 when the bar is narrow. Collapsible secondary help: `collapsible` +
 `AlertTrigger` + `AlertCollapsibleContent` (+ optional `animateSize`). Drawer CSS
 lives in `globals.css`. Button `secondary` on washes uses ink-alpha
 (`secondarySurfaceFillClassName`), not solid `bg-secondary`.
+
+## Banner
+
+Registry `banner` is vendored here (`Banner` / `BannerIcon` / `BannerTitle` /
+`BannerDescription` / `BannerActions` / `BannerClose`). Full-bleed
+page/app-level system-message chrome: square, no border, no default live role.
+`BannerTitle` is the optional kind label (worktree name, impersonation
+target); keep it a sibling of `BannerDescription` so the root gap is the space
+between them. Title and Description wrap unbroken strings (`wrap-break-word`);
+do not truncate. Description mutes when Title is present. Geometry is owned —
+do not pass `rounded-none` or `border-b` at the call site. Sticky placement
+stays on `__root.tsx`. Prefer `@/lib/cn`. Dev worktree chrome composes Banner,
+not Alert.
 
 ## Button / Input / Field / Label / Select
 

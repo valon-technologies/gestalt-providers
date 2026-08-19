@@ -1,12 +1,16 @@
 import { GitBranch } from "lucide-react";
 import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert";
+  Banner,
+  BannerDescription,
+  BannerIcon,
+  BannerTitle,
+} from "@/components/ui/banner";
 import { readDevWorktreeName } from "@/lib/dev-worktree-name";
 
-/** Local DEV strip naming the active git worktree (/prod-remote or /local-dev). */
+/** Local DEV strip naming the active git worktree (/prod-remote or /local-dev).
+ *  Registry Banner (shell chrome), not Alert. Title and Description stay
+ *  siblings so the strip's gap is the space between "Worktree" and the name.
+ *  Sticky placement stays on `__root.tsx`. */
 export function DevWorktreeBanner() {
   const name = readDevWorktreeName();
   if (!name) {
@@ -14,16 +18,16 @@ export function DevWorktreeBanner() {
   }
 
   return (
-    <Alert
+    <Banner
       variant="warning"
-      layout="banner"
-      className="rounded-none border-b border-border"
       data-testid="dev-worktree-banner"
       aria-label={`Development worktree ${name}`}
     >
-      <GitBranch aria-hidden />
-      <AlertTitle>Worktree</AlertTitle>
-      <AlertDescription>{name}</AlertDescription>
-    </Alert>
+      <BannerIcon>
+        <GitBranch />
+      </BannerIcon>
+      <BannerTitle>Worktree</BannerTitle>
+      <BannerDescription>{name}</BannerDescription>
+    </Banner>
   );
 }
