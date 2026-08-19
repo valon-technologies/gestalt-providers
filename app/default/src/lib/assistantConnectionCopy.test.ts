@@ -9,6 +9,7 @@ import {
   CHATGPT_INSTALL_SAVE,
   CHATGPT_INSTALL_TOKEN,
   CHATGPT_INSTALL_URL,
+  CURSOR_AGENT_INSTALL_PREAMBLE,
   SETUP_RESUME_BANNER_BODY,
   TOKEN_STEP_DESCRIPTION,
   assistantOverlapBody,
@@ -43,6 +44,13 @@ describe("setup operator copy", () => {
     expect(CHATGPT_INSTALL_SAVE).toBe("Choose **Save**.");
     expect(CHATGPT_INSTALL_OPEN.split("**").length % 2).toBe(1);
     expect(CHATGPT_INSTALL_NAME_TYPE.split("**").length % 2).toBe(1);
+  });
+
+  test("Cursor Agent install tells people to paste the project config", () => {
+    expect(CURSOR_AGENT_INSTALL_PREAMBLE).toBe(
+      "Paste this config into .cursor/mcp.json in your project.",
+    );
+    expect(CURSOR_AGENT_INSTALL_PREAMBLE).not.toMatch(/start Agent/i);
   });
 });
 

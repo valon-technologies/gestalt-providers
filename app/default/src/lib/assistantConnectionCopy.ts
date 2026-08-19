@@ -72,7 +72,7 @@ export const CODEX_INSTALL_POSTAMBLE =
   "Restart Codex if Gestalt tools do not show up.";
 
 export const CURSOR_AGENT_INSTALL_PREAMBLE =
-  "Cursor Agent reads MCP servers from .cursor/mcp.json in your project. Paste this config, then start Agent from that folder.";
+  "Paste this config into .cursor/mcp.json in your project.";
 
 export const MCP_SETUP_DOCS_LINK_LABEL = "MCP Clients";
 

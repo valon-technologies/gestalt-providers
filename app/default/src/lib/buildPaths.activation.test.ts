@@ -329,7 +329,7 @@ describe("buildStepTitle", () => {
       "Run these commands in Terminal on the Mac where Codex is installed.",
     );
     expect(buildStepDescription(install, "cursor-agent")).toBe(
-      "Paste this into .cursor/mcp.json. Cursor Agent reads the same MCP config as Cursor.",
+      "Connect Cursor Agent so it can use your Gestalt apps.",
     );
     expect(buildStepDescription(install, "other")).toBe(
       "Use these MCP settings in any client that accepts a URL and an Authorization header.",
