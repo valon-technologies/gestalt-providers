@@ -8,7 +8,8 @@ import * as React from "react";
 import { FileCode2 } from "lucide-react";
 import { all, createLowlight } from "lowlight";
 
-import { CopyIconButton } from "@/components/ui/copy-button";
+import { CopyIconButton, SecretRevealButton } from "@/components/ui/copy-button";
+import { maskSecretsInText } from "@/components/ui/copyable-code";
 import {
   CodeFenceHeader,
   CodeFenceShell,
@@ -442,15 +443,21 @@ function CodeBlockShell({
   className,
   variant,
   children,
+  sensitive,
+  revealed,
 }: {
   className?: string;
   variant?: CodeFenceVariant;
   children: React.ReactNode;
+  sensitive?: boolean;
+  revealed?: boolean;
 }) {
   return (
     <TooltipProvider delayDuration={0}>
       <CodeFenceShell
         data-slot="code-block"
+        data-sensitive={sensitive ? "true" : undefined}
+        data-revealed={sensitive ? (revealed ? "true" : "false") : undefined}
         variant={variant}
         className={cn("w-full", className)}
       >
@@ -460,15 +467,39 @@ function CodeBlockShell({
   );
 }
 
+function CodeBlockCopyCluster({
+  code,
+  copyLabel,
+  reveal,
+}: {
+  code: string;
+  copyLabel?: string;
+  reveal?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center">
+      {reveal}
+      <CopyIconButton
+        value={() => normalizeCodeNewlines(code)}
+        tooltip={copyLabel}
+      />
+    </div>
+  );
+}
+
 function CodeBlockHeader({
   label,
   code,
   leading,
+  copyLabel,
+  reveal,
 }: {
   /** Filename chrome only — omit for copy-only header (language is not a label). */
   label?: React.ReactNode;
   code: string;
   leading?: React.ReactNode;
+  copyLabel?: string;
+  reveal?: React.ReactNode;
 }) {
   const hasLabel =
     label != null && !(typeof label === "string" && label.trim() === "");
@@ -483,7 +514,7 @@ function CodeBlockHeader({
           </>
         ) : null}
       </div>
-      <CopyIconButton value={() => normalizeCodeNewlines(code)} />
+      <CodeBlockCopyCluster code={code} copyLabel={copyLabel} reveal={reveal} />
     </CodeFenceHeader>
   );
 }
@@ -502,6 +533,14 @@ export type CodeBlockProps = {
   chrome?: CodeBlockChrome;
   /** Idle copy tooltip / aria-label (defaults to "Copy"). */
   copyLabel?: string;
+  /**
+   * Substrings to mask in the body until revealed. Copy still writes `code`.
+   */
+  secrets?: readonly string[];
+  /** Tooltip / accessible name for the masked-state reveal control. */
+  revealLabel?: string;
+  /** Tooltip / accessible name for the revealed-state hide control. */
+  hideLabel?: string;
   showLineNumbers?: boolean;
   scrollable?: boolean;
   maxHeight?: number;
@@ -525,18 +564,40 @@ function isSingleLineCode(code: string): boolean {
 function CodeBlockInsetCopy({
   code,
   copyLabel,
+  reveal,
 }: {
   code: string;
   copyLabel?: string;
+  reveal?: React.ReactNode;
 }) {
   return (
     <div className="absolute end-1.5 top-1.5 z-10">
-      <CopyIconButton
-        value={() => normalizeCodeNewlines(code)}
-        tooltip={copyLabel}
-      />
+      <CodeBlockCopyCluster code={code} copyLabel={copyLabel} reveal={reveal} />
     </div>
   );
+}
+
+function useCodeBlockSecretReveal(
+  secrets: readonly string[] | undefined,
+  revealLabel: string,
+  hideLabel: string,
+) {
+  const activeSecrets = React.useMemo(
+    () => (secrets ?? []).filter((secret) => secret.length > 0),
+    [secrets],
+  );
+  const sensitive = activeSecrets.length > 0;
+  const [revealed, setRevealed] = React.useState(false);
+  const reveal = sensitive ? (
+    <SecretRevealButton
+      data-slot="code-block-reveal"
+      revealed={revealed}
+      onToggle={() => setRevealed((current) => !current)}
+      showLabel={revealLabel}
+      hideLabel={hideLabel}
+    />
+  ) : null;
+  return { activeSecrets, sensitive, revealed, reveal };
 }
 
 function CodeBlock({
@@ -545,6 +606,9 @@ function CodeBlock({
   filename,
   chrome = "header",
   copyLabel,
+  secrets,
+  revealLabel = "Show",
+  hideLabel = "Hide",
   showLineNumbers = false,
   scrollable = false,
   maxHeight = 400,
@@ -552,19 +616,24 @@ function CodeBlock({
   variant,
   className,
 }: CodeBlockProps) {
+  const { activeSecrets, sensitive, revealed, reveal } =
+    useCodeBlockSecretReveal(secrets, revealLabel, hideLabel);
+  const displayCode =
+    sensitive && !revealed ? maskSecretsInText(code, activeSecrets) : code;
   const inset = chrome === "inset";
   const singleLineInset = inset && isSingleLineCode(code);
   const body = (
     <CodeBody
-      code={code}
+      code={displayCode}
       language={language}
       showLineNumbers={showLineNumbers}
       scrollable={scrollable}
       maxHeight={maxHeight}
       highlightLines={highlightLines}
       className={cn(
-        // End padding clears the overlaid copy control.
-        inset && "[&_pre]:pe-10",
+        // End padding clears the overlaid copy control. Two toolbar icons
+        // (reveal + copy) need a wider gutter than copy alone.
+        inset && (sensitive ? "[&_pre]:pe-16" : "[&_pre]:pe-10"),
         // Single-line: py + line box sized to icon-xs so top/end/bottom inset match
         // end-1.5/top-1.5 without %-centering against a scrollbar-inflated wrapper.
         singleLineInset &&
@@ -575,13 +644,22 @@ function CodeBlock({
 
   if (inset) {
     return (
-      <CodeBlockShell className={className} variant={variant}>
+      <CodeBlockShell
+        className={className}
+        variant={variant}
+        sensitive={sensitive}
+        revealed={revealed}
+      >
         {/*
           Focus ring on inset copy can paint past the fence edge; keep a hair of
           room so overflow clip on the shell does not truncate it.
         */}
         <div data-slot="code-block-inset" className="relative p-px">
-          <CodeBlockInsetCopy code={code} copyLabel={copyLabel} />
+          <CodeBlockInsetCopy
+            code={code}
+            copyLabel={copyLabel}
+            reveal={reveal}
+          />
           {body}
         </div>
       </CodeBlockShell>
@@ -589,8 +667,18 @@ function CodeBlock({
   }
 
   return (
-    <CodeBlockShell className={className} variant={variant}>
-      <CodeBlockHeader label={filename} code={code} />
+    <CodeBlockShell
+      className={className}
+      variant={variant}
+      sensitive={sensitive}
+      revealed={revealed}
+    >
+      <CodeBlockHeader
+        label={filename}
+        code={code}
+        copyLabel={copyLabel}
+        reveal={reveal}
+      />
       {body}
     </CodeBlockShell>
   );

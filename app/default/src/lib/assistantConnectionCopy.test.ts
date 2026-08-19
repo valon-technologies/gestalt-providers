@@ -11,8 +11,10 @@ import {
   CHATGPT_INSTALL_URL,
   CURSOR_AGENT_INSTALL_PREAMBLE,
   SETUP_RESUME_BANNER_BODY,
+  SETUP_TOKEN_CREATED_ITEM_TITLE,
   TOKEN_STEP_DESCRIPTION,
   assistantOverlapBody,
+  setupTokenCreatedItemTitle,
 } from "./assistantConnectionCopy";
 
 describe("setup operator copy", () => {
@@ -21,6 +23,21 @@ describe("setup operator copy", () => {
       "Your assistant uses this token to reach Gestalt. Setup fills it into the install commands for you.",
     );
     expect(TOKEN_STEP_DESCRIPTION).not.toMatch(/Add Gestalt fills/);
+  });
+
+  test("completed token step names the grant this setup is using", () => {
+    expect(setupTokenCreatedItemTitle("ci-pipeline")).toBe(
+      "Token ci-pipeline created",
+    );
+    expect(setupTokenCreatedItemTitle("  Workspace  ")).toBe(
+      "Token Workspace created",
+    );
+    expect(setupTokenCreatedItemTitle("")).toBe(
+      SETUP_TOKEN_CREATED_ITEM_TITLE,
+    );
+    expect(setupTokenCreatedItemTitle("ci-pipeline")).not.toMatch(
+      /is ready\. Continue to add Gestalt/,
+    );
   });
 
   test("resume banner is stage-agnostic", () => {

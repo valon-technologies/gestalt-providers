@@ -153,6 +153,10 @@ const defaultToken = {
   createdAt: "2026-04-13T00:00:00Z",
 };
 
+function maskedCopyableSecret(value: string): string {
+  return `${value.slice(0, 4)}${"*".repeat(value.length - 8)}${value.slice(-4)}`;
+}
+
 function withConnectedConnection<T extends { name: string }>(item: T) {
   return {
     ...item,
@@ -464,6 +468,14 @@ test.describe("Setup page", () => {
     const otherRecipe = page.getByTestId("build-install-other-recipe");
     await expect(otherRecipe).toBeVisible();
     await expect(otherRecipe).toContainText("/mcp");
+    await expect(otherRecipe).toContainText(
+      `Bearer ${maskedCopyableSecret("gst_api_test_token_for_install")}`,
+    );
+    await expect(otherRecipe).not.toContainText("gst_api_test_token_for_install");
+    await expect(otherRecipe.getByRole("button", { name: "Show token" })).toHaveCount(
+      2,
+    );
+    await otherRecipe.getByRole("button", { name: "Show token" }).first().click();
     await expect(otherRecipe).toContainText("Bearer gst_api_test_token_for_install");
     await expect(otherRecipe).toContainText("mcpServers");
   });
@@ -510,11 +522,18 @@ test.describe("Setup page", () => {
     await expect(page.getByTestId("build-step-next")).toBeDisabled();
     await page.getByRole("button", { name: "Create token" }).click();
     await expect(page.getByTestId("build-token-create-item")).toContainText(
-      "Token created",
+      "Token ci-pipeline created",
     );
+    const createdSecret = page.getByTestId("build-token-created-secret");
+    await expect(createdSecret).toContainText(
+      maskedCopyableSecret("gst_api_created_once_secret"),
+    );
+    await expect(createdSecret).not.toContainText("gst_api_created_once_secret");
+    await createdSecret.getByRole("button", { name: "Show token" }).click();
+    await expect(createdSecret).toContainText("gst_api_created_once_secret");
     await expect(
       page.getByText("Your token is saved."),
-    ).toBeVisible();
+    ).toHaveCount(0);
     await expect(
       page.getByText("ci-pipeline is ready. Continue to add Gestalt."),
     ).toHaveCount(0);
@@ -577,11 +596,18 @@ test.describe("Setup page", () => {
     await expect(page.getByTestId("build-step-next")).toBeDisabled();
     await page.getByRole("button", { name: "Create token" }).click();
     await expect(page.getByTestId("build-token-create-item")).toContainText(
-      "Token created",
+      "Token Workspace created",
     );
+    const createdSecret = page.getByTestId("build-token-created-secret");
+    await expect(createdSecret).toContainText(
+      maskedCopyableSecret("gst_api_created_once_secret"),
+    );
+    await expect(createdSecret).not.toContainText("gst_api_created_once_secret");
+    await createdSecret.getByRole("button", { name: "Show token" }).click();
+    await expect(createdSecret).toContainText("gst_api_created_once_secret");
     await expect(
       page.getByText("Your token is saved."),
-    ).toBeVisible();
+    ).toHaveCount(0);
     await expect(
       page.getByText("Workspace is ready. Continue to add Gestalt."),
     ).toHaveCount(0);
@@ -621,7 +647,16 @@ test.describe("Setup page", () => {
     await page.goto("/setup/token");
     await page.getByLabel("Token name").fill("ci-pipeline");
     await page.getByRole("button", { name: "Create token" }).click();
-    await expect(page.getByText("Your token is saved.")).toBeVisible();
+    await expect(page.getByTestId("build-token-create-item")).toContainText(
+      "Token ci-pipeline created",
+    );
+    const firstSecret = page.getByTestId("build-token-created-secret");
+    await expect(firstSecret).toContainText(
+      maskedCopyableSecret("gst_api_first_secret"),
+    );
+    await expect(firstSecret).not.toContainText("gst_api_first_secret");
+    await firstSecret.getByRole("button", { name: "Show token" }).click();
+    await expect(firstSecret).toContainText("gst_api_first_secret");
     await expect(page.getByTestId("build-step-next")).toBeEnabled();
 
     await page.getByTestId("build-token-create-different").click();
@@ -633,7 +668,16 @@ test.describe("Setup page", () => {
     await expect(page.getByTestId("build-step-next")).toBeDisabled();
 
     await page.getByRole("button", { name: "Create token" }).click();
-    await expect(page.getByText("Your token is saved.")).toBeVisible();
+    await expect(page.getByTestId("build-token-create-item")).toContainText(
+      "Token ci-pipeline created",
+    );
+    const secondSecret = page.getByTestId("build-token-created-secret");
+    await expect(secondSecret).toContainText(
+      maskedCopyableSecret("gst_api_second_secret"),
+    );
+    await expect(secondSecret).not.toContainText("gst_api_second_secret");
+    await secondSecret.getByRole("button", { name: "Show token" }).click();
+    await expect(secondSecret).toContainText("gst_api_second_secret");
     await expect(page.getByTestId("build-step-next")).toBeEnabled();
     expect(createCount).toBe(2);
   });

@@ -25,6 +25,13 @@ describe("CodeBlock chrome contract", () => {
     expect(SOURCE).not.toContain("flex h-10 items-center justify-between gap-2 px-3");
   });
 
+  test("sensitive snippets mask secrets in the body and copy the real code", () => {
+    expect(SOURCE).toContain("secrets?: readonly string[]");
+    expect(SOURCE).toContain("maskSecretsInText");
+    expect(SOURCE).toContain('data-slot="code-block-reveal"');
+    expect(SOURCE).toContain('inset && (sensitive ? "[&_pre]:pe-16" : "[&_pre]:pe-10")');
+  });
+
   test("highlighted lines use full-bleed flex rows with inset accent edge", () => {
     expect(SOURCE).toContain("codeLineRowBleedClass");
     expect(SOURCE).toContain("codeLineEmphasisRowClassName");

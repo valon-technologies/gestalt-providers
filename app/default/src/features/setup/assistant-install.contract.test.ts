@@ -58,6 +58,8 @@ describe("assistant install guidance", () => {
     expect(SOURCE).toContain("gestaltMcpClientConfigJson");
     expect(SOURCE).toContain("gestaltMcpBearerValue");
     expect(SOURCE).toContain("function OtherInstallRecipe({ mcpUrl, apiToken }");
+    expect(SOURCE).toContain("secrets={[apiToken]}");
+    expect(SOURCE).toContain('revealLabel: "Show token"');
   });
 
   test("Cursor install is the one-click button; Cursor Agent keeps the paste recipe", () => {

@@ -80,7 +80,17 @@ export const SETUP_TOKEN_CREATE_ITEM_TITLE = "Create a token";
 
 export const SETUP_TOKEN_CREATED_ITEM_TITLE = "Token created";
 
-export const SETUP_TOKEN_CREATE_DONE = "Your token is saved.";
+export const SETUP_TOKEN_CREATED_LEAD = "Token";
+
+export const SETUP_TOKEN_CREATED_TAIL = "created";
+
+/** Completed timeline title: "Token {name} created". */
+export function setupTokenCreatedItemTitle(tokenName: string): string {
+  const name = tokenName.trim();
+  return name
+    ? `${SETUP_TOKEN_CREATED_LEAD} ${name} ${SETUP_TOKEN_CREATED_TAIL}`
+    : SETUP_TOKEN_CREATED_ITEM_TITLE;
+}
 
 export const SETUP_TOKEN_CREATE_DIFFERENT = "Create a different token";
 

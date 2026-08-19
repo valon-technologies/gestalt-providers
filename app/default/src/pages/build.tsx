@@ -1,5 +1,5 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
-import { Clock } from "lucide-react";
+import { Clock, RotateCcw } from "lucide-react";
 import {
   Link,
   Navigate,
@@ -43,14 +43,12 @@ import { CopyableCode } from "@/components/ui/copyable-code";
 import {
   TimelineSteps,
   TimelineStepsContent,
-  TimelineStepsDescription,
   TimelineStepsHeader,
   TimelineStepsIcon,
   TimelineStepsItem,
   TimelineStepsTitle,
 } from "@/components/ui/timeline-steps";
 import { Button } from "@/components/ui/button";
-import { Link as UiLink } from "@/components/ui/link";
 import { ChipGroup, ChipGroupItem } from "@/components/ui/chip-group";
 import {
   Stepper,
@@ -93,6 +91,7 @@ import {
 } from "@/features/setup/assistant-install";
 import { SetupOverlapCallout } from "@/features/setup/overlap-callout";
 import {
+  SETUP_TOKEN_CREATED_CONTENT_CLASS,
   SETUP_TOKEN_CREATE_CONTENT_CLASS,
   SETUP_TOKEN_CREATE_TRACK,
 } from "@/features/setup/token-create-layout";
@@ -143,9 +142,10 @@ import {
 import {
   CONNECT_ANOTHER_ASSISTANT_LABEL,
   SETUP_TOKEN_CREATE_DIFFERENT,
-  SETUP_TOKEN_CREATE_DONE,
   SETUP_TOKEN_CREATE_ITEM_TITLE,
   SETUP_TOKEN_CREATED_ITEM_TITLE,
+  SETUP_TOKEN_CREATED_LEAD,
+  SETUP_TOKEN_CREATED_TAIL,
   SETUP_TOKEN_NEXT_DISABLED_TITLE,
   WELCOME_ASSISTANT_EXAMPLES,
 } from "@/lib/assistantConnectionCopy";
@@ -1229,28 +1229,55 @@ function AuthorizeStepActions({
         <TimelineStepsHeader>
           <TimelineStepsIcon />
           <TimelineStepsTitle>
-            {credentialReady
-              ? SETUP_TOKEN_CREATED_ITEM_TITLE
-              : SETUP_TOKEN_CREATE_ITEM_TITLE}
+            {credentialReady ? (
+              tokenName.trim() ? (
+                <>
+                  {SETUP_TOKEN_CREATED_LEAD}{" "}
+                  <span className="font-semibold">{tokenName.trim()}</span>{" "}
+                  {SETUP_TOKEN_CREATED_TAIL}
+                </>
+              ) : (
+                SETUP_TOKEN_CREATED_ITEM_TITLE
+              )
+            ) : (
+              SETUP_TOKEN_CREATE_ITEM_TITLE
+            )}
           </TimelineStepsTitle>
         </TimelineStepsHeader>
         <TimelineStepsContent
-          className={credentialReady ? undefined : SETUP_TOKEN_CREATE_CONTENT_CLASS}
+          className={
+            credentialReady
+              ? SETUP_TOKEN_CREATED_CONTENT_CLASS
+              : SETUP_TOKEN_CREATE_CONTENT_CLASS
+          }
         >
           {credentialReady ? (
             <div className="space-y-3">
-              <TimelineStepsDescription>
-                {SETUP_TOKEN_CREATE_DONE}
-              </TimelineStepsDescription>
-              <UiLink asChild className="inline cursor-pointer p-0 text-[0.875em]">
-                <button
-                  type="button"
-                  data-testid="build-token-create-different"
-                  onClick={() => onApiToken("")}
-                >
-                  {SETUP_TOKEN_CREATE_DIFFERENT}
-                </button>
-              </UiLink>
+              <div
+                role="group"
+                aria-label="API token"
+                data-testid="build-token-created-secret"
+              >
+                <CopyableCode
+                  value={apiToken}
+                  size="lg"
+                  className="w-fit max-w-full"
+                  tooltip="Copy token"
+                  sensitive
+                  revealLabel="Show token"
+                  hideLabel="Hide token"
+                />
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                data-testid="build-token-create-different"
+                onClick={() => onApiToken("")}
+              >
+                <RotateCcw aria-hidden />
+                {SETUP_TOKEN_CREATE_DIFFERENT}
+              </Button>
             </div>
           ) : (
             <TokenCreateForm

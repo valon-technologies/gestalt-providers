@@ -31,7 +31,7 @@ describe("CopyIconButton feedback (toolshed#4296)", () => {
   });
 
   test("chip density fills the action cell and uses before for hit slop", () => {
-    expect(SOURCE).toContain("COPY_ICON_CHIP_CLASS");
+    expect(SOURCE).toContain("copyIconChipClassName");
     expect(SOURCE).toContain('density === "chip" &&');
     expect(SOURCE).toContain("self-stretch");
     expect(SOURCE).toContain("before:-top-1.5");
@@ -42,5 +42,12 @@ describe("CopyIconButton feedback (toolshed#4296)", () => {
     expect(SOURCE).toContain("size-auto");
     expect(SOURCE).toContain('density === "chip" ? null : "icon-xs"');
     expect(SOURCE).not.toContain('const size = sizeProp ?? "icon-xs"');
+  });
+
+  test("SecretRevealButton is shared by CopyableCode chips and CodeBlock", () => {
+    expect(SOURCE).toContain("function SecretRevealButton");
+    expect(SOURCE).toContain("EyeIcon");
+    expect(SOURCE).toContain("EyeOffIcon");
+    expect(SOURCE).toContain("aria-pressed={revealed}");
   });
 });

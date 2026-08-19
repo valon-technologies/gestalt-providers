@@ -157,6 +157,11 @@ function CreateTokenFirstCallout() {
   );
 }
 
+const INSTALL_SECRET_REVEAL = {
+  revealLabel: "Show token",
+  hideLabel: "Hide token",
+} as const;
+
 function RecipeSteps({
   children,
   testId,
@@ -292,7 +297,12 @@ function ChatGptConnectorRecipe({
             <RecipeEmphasis text={CHATGPT_INSTALL_TOKEN} />
           </span>
           <div>
-            <CopyableCode value={tokenValue} tooltip="Copy token" />
+            <CopyableCode
+              value={tokenValue}
+              tooltip="Copy token"
+              sensitive
+              {...INSTALL_SECRET_REVEAL}
+            />
           </div>
         </li>
         <li>
@@ -325,6 +335,8 @@ function CursorMcpConfigBlock({
       })}
       language="json"
       filename=".cursor/mcp.json"
+      secrets={[apiToken]}
+      {...INSTALL_SECRET_REVEAL}
     />
   );
 }
@@ -385,6 +397,8 @@ function ClaudeCodeInstallRecipe({
         chrome="inset"
         code={claudeCodeCommand}
         language="bash"
+        secrets={[apiToken]}
+        {...INSTALL_SECRET_REVEAL}
       />
     </div>
   );
@@ -403,6 +417,8 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
         chrome="inset"
         code={codexCommand}
         language="bash"
+        secrets={[apiToken]}
+        {...INSTALL_SECRET_REVEAL}
       />
       <p className="text-sm text-muted-foreground text-pretty">
         {CODEX_INSTALL_POSTAMBLE}
@@ -447,6 +463,9 @@ function OtherInstallRecipe({ mcpUrl, apiToken }: HostInstallRecipeProps) {
           <CopyableCode
             value={bearerValue}
             tooltip="Copy Authorization value"
+            sensitive
+            secrets={[apiToken]}
+            {...INSTALL_SECRET_REVEAL}
           />
         </div>
       </div>
@@ -455,6 +474,8 @@ function OtherInstallRecipe({ mcpUrl, apiToken }: HostInstallRecipeProps) {
         chrome="inset"
         code={clientConfig}
         language="json"
+        secrets={[apiToken]}
+        {...INSTALL_SECRET_REVEAL}
       />
     </div>
   );

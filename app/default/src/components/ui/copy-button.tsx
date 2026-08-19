@@ -4,7 +4,7 @@
 
 import * as React from "react";
 
-import { CheckIcon, CopyIcon } from "lucide-react";
+import { CheckIcon, CopyIcon, EyeIcon, EyeOffIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -33,8 +33,9 @@ type CopyFeedback = "idle" | "copied" | "failed";
 
 // Chip copy fills CopyableCode's trailing cell. `before` expands the hit
 // target vertically and past the trailing edge — not into the identifier text.
-// Button's press scrim already owns `after`.
-const COPY_ICON_CHIP_CLASS =
+// Button's press scrim already owns `after`. Reveal in a sensitive chip
+// shares this class so both actions sit on the same em-scaled strip.
+export const copyIconChipClassName =
   "size-auto h-auto min-h-0 min-w-[1.15em] w-auto self-stretch rounded-none px-[0.25em] py-0 text-inherit before:absolute before:-top-1.5 before:-right-1.5 before:-bottom-1.5 before:left-0 before:content-[''] [&_svg:not([class*='size-'])]:size-[0.7em]";
 
 function CopyIconButton({
@@ -92,7 +93,7 @@ function CopyIconButton({
           className={cn(
             "shrink-0",
             density === "chip" &&
-              COPY_ICON_CHIP_CLASS,
+              copyIconChipClassName,
             className,
           )}
           aria-label={label}
@@ -140,4 +141,52 @@ function CopyIconButton({
   );
 }
 
-export { CopyIconButton };
+export type SecretRevealButtonProps = {
+  revealed: boolean;
+  onToggle: () => void;
+  showLabel: string;
+  hideLabel: string;
+  /** `toolbar` matches CodeBlock copy. `chip` matches CopyableCode. */
+  density?: CopyIconButtonDensity;
+  className?: string;
+  "data-slot"?: string;
+};
+
+function SecretRevealButton({
+  revealed,
+  onToggle,
+  showLabel,
+  hideLabel,
+  density = "toolbar",
+  className,
+  "data-slot": dataSlot = "secret-reveal",
+}: SecretRevealButtonProps) {
+  const label = revealed ? hideLabel : showLabel;
+  const size = density === "chip" ? null : "icon-xs";
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size={size}
+          className={cn(
+            "shrink-0",
+            density === "chip" && copyIconChipClassName,
+            className,
+          )}
+          aria-label={label}
+          aria-pressed={revealed}
+          data-slot={dataSlot}
+          onClick={onToggle}
+        >
+          {revealed ? <EyeOffIcon /> : <EyeIcon />}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+export { CopyIconButton, SecretRevealButton };
