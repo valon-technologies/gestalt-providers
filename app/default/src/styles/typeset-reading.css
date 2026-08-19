@@ -13,7 +13,9 @@
  * `.typeset-chat`). Opt out of a subtree with `.not-typeset`.
  * Direct-child chrome (`.not-typeset` / `[data-not-typeset]`) and mixed
  * blocks (`[data-typeset-chrome]`) get `--typeset-flow` as margin-block-start
- * so they keep the same gap as prose siblings.
+ * so they keep the same gap as prose siblings. Chrome islands inside an
+ * option-switcher panel (`[data-docs-option-switcher] [role="region"]`)
+ * get the same start gap; the host already consumed the sibling gap.
  */
 
 @layer components {
@@ -592,6 +594,16 @@
    */
   .typeset
     > :where(.not-typeset, [data-not-typeset], [data-typeset-chrome]) {
+    margin-block-start: var(--typeset-flow);
+    margin-block-end: 0;
+  }
+  /* Nested chrome in a mixed switcher (Callout after CodeBlock). The
+   * [data-typeset-chrome] host already took the page-level gap; panel
+   * islands still need flow between themselves. */
+  .typeset
+    [data-docs-option-switcher]
+    [role="region"]
+    > :where(.not-typeset, [data-not-typeset]) {
     margin-block-start: var(--typeset-flow);
     margin-block-end: 0;
   }

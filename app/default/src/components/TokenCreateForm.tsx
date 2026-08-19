@@ -30,6 +30,7 @@ import {
   useIntegrationsQuery,
   useInvalidateTokens,
 } from "@/lib/queries";
+import { SETTINGS_TOKEN_PLAINTEXT_DESCRIPTION } from "@/features/settings/tokens-copy";
 import ErrorNotice from "@/components/ErrorNotice";
 import {
   APPS_CATALOG_UNAVAILABLE,
@@ -109,8 +110,7 @@ interface TokenCreateFormProps {
 }
 
 /** Safe default when a caller shows plaintext without surface-specific copy. */
-const DEFAULT_PLAINTEXT_RESULT_DESCRIPTION =
-  "Copy this token now. We won't show the full value again. Store it in your secret manager or shell environment.";
+const DEFAULT_PLAINTEXT_RESULT_DESCRIPTION = SETTINGS_TOKEN_PLAINTEXT_DESCRIPTION;
 
 export type TokenCreateFormHandle = {
   create: () => Promise<boolean>;

@@ -44,6 +44,7 @@ import {
 import {
   ASSISTANT_HOST_PICKER_GRID_CLASS,
   ASSISTANT_HOSTS_IN_PICKER,
+  assistantDocsLandingHash,
   assistantHostById,
   type AssistantHost,
   type BuildInstallAgentId,
@@ -451,7 +452,7 @@ export function SingleAgentMcpInstall({
 }) {
   const mcpUrl = `${resolveGestaltPublicOrigin()}/mcp`;
   const Recipe = HOST_INSTALL_RECIPES[agent];
-  const mcpDocsHash = assistantHostById(agent)?.docsHash ?? "mcp-other";
+  const mcpDocsHash = assistantDocsLandingHash(assistantHostById(agent));
 
   return (
     <div className="w-full space-y-4" data-testid="build-mcp-install-single">

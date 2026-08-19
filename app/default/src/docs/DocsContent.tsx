@@ -1,6 +1,7 @@
 
-import { useEffect, useId, useState, type CSSProperties, type ReactNode } from "react";
-import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { Info, TriangleAlert } from "lucide-react";
+import { AlertDescription, AlertTitle, Callout } from "@/components/ui/alert";
 import { CodeBlock } from "@/components/ui/code-block";
 import { Code } from "@/components/ui/code";
 import {
@@ -16,23 +17,30 @@ import {
   PageHeaderTitle,
 } from "@/components/ui/page-header";
 import {
-  SegmentedControl,
-  type SegmentedControlOption,
-} from "@/components/ui/segmented-control";
-import {
   DOCS_AUTHORIZATION_PATH,
+  DOCS_CLI_PATH,
+  DOCS_CONNECT_PATH,
   DOCS_GETTING_STARTED_PATH,
+  DOCS_INVOKE_PATH,
   DOCS_MCP_PATH,
   DOCS_SETTINGS_TOKENS_HREF,
   DOCS_TOKENS_PATH,
+  DOCS_TROUBLESHOOTING_PATH,
   DOCS_WORKFLOWS_PATH,
   docsSubsectionLabel,
 } from "./docs-data";
-import { MCP_DOCS_TITLE } from "@/lib/assistantConnectionCopy";
-import { MCP_CLIENT_TABS, assistantHostById } from "@/lib/assistantHosts";
+import { ASSISTANT_OVERLAP_TITLE } from "@/lib/assistantConnectionCopy";
+import {
+  MCP_CLIENT_TABS,
+  assistantDocsLandingHash,
+  assistantHostById,
+} from "@/lib/assistantHosts";
 import { SETUP_PATH } from "@/lib/constants";
 import { gestaltMcpClientConfigJson } from "@/lib/gestaltMcpClientConfig";
 import { resolveGestaltPublicOrigin } from "@/lib/gestaltPublicOrigin";
+import { DocsAudienceCallout } from "./DocsAudienceCallout";
+import { AssistantDestinationSwitcher } from "./AssistantDestinationSwitcher";
+import { DocsOptionSwitcher, useHashTab } from "./docs-option-switcher";
 import { DOCS_PAGE_TOP_GAP } from "./docs-chrome";
 import { DocsLink } from "./DocsLink";
 
@@ -80,6 +88,25 @@ function cloudEnvironmentVariables(origin: string) {
 GESTALT_API_KEY=gst_api_your_token_here`;
 }
 
+function WorkspaceUrlBlock({ origin }: { origin: string }) {
+  return (
+    <>
+      <div className="not-typeset flex flex-col gap-2.5">
+        <Eyebrow className="block">Base URL</Eyebrow>
+        <CodeBlock
+          chrome="inset"
+          language="plaintext"
+          code={origin}
+          copyLabel="Copy base URL"
+        />
+      </div>
+      <p>
+        Copy this URL when a client or the CLI asks for a Gestalt host.
+      </p>
+    </>
+  );
+}
+
 export function GettingStartedDocsPage() {
   const origin = useDeploymentOrigin();
 
@@ -88,25 +115,131 @@ export function GettingStartedDocsPage() {
       <DocsPageHeader title="Getting Started" />
       <DocsPageBody>
         <p>
-          Walk through Gestalt setup with copy-paste{" "}
-          <Code>gestalt</Code> CLI commands. You do not need prior CLI
-          experience. Run each command as shown. This page covers install, point
-          the CLI, authenticate, grant app access, and configure cloud
-          environments. Journey links then take you to connect apps, invoke
-          operations, create API tokens, and MCP setup. Prefer guided setup, or
-          switching assistants? Open{" "}
+          Gestalt is an API proxy: a central hub for managing authentication
+          across the tools you use at work. Instead of configuring each App
+          separately (Slack, Notion, GitHub, and more), you authenticate once
+          through Gestalt and it handles the rest.
+        </p>
+        <p>
+          Think of it as a universal key for your tools. You log in once, and
+          Gestalt securely manages your access behind the scenes.
+        </p>
+        <p>
+          Connect the Apps you need, then create an API token for MCP clients
+          and the CLI. This page covers those first steps in the browser only.
+          Prefer a guided walkthrough? Open{"\u00a0"}
           <DocsLink to={SETUP_PATH}>Setup</DocsLink>.
         </p>
-        <div className="not-typeset flex flex-col gap-2.5">
-          <Eyebrow className="block">Base URL</Eyebrow>
-          <CodeBlock
-            chrome="inset"
-            language="plaintext"
-            code={origin}
-            copyLabel="Copy base URL"
-          />
+        <WorkspaceUrlBlock origin={origin} />
+        <div className="not-typeset">
+          <Callout variant="info">
+            <Info aria-hidden="true" />
+            <AlertTitle>How access works</AlertTitle>
+            <AlertDescription>
+              Gestalt connects the Apps you can use to agents and automation.
+              Access is limited to your identity and the permissions you have
+              been granted. Gestalt does not provide blanket access to every
+              App.
+            </AlertDescription>
+          </Callout>
         </div>
-        <Subheading id="install" />
+
+        <Subheading id="connect-apps" />
+        <p>
+          Open <DocsLink to="/apps">Apps</DocsLink>, choose an App, and complete
+          its OAuth or manual credential flow. Confirm the App shows as
+          connected for your account.
+        </p>
+        <p>
+          To connect from the terminal, install the{" "}
+          <DocsLink to={DOCS_CLI_PATH}>Gestalt CLI</DocsLink> first, then see{" "}
+          <DocsLink to={DOCS_CONNECT_PATH}>Connect Apps</DocsLink>.
+        </p>
+
+        <Subheading id="create-token" />
+        <p>
+          Open{" "}
+          <DocsLink to={DOCS_SETTINGS_TOKENS_HREF}>
+            Settings → API tokens
+          </DocsLink>
+          , click Create token, give it a descriptive name, and copy the secret
+          immediately. Then open{" "}
+          <DocsLink to={DOCS_MCP_PATH}>MCP Clients</DocsLink>, pick your
+          assistant, and follow those steps.
+        </p>
+        <div className="not-typeset">
+          <Callout variant="warning">
+            <TriangleAlert aria-hidden="true" />
+            <AlertTitle>This token is shown only once</AlertTitle>
+            <AlertDescription>
+              Save it in a password manager or secret store. Do not share it.
+              Anyone with the token can act as you through the Apps you have
+              connected.
+            </AlertDescription>
+          </Callout>
+        </div>
+
+        <Subheading id="next-steps" />
+        <p>
+          If you use Claude, ChatGPT, Cursor, or another assistant, open{" "}
+          <DocsLink to={DOCS_MCP_PATH}>MCP Clients</DocsLink> next. That page
+          shows how to save this workspace and your token in the assistant&apos;s
+          settings. You do not need the Gestalt CLI.
+        </p>
+        <p>
+          If you work in the terminal, install the CLI first. Then you can
+          connect Apps and invoke operations from the shell.
+        </p>
+        <ul>
+          <li>
+            <DocsLink to={DOCS_CLI_PATH}>Gestalt CLI</DocsLink>
+            : install the CLI, point it at this workspace, and authenticate.
+          </li>
+          <li>
+            <DocsLink to={DOCS_CONNECT_PATH}>Connect Apps</DocsLink>
+            : connect from the terminal after the CLI is installed.
+          </li>
+          <li>
+            <DocsLink to={DOCS_INVOKE_PATH}>Invoke Operations</DocsLink>
+            : discover and run App operations from the CLI or HTTP API.
+          </li>
+        </ul>
+        <p>
+          If tools do not appear after setup, see{" "}
+          <DocsLink to={DOCS_TROUBLESHOOTING_PATH}>Troubleshooting</DocsLink>.
+        </p>
+      </DocsPageBody>
+    </>
+  );
+}
+
+export function CliDocsPage() {
+  const origin = useDeploymentOrigin();
+
+  return (
+    <>
+      <DocsPageHeader title="Gestalt CLI" />
+      <DocsPageBody>
+        <p>
+          The Gestalt CLI gives you the same capabilities as the browser, from
+          the terminal. Use it for scripting and automation, or when you need
+          something the UI does not expose, such as choosing among multiple
+          connections or calling operations with JSON payloads.
+        </p>
+        <p>
+          Install the CLI, point it at this workspace, then authenticate. This
+          page covers setup only. For connecting Apps, see{" "}
+          <DocsLink to={DOCS_CONNECT_PATH}>Connect Apps</DocsLink>. For admin
+          grants, see{" "}
+          <DocsLink to={DOCS_AUTHORIZATION_PATH}>Grant App Access</DocsLink>.
+          For token lifecycle commands, see{" "}
+          <DocsLink to={DOCS_TOKENS_PATH}>API Tokens</DocsLink>. For
+          workflow inspection, see{" "}
+          <DocsLink to={DOCS_WORKFLOWS_PATH}>Inspect Workflows</DocsLink>.
+        </p>
+        <WorkspaceUrlBlock origin={origin} />
+
+        <Subheading id="cli-install" />
         <p>
           Install the <Code>gestalt</Code> CLI using one of the methods below.
         </p>
@@ -130,7 +263,7 @@ export function GettingStartedDocsPage() {
           .
         </p>
 
-        <Subheading id="point-cli" />
+        <Subheading id="cli-point" />
         <p>
           The CLI needs the base URL for your Gestalt workspace. Use either the
           setup wizard or a direct config command.
@@ -185,7 +318,7 @@ export function GettingStartedDocsPage() {
           </li>
         </ol>
 
-        <Subheading id="authenticate" />
+        <Subheading id="cli-authenticate" />
         <p>
           Use browser login for interactive sessions, or set a token directly
           for scripts and other non-interactive clients. If authentication is
@@ -211,41 +344,9 @@ export function GettingStartedDocsPage() {
           ]}
         />
         <p>
-          Confirm authentication by listing apps you can reach:
+          Confirm authentication by listing Apps you can reach:
         </p>
         <CodeBlock chrome="inset" language="cli" code="gestalt apps list" />
-
-        <Subheading id="authorization" />
-        <p>
-          App access for other users or service accounts is managed by app
-          admins (and Gestalt admins). If you need access, ask your admin. If
-          you grant access, see{" "}
-          <DocsLink to={DOCS_AUTHORIZATION_PATH}>Grant App Access</DocsLink>{" "}
-          for member, service-account, and admin commands.
-        </p>
-        <CodeBlock chrome="inset"
-          language="cli"
-          code={`gestalt authorization apps members set <app> \\
-  --email operator@example.com \\
-  --role viewer`}
-        />
-
-        <Subheading id="agent-environments" />
-        <p>
-          Configure the hosted coding environment before starting cloud tasks.
-          Set the workspace URL and API token in that environment, then install
-          the CLI in the platform setup or startup script.
-        </p>
-        <AgentEnvironmentTabs origin={origin} />
-
-        <Subheading id="workflows" />
-        <p>
-          After your workspace URL and auth are set, inspect recent runs with{" "}
-          <Code>gestalt workflows runs list</Code>. For CLI and
-          browser paths, see{" "}
-          <DocsLink to={DOCS_WORKFLOWS_PATH}>Inspect Workflows</DocsLink>
-          .
-        </p>
       </DocsPageBody>
     </>
   );
@@ -256,15 +357,22 @@ export function ConnectDocsPage() {
     <>
       <DocsPageHeader title="Connect Apps" />
       <DocsPageBody>
+        <Subheading id="connect-browser" />
         <p>
-          Run <Code>gestalt apps list</Code>, then{" "}
-          <Code>gestalt apps connect &lt;app&gt;</Code>, or use the Apps page in
-          the browser.
+          Open{" "}
+          <DocsLink to="/apps">Apps</DocsLink>, choose an App, and complete its
+          OAuth or manual credential flow. Confirm the App shows as connected
+          for your account.{" "}
+          <DocsLink to={DOCS_GETTING_STARTED_PATH}>Getting Started</DocsLink>{" "}
+          already covers this for first-time setup.
         </p>
+
+        <Subheading id="connect-cli" />
         <p>
-          Apps available in this workspace appear in both the CLI and the
-          UI. Use either surface to start the underlying OAuth or manual
-          credential flow.
+          Connecting from the terminal needs the Gestalt CLI. See{" "}
+          <DocsLink to={DOCS_CLI_PATH}>Gestalt CLI</DocsLink> to install it,
+          then list Apps and start the same OAuth or manual flow from the
+          shell.
         </p>
         <CodeBlock chrome="inset"
           language="cli"
@@ -272,11 +380,6 @@ export function ConnectDocsPage() {
 gestalt apps connect <app>
 gestalt apps connect <app> --connection <name> --instance <instance>`}
         />
-        <p>
-          If you prefer the browser flow, the same work is available on{" "}
-          <DocsLink to="/apps">Apps</DocsLink>
-          .
-        </p>
       </DocsPageBody>
     </>
   );
@@ -300,12 +403,41 @@ export function InvokeDocsPage() {
 }
 
 export function TokensDocsPage() {
+  const origin = useDeploymentOrigin();
+
   return (
     <>
-      <DocsPageHeader title="Manage API Tokens" />
+      <DocsPageHeader title="API Tokens" />
       <DocsPageBody>
         <p>
-          User tokens work for both the HTTP API and the MCP endpoint.
+          An API token is a secret password. Claude, ChatGPT, Cursor, and the
+          Gestalt CLI use it to act as you with the Apps you have connected.
+        </p>
+        <p>
+          Create one in the browser: open{" "}
+          <DocsLink to={DOCS_SETTINGS_TOKENS_HREF}>
+            Settings → API tokens
+          </DocsLink>
+          , click Create token, give it a descriptive name, and copy the secret
+          immediately. The value is shown only once.
+        </p>
+
+        <Subheading id="tokens-use" />
+        <p>
+          Pick your assistant. Each option is three steps: create a token here,
+          then go to the app, then place the URL and token in the fields it
+          shows.
+        </p>
+        <AssistantDestinationSwitcher origin={origin} />
+        <p>
+          Do not share the token. Anyone who has it can act as you.
+        </p>
+
+        <Subheading id="tokens-cli" />
+        <p>
+          Creating tokens from the terminal needs the Gestalt CLI. See{" "}
+          <DocsLink to={DOCS_CLI_PATH}>Gestalt CLI</DocsLink> to install it,
+          then create, list, or revoke tokens from the shell.
         </p>
         <CodeBlock chrome="inset"
           language="cli"
@@ -313,12 +445,6 @@ export function TokensDocsPage() {
 gestalt tokens list
 gestalt tokens revoke <token-id>`}
         />
-        <p>
-          Tokens can also be created in the UI under{" "}
-          <DocsLink to={DOCS_SETTINGS_TOKENS_HREF}>Settings → API tokens</DocsLink>
-          . The raw token value is shown once, so store it immediately in your
-          secret manager or shell environment.
-        </p>
       </DocsPageBody>
     </>
   );
@@ -342,6 +468,7 @@ export function AuthorizationDocsPage() {
           <Code>--url &lt;management-url&gt;</Code>{" "}
           to admin authorization commands.
         </p>
+        <DocsAudienceCallout />
 
         <Subheading id="authz-plugin-access" />
         <p>
@@ -481,16 +608,32 @@ export function McpDocsPage() {
 
   return (
     <>
-      <DocsPageHeader title={MCP_DOCS_TITLE} />
+      <DocsPageHeader title="MCP Clients" />
       <DocsPageBody>
         <p>
-          Gestalt exposes one MCP endpoint for all connected workspace apps.
-          Create a token first, in the UI at{" "}
-          <DocsLink to={DOCS_SETTINGS_TOKENS_HREF}>Settings → API tokens</DocsLink>
-          , or with <Code>gestalt tokens create</Code> (see{" "}
-          <DocsLink to={DOCS_TOKENS_PATH}>Manage API Tokens</DocsLink>
-          ). Then register the server in your assistant.
+          Add this Gestalt workspace to Claude, ChatGPT, Cursor, or another
+          assistant so it can use your connected Apps as tools.
         </p>
+        <p>
+          Pick your assistant below. Each option is the full path: create a
+          token, open the app, and place the URL and token in the fields it
+          shows. You can also create tokens from the terminal (see{" "}
+          <DocsLink to={DOCS_TOKENS_PATH}>API Tokens</DocsLink>
+          ).
+        </p>
+        <p>
+          Complete{" "}
+          <DocsLink to={DOCS_GETTING_STARTED_PATH}>Getting Started</DocsLink>{" "}
+          first if you have not connected Apps yet.
+        </p>
+
+        <Subheading id="mcp-connect" />
+        <p>
+          Pick Claude, ChatGPT, or Cursor. Each option has three steps: create
+          the token, open the app, then paste the URL and token.
+        </p>
+        <AssistantDestinationSwitcher origin={origin} />
+
         <Subheading id="mcp-overlap" />
         <p>
           Gestalt MCP is the default for company workspace apps. One MCP
@@ -510,29 +653,71 @@ export function McpDocsPage() {
           for Notion and leave the Codex Notion plugin off to avoid duplicate
           tools and conflicting auth.
         </p>
+
+        <Subheading id="mcp-env" />
         <p>
-          On workspaces with authentication disabled, omit the bearer-token flag
-          and header blocks shown below.
+          Some assistants read the token from a name on your computer,{" "}
+          <Code>GESTALT_API_KEY</Code>, instead of a form field. Store your
+          token there. Replace the placeholder with the secret you copied from
+          Settings.
+        </p>
+        <CodeBlock
+          chrome="inset"
+          language="shellscript"
+          code="export GESTALT_API_KEY=gst_api_your_token_here"
+        />
+        <p>
+          If you add it to <Code>~/.zshrc</Code>, run{" "}
+          <Code>source ~/.zshrc</Code> afterward.
         </p>
         <p>
-          These examples assume the agent environment runs this startup script
-          before the MCP client starts.
+          If a recipe below asks for a host named{" "}
+          <Code>GESTALT_URL</Code>, also set:
         </p>
-        <CodeBlock chrome="inset" language="cli" code={GESTALT_INSTALL_SCRIPT} />
+        <CodeBlock
+          chrome="inset"
+          language="shellscript"
+          code={`export GESTALT_URL=${origin}`}
+        />
+        <p>
+          On workspaces with authentication disabled, omit the token from the
+          recipes below.
+        </p>
         <InfoTable
           rows={[
-            ["Endpoint", `${origin}/mcp`],
+            ["Connect to", `${origin}/mcp`],
             [
-              "Authentication",
-              "Authorization: Bearer gst_api_... when auth is enabled",
+              "Sign in with",
+              "Your API token (the password for the assistant)",
             ],
             [
               "If no tools appear",
-              "Confirm that the app is MCP-enabled and connected for your user.",
+              "Confirm that the App is connected for you on Apps.",
             ],
           ]}
         />
+        <p>
+          If you use Claude Code, Codex, or a JSON config file, use the recipes
+          below.
+        </p>
         <McpClientTabs origin={origin} />
+
+        <Subheading id="mcp-cloud" />
+        <p>
+          Configure a hosted coding environment when you run agents in the cloud
+          rather than on your laptop. Set the workspace URL and API token in
+          that environment, then install the CLI in the platform setup or
+          startup script.
+        </p>
+        <AgentEnvironmentTabs origin={origin} />
+
+        <Subheading id="mcp-verify" />
+        <p>
+          Restart the assistant. Connected Apps should appear as available
+          tools. If the list is empty, return to{" "}
+          <DocsLink to="/apps">Apps</DocsLink> and confirm the App is connected
+          for your account.
+        </p>
       </DocsPageBody>
     </>
   );
@@ -544,8 +729,9 @@ export function TroubleshootingDocsPage() {
       <DocsPageHeader title="Troubleshooting" />
       <DocsPageBody>
         <p>
-          Most issues are the wrong URL, an expired token, duplicate tool
-          sources, or a missing app connection.
+          Most user-facing problems come down to the wrong URL, expired auth,
+          ambiguous connection selection, or a grant that has not taken effect
+          yet.
         </p>
         <Subheading id="ts-not-authenticated" />
         <p>
@@ -587,7 +773,7 @@ export function TroubleshootingDocsPage() {
           workspace-connected apps. Use native plugins only for gaps Gestalt
           does not cover. See{" "}
           <DocsLink to={DOCS_MCP_PATH} hash="mcp-overlap">
-            {MCP_DOCS_TITLE}
+            {ASSISTANT_OVERLAP_TITLE}
           </DocsLink>
           .
         </p>
@@ -599,7 +785,10 @@ export function TroubleshootingDocsPage() {
           Desktop, then restart the app. Check that{" "}
           <Code>GESTALT_API_KEY</Code> is set in the shell where you ran the
           command, or export it in your profile. Full steps:{" "}
-          <DocsLink to={DOCS_MCP_PATH} hash={assistantHostById("codex")!.docsHash}>
+          <DocsLink
+            to={DOCS_MCP_PATH}
+            hash={assistantDocsLandingHash(assistantHostById("codex"))}
+          >
             Codex Desktop MCP setup
           </DocsLink>
           .
@@ -633,9 +822,12 @@ function DocsPageBody({ children }: { children: ReactNode }) {
   // Chrome islands use `.not-typeset` or `[data-typeset-chrome]` (flow gap only).
   // Set h2 start on this node — `.typeset` owns the token and would ignore an
   // inherited value from PageLayout.
+  // Title lives outside this node. A leading paragraph uses flow gap; a
+  // leading h2 uses the same section gap as later h2s (first-child h2 margin
+  // is otherwise zeroed).
   return (
     <div
-      className="typeset typeset-docs mt-[length:var(--typeset-flow,1.5em)]"
+      className="typeset typeset-docs mt-[length:var(--typeset-flow,1.5em)] has-[>h2:first-child]:mt-[length:var(--typeset-h2-margin-start)]"
       style={
         {
           "--typeset-h2-margin-start": DOCS_PAGE_TOP_GAP,
@@ -643,78 +835,6 @@ function DocsPageBody({ children }: { children: ReactNode }) {
       }
     >
       {children}
-    </div>
-  );
-}
-
-function useHashTab(ids: readonly string[], fallbackId: string) {
-  const { hash, pathname } = useRouterState({
-    select: (state) => ({
-      hash: state.location.hash.replace(/^#/, ""),
-      pathname: state.location.pathname,
-    }),
-  });
-  const navigate = useNavigate();
-  const activeId = ids.includes(hash) ? hash : fallbackId;
-
-  function selectTab(id: string) {
-    void navigate({ to: pathname, hash: id, replace: true });
-  }
-
-  return [activeId, selectTab] as const;
-}
-
-function DocsOptionSwitcher<V extends string>({
-  label,
-  options,
-  value,
-  onValueChange,
-  children,
-}: {
-  label: string;
-  options: ReadonlyArray<SegmentedControlOption<V>>;
-  value: V;
-  onValueChange: (value: V) => void;
-  children: ReactNode;
-}) {
-  // Stable panel id — never the option value. Hash-backed switchers write
-  // `#${value}` for shareable selection; a matching DOM id would scroll the
-  // panel under sticky app chrome.
-  const panelId = useId();
-  const activeLabel =
-    options.find((option) => option.value === value)?.label ?? label;
-
-  return (
-    <div
-      data-typeset-chrome
-      data-docs-option-switcher
-      data-docs-hash-ids={options.map((option) => option.value).join(" ")}
-      className="scroll-mt-[var(--page-layout-anchor-offset)]"
-    >
-      {/*
-        Horizontal scroll for long labelled tracks. `overflow-x-auto` forces
-        y-clipping too (CSS overflow pairing), so pad the clip edges for outward
-        focus rings.
-      */}
-      <div className="not-typeset -mx-1 -mt-1 min-w-0 overflow-x-auto px-1 pb-1 pt-1">
-        <SegmentedControl
-          size="sm"
-          label={label}
-          value={value}
-          onValueChange={onValueChange}
-          options={options}
-          panelId={panelId}
-          showLabels
-        />
-      </div>
-      <div
-        id={panelId}
-        role="region"
-        aria-label={`${label}: ${activeLabel}`}
-        aria-live="polite"
-      >
-        {children}
-      </div>
     </div>
   );
 }
@@ -922,11 +1042,11 @@ function McpClientTabs({ origin }: { origin: string }) {
       {activeTabId === "mcp-claude-code" ? (
         <>
           <p>
-            Use{" "}
+            Put the Gestalt URL and your token in{" "}
             <Code>.mcp.json</Code>{" "}
-            for a project-scoped workspace shared in version control, or{" "}
+            (project) or{" "}
             <Code>~/.claude.json</Code>{" "}
-            for a private local or user-scoped config.
+            (your user), or run the command below.
           </p>
           <CodeBlock
             language="json"
@@ -978,7 +1098,7 @@ function McpClientTabs({ origin }: { origin: string }) {
             Cloud agents do not use local{" "}
             <Code>codex mcp add</Code>. Configure environment variables and the
             install script in{" "}
-            <DocsLink to={DOCS_GETTING_STARTED_PATH} hash="agent-codex">
+            <DocsLink to={DOCS_MCP_PATH} hash="agent-codex">
               Configure Codex Cloud
             </DocsLink>
             .
@@ -989,11 +1109,11 @@ function McpClientTabs({ origin }: { origin: string }) {
       {activeTabId === "mcp-cursor" ? (
         <>
           <p>
-            Config file:{" "}
+            Put the Gestalt URL and your token in{" "}
             <Code>.cursor/mcp.json</Code>{" "}
             in your project root, or{" "}
             <Code>~/.cursor/mcp.json</Code>{" "}
-            globally.
+            for every project.
           </p>
           <CodeBlock
             language="json"
@@ -1015,17 +1135,19 @@ function McpClientTabs({ origin }: { origin: string }) {
       {activeTabId === "mcp-other" ? (
         <>
           <p>
-            Any MCP-compatible client can connect to Gestalt. You need three
-            pieces of information:
+            If the assistant has a connector, tools, or custom MCP screen,
+            paste the URL and the token into those fields. If it uses a JSON
+            config file, use the example below.
           </p>
+          <p>You need:</p>
           <InfoTable
             rows={[
-              ["URL", `${origin}/mcp`],
+              ["Where to connect", `${origin}/mcp`],
               [
-                "Header",
-                "Authorization: Bearer gst_api_... when auth is enabled",
+                "How to sign in",
+                "Your API token, in the API key or password field",
               ],
-              ["Config key", "usually mcpServers"],
+              ["If it uses a file", "usually a key named mcpServers"],
             ]}
           />
           <CodeBlock chrome="inset"

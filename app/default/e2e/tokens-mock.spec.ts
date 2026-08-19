@@ -159,6 +159,11 @@ test.describe("Token Management", () => {
     await expect(
       page.getByText(/Copy this token now\. We won't show the full value again/),
     ).toBeVisible();
+    await expect(
+      page.getByText(
+        "Next, open Docs, then API Tokens, and pick your assistant.",
+      ),
+    ).toBeVisible();
     await expect(page.getByRole("heading", { name: "Token created" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Cancel" })).toHaveCount(0);
 

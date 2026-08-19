@@ -153,7 +153,12 @@ test.describe("Navigation", () => {
 
     await page.goto("/docs/mcp");
     await expect(
-      page.getByRole("heading", { name: "MCP setup" }),
+      page.getByRole("heading", { name: "MCP Clients" }),
+    ).toBeVisible();
+
+    await page.goto("/docs/cli");
+    await expect(
+      page.getByRole("heading", { name: "Gestalt CLI" }),
     ).toBeVisible();
   });
 
