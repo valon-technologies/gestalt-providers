@@ -403,8 +403,6 @@ export function InvokeDocsPage() {
 }
 
 export function TokensDocsPage() {
-  const origin = useDeploymentOrigin();
-
   return (
     <>
       <DocsPageHeader title="API Tokens" />
@@ -424,11 +422,10 @@ export function TokensDocsPage() {
 
         <Subheading id="tokens-use" />
         <p>
-          Pick your assistant. Each option is three steps: create a token here,
-          then go to the app, then place the URL and token in the fields it
-          shows.
+          After you copy the secret, open{" "}
+          <DocsLink to={DOCS_MCP_PATH}>MCP Clients</DocsLink> and pick your
+          assistant. That page has the Claude, ChatGPT, and Cursor walkthroughs.
         </p>
-        <AssistantDestinationSwitcher origin={origin} />
         <p>
           Do not share the token. Anyone who has it can act as you.
         </p>

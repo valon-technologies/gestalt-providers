@@ -134,6 +134,10 @@ test.describe("Docs page", () => {
       page.getByRole("radiogroup", { name: "Install methods" }),
     ).toHaveCount(0);
     await expect(page.getByTestId("docs-journey-footer")).toBeVisible();
+    await expect(page.getByTestId("docs-journey-next")).toContainText(
+      "API Tokens",
+    );
+    await expect(page.getByTestId("docs-journey-previous")).toHaveCount(0);
     await expect(
       leftNav.getByRole("link", { name: "Gestalt CLI" }),
     ).toHaveAttribute("href", "/docs/cli");
@@ -143,6 +147,10 @@ test.describe("Docs page", () => {
     await expect(
       page.getByRole("heading", { name: "Gestalt CLI" }),
     ).toBeVisible();
+    await expect(page.getByTestId("docs-journey-previous")).toHaveCount(0);
+    await expect(page.getByTestId("docs-journey-next")).toContainText(
+      "Connect Apps",
+    );
     await expect(page.locator("article")).toContainText(
       "same capabilities as the browser",
     );
@@ -198,7 +206,7 @@ test.describe("Docs page", () => {
       page.locator("article").getByRole("link", { name: "Apps" }).first(),
     ).toHaveAttribute("href", "/apps");
     await expect(
-      page.locator("article").getByRole("link", { name: "Gestalt CLI" }),
+      page.locator("article p").getByRole("link", { name: "Gestalt CLI" }),
     ).toHaveAttribute("href", "/docs/cli");
 
     await leftNav.getByRole("link", { name: "Invoke Operations" }).click();
@@ -223,7 +231,7 @@ test.describe("Docs page", () => {
     await leftNav.getByRole("link", { name: "Grant App Access" }).click();
     await expect(page).toHaveURL(/\/docs\/authorization/);
     await expect(
-      page.getByRole("heading", { name: "Grant App Access" }),
+      page.getByRole("heading", { name: "Grant App Access", level: 1 }),
     ).toBeVisible();
     await expect(page.locator("article")).toContainText(
       "App admins can manage members for apps they administer",
@@ -239,6 +247,7 @@ test.describe("Docs page", () => {
       "gestalt authorization admins members set",
     );
     await expect(page.locator("article")).toContainText("grant it an app role");
+    await expect(page.getByTestId("docs-journey-footer")).toHaveCount(0);
     await expect(
       page.getByRole("link", { name: "Settings → API tokens" }),
     ).toHaveAttribute("href", "/settings/tokens");
@@ -248,38 +257,21 @@ test.describe("Docs page", () => {
     await expect(
       page.getByRole("link", { name: "Settings → API tokens" }),
     ).toHaveAttribute("href", "/settings/tokens");
-    await expect(page.locator("article")).toContainText("Create a token");
+    await expect(page.locator("article")).toContainText("click Create token");
     await expect(
       page.getByRole("heading", { name: "What to do with the token" }),
     ).toBeVisible();
-    const tokensDestSwitch = page.getByRole("radiogroup", {
-      name: "Choose your assistant",
-    });
-    await expect(tokensDestSwitch.getByRole("radio", { name: "Claude" })).toBeChecked();
-    await expect(tokensDestSwitch.getByRole("radio", { name: "ChatGPT" })).toBeVisible();
-    await expect(page.locator("article")).toContainText(
-      "Request headers",
-    );
     await expect(
-      page.getByRole("heading", { name: "Place the token here" }),
+      page.getByRole("radiogroup", { name: "Choose your assistant" }),
     ).toHaveCount(0);
-    await expect(page.locator("article")).toContainText(
-      "Bearer gst_api_your_token_here",
+    await expect(
+      page.locator("article p").getByRole("link", { name: "MCP Clients" }),
+    ).toHaveAttribute("href", "/docs/mcp");
+    await expect(page.getByTestId("docs-journey-next")).toContainText(
+      "MCP Clients",
     );
-    await tokensDestSwitch.getByRole("radio", { name: "ChatGPT" }).click();
-    await expect(page).toHaveURL(/\/docs\/tokens#dest-chatgpt$/);
-    await expect(page.locator("article")).toContainText("Developer mode");
-    await expect(page.locator("article")).toContainText(
-      "Token or API key (replace the placeholder with your token)",
-    );
-    await expect(page.locator("article")).toContainText(
-      "gst_api_your_token_here",
-    );
-    await tokensDestSwitch.getByRole("radio", { name: "Cursor" }).click();
-    await expect(page).toHaveURL(/\/docs\/tokens#dest-cursor$/);
-    await expect(page.locator("article")).toContainText(".cursor/mcp.json");
-    await expect(page.locator("article")).toContainText(
-      "Bearer gst_api_your_token_here",
+    await expect(page.getByTestId("docs-journey-previous")).toContainText(
+      "Getting Started",
     );
     const settingsLinkBox = await page
       .locator("article")
@@ -300,6 +292,7 @@ test.describe("Docs page", () => {
     ).toBeVisible();
     await expect(page.locator("article")).toContainText("gestalt workflows --help");
     await expect(page.locator("article")).toContainText("gestalt workflows runs list");
+    await expect(page.getByTestId("docs-journey-next")).toHaveCount(0);
 
     await leftNav.getByRole("link", { name: "MCP Clients" }).click();
     await expect(page).toHaveURL(/\/docs\/mcp/);
@@ -318,6 +311,10 @@ test.describe("Docs page", () => {
     await expect(
       page.getByRole("heading", { name: "Choose your assistant" }),
     ).toBeVisible();
+    await expect(page.getByTestId("docs-journey-previous")).toContainText(
+      "API Tokens",
+    );
+    await expect(page.getByTestId("docs-journey-next")).toHaveCount(0);
     const mcpDestSwitch = page.getByRole("radiogroup", {
       name: "Choose your assistant",
     });
@@ -346,7 +343,7 @@ test.describe("Docs page", () => {
       page.getByRole("link", { name: "Settings → API tokens" }),
     ).toHaveAttribute("href", "/settings/tokens");
     await expect(
-      page.getByRole("link", { name: "API Tokens" }),
+      page.locator("article p").getByRole("link", { name: "API Tokens" }),
     ).toHaveAttribute("href", "/docs/tokens");
     const mcpSwitch = page.getByRole("radiogroup", {
       name: "MCP client configuration",
@@ -373,7 +370,10 @@ test.describe("Docs page", () => {
     await mcpSwitch.getByRole("radio", { name: "Other clients" }).click();
     await expect(page).toHaveURL(/\/docs\/mcp#mcp-other$/);
     await expect(
-      page.getByRole("cell", { name: `${expectedOrigin}/mcp` }).first(),
+      page
+        .getByTestId("docs-info-table")
+        .filter({ hasText: `${expectedOrigin}/mcp` })
+        .first(),
     ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Configure cloud environments" }),

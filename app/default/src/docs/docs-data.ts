@@ -10,8 +10,9 @@ import { SETTINGS_TOKENS_PATH } from "@/lib/managed-identity-paths";
  * - next/prev journey edges used by page footers
  *
  * Two setups: assistants (browser connect, token, MCP; no Gestalt CLI) and
- * terminal (install CLI, then CLI connect / invoke / workflows). Linear
- * `docsNavItems` order is that sequence so the journey footer matches.
+ * terminal (install CLI, then CLI connect / invoke / workflows). The left
+ * rail lists both. The journey footer walks `docsJourneyTracks`, not the
+ * full sidebar, so finishing MCP Clients does not send people to the CLI.
  *
  * Product surfaces that mint personal API tokens live under Settings
  * (`SETTINGS_TOKENS_PATH`). Never label that UI "Authorization". That word is
@@ -217,20 +218,54 @@ export function docsNavItemsByGroup(
 }
 
 /**
- * Linear journey edges for StepPager. Forward/back follow sidebar order so the
- * nav array is the only sequence to maintain. Soft prose prerequisites are not
- * modeled on nav items. Journey edges and hand-authored copy stay separate.
+ * Named reader tracks for the journey footer. Each track is one or more left-rail
+ * groups, in the order people should walk them. Setup then Assistants is the
+ * browser path. Terminal is the CLI path. Administer and Help stand alone.
+ */
+export const docsJourneyTracks = {
+  assistants: ["setup", "assistants"],
+  terminal: ["terminal"],
+  administer: ["administer"],
+  help: ["help"],
+} as const satisfies Record<string, readonly DocsNavGroupId[]>;
+
+export type DocsJourneyTrackId = keyof typeof docsJourneyTracks;
+
+export function docsJourneyTrackItems(
+  trackId: DocsJourneyTrackId,
+): DocsNavItem[] {
+  return docsJourneyTracks[trackId].flatMap((group) =>
+    docsNavItemsByGroup(group),
+  );
+}
+
+function docsJourneyTrackIdFor(
+  item: DocsNavItem,
+): DocsJourneyTrackId | undefined {
+  const tracks = Object.entries(docsJourneyTracks) as Array<
+    [DocsJourneyTrackId, readonly DocsNavGroupId[]]
+  >;
+  return tracks.find(([, groups]) => groups.includes(item.group))?.[0];
+}
+
+/**
+ * Next/Previous for StepPager. Edges stay inside one journey track so the
+ * left-rail listing is not treated as one walkthrough. Soft prose
+ * prerequisites are not modeled on nav items.
  */
 export function getDocsJourneyEdges(item: DocsNavItem): {
   previous: DocsNavLink | null;
   next: DocsNavLink | null;
 } {
-  const index = docsNavItems.findIndex((candidate) => candidate.id === item.id);
-  const previousItem = index > 0 ? docsNavItems[index - 1] : undefined;
+  const trackId = docsJourneyTrackIdFor(item);
+  if (!trackId) {
+    return { previous: null, next: null };
+  }
+  const track = docsJourneyTrackItems(trackId);
+  const index = track.findIndex((candidate) => candidate.id === item.id);
+  const previousItem = index > 0 ? track[index - 1] : undefined;
   const nextItem =
-    index >= 0 && index < docsNavItems.length - 1
-      ? docsNavItems[index + 1]
-      : undefined;
+    index >= 0 && index < track.length - 1 ? track[index + 1] : undefined;
   return {
     previous: previousItem
       ? { href: previousItem.href, label: previousItem.label }
