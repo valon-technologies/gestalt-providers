@@ -1,3 +1,4 @@
+import { CONNECTION_RETURN_PATH_STORAGE_KEY } from "./constants";
 import { appPath } from "./mount";
 
 const DEFAULT_RETURN_PATH = appPath("/apps");
@@ -53,4 +54,41 @@ export function serverLoginURL(returnPath?: string): string {
     sanitizeAuthReturnPath(returnPath ?? currentAuthReturnPath()),
   );
   return `${AUTH_LOGIN_PATH}?next=${next}`;
+}
+
+/**
+ * Where to send the browser after an app OAuth round-trip.
+ * The catalog currently lands on `/apps?connected=…`; this stored path is how
+ * Setup (and any other connect surface) gets people back to the page they left.
+ */
+export function rememberConnectionReturnPath(path?: string): void {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(
+    CONNECTION_RETURN_PATH_STORAGE_KEY,
+    sanitizeAuthReturnPath(path ?? currentAuthReturnPath()),
+  );
+}
+
+export function consumeConnectionReturnPath(): string | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.sessionStorage.getItem(CONNECTION_RETURN_PATH_STORAGE_KEY);
+  window.sessionStorage.removeItem(CONNECTION_RETURN_PATH_STORAGE_KEY);
+  if (!raw) return null;
+  return sanitizeAuthReturnPath(raw);
+}
+
+export function clearConnectionReturnPath(): void {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.removeItem(CONNECTION_RETURN_PATH_STORAGE_KEY);
+}
+
+/** Full in-app href to leave for, or null when we should stay on this page. */
+export function connectionReturnRedirectHref(
+  storedPath: string | null,
+  currentPathname: string,
+): string | null {
+  if (!storedPath) return null;
+  const url = new URL(sanitizeAuthReturnPath(storedPath), "http://gestalt.local");
+  if (url.pathname === currentPathname) return null;
+  return `${url.pathname}${url.search}${url.hash}`;
 }

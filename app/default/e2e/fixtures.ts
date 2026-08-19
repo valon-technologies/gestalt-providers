@@ -1,4 +1,4 @@
-import { test as base, expect, type Page, type Route } from "@playwright/test";
+import { test as base, expect, type Locator, type Page, type Route } from "@playwright/test";
 import type {
   APIToken,
   AppAdminIdentity,
@@ -618,8 +618,9 @@ export type SetupSessionSeed = {
   apiToken?: string;
   apiTokenGrantId?: string;
   /**
-   * Bind plaintext to `selectedTokenId`. Defaults to true when a grant id is
-   * set, so resume fixtures satisfy the token-step credential contract.
+   * Bind plaintext to the grant id. Defaults to true when a grant id is set,
+   * so resume fixtures satisfy the token-step credential contract.
+   * `selectedTokenId` is an alias for `apiTokenGrantId`.
    */
   bindCredential?: boolean;
   mcpInstalled?: boolean;
@@ -628,28 +629,29 @@ export type SetupSessionSeed = {
   tokenName?: string;
 };
 
+/** OAuth opens a popup so Setup and the catalog stay on this page. */
+export async function clickOpensOAuthPopup(locator: Locator): Promise<Page> {
+  const popupPromise = locator.page().waitForEvent("popup");
+  await locator.click();
+  return popupPromise;
+}
+
 /** Seed Setup sessionStorage so later steps can resume past earlier gates. */
 export async function seedSetupSession(page: Page, seed: SetupSessionSeed) {
   await page.addInitScript(
-    (s: SetupSessionSeed & { defaultToken: string }) => {
+    (s: SetupSessionSeed & { defaultToken: string; appliedKey: string }) => {
+      if (sessionStorage.getItem(s.appliedKey) === "1") return;
+      sessionStorage.setItem(s.appliedKey, "1");
       if (s.introSeen) {
         sessionStorage.setItem("gestalt.build.introSeen", "1");
       }
       if (s.installAgent) {
-        sessionStorage.setItem("gestalt.build.installAgent", s.installAgent);
+        sessionStorage.setItem("gestalt.build.installAgent.v2", s.installAgent);
       }
-      if (s.selectedTokenId) {
-        sessionStorage.setItem(
-          "gestalt.build.selectedTokenId",
-          s.selectedTokenId,
-        );
-      }
-      const bind = s.bindCredential ?? Boolean(s.selectedTokenId);
-      if (bind && s.selectedTokenId) {
-        sessionStorage.setItem(
-          "gestalt.build.apiTokenGrantId",
-          s.apiTokenGrantId ?? s.selectedTokenId,
-        );
+      const grantId = s.apiTokenGrantId ?? s.selectedTokenId;
+      const bind = s.bindCredential ?? Boolean(grantId);
+      if (bind && grantId) {
+        sessionStorage.setItem("gestalt.build.apiTokenGrantId", grantId);
         sessionStorage.setItem(
           "gestalt.build.apiToken",
           s.apiToken ?? s.defaultToken,
@@ -666,7 +668,11 @@ export async function seedSetupSession(page: Page, seed: SetupSessionSeed) {
         }
       }
       if (s.mcpInstalled) {
-        sessionStorage.setItem("gestalt.build.mcpInstalled", "1");
+        const agents = s.installAgent ? [s.installAgent] : [];
+        sessionStorage.setItem(
+          "gestalt.build.mcpInstalledAgents",
+          JSON.stringify(agents),
+        );
       }
       if (s.activeExemplarId) {
         sessionStorage.setItem(
@@ -681,7 +687,11 @@ export async function seedSetupSession(page: Page, seed: SetupSessionSeed) {
         sessionStorage.setItem("gestalt.build.tokenName", s.tokenName);
       }
     },
-    { ...seed, defaultToken: SETUP_SESSION_API_TOKEN },
+    {
+      ...seed,
+      defaultToken: SETUP_SESSION_API_TOKEN,
+      appliedKey: "gestalt.e2e.setupSessionApplied",
+    },
   );
 }
 

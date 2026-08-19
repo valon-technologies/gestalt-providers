@@ -62,9 +62,9 @@ describe("ThemeToggle placement contract", () => {
 });
 
 describe("AccountMenu beat-order contract", () => {
-  test("exports utility links with Setup guide before Docs", () => {
+  test("exports utility links with Setup before Docs", () => {
     expect(ACCOUNT_MENU_UTILITY_LINKS.map((link) => link.label)).toEqual([
-      "Setup guide",
+      "Setup",
       "Docs",
       "Settings",
     ]);

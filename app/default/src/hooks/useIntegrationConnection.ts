@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -11,6 +12,19 @@ import {
 } from "@/lib/api";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import type { Integration } from "@/lib/api";
+import { rememberConnectionReturnPath, sanitizeAuthReturnPath } from "@/lib/authReturn";
+import {
+  appIsConnectedCopy,
+  oauthConnectedToastMessage,
+  refetchIntegrationConnected,
+} from "@/lib/oauthConnectConfirm";
+import {
+  closeOAuthPopup,
+  navigateOAuthPopup,
+  openOAuthPopup,
+  watchOAuthPopup,
+} from "@/lib/oauthPopup";
+import { commitIntegrationDisconnect } from "@/lib/queries";
 import { userFacingError } from "@/lib/user-facing-error";
 
 type PendingSelection = {
@@ -76,6 +90,7 @@ export function useIntegrationConnection({
   onFlowComplete?: () => void;
 }) {
   const label = getIntegrationLabel(integration);
+  const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [selectingInstance, setSelectingInstance] = useState(false);
@@ -84,31 +99,84 @@ export function useIntegrationConnection({
   const [pendingSelection, setPendingSelection] =
     useState<PendingSelection | null>(null);
   const pendingSelectionFormRef = useRef<HTMLFormElement>(null);
+  const stopWatchingOAuthPopupRef = useRef<(() => void) | null>(null);
+  const onConnectedRef = useRef(onConnected);
+  const onFlowCompleteRef = useRef(onFlowComplete);
+  onConnectedRef.current = onConnected;
+  onFlowCompleteRef.current = onFlowComplete;
 
   useEffect(() => {
     if (!pendingSelection) return;
     pendingSelectionFormRef.current?.submit();
   }, [pendingSelection]);
 
+  useEffect(
+    () => () => {
+      stopWatchingOAuthPopupRef.current?.();
+    },
+    [],
+  );
+
+  async function finishOAuthPopup() {
+    let connected = false;
+    try {
+      connected = await refetchIntegrationConnected(
+        queryClient,
+        integration.name,
+      );
+    } catch (err) {
+      setLoading(false);
+      setError(
+        userFacingError(
+          err,
+          `Couldn't confirm ${label} is connected. Try again.`,
+          "connect",
+        ),
+      );
+      return;
+    }
+    setLoading(false);
+    const toastMessage = oauthConnectedToastMessage(connected, label);
+    if (toastMessage) {
+      toast.success(toastMessage);
+    }
+    onConnectedRef.current?.();
+    onFlowCompleteRef.current?.();
+  }
+
   async function handleStartOAuth(
     instance?: string,
     connection?: string,
     connectionParams?: Record<string, string>,
   ): Promise<boolean> {
+    const popup = openOAuthPopup();
     setLoading(true);
     setError(null);
     try {
+      const oauthReturnPath =
+        returnPath === undefined ? undefined : sanitizeAuthReturnPath(returnPath);
       const { url } = await startOAuth(
         integration.name,
         undefined,
         connectionParams,
         instance,
         connection,
-        returnPath,
+        oauthReturnPath,
       );
+      rememberConnectionReturnPath(oauthReturnPath);
+      if (popup && !popup.closed) {
+        navigateOAuthPopup(popup, url);
+        stopWatchingOAuthPopupRef.current?.();
+        stopWatchingOAuthPopupRef.current = watchOAuthPopup(popup, () => {
+          stopWatchingOAuthPopupRef.current = null;
+          void finishOAuthPopup();
+        });
+        return true;
+      }
       window.location.href = url;
       return true;
     } catch (err) {
+      closeOAuthPopup(popup);
       setError(
         userFacingError(err, "Couldn't start sign-in. Try again.", "sign_in"),
       );
@@ -126,18 +194,21 @@ export function useIntegrationConnection({
     setSubmitting(true);
     setError(null);
     try {
+      const oauthReturnPath =
+        returnPath === undefined ? undefined : sanitizeAuthReturnPath(returnPath);
       const result = await connectManual(
         integration.name,
         credential,
         connectionParams,
         instance,
         connection,
-        returnPath,
+        oauthReturnPath,
       );
       if (result.status === "selection_required") {
         if (!result.pendingToken) {
           throw new Error("Connection setup is incomplete. Try again.");
         }
+        rememberConnectionReturnPath(oauthReturnPath);
         onFlowComplete?.();
         setPendingSelection({
           action: resolveAPIPath(
@@ -147,7 +218,7 @@ export function useIntegrationConnection({
         });
       } else {
         onFlowComplete?.();
-        toast.success(`${label} connected successfully.`);
+        toast.success(appIsConnectedCopy(label));
         onConnected?.();
       }
       return true;
@@ -161,20 +232,27 @@ export function useIntegrationConnection({
     }
   }
 
+  async function commitDisconnect(instance?: string, connection?: string) {
+    await commitIntegrationDisconnect(queryClient, integration.name, {
+      instance,
+      connection,
+    });
+    onDisconnected?.();
+    onFlowComplete?.();
+  }
+
   async function handleDisconnect(instance?: string, connection?: string) {
     setDisconnecting(true);
     setError(null);
     try {
       await disconnect(integration.name, instance, connection);
+      await commitDisconnect(instance, connection);
       toast.success(`${label} disconnected.`);
-      onDisconnected?.();
-      onFlowComplete?.();
     } catch (err) {
       // Domain: missing credential is already the desired end state — reconcile.
       if (isAPIErrorStatus(err, 404)) {
+        await commitDisconnect(instance, connection);
         toast.success(`${label} is no longer connected.`);
-        onDisconnected?.();
-        onFlowComplete?.();
       } else {
         setError(
           userFacingError(

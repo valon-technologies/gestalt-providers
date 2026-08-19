@@ -31,13 +31,21 @@ When lifting a shared UI kit control into `src/components/ui/`:
 
 ## Alert
 
-Registry `alert` is vendored here. Status washes stay borderless;
-`variant="outline"` is quiet Card chrome for CLI tips (no Tip primitive). Sole
-primary copy uses `AlertTitle` or Description alone — Description is
-`text-foreground` until a Title is present. Collapsible secondary help:
-`collapsible` + `AlertTrigger` + `AlertCollapsibleContent` (+ optional
-`animateSize`). Drawer CSS lives in `globals.css`. Button `secondary` on washes
-uses ink-alpha (`secondarySurfaceFillClassName`), not solid `bg-secondary`.
+Registry `alert` is vendored here (`Alert`, `Callout`, `AlertIcon`, and the
+collapsible parts). Status washes stay borderless; `variant="outline"` is quiet
+Card chrome for CLI tips (no Tip primitive). Default and banner keep Title and
+Description in one copy column beside a leading `AlertIcon` or `>svg`.
+Description stacks under Title with `mt-1.5`. Description stays `text-foreground`
+on default. `layout` is geometry only (default stacked grid vs wrapping banner).
+Live region follows layout + variant, same as Registry: default (except outline)
+is `role="alert"`; banner, chrome, and outline are not. Persistent in-page
+guidance is `Callout` from this same module — stacked default grid, no live
+region. Do not add a consumer `live` prop, and do not pick `layout="banner"` to
+silence an Alert. Banner uses a container query so actions wrap under the copy
+when the bar is narrow. Collapsible secondary help: `collapsible` +
+`AlertTrigger` + `AlertCollapsibleContent` (+ optional `animateSize`). Drawer CSS
+lives in `globals.css`. Button `secondary` on washes uses ink-alpha
+(`secondarySurfaceFillClassName`), not solid `bg-secondary`.
 
 ## Button / Input / Field / Label / Select
 
@@ -244,6 +252,11 @@ when there is no previous). Use `asChild` for `<button>` or router `Link`.
 Surfaces: `solid` (default) / `outline` / `ghost`. Setup uses `variant="ghost"`.
 Not `Pagination` (dataset paging) and not `Stepper` (in-flow process rail).
 Strip `"use client"`; prefer `@/lib/cn`. Hairline is semantic `border-border`.
+Destination cards stay content-width (`w-fit max-w-full self-start`); the
+title track is `max-content`, not `1fr`, so the Next caret sits beside the
+label. Do not cap cards at `max-w-xs`: that forces an early wrap and the
+box does not shrink back to the wrapped lines. The pager row uses
+`items-start` so a taller neighbor cannot stretch the other card.
 
 ## Tabs
 
@@ -281,11 +294,17 @@ checks + connectors). Shared rail chrome lives in `ui/step-rail.tsx`. Depends on
 map that onto live `--status-indicator-success` (same OSI recipe). Do not copy
 the Registry green ramp, and do not `var(--color-green-500)` here (`@theme inline
 reference` does not emit that name). Setup uses a controlled horizontal Stepper
-with `activationMode="jump"` and `size="default"`. Completed checks default to
+with `activationMode="linear"` and `size="default"`. Unreachable upcoming
+steps are `disabled` (same rule as step navigation), so they do not take
+hover, press, or click. Completed checks default to
 `completedChrome="outcome"` (green fill, white check, ink connectors).
-Pass `completedChrome="accent"` for gold. TimelineSteps keeps gold via
-`stepRailCompletedChromeAccentClassName`. Do not restyle Stepper chrome at the
-call site (layout-only wrappers OK). Rail fill stagger and indicator chrome
+Pass `completedChrome="accent"` for gold. TimelineSteps defaults to gold
+(`completedChrome="accent"`). Pass `completedChrome="outcome"` for green fill
+and a white check (Setup token success). Do not restyle Stepper chrome at the
+call site (layout-only wrappers OK). Step hover wash stays on the trigger;
+the rail is `z-10` and the indicator is `z-20` so the connector stays visible
+through the plate. Keep `isolate` on `StepperItem` (no z-index on the trigger).
+Rail fill stagger and indicator chrome
 delay honor `prefers-reduced-motion` (`motion-reduce:transition-none
 motion-reduce:delay-0`; `readStepRailTimingMs` returns 0). Keep that mapping
 on revendors.

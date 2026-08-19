@@ -31,4 +31,17 @@ describe("StepPager", () => {
     expect(SOURCE).toContain("border-t border-border pt-6");
     expect(SOURCE).not.toContain("border-alpha");
   });
+
+  test("destination cards pack to the title instead of stretching to max-w-xs", () => {
+    expect(SOURCE).toContain("group flex h-fit w-fit max-w-full");
+    expect(SOURCE).toContain("self-start");
+    expect(SOURCE).toContain("flex flex-wrap items-start justify-between");
+    expect(SOURCE).toContain("grid w-fit max-w-full");
+    expect(SOURCE).toContain("grid-cols-[minmax(0,max-content)_auto]");
+    expect(SOURCE).toContain("grid-cols-[auto_minmax(0,max-content)]");
+    expect(SOURCE).not.toContain("max-w-xs");
+    expect(SOURCE).not.toContain("items-stretch");
+    expect(SOURCE).not.toContain("grid w-full items-start");
+    expect(SOURCE).not.toContain("minmax(0,1fr)");
+  });
 });

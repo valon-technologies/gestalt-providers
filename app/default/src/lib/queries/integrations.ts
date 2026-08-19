@@ -1,4 +1,9 @@
-import { useQuery, useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
+import {
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+  type UseQueryOptions,
+} from "@tanstack/react-query";
 import {
   getIntegrationOperations,
   getIntegrations,
@@ -7,6 +12,10 @@ import {
   type Integration,
   type IntegrationOperation,
 } from "@/lib/api";
+import {
+  applyDisconnectToIntegrations,
+  type IntegrationDisconnectSpec,
+} from "@/lib/applyIntegrationDisconnect";
 import { queryKeys } from "@/lib/query-keys";
 
 /** Query view for GET /api/v1/apps: loading, ready, or unavailable (may keep cache). */
@@ -73,4 +82,20 @@ export function useInvalidateIntegrations() {
   const queryClient = useQueryClient();
   return () =>
     queryClient.invalidateQueries({ queryKey: queryKeys.integrations.root });
+}
+
+/** Write a confirmed disconnect into the catalog cache before the refetch. */
+export async function commitIntegrationDisconnect(
+  queryClient: QueryClient,
+  integrationName: string,
+  spec: IntegrationDisconnectSpec,
+): Promise<void> {
+  await queryClient.cancelQueries({ queryKey: queryKeys.integrations.list() });
+  queryClient.setQueryData<Integration[]>(
+    queryKeys.integrations.list(),
+    (current) =>
+      current
+        ? applyDisconnectToIntegrations(current, integrationName, spec)
+        : current,
+  );
 }

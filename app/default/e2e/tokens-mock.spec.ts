@@ -92,9 +92,13 @@ test.describe("Token Management", () => {
     await page.getByRole("radio", { name: /all apps/i }).click();
     await page.getByRole("button", { name: "Create token" }).click();
 
+    const secret = page.locator('[data-slot="copyable-code"]', {
+      hasText: "gestalt_abc123secret",
+    });
+    await expect(secret).toBeVisible();
     await expect(page.getByRole("group", { name: "API token" })).toBeVisible();
-    await expect(page.getByText("gestalt_abc123secret")).toBeVisible();
     await expect(page.getByRole("button", { name: "Copy token" })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "API token" })).toHaveCount(0);
     await expect(
       page.getByText(/Copy this token now\. We won't show the full value again/),
     ).toBeVisible();

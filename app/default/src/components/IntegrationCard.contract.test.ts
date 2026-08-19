@@ -19,9 +19,11 @@ describe("IntegrationCard navigation contract", () => {
     expect(SOURCE).toContain('from "@/lib/nested-interactive"');
     expect(SOURCE).toContain('data-row-link=""');
     expect(SOURCE).toContain("nestedInteractiveSuppress.solidNeutralHoverStretchLink");
-    expect(SOURCE).toContain('"relative rounded-xl bg-neutral-hover');
+    expect(SOURCE).toContain('"relative h-full rounded-xl bg-neutral-hover');
     expect(SOURCE).toContain('from "@/lib/row-link"');
-    expect(SOURCE).toContain("density === \"compact\"");
+    expect(SOURCE).toContain("integrationCardActionPolicy");
+    expect(SOURCE).toContain('actions = "manage"');
+    expect(SOURCE).toContain("policy.density === \"compact\"");
     expect(SOURCE).toContain('compact ? "Connect" : "Add"');
     expect(SOURCE).toContain(
       'useCardClickActivate && !showAddButton ? "link"',
@@ -29,17 +31,20 @@ describe("IntegrationCard navigation contract", () => {
     expect(SOURCE).not.toContain('showAddButton ? "button" : "link"');
     expect(SOURCE).toContain("connectEntryPlan");
     expect(SOURCE).toContain("catalogCardDescription");
-    expect(SOURCE).toContain("mt-0.5 line-clamp-1 text-xs");
+    expect(SOURCE).toContain("mt-0.5 text-xs text-pretty");
+    expect(SOURCE).not.toContain("line-clamp-1");
   });
 
   test("stretch overlay covers the relative card surface", () => {
-    expect(SOURCE).toContain('"relative rounded-xl bg-neutral-hover');
+    expect(SOURCE).toContain('"relative h-full rounded-xl bg-neutral-hover');
     expect(SOURCE).toContain("after:absolute after:inset-0 after:z-[1]");
     expect(SOURCE).toContain("after:rounded-xl after:content-['']");
   });
 
   test("nested action chrome sits above the stretch overlay", () => {
     expect(SOURCE).toContain("NESTED_INTERACTIVE_OPT_OUT_ATTR");
+    expect(SOURCE).toContain("policy.allowOverflow");
+    expect(SOURCE).toContain("integration-card-more-");
     expect(SOURCE).toContain(
       "relative z-10 flex shrink-0 flex-col items-end gap-1.5",
     );
@@ -53,6 +58,14 @@ describe("IntegrationCard navigation contract", () => {
     expect(SOURCE).not.toMatch(
       /showOpenAppButton[\s\S]{0,200}variant="ghost"/,
     );
+  });
+
+  test("connected uses OutcomeStatusIndicator success, not a selection check", () => {
+    expect(SOURCE).toContain("OutcomeStatusIndicator");
+    expect(SOURCE).toContain('status="success"');
+    expect(SOURCE).toContain("iconOnly");
+    expect(SOURCE).toContain("CONNECTION_CONNECTED_LABEL");
+    expect(SOURCE).not.toContain("SelectionCheck");
   });
 
   test("does not hand-roll :has() suppress or title-only navigation", () => {

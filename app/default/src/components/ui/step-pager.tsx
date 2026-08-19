@@ -29,7 +29,7 @@ const stepPagerDisabledChrome =
 const stepPagerLinkVariants = cva(
   // rounded-lg matches Alert / section card shells (not Card's rounded-xl).
   cn(
-    "group flex w-fit max-w-xs flex-col text-left text-foreground transition-[background-color,border-color,color] duration-hover-out ease-out-quart hover:duration-hover-in focus-ring",
+    "group flex h-fit w-fit max-w-full flex-col self-start text-left text-foreground transition-[background-color,border-color,color] duration-hover-out ease-out-quart hover:duration-hover-in focus-ring",
     stepPagerDisabledChrome,
   ),
   {
@@ -85,7 +85,7 @@ function StepPager({
         data-slot="step-pager"
         data-variant={variant ?? "solid"}
         className={cn(
-          "flex flex-wrap items-stretch justify-between gap-3 border-t border-border pt-6",
+          "flex flex-wrap items-start justify-between gap-3 border-t border-border pt-6",
           className,
         )}
         {...props}
@@ -137,10 +137,12 @@ function StepPagerLink({
   const content = (
     <span
       className={cn(
-        "grid w-full items-start gap-x-1.5 gap-y-2.5 font-heading text-xl font-normal leading-tight",
+        // w-fit so the card can shrink to the title + caret. max-w-full wraps
+        // only at the pager/column, not at an inner width cap that leaves slack.
+        "grid w-fit max-w-full items-start gap-x-1.5 gap-y-2.5 font-heading text-xl font-normal leading-tight",
         isNext
-          ? "grid-cols-[minmax(0,1fr)_auto]"
-          : "grid-cols-[auto_minmax(0,1fr)]",
+          ? "grid-cols-[minmax(0,max-content)_auto]"
+          : "grid-cols-[auto_minmax(0,max-content)]",
       )}
     >
       <Eyebrow

@@ -1,5 +1,15 @@
 import type { APIToken, Integration } from "@/lib/api";
 import {
+  ASSISTANT_PICKER_DESCRIPTION,
+  TOKEN_STEP_DESCRIPTION,
+} from "@/lib/assistantConnectionCopy";
+import {
+  assistantHostById,
+  isBuildInstallAgentId,
+  normalizeStoredInstallAgentId,
+  type BuildInstallAgentId,
+} from "@/lib/assistantHosts";
+import {
   appShowsCredentialSurface,
   catalogInstallState,
 } from "@/lib/catalogFilters";
@@ -66,17 +76,16 @@ export interface BuildWorkspaceSnapshot {
    */
   catalogLoadState: CatalogLoadState;
   activeExemplarId: BuildExemplarId;
-  mcpInstalled: boolean;
+  /**
+   * Assistants acknowledged on the Install step in this session.
+   * Completeness is derived with {@link mcpInstalledForAgent}.
+   */
+  mcpInstalledAgents: readonly BuildInstallAgentId[];
   apiToken: string;
   /** Grant id the plaintext {@link apiToken} was issued for — empty when unset. */
   apiTokenGrantId: string;
   /** Display name for the token chosen or drafted in this Setup session. */
   tokenName: string;
-  /**
-   * Radio selection on the token step: an existing token id,
-   * {@link BUILD_CREATE_NEW_TOKEN_ID}, or empty when nothing chosen yet.
-   */
-  selectedTokenId: string;
   /** Host assistant chosen on the Assistant step. */
   installAgentId: string;
   welcomeSeen: boolean;
@@ -189,20 +198,18 @@ export const BUILD_STEPS: BuildStep[] = [
   {
     id: "assistant",
     title: "Choose your assistant",
-    description:
-      "Pick the tool you work in: Cursor, Claude Code, Codex, or another assistant.",
+    description: ASSISTANT_PICKER_DESCRIPTION,
     ctaLabel: "Continue",
     to: `${SETUP_PATH}/assistant`,
-    isComplete: (snapshot) => buildInstallAgentSelected(snapshot.installAgentId),
+    isComplete: (snapshot) => isBuildInstallAgentId(snapshot.installAgentId),
   },
   {
     id: "token",
-    title: "Create an API token",
-    description:
-      "Your assistant needs a token to reach this workspace securely.",
+    title: "Create a token",
+    description: TOKEN_STEP_DESCRIPTION,
     ctaLabel: "Continue",
     to: `${SETUP_PATH}/token`,
-    isComplete: (snapshot) => buildAuthorizeStepComplete(snapshot),
+    isComplete: (snapshot) => buildMcpCredentialReady(snapshot),
   },
   {
     id: "install",
@@ -210,7 +217,8 @@ export const BUILD_STEPS: BuildStep[] = [
     description: `Add ${SETUP_PRODUCT_NAME} so your assistant can reach this workspace.`,
     ctaLabel: "Continue",
     to: `${SETUP_PATH}/install`,
-    isComplete: (snapshot) => snapshot.mcpInstalled,
+    isComplete: (snapshot) =>
+      mcpInstalledForAgent(snapshot.mcpInstalledAgents, snapshot.installAgentId),
   },
   {
     id: "apps",
@@ -232,10 +240,10 @@ export const BUILD_STEPS: BuildStep[] = [
   },
 ];
 
-/** Radio value for “use an existing token” on the token step. */
+/** Legacy radio value; still rejected as a grant id in stored sessions. */
 export const BUILD_USE_EXISTING_TOKEN_ID = "existing";
 
-/** Radio value for “create a new token” on the token step. */
+/** Legacy radio value; still rejected as a grant id in stored sessions. */
 export const BUILD_CREATE_NEW_TOKEN_ID = "new";
 
 /** True when `id` is a real grant, not a token-step radio sentinel. */
@@ -248,69 +256,33 @@ export function isSetupTokenGrantId(id: string): boolean {
   );
 }
 
-/**
- * Keep a session-minted grant visible on the token step when the server list
- * has not caught up (or never will). Pass `grantId` only while Setup still
- * holds that grant's plaintext.
- */
-export function tokensIncludingSessionGrant(
-  tokens: APIToken[],
-  session: { grantId: string; name?: string; createdAt?: string },
-): APIToken[] {
-  const grantId = session.grantId.trim();
-  if (!isSetupTokenGrantId(grantId)) return tokens;
-  if (tokens.some((token) => token.id === grantId)) return tokens;
-  const name = session.name?.trim();
-  return [
-    {
-      id: grantId,
-      ...(name && name !== grantId ? { name } : {}),
-      createdAt: session.createdAt ?? new Date().toISOString(),
-    },
-    ...tokens,
-  ];
-}
-
 /** Pre-split Connect URL — redirect to the token step. */
 export const LEGACY_SETUP_CONNECT_STEP_ID = "connect";
 
 /** Demo name prefilled when drafting a Setup token. */
-export const DEFAULT_BUILD_TOKEN_NAME = "Workspace assistant";
+export const DEFAULT_BUILD_TOKEN_NAME = "Gestalt";
 
 /**
- * Authorize is ready when the user picked an existing token or minted a
- * secret for this session. A filled create-token name is not enough.
+ * Token step is done when this session holds a minted secret bound to a real
+ * grant. A filled create-token name is not enough. Listed grants cannot be
+ * reused: the API never returns the secret after mint.
  */
-export function buildAuthorizeSelectionReady(
-  snapshot: Pick<
-    BuildWorkspaceSnapshot,
-    "apiToken" | "apiTokenGrantId" | "selectedTokenId"
-  >,
-): boolean {
-  return buildMcpCredentialReady(snapshot);
-}
-
-/** Token step is done when an existing token is chosen or a new secret exists. */
-export function buildAuthorizeStepComplete(
-  snapshot: Pick<
-    BuildWorkspaceSnapshot,
-    "apiToken" | "apiTokenGrantId" | "selectedTokenId"
-  >,
-): boolean {
-  return buildMcpCredentialReady(snapshot);
-}
-
-/** Plaintext bearer secret bound to the current grant selection — required for MCP install. */
 export function buildMcpCredentialReady(
-  snapshot: Pick<
-    BuildWorkspaceSnapshot,
-    "apiToken" | "apiTokenGrantId" | "selectedTokenId"
-  >,
+  snapshot: Pick<BuildWorkspaceSnapshot, "apiToken" | "apiTokenGrantId">,
 ): boolean {
   const token = snapshot.apiToken.trim();
   const grantId = snapshot.apiTokenGrantId.trim();
-  const selected = snapshot.selectedTokenId.trim();
-  return token.length > 0 && grantId.length > 0 && grantId === selected;
+  return token.length > 0 && isSetupTokenGrantId(grantId);
+}
+
+/** True when every step before `targetId` is done. Direct URLs must honor this. */
+export function isBuildStepUnlocked(
+  targetId: BuildStepId,
+  isStepDone: (step: BuildStep) => boolean,
+): boolean {
+  const targetIdx = BUILD_STEPS.findIndex((step) => step.id === targetId);
+  if (targetIdx === -1) return false;
+  return BUILD_STEPS.slice(0, targetIdx).every(isStepDone);
 }
 
 export function canNavigateToBuildStep(
@@ -322,7 +294,7 @@ export function canNavigateToBuildStep(
   const currentIdx = BUILD_STEPS.findIndex((step) => step.id === currentId);
   if (targetIdx === -1 || currentIdx === -1) return false;
   if (targetIdx <= currentIdx) return true;
-  return BUILD_STEPS.slice(0, targetIdx).every(isStepDone);
+  return isBuildStepUnlocked(targetId, isStepDone);
 }
 
 const BUILD_STEP_IDS = new Set<string>(BUILD_STEPS.map((step) => step.id));
@@ -410,6 +382,18 @@ export function setupAppsStepComplete(
   );
 }
 
+/** Why Connect apps Next is off, or null when the step is complete. */
+export function setupAppsContinueBlockedReason(
+  snapshot: Pick<BuildWorkspaceSnapshot, "integrations" | "catalogLoadState">,
+): string | null {
+  if (setupAppsStepComplete(snapshot)) return null;
+  if (snapshot.catalogLoadState === "pending") return "Loading apps…";
+  if (snapshot.catalogLoadState === "failed") {
+    return "Couldn't load apps. Try again.";
+  }
+  return "Connect at least one app to continue";
+}
+
 /** Map a catalog query onto {@link CatalogLoadState}. */
 export function catalogLoadStateFromQuery(query: {
   isPending: boolean;
@@ -420,29 +404,15 @@ export function catalogLoadStateFromQuery(query: {
   return "ready";
 }
 
-/**
- * Session plaintext is valid only while it is bound to the current grant
- * selection. Empty bound ids never match, so stale secrets are dropped.
- */
-export function sessionApiTokenBoundToSelection(
-  boundGrantId: string,
-  selectedId: string,
-): boolean {
-  const bound = boundGrantId.trim();
-  const selected = selectedId.trim();
-  return bound.length > 0 && bound === selected && isSetupTokenGrantId(selected);
-}
-
 /** Assemble the Setup snapshot from session + catalog/token queries. */
 export function buildWorkspaceSnapshotFromSession(
   session: {
     activeExemplarId: BuildExemplarId;
-    mcpInstalled: boolean;
+    mcpInstalledAgents: readonly BuildInstallAgentId[];
     apiToken: string;
     apiTokenGrantId: string;
     tokenName: string;
-    selectedTokenId: string;
-    selectedInstallAgent: string;
+    installAgentId: string;
     welcomeSeen: boolean;
     trySeen: boolean;
   },
@@ -455,12 +425,11 @@ export function buildWorkspaceSnapshotFromSession(
     tokens,
     catalogLoadState,
     activeExemplarId: session.activeExemplarId,
-    mcpInstalled: session.mcpInstalled,
+    mcpInstalledAgents: session.mcpInstalledAgents,
     apiToken: session.apiToken,
     apiTokenGrantId: session.apiTokenGrantId,
     tokenName: session.tokenName,
-    selectedTokenId: session.selectedTokenId,
-    installAgentId: session.selectedInstallAgent,
+    installAgentId: session.installAgentId,
     welcomeSeen: session.welcomeSeen,
     trySeen: session.trySeen,
   };
@@ -558,7 +527,38 @@ export function resolveExemplarOpenPath(
   };
 }
 
+/**
+ * Catalog Integration for a Try-step store tile. Live catalog fields win;
+ * label, description, and known mount fill gaps so Setup never forks a
+ * second card primitive.
+ */
+export function tryStepCatalogApp(args: {
+  appId: string;
+  catalog?: Integration;
+  label: string;
+  description: string;
+  mountedPath?: string;
+}): Integration {
+  const { appId, catalog, label, description, mountedPath } = args;
+  if (catalog) {
+    return {
+      ...catalog,
+      displayName: catalog.displayName?.trim() || label,
+      description: catalog.description?.trim() || description,
+      mountedPath: catalog.mountedPath?.trim() || mountedPath,
+    };
+  }
+  return {
+    name: appId,
+    displayName: label,
+    description,
+    mountedPath,
+  };
+}
+
 export const MCP_INSTALLED_STORAGE_KEY = "gestalt.build.mcpInstalled";
+export const MCP_INSTALLED_AGENTS_STORAGE_KEY =
+  "gestalt.build.mcpInstalledAgents";
 export const BUILD_EXEMPLAR_STORAGE_KEY = "gestalt.build.activeExemplarId";
 /** Welcome-seen flag (legacy key `introSeen` retained for in-flight sessions). */
 export const BUILD_INTRO_SEEN_STORAGE_KEY = "gestalt.build.introSeen";
@@ -567,56 +567,28 @@ export const BUILD_API_TOKEN_STORAGE_KEY = "gestalt.build.apiToken";
 export const BUILD_API_TOKEN_GRANT_ID_STORAGE_KEY =
   "gestalt.build.apiTokenGrantId";
 export const BUILD_TOKEN_NAME_STORAGE_KEY = "gestalt.build.tokenName";
+/** Leftover v1 radio selection; readers copy a real grant into apiTokenGrantId. */
 export const BUILD_SELECTED_TOKEN_ID_STORAGE_KEY =
   "gestalt.build.selectedTokenId";
-export const BUILD_INSTALL_AGENT_STORAGE_KEY = "gestalt.build.installAgent";
+export const BUILD_INSTALL_AGENT_STORAGE_KEY = "gestalt.build.installAgent.v2";
+const LEGACY_BUILD_INSTALL_AGENT_STORAGE_KEY = "gestalt.build.installAgent";
 export const SETUP_SKIPPED_STORAGE_KEY = "gestalt.setup.skipped";
 export const SETUP_RESUME_BANNER_DISMISSED_KEY =
   "gestalt.setup.resumeBannerDismissed";
 
-export type BuildInstallAgentId = "cursor" | "claude" | "codex" | "other";
-
-const BUILD_INSTALL_AGENT_IDS = new Set<string>([
-  "cursor",
-  "claude",
-  "codex",
-  "other",
-]);
-
-export function isBuildInstallAgentId(
-  value: string,
-): value is BuildInstallAgentId {
-  return BUILD_INSTALL_AGENT_IDS.has(value);
-}
-
-export function buildInstallAgentSelected(installAgentId: string): boolean {
-  return isBuildInstallAgentId(installAgentId);
-}
-
 export function buildInstallStepTitle(installAgentId: string): string {
-  switch (installAgentId) {
-    case "cursor":
-      return `Add ${SETUP_PRODUCT_NAME} in Cursor`;
-    case "claude":
-      return `Add ${SETUP_PRODUCT_NAME} in Claude Code`;
-    case "codex":
-      return `Add ${SETUP_PRODUCT_NAME} in Codex`;
-    default:
-      return `Add ${SETUP_PRODUCT_NAME} to your assistant`;
+  const host = assistantHostById(installAgentId);
+  if (!host || host.id === "other") {
+    return `Add ${SETUP_PRODUCT_NAME} to your assistant`;
   }
+  return `Add ${SETUP_PRODUCT_NAME} in ${host.label}`;
 }
 
 export function buildInstallStepDescription(installAgentId: string): string {
-  switch (installAgentId) {
-    case "cursor":
-      return `Connect Cursor so it can use your ${SETUP_PRODUCT_NAME} apps.`;
-    case "claude":
-      return `Run this command in Claude Code to connect ${SETUP_PRODUCT_NAME}.`;
-    case "codex":
-      return `Run this command in Codex to connect ${SETUP_PRODUCT_NAME}.`;
-    default:
-      return `Paste this address into your assistant with your token.`;
-  }
+  return (
+    assistantHostById(installAgentId)?.installDescription ??
+    assistantHostById("other")!.installDescription
+  );
 }
 
 export function buildStepTitle(
@@ -641,12 +613,53 @@ export function isLegacySetupConnectStepId(value: string): boolean {
   return value === LEGACY_SETUP_CONNECT_STEP_ID;
 }
 
-export function readMcpInstalledFlag(): boolean {
-  return readSessionFlag(MCP_INSTALLED_STORAGE_KEY);
+export function mcpInstalledForAgent(
+  installedAgents: readonly string[],
+  agentId: string,
+): boolean {
+  return isBuildInstallAgentId(agentId) && installedAgents.includes(agentId);
 }
 
-export function writeMcpInstalledFlag(value: boolean): void {
-  writeSessionFlag(MCP_INSTALLED_STORAGE_KEY, value);
+export function addMcpInstalledAgent(
+  installedAgents: readonly BuildInstallAgentId[],
+  agentId: string,
+): BuildInstallAgentId[] {
+  if (!isBuildInstallAgentId(agentId)) return [...installedAgents];
+  if (installedAgents.includes(agentId)) return [...installedAgents];
+  return [...installedAgents, agentId];
+}
+
+export function readMcpInstalledAgents(): BuildInstallAgentId[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.sessionStorage.getItem(MCP_INSTALLED_AGENTS_STORAGE_KEY);
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(isBuildInstallAgentId);
+      }
+    }
+    if (readSessionFlag(MCP_INSTALLED_STORAGE_KEY)) {
+      const agent = readStoredInstallAgent();
+      return agent ? [agent] : [];
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+export function writeMcpInstalledAgents(ids: readonly BuildInstallAgentId[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(
+      MCP_INSTALLED_AGENTS_STORAGE_KEY,
+      JSON.stringify(ids),
+    );
+    window.sessionStorage.removeItem(MCP_INSTALLED_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
 }
 
 export function readIntroSeenFlag(): boolean {
@@ -756,9 +769,19 @@ export function writeStoredApiToken(token: string): void {
 export function readStoredApiTokenGrantId(): string {
   if (typeof window === "undefined") return "";
   try {
-    return (
-      window.sessionStorage.getItem(BUILD_API_TOKEN_GRANT_ID_STORAGE_KEY) ?? ""
-    );
+    const grant =
+      window.sessionStorage.getItem(BUILD_API_TOKEN_GRANT_ID_STORAGE_KEY) ?? "";
+    if (isSetupTokenGrantId(grant)) {
+      window.sessionStorage.removeItem(BUILD_SELECTED_TOKEN_ID_STORAGE_KEY);
+      return grant;
+    }
+    const selected =
+      window.sessionStorage.getItem(BUILD_SELECTED_TOKEN_ID_STORAGE_KEY) ?? "";
+    if (isSetupTokenGrantId(selected)) {
+      writeStoredApiTokenGrantId(selected);
+      return selected;
+    }
+    return "";
   } catch {
     return "";
   }
@@ -767,6 +790,7 @@ export function readStoredApiTokenGrantId(): string {
 export function writeStoredApiTokenGrantId(grantId: string): void {
   if (typeof window === "undefined") return;
   try {
+    window.sessionStorage.removeItem(BUILD_SELECTED_TOKEN_ID_STORAGE_KEY);
     if (grantId) {
       window.sessionStorage.setItem(
         BUILD_API_TOKEN_GRANT_ID_STORAGE_KEY,
@@ -800,36 +824,24 @@ export function writeStoredTokenName(name: string): void {
   }
 }
 
-export function readStoredSelectedTokenId(): string {
-  if (typeof window === "undefined") return "";
-  try {
-    return (
-      window.sessionStorage.getItem(BUILD_SELECTED_TOKEN_ID_STORAGE_KEY) ?? ""
-    );
-  } catch {
-    return "";
-  }
-}
-
-export function writeStoredSelectedTokenId(id: string): void {
-  if (typeof window === "undefined") return;
-  try {
-    if (id) {
-      window.sessionStorage.setItem(BUILD_SELECTED_TOKEN_ID_STORAGE_KEY, id);
-    } else {
-      window.sessionStorage.removeItem(BUILD_SELECTED_TOKEN_ID_STORAGE_KEY);
-    }
-  } catch {
-    /* ignore */
-  }
-}
-
 export function readStoredInstallAgent(): BuildInstallAgentId | "" {
   if (typeof window === "undefined") return "";
   try {
-    const raw =
+    const current =
       window.sessionStorage.getItem(BUILD_INSTALL_AGENT_STORAGE_KEY) ?? "";
-    return isBuildInstallAgentId(raw) ? raw : "";
+    const fromCurrent = normalizeStoredInstallAgentId(current, "current");
+    if (fromCurrent) return fromCurrent;
+
+    const legacy =
+      window.sessionStorage.getItem(LEGACY_BUILD_INSTALL_AGENT_STORAGE_KEY) ??
+      "";
+    const fromLegacy = normalizeStoredInstallAgentId(legacy, "legacy");
+    if (fromLegacy) {
+      writeStoredInstallAgent(fromLegacy);
+      window.sessionStorage.removeItem(LEGACY_BUILD_INSTALL_AGENT_STORAGE_KEY);
+      return fromLegacy;
+    }
+    return "";
   } catch {
     return "";
   }
@@ -840,8 +852,10 @@ export function writeStoredInstallAgent(id: string): void {
   try {
     if (id && isBuildInstallAgentId(id)) {
       window.sessionStorage.setItem(BUILD_INSTALL_AGENT_STORAGE_KEY, id);
+      window.sessionStorage.removeItem(LEGACY_BUILD_INSTALL_AGENT_STORAGE_KEY);
     } else {
       window.sessionStorage.removeItem(BUILD_INSTALL_AGENT_STORAGE_KEY);
+      window.sessionStorage.removeItem(LEGACY_BUILD_INSTALL_AGENT_STORAGE_KEY);
     }
   } catch {
     /* ignore */

@@ -31,59 +31,72 @@ import { cn } from "@/lib/cn";
 // `rounded-none border-b border-border`. Do not rely on zeroing sides of a base border;
 // Alert no longer ships a full `border` box on status washes.
 //
-// Composition (agents / call sites — do not invent a fourth slot):
-// - Sole primary message → `AlertTitle` (or Description alone; Description is
-//   `text-foreground` until a Title is present, then it becomes muted secondary).
-// - Never put the only line of copy in Description *and* expect it to look primary
-//   under an older “always muted” mental model — the primitive now encodes hierarchy.
+// Composition (agents / call sites — keep the parts as direct children):
+// - Optional leading icon → `AlertIcon` or a direct `>svg` child. AlertIcon is
+//   decorative and hidden from assistive technology.
+// - Sole primary message → `AlertTitle` (or Description alone).
+// - Default layout is the stacked notice: icon rail + copy column. Title sits
+//   beside the icon; Description stays in that same copy column under the title.
+//   Title+Description stack is Description `mt-1.5` (both layouts). Description
+//   stays `text-foreground` on default. Banner still mutes Description when a
+//   Title is present (toolbar metadata).
 // - Trailing Retry / actions → `AlertActions`. Alignment is layout-owned: both
-//   `default` and `banner` baseline the first text line so the leading icon and
-//   control labels share the copy band. Banner (flex) needs a control-sm
-//   `translate-y-1` nudge; default (grid) must not — the same nudge over-corrects.
-//   Do not invent call-site `mt-*` / nested icon flex to “fix” either.
+//   `default` and `banner` baseline a single copy line so the leading icon and
+//   control labels share the copy band. Title+Description stacks `items-start`
+//   so a taller control cannot open the description `mt-1.5` body gap. Do not
+//   invent call-site `mt-*` / nested icon flex to “fix” either.
 // - Collapsible secondary help → `collapsible` + `AlertTrigger` +
 //   `AlertCollapsibleContent` (Alert owns the surface + disclosure; do not hand-roll
 //   Collapsible + alertVariants unless you need a non-Alert root). Quiet CLI tips
 //   use `variant="outline"` (+ optional `animateSize`); status recovery uses a wash.
 //
-// `layout`:
-// - `default` — the 3-column grid (icon | 1fr content | auto actions). Best for a notice
-//   with short trailing actions.
-// - `banner` — a WRAPPING control bar: flex row where actions flow onto a second
-//   line (right-aligned) instead of crushing content. Leading icon is a direct
-//   `>svg` child; `AlertDescription` is the text column beside it (`text-pretty`,
-//   never an inline glyph inside Description — that wraps under the icon). Drops
-//   `role="alert"` (persistent control bar, not an assertive live region).
+// `layout` is geometry only.
+// - `default` — stacked notice grid (icon | copy | actions). Title and
+//   Description share column 2; Description stacks under Title.
+// - `banner` — a WRAPPING control bar: CSS grid keeps Title + Description in a
+//   copy column while actions move to a right-aligned second row when needed.
+//   Leading icon is a direct `>svg` child. Never put the glyph inside
+//   Description, where it would wrap under the icon.
 // - `chrome` — wash/chrome + radius only. Used automatically when `collapsible` is set; also
 //   available via `alertVariants` for rare non-Alert Collapsible roots.
+//
+// Alert default (except outline) is an assertive live region (`role="alert"`).
+// Banner, chrome, and outline are not. Standing in-page guidance that must not
+// announce is `Callout`: the same stacked default grid, no live region. Do not
+// pick `layout="banner"` just to silence an Alert, and do not add a `live` flag.
+const alertVariantClasses = {
+  default: "bg-muted",
+  // Quiet Card chrome — optional tip / CLI help (no status wash).
+  outline: "border border-border bg-card",
+  info: "bg-info",
+  success: "bg-success",
+  warning: "bg-warning",
+  destructive: "bg-error",
+} as const;
+
+const alertLayoutClasses = {
+  // Copy track is `1fr` so shrink-wrap canvases keep max-content. Title and
+  // Description already `min-w-0`, which is enough for a definite parent to wrap.
+  // First-line baseline when actions are present — leading icon stays on
+  // the copy band. CSS grid already exposes the control's alphabetic
+  // baseline (no translate nudge — that over-corrects vs flex/banner).
+  default:
+    "grid grid-cols-[0_1fr_auto] items-start gap-y-0 p-4 has-[[data-slot=alert-actions]]:items-baseline has-[>svg]:grid-cols-[calc(var(--spacing)*4)_1fr_auto] has-[>[data-slot=alert-icon]]:grid-cols-[calc(var(--spacing)*4)_1fr_auto] has-[>svg]:gap-x-2 has-[>[data-slot=alert-icon]]:gap-x-2 [&>svg]:col-start-1 [&>svg]:row-start-1 [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:translate-y-0.5 [&>svg]:text-current [&>[data-slot=alert-icon]]:col-start-1 [&>[data-slot=alert-icon]]:row-start-1 [&>[data-slot=alert-icon]]:shrink-0 [&>[data-slot=alert-icon]]:translate-y-0.5",
+  // CSS grid keeps the copy in one column and moves actions to distinct rows
+  // at narrow container widths. The icon column is conditional at every width.
+  banner:
+    "grid grid-cols-[0_1fr_auto] items-start gap-y-0 p-4 has-[[data-slot=alert-actions]]:items-baseline has-[>svg]:grid-cols-[calc(var(--spacing)*4)_1fr_auto] has-[>[data-slot=alert-icon]]:grid-cols-[calc(var(--spacing)*4)_1fr_auto] has-[>svg]:gap-x-2 has-[>[data-slot=alert-icon]]:gap-x-2 [&>svg]:col-start-1 [&>svg]:row-start-1 [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:translate-y-0.5 [&>svg]:text-current [&>[data-slot=alert-icon]]:col-start-1 [&>[data-slot=alert-icon]]:row-start-1 [&>[data-slot=alert-icon]]:shrink-0 [&>[data-slot=alert-icon]]:translate-y-0.5 @max-[480px]/alert:has-[[data-slot=alert-actions]]:grid-cols-[0_1fr] @max-[480px]/alert:has-[[data-slot=alert-actions]]:has-[>svg]:grid-cols-[calc(var(--spacing)*4)_1fr] @max-[480px]/alert:has-[[data-slot=alert-actions]]:has-[>[data-slot=alert-icon]]:grid-cols-[calc(var(--spacing)*4)_1fr] @max-[480px]/alert:has-[[data-slot=alert-actions]]:[&>[data-slot=alert-actions]]:mt-2 @max-[480px]/alert:has-[[data-slot=alert-actions]]:[&>[data-slot=alert-actions]]:col-start-2 @max-[480px]/alert:has-[[data-slot=alert-actions]]:[&>[data-slot=alert-actions]]:col-end-3 @max-[480px]/alert:has-[[data-slot=alert-actions]]:[&>[data-slot=alert-actions]]:[grid-row:2] @max-[480px]/alert:has-[[data-slot=alert-actions]]:has-[[data-slot=alert-title]]:has-[[data-slot=alert-description]]:[&>[data-slot=alert-actions]]:[grid-row:3] @max-[480px]/alert:has-[[data-slot=alert-actions]]:[&>[data-slot=alert-actions]]:justify-self-end",
+  chrome: "",
+} as const;
+
+const alertRootClasses = "group/alert relative w-full rounded-lg text-sm text-foreground";
+
 const alertVariants = cva(
-  "group/alert relative w-full rounded-lg text-sm text-foreground",
+  alertRootClasses,
   {
     variants: {
-      variant: {
-        default: "bg-muted",
-        // Quiet Card chrome — optional tip / CLI help (no status wash).
-        outline: "border border-border bg-card",
-        info: "bg-info",
-        success: "bg-success",
-        warning: "bg-warning",
-        destructive: "bg-error",
-      },
-      layout: {
-        // First-line baseline when actions are present — leading icon stays on
-        // the copy band. CSS grid already exposes the control's alphabetic
-        // baseline (no translate nudge — that over-corrects vs flex/banner).
-        default:
-          "grid grid-cols-[0_1fr_auto] items-start gap-y-0.5 px-4 py-3 has-[[data-slot=alert-actions]]:items-baseline has-[>svg]:grid-cols-[calc(var(--spacing)*4)_1fr_auto] has-[>svg]:gap-x-2 [&>svg]:size-4 [&>svg]:translate-y-0.5 [&>svg]:text-current",
-        // Flex synthesizes a padded <button> baseline from the margin box, so
-        // actions need translate-y-1; pb-5 keeps the painted bottom inset equal
-        // to the side gap after that nudge. Icon: translate-y-0.5 optical nudge
-        // while participating in the first-line band (not self-start — flex
-        // start is the wrap-line top, not the text line box).
-        banner:
-          "flex flex-wrap items-start gap-x-2 gap-y-2 p-4 has-[[data-slot=alert-actions]]:items-baseline has-[[data-slot=alert-actions]]:pb-5 has-[>svg]:gap-x-2 [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:translate-y-0.5 [&>svg]:text-current",
-        chrome: "",
-      },
+      variant: alertVariantClasses,
+      layout: alertLayoutClasses,
     },
     defaultVariants: {
       variant: "default",
@@ -92,10 +105,41 @@ const alertVariants = cva(
   },
 );
 
+const alertSurfaceVariants = cva(
+  alertRootClasses,
+  {
+    variants: {
+      variant: alertVariantClasses,
+    },
+    defaultVariants: {
+      variant: "default",
+    },
+  },
+);
+
+const alertLayoutVariants = cva(
+  // Title+Description is an explicit two-row copy stack on both layouts.
+  // Copy-internal gap is Description `mt-1.5` (14px UI unit). Do not put that
+  // on the grid — a shared `gap-y` also spaces wrapped actions. `items-start`
+  // so a baseline-aligned control cannot inflate the title row.
+  // `grid-rows-[auto_auto]` so `AlertActions` `row-span-full` (`1 / -1`)
+  // actually spans — negative lines only count the explicit grid. Banner wrap
+  // spaces actions with `mt-2`, independent of the copy stack.
+  "w-full has-[[data-slot=alert-title]]:has-[[data-slot=alert-description]]:grid-rows-[auto_auto] has-[[data-slot=alert-title]]:has-[[data-slot=alert-description]]:items-start",
+  {
+    variants: {
+      layout: alertLayoutClasses,
+    },
+    defaultVariants: {
+      layout: "default",
+    },
+  },
+);
+
 type AlertVariantProps = VariantProps<typeof alertVariants>;
 
 type AlertStaticProps = AlertVariantProps &
-  React.ComponentProps<"div"> & {
+  Omit<React.ComponentProps<"div">, "role"> & {
     collapsible?: false;
   };
 
@@ -138,8 +182,14 @@ function Alert(props: AlertProps) {
     );
   }
 
-  const { className, variant, layout, collapsible: _collapsible, ...divProps } =
-    props;
+  const {
+    className,
+    variant,
+    layout,
+    collapsible: _collapsible,
+    children,
+    ...divProps
+  } = props;
   const resolvedLayout = layout ?? "default";
   // banner / chrome / outline are structural surfaces, not assertive live regions.
   const live = resolvedLayout === "default" && variant !== "outline";
@@ -148,19 +198,82 @@ function Alert(props: AlertProps) {
       data-slot="alert"
       data-layout={resolvedLayout}
       data-variant={variant ?? "default"}
-      role={live ? "alert" : undefined}
-      className={cn(alertVariants({ variant, layout }), className)}
+      className={cn(alertSurfaceVariants({ variant }), className)}
       {...divProps}
+      role={live ? "alert" : undefined}
+    >
+      <div
+        data-slot="alert-content"
+        className={cn("w-full", resolvedLayout === "banner" && "@container/alert")}
+      >
+        <div data-slot="alert-layout" className={alertLayoutVariants({ layout: resolvedLayout })}>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type CalloutProps = Omit<React.ComponentProps<"div">, "role"> &
+  Pick<AlertVariantProps, "variant">;
+
+/**
+ * Standing in-page help that reuses Alert wash and stacked default layout.
+ * Not a live region — status flashes belong on `Alert`.
+ *
+ * Compose with `AlertIcon` / `AlertTitle` / `AlertDescription` / `AlertActions`
+ * and a leading `>svg` the same way as Alert.
+ */
+function Callout({
+  className,
+  variant = "default",
+  children,
+  ...divProps
+}: CalloutProps) {
+  return (
+    <div
+      data-slot="callout"
+      data-layout="default"
+      data-variant={variant ?? "default"}
+      className={cn(alertSurfaceVariants({ variant }), className)}
+      {...divProps}
+      role={undefined}
+    >
+      <div data-slot="alert-content" className="w-full">
+        <div
+          data-slot="alert-layout"
+          className={alertLayoutVariants({ layout: "default" })}
+        >
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AlertIcon({ className, ...props }: Omit<React.ComponentProps<"div">, "aria-hidden">) {
+  return (
+    <div
+      data-slot="alert-icon"
+      className={cn(
+        "flex size-4 shrink-0 items-center justify-center text-base leading-none [&>svg]:size-4",
+        className,
+      )}
+      {...props}
+      aria-hidden="true"
     />
   );
 }
 
 function AlertTitle({ className, ...props }: React.ComponentProps<"div">) {
+  // Inherited `text-sm` leading — titles wrap (`wrap-break-word`). `leading-none`
+  // is for one-line chrome (Eyebrow); on two lines it stacks the next line into
+  // descenders.
   return (
     <div
       data-slot="alert-title"
       className={cn(
-        "line-clamp-1 min-h-4 font-medium tracking-tight group-data-[layout=default]/alert:col-start-2",
+        "min-h-4 min-w-0 wrap-break-word font-semibold tracking-tight group-data-[layout=default]/alert:col-start-2 group-data-[layout=banner]/alert:col-start-2 group-data-[layout=banner]/alert:row-start-1",
         className,
       )}
       {...props}
@@ -169,21 +282,20 @@ function AlertTitle({ className, ...props }: React.ComponentProps<"div">) {
 }
 
 // Flows inline for a single metadata line, and stacks block children (paragraphs) when
-// there are several. In `default` it sits in the content column; in `banner` it is the
-// text column beside a direct leading `>svg` — `min-w-0` + `text-pretty` so wraps stay
-// in the column (never under the icon), and `basis-64` keeps it from being crushed
-// before actions wrap. Ink: primary (`text-foreground`) when it is the only copy;
-// muted only when an `AlertTitle` is also present (secondary under the title). Do not
-// hand-roll `text-foreground/N`; theme ink-alpha muted is `text-muted-foreground`
-// (guidelines/color.md § Text ink hierarchy).
+// there are several. Both layouts keep Description in the copy column (beside the
+// icon rail). With a Title, both layouts stack Description under Title with
+// `mt-1.5`. In `banner` it still occupies that column and moves below Title
+// when both are present.
+// Ink: primary (`text-foreground`) on default. Banner mutes Description when a
+// Title is also present (toolbar metadata). Do not hand-roll `text-foreground/N`;
+// theme ink-alpha muted is `text-muted-foreground` (guidelines/color.md § Text
+// ink hierarchy).
 function AlertDescription({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="alert-description"
       className={cn(
-        "text-sm text-foreground group-has-[[data-slot=alert-title]]/alert:text-muted-foreground [&_p]:leading-relaxed [&_p+p]:mt-1",
-        "group-data-[layout=default]/alert:col-start-2",
-        "group-data-[layout=banner]/alert:min-w-0 group-data-[layout=banner]/alert:grow group-data-[layout=banner]/alert:basis-64 group-data-[layout=banner]/alert:text-pretty",
+        "min-w-0 wrap-break-word text-sm text-foreground text-pretty group-has-[[data-slot=alert-title]]/alert:mt-1.5 group-data-[layout=default]/alert:col-start-2 group-data-[layout=default]/alert:group-has-[[data-slot=alert-title]]/alert:row-start-2 group-data-[layout=banner]/alert:col-start-2 group-data-[layout=banner]/alert:row-start-1 group-data-[layout=banner]/alert:group-has-[[data-slot=alert-title]]/alert:row-start-2 group-data-[layout=banner]/alert:group-has-[[data-slot=alert-title]]/alert:text-muted-foreground [&_p]:leading-relaxed [&_p+p]:mt-1",
         className,
       )}
       {...props}
@@ -191,14 +303,17 @@ function AlertDescription({ className, ...props }: React.ComponentProps<"div">) 
   );
 }
 
-// Trailing controls (buttons). In `default` they span the content rows in the grid's third
-// column; in `banner` they hug the right edge and wrap, as a group, onto the next line.
+// Trailing controls (buttons). Both layouts span the explicit copy rows in the
+// third column (`row-span-full` = `1 / -1`) so a taller control cannot inflate
+// the title row. Title+Description defines those rows (`grid-rows-[auto_auto]`).
+// In `banner`, the container query moves them to a right-aligned second row
+// (or third row when Title and Description are both present) with `grid-row: 2`
+// / `grid-row: 3` so the span does not leak, and `mt-2` for the copy→control
+// gutter (independent of Description `mt-1.5`).
 //
-// Baseline: both layouts use parent `items-baseline` so control labels share the copy
-// alphabetic baseline. Banner (flex) still needs `translate-y-1` — a padded `<button>`
-// under flex baseline synthesizes from the margin box (~4px high). Default (grid) does
-// not — the same nudge over-corrects. Banner root `pb-5` absorbs the flex nudge so the
-// painted bottom inset stays equal to the side gap.
+// Single-line copy still uses parent `items-baseline` so control labels share
+// the alphabetic baseline. Title+Description stacks switch the grid to
+// `items-start` so that baseline alignment cannot inflate the title row.
 function AlertActions({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -206,7 +321,7 @@ function AlertActions({ className, ...props }: React.ComponentProps<"div">) {
       className={cn(
         "flex items-center gap-1",
         "group-data-[layout=default]/alert:col-start-3 group-data-[layout=default]/alert:row-span-full",
-        "group-data-[layout=banner]/alert:ml-auto group-data-[layout=banner]/alert:flex-wrap group-data-[layout=banner]/alert:justify-end group-data-[layout=banner]/alert:translate-y-1",
+        "group-data-[layout=banner]/alert:col-start-3 group-data-[layout=banner]/alert:row-span-full group-data-[layout=banner]/alert:ml-auto group-data-[layout=banner]/alert:flex-wrap group-data-[layout=banner]/alert:justify-end group-data-[layout=banner]/alert:justify-self-end",
         className,
       )}
       {...props}
@@ -259,11 +374,10 @@ function AlertTrigger({
 // Do not rename `data-slot` on CollapsibleContent — theme drawer CSS keys on
 // `collapsible-content` (Alert identity lives on the root + AlertTrigger).
 //
-// Drawer hairline — same proportion as Default (`border-border/50` on muted):
-// Neutral is wash-100 → edge-200 at /50; status uses the same adjacent ramp
-// step (light `*-200`, dark `*-800` on the `*-900` wash). Not `*-solid` (too
-// loud) and not `*-hover` (ΔL ≈ 0.012 — invisible as a 1px rule; wrong direction
-// in dark).
+// Drawer hairline — same adjacent ramp step as Default (`border-border/50` on
+// muted): status uses the explicit light `*-200` / dark `*-800` edge on its
+// `*-100` / `*-900` wash. Not `*-foreground` (on-wash ink), `*-solid` (too loud),
+// or `*-hover` (the fill step, not a 1px rule).
 function AlertCollapsibleContent({
   className,
   ...props
@@ -274,10 +388,10 @@ function AlertCollapsibleContent({
         "space-y-2 rounded-b-lg border-t border-border/50 px-4 py-3",
         // Outline (card chrome) uses a full hairline — /50 reads weak on bg-card.
         "group-data-[variant=outline]/alert:border-border",
-        "group-data-[variant=info]/alert:border-blue-200/50 dark:group-data-[variant=info]/alert:border-blue-800/50",
-        "group-data-[variant=success]/alert:border-green-200/50 dark:group-data-[variant=success]/alert:border-green-800/50",
-        "group-data-[variant=warning]/alert:border-yellow-200/50 dark:group-data-[variant=warning]/alert:border-yellow-800/50",
-        "group-data-[variant=destructive]/alert:border-red-200/50 dark:group-data-[variant=destructive]/alert:border-red-800/50",
+        "group-data-[variant=info]/alert:border-blue-200 dark:group-data-[variant=info]/alert:border-blue-800",
+        "group-data-[variant=success]/alert:border-green-200 dark:group-data-[variant=success]/alert:border-green-800",
+        "group-data-[variant=warning]/alert:border-yellow-200 dark:group-data-[variant=warning]/alert:border-yellow-800",
+        "group-data-[variant=destructive]/alert:border-red-200 dark:group-data-[variant=destructive]/alert:border-red-800",
         className,
       )}
       {...props}
@@ -287,6 +401,8 @@ function AlertCollapsibleContent({
 
 export {
   Alert,
+  Callout,
+  AlertIcon,
   AlertTitle,
   AlertDescription,
   AlertActions,

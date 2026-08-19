@@ -1,0 +1,35 @@
+import { describe, expect, test } from "vitest";
+import {
+  ASSISTANT_OVERLAP_CODEX,
+  ASSISTANT_OVERLAP_SHORT,
+  SETUP_RESUME_BANNER_BODY,
+  TOKEN_STEP_DESCRIPTION,
+  assistantOverlapBody,
+} from "./assistantConnectionCopy";
+
+describe("setup operator copy", () => {
+  test("token step says Setup fills the install commands", () => {
+    expect(TOKEN_STEP_DESCRIPTION).toBe(
+      "Your assistant uses this token to reach Gestalt. Setup fills it into the install commands for you.",
+    );
+    expect(TOKEN_STEP_DESCRIPTION).not.toMatch(/Add Gestalt fills/);
+  });
+
+  test("resume banner is stage-agnostic", () => {
+    expect(SETUP_RESUME_BANNER_BODY).toBe("Pick up where you left off.");
+    expect(SETUP_RESUME_BANNER_BODY).not.toMatch(/assistant|install/i);
+  });
+});
+
+describe("assistantOverlapBody", () => {
+  test("names Codex native plugins only when Codex is the selected assistant", () => {
+    expect(assistantOverlapBody("codex")).toBe(ASSISTANT_OVERLAP_CODEX);
+    expect(assistantOverlapBody("codex")).toMatch(/Codex native plugins/);
+  });
+
+  test("keeps generic overlap copy for other assistants", () => {
+    expect(assistantOverlapBody("cursor")).toBe(ASSISTANT_OVERLAP_SHORT);
+    expect(assistantOverlapBody("claude-code")).not.toMatch(/Codex/);
+    expect(assistantOverlapBody("other")).not.toMatch(/Codex/);
+  });
+});

@@ -84,7 +84,7 @@ function DocsWorkflowsRoute() {
 }
 
 function DocsMcpRoute() {
-  useDocumentTitle("Use With MCP");
+  useDocumentTitle("MCP setup");
   return <McpDocsPage />;
 }
 

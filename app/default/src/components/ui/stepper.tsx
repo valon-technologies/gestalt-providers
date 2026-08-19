@@ -317,7 +317,9 @@ function StepperList({ className, ...props }: React.ComponentProps<"ol">) {
  * StepperItem
  * -------------------------------------------------------------------------- */
 
-const stepperItemVariants = cva("group/step relative flex", {
+// isolate: plate / rail / indicator z-index compare inside the step. Later
+// items paint on top, so a destination-owned rail stays above a neighbor plate.
+const stepperItemVariants = cva("group/step relative isolate flex", {
   variants: {
     orientation: {
       horizontal: "flex-1 flex-col items-stretch",
@@ -379,7 +381,9 @@ function StepperItem({ className, value, disabled = false, children, ...props }:
 
 const stepperTriggerVariants = cva(
   [
-    "relative z-10 inline-flex items-center gap-2 rounded-md outline-none",
+    // No z-index: a stacking context here would trap the indicator below the
+    // rail or paint this Neutral plate over destination-owned connectors.
+    "relative inline-flex items-center gap-2 rounded-md outline-none",
     "p-[var(--step-rail-trigger-pad)]",
     "transition-[color,background-color,border-color,opacity] duration-hover-out ease-out-quart hover:duration-hover-in",
     "focus-ring",
@@ -420,7 +424,7 @@ function StepperTrigger({
   const triggerClassName = cn(
     stepperTriggerVariants({ orientation, interactive }),
     interactive &&
-      "disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent disabled:active:bg-transparent",
+      "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent disabled:active:bg-transparent",
     className,
   );
 

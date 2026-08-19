@@ -1,3 +1,4 @@
+import { MCP_DOCS_TITLE, ASSISTANT_OVERLAP_TITLE } from "@/lib/assistantConnectionCopy";
 import { DOCS_PATH } from "@/lib/constants";
 import { SETTINGS_TOKENS_PATH } from "@/lib/managed-identity-paths";
 
@@ -102,11 +103,16 @@ export const docsNavItems: DocsNavItem[] = [
   {
     id: "mcp",
     href: DOCS_MCP_PATH,
-    label: "Use With MCP",
+    label: MCP_DOCS_TITLE,
     group: "automate",
     audience: "user",
-    // MCP client options are hash-backed SegmentedControl values, not headings.
-    subsections: [],
+    // Client options are hash-backed SegmentedControl values, not headings.
+    subsections: [
+      {
+        id: "mcp-overlap",
+        label: ASSISTANT_OVERLAP_TITLE,
+      },
+    ],
   },
   {
     id: "workflows",
@@ -143,6 +149,14 @@ export const docsNavItems: DocsNavItem[] = [
       { id: "ts-multiple-connections", label: "An app has multiple connections" },
       { id: "ts-empty-tools", label: "The MCP endpoint is mounted, but the tool list is empty" },
       { id: "ts-forbidden", label: "Access denied after grant" },
+      {
+        id: "ts-overlap",
+        label: "The same app appears twice in my assistant",
+      },
+      {
+        id: "ts-codex-desktop-tools",
+        label: "Codex Desktop does not list Gestalt tools",
+      },
     ],
   },
 ];

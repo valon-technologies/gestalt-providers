@@ -35,6 +35,10 @@ import {
   nestedInteractiveSuppress,
 } from "@/lib/nested-interactive";
 import {
+  integrationCardActionPolicy,
+  type IntegrationCardActions,
+} from "@/lib/integrationCardActions";
+import {
   isInteractiveTarget,
   rowLinkClickIntent,
 } from "@/lib/row-link";
@@ -52,8 +56,8 @@ import {
   TrashIcon,
 } from "./icons";
 import IntegrationSettingsModal from "./IntegrationSettingsModal";
+import { OutcomeStatusIndicator } from "./ui/outcome-status-indicator";
 import { Button } from "./ui/button";
-import { SelectionCheck } from "./ui/selection-check";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -107,9 +111,8 @@ export default function IntegrationCard({
   readOnly = false,
   disableNavigation = false,
   connectionContext = "current_user",
-  connectionEntry = connectionContext === "current_user" ? "app-detail" : "modal",
+  actions = "manage",
   highlightQuery = "",
-  density = "default",
 }: {
   integration: Integration;
   onConnected?: () => void;
@@ -121,16 +124,13 @@ export default function IntegrationCard({
   readOnly?: boolean;
   disableNavigation?: boolean;
   connectionContext?: ConnectionContext;
-  /** Where credential flows open — app detail page or modal dialog. */
-  connectionEntry?: "app-detail" | "modal";
+  /**
+   * Jobs this tile offers. Default `manage` is the `/apps` store (Add, Open
+   * app, More). Setup Connect uses `connect`. Setup Try uses `launch`.
+   */
+  actions?: IntegrationCardActions;
   /** Catalog search query — highlights matching tokens in title/description. */
   highlightQuery?: string;
-  /**
-   * `compact` is Setup Connect browse: smaller mark, name + one-line
-   * description, Connect instead of catalog Add. Default is the `/apps`
-   * store tile.
-   */
-  density?: "default" | "compact";
 }) {
   const navigate = useNavigate();
   const label = getIntegrationLabel(integration);
@@ -142,7 +142,9 @@ export default function IntegrationCard({
     "Disconnect" | "Remove app"
   >("Disconnect");
 
-  const useAppDetailConnection = connectionEntry === "app-detail";
+  const policy = integrationCardActionPolicy(actions, connectionContext);
+  const compact = policy.density === "compact";
+  const useAppDetailConnection = policy.connectionEntry === "app-detail";
 
   const connection = useIntegrationConnection({
     integration,
@@ -155,7 +157,6 @@ export default function IntegrationCard({
     onFlowComplete: () => setSettingsOpen(false),
   });
 
-  const compact = density === "compact";
   const connectActionLabel = compact ? "Connect" : "Add";
   const description = catalogCardDescription(integration);
   const normalizedStatus = normalizeIntegrationStatus(
@@ -168,6 +169,7 @@ export default function IntegrationCard({
   const mountedPath = appOpenPath(integration);
   const connectLabel = primaryConnectLabel(integration, connectionContext);
   const settingsAvailable =
+    policy.allowOverflow &&
     !compact &&
     !useAppDetailConnection &&
     shouldShowIntegrationSettings(normalizedStatus, readOnly);
@@ -178,19 +180,21 @@ export default function IntegrationCard({
   const cardNavigationEnabled = !disableNavigation && !settingsOpen;
   /** Connected → More (Remove app). Discovery → Add when connectable. */
   const showInstalledMenu =
+    policy.allowOverflow &&
     !compact &&
     useAppDetailConnection &&
     !readOnly &&
     (installState === "connected" || installState === "needs_attention");
   /** Success checkmark only when healthy — attention rows keep Alert, not Connected. */
   const showInstalledCheck =
+    policy.allowConnectedMark &&
     !readOnly &&
     installState === "connected" &&
     (compact || useAppDetailConnection);
   const showAddButton =
     !readOnly && catalogCardShowsConnectAction(installState, connectLabel);
   const showOpenAppButton =
-    !compact &&
+    policy.allowOpenApp &&
     !readOnly &&
     catalogShowOpenAppButton(integration, connectionContext);
   /** Top-right utility chrome only — Open app is the bottom-right primary CTA. */
@@ -342,7 +346,7 @@ export default function IntegrationCard({
       className={cn(
         // Solid catalog card — Neutral hover rest so Neutral dark deepen is a
         // visible L-step (tenant `--secondary` may diverge from `--neutral-hover`).
-        "relative rounded-xl bg-neutral-hover text-foreground",
+        "relative h-full rounded-xl bg-neutral-hover text-foreground",
         compact ? "p-3" : "p-4",
         "transition-[background-color] duration-hover-out ease-out-quart",
         "hover:bg-neutral-dark-hover hover:duration-hover-in active:bg-neutral-dark-pressed",
@@ -393,7 +397,7 @@ export default function IntegrationCard({
                 className={cn(
                   "text-muted-foreground",
                   compact
-                    ? "mt-0.5 line-clamp-1 text-xs"
+                    ? "mt-0.5 text-xs text-pretty"
                     : "mt-1 line-clamp-2 text-sm",
                 )}
               >
@@ -431,14 +435,12 @@ export default function IntegrationCard({
               {showInstalledCheck ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span
-                      className="flex size-control-sm items-center justify-center text-status-indicator-success"
-                      aria-label={CONNECTION_CONNECTED_LABEL}
-                    >
-                      <SelectionCheck
-                        checked
-                        tone="current"
-                        density="default"
+                    <span className="inline-flex">
+                      <OutcomeStatusIndicator
+                        status="success"
+                        size={compact ? "sm" : "md"}
+                        iconOnly
+                        label={CONNECTION_CONNECTED_LABEL}
                       />
                     </span>
                   </TooltipTrigger>
@@ -458,6 +460,7 @@ export default function IntegrationCard({
                             type="button"
                             variant="ghost"
                             size="icon-sm"
+                            data-testid={`integration-card-more-${integration.name}`}
                             aria-label={`${label} options`}
                           >
                             <MoreHorizontalIcon />
@@ -489,6 +492,7 @@ export default function IntegrationCard({
                             type="button"
                             variant="ghost"
                             size="icon-sm"
+                            data-testid={`integration-card-more-${integration.name}`}
                             aria-label={`${label} options`}
                           >
                             <MoreHorizontalIcon />

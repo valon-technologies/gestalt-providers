@@ -204,7 +204,8 @@ export function stepRailFromActiveIndex(transition: StepRailTransition): number 
  * -------------------------------------------------------------------------- */
 
 export const stepRailIndicatorVariants = cva(
-  "relative z-10 flex shrink-0 items-center justify-center rounded-full border leading-none transition-[color,background-color,border-color] duration-hover-out ease-out-quart motion-reduce:transition-none",
+  // z-20: above the rail (z-10) so the connector tucks under the circle.
+  "relative z-20 flex shrink-0 items-center justify-center rounded-full border leading-none transition-[color,background-color,border-color] duration-hover-out ease-out-quart motion-reduce:transition-none",
   {
     variants: {
       size: {
@@ -451,7 +452,8 @@ export function StepRailIndicator({
  * -------------------------------------------------------------------------- */
 
 export const stepRailSeparatorTrackVariants = cva(
-  "pointer-events-none absolute z-[1] overflow-hidden",
+  // z-10: above the Neutral trigger plate, below the indicator (z-20).
+  "pointer-events-none absolute z-10 overflow-hidden",
   {
     variants: {
       orientation: {

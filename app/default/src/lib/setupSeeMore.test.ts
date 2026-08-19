@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { Integration } from "@/lib/api";
 import {
+  SETUP_APPS_GRID_CLASS,
   setupSeeMoreLabel,
   setupSeeMorePreview,
 } from "./setupSeeMore";
@@ -12,6 +13,15 @@ function stub(name: string, displayName: string): Integration {
     description: displayName,
   };
 }
+
+describe("SETUP_APPS_GRID_CLASS", () => {
+  test("keeps connect cards on two columns so names stay readable", () => {
+    expect(SETUP_APPS_GRID_CLASS).toContain("sm:grid-cols-2");
+    expect(SETUP_APPS_GRID_CLASS).toContain("items-stretch");
+    expect(SETUP_APPS_GRID_CLASS).not.toContain("grid-cols-3");
+    expect(SETUP_APPS_GRID_CLASS).not.toContain("grid-cols-4");
+  });
+});
 
 describe("setupSeeMoreLabel", () => {
   test("names one remaining app", () => {

@@ -25,7 +25,7 @@ export const ACCOUNT_MENU_THEME_SECTION_LABEL = "Theme";
  * Docs is account-gated (docs routes require auth); not shown in guest chrome.
  */
 export const ACCOUNT_MENU_UTILITY_LINKS = [
-  { to: SETUP_PATH, label: "Setup guide" },
+  { to: SETUP_PATH, label: "Setup" },
   { to: DOCS_PATH, label: "Docs" },
   { to: "/settings", label: "Settings" },
 ] as const;

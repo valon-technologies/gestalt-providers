@@ -4,23 +4,25 @@ import {
   BUILD_CREATE_NEW_TOKEN_ID,
   BUILD_STEPS,
   BUILD_USE_EXISTING_TOKEN_ID,
-  buildAuthorizeSelectionReady,
   buildInstallStepTitle,
+  buildMcpCredentialReady,
   buildStepDescription,
   buildStepTitle,
   catalogLoadStateFromQuery,
   firstIncompleteStepId,
   isActivationDue,
+  isBuildStepUnlocked,
   isBuildComplete,
   isSetupDataSourceApp,
   isSetupTokenGrantId,
   isWorkspaceWarm,
-  sessionApiTokenBoundToSelection,
+  mcpInstalledForAgent,
   setupAppsConnected,
+  setupAppsContinueBlockedReason,
   setupAppsHasConnectable,
   setupAppsStepComplete,
   setupDataSourceIntegrations,
-  tokensIncludingSessionGrant,
+  tryStepCatalogApp,
   type BuildWorkspaceSnapshot,
 } from "@/lib/buildPaths";
 
@@ -155,11 +157,10 @@ function completeSnapshot(
     tokens: [token],
     catalogLoadState: "ready",
     activeExemplarId: "aiSpendTracker",
-    mcpInstalled: true,
+    mcpInstalledAgents: ["cursor"],
     apiToken: "gst_x",
     apiTokenGrantId: "tok_1",
     tokenName: "Workspace assistant",
-    selectedTokenId: "tok_1",
     installAgentId: "cursor",
     welcomeSeen: true,
     trySeen: true,
@@ -201,7 +202,7 @@ describe("isBuildComplete", () => {
   });
 
   test("is incomplete without an MCP install ack", () => {
-    expect(isBuildComplete(completeSnapshot({ mcpInstalled: false }))).toBe(
+    expect(isBuildComplete(completeSnapshot({ mcpInstalledAgents: [] }))).toBe(
       false,
     );
   });
@@ -210,7 +211,6 @@ describe("isBuildComplete", () => {
     expect(
       isBuildComplete(
         completeSnapshot({
-          selectedTokenId: "",
           apiToken: "",
           apiTokenGrantId: "",
         }),
@@ -256,10 +256,9 @@ describe("firstIncompleteStepId", () => {
       firstIncompleteStepId(
         completeSnapshot({
           installAgentId: "",
-          selectedTokenId: "",
           apiToken: "",
           apiTokenGrantId: "",
-          mcpInstalled: false,
+          mcpInstalledAgents: [],
         }),
       ),
     ).toBe("assistant");
@@ -269,17 +268,16 @@ describe("firstIncompleteStepId", () => {
     expect(
       firstIncompleteStepId(
         completeSnapshot({
-          selectedTokenId: "",
           apiToken: "",
           apiTokenGrantId: "",
-          mcpInstalled: false,
+          mcpInstalledAgents: [],
         }),
       ),
     ).toBe("token");
   });
 
   test("stops at install until MCP is acknowledged", () => {
-    expect(firstIncompleteStepId(completeSnapshot({ mcpInstalled: false }))).toBe(
+    expect(firstIncompleteStepId(completeSnapshot({ mcpInstalledAgents: [] }))).toBe(
       "install",
     );
   });
@@ -318,12 +316,23 @@ describe("buildStepTitle", () => {
   test("names the install step after the chosen assistant", () => {
     const install = BUILD_STEPS.find((step) => step.id === "install")!;
     expect(buildStepTitle(install, "cursor")).toBe("Add Gestalt in Cursor");
-    expect(buildStepTitle(install, "claude")).toBe(
+    expect(buildStepTitle(install, "claude")).toBe("Add Gestalt in Claude");
+    expect(buildStepTitle(install, "claude-code")).toBe(
       "Add Gestalt in Claude Code",
     );
+    expect(buildStepTitle(install, "chatgpt")).toBe("Add Gestalt in ChatGPT");
     expect(buildInstallStepTitle("codex")).toBe("Add Gestalt in Codex");
     expect(buildStepDescription(install, "cursor")).toBe(
       "Connect Cursor so it can use your Gestalt apps.",
+    );
+    expect(buildStepDescription(install, "codex")).toBe(
+      "Run these commands in Terminal on the Mac where Codex is installed.",
+    );
+    expect(buildStepDescription(install, "cursor-agent")).toBe(
+      "Paste this into .cursor/mcp.json. Cursor Agent reads the same MCP config as Cursor.",
+    );
+    expect(buildStepDescription(install, "other")).toBe(
+      "Use these MCP settings in any client that accepts a URL and an Authorization header.",
     );
   });
 
@@ -337,7 +346,13 @@ describe("buildStepTitle", () => {
       "try",
     ]);
     const token = BUILD_STEPS.find((step) => step.id === "token")!;
-    expect(buildStepTitle(token, "cursor")).toBe("Create an API token");
+    expect(buildStepTitle(token, "cursor")).toBe("Create a token");
+    expect(token.description).toContain("Your assistant uses this token");
+    expect(token.description).toContain(
+      "Setup fills it into the install commands",
+    );
+    expect(token.description).not.toContain("We only show");
+    expect(token.description).not.toContain("coding agent");
   });
 });
 
@@ -415,93 +430,158 @@ describe("setup data-source apps", () => {
       "ready",
     );
   });
+
+  test("disables Connect apps Next until the catalog load agrees with completion", () => {
+    expect(
+      setupAppsContinueBlockedReason({
+        integrations: [],
+        catalogLoadState: "pending",
+      }),
+    ).toBe("Loading apps…");
+    expect(
+      setupAppsContinueBlockedReason({
+        integrations: [],
+        catalogLoadState: "failed",
+      }),
+    ).toBe("Couldn't load apps. Try again.");
+    expect(
+      setupAppsContinueBlockedReason({
+        integrations: [disconnectedIntegration],
+        catalogLoadState: "ready",
+      }),
+    ).toBe("Connect at least one app to continue");
+    expect(
+      setupAppsContinueBlockedReason({
+        integrations: [],
+        catalogLoadState: "ready",
+      }),
+    ).toBeNull();
+    expect(
+      setupAppsContinueBlockedReason({
+        integrations: [connectedIntegration],
+        catalogLoadState: "failed",
+      }),
+    ).toBeNull();
+  });
 });
 
-describe("buildAuthorizeSelectionReady", () => {
+describe("buildMcpCredentialReady", () => {
   test("a filled create-token name is not enough to continue", () => {
     expect(
-      buildAuthorizeSelectionReady({
+      buildMcpCredentialReady({
         apiToken: "",
         apiTokenGrantId: "",
-        selectedTokenId: "new",
       }),
     ).toBe(false);
   });
 
-  test("a minted secret bound to the new grant is enough", () => {
+  test("a minted secret bound to a real grant is enough", () => {
     expect(
-      buildAuthorizeSelectionReady({
+      buildMcpCredentialReady({
         apiToken: "gst_x",
         apiTokenGrantId: "tok_new",
-        selectedTokenId: "tok_new",
       }),
     ).toBe(true);
   });
 
+  test("a leftover radio sentinel is not a grant", () => {
+    expect(
+      buildMcpCredentialReady({
+        apiToken: "gst_x",
+        apiTokenGrantId: BUILD_CREATE_NEW_TOKEN_ID,
+      }),
+    ).toBe(false);
+  });
+
   test("picking a listed token is not enough without a session secret", () => {
     expect(
-      buildAuthorizeSelectionReady({
+      buildMcpCredentialReady({
         apiToken: "",
-        apiTokenGrantId: "",
-        selectedTokenId: "tok_1",
+        apiTokenGrantId: "tok_1",
       }),
     ).toBe(false);
   });
 });
 
-describe("sessionApiTokenBoundToSelection", () => {
-  test("keeps plaintext only when it is bound to the selected grant", () => {
-    expect(sessionApiTokenBoundToSelection("tok_1", "tok_1")).toBe(true);
-    expect(sessionApiTokenBoundToSelection("tok_1", "tok_2")).toBe(false);
-    expect(sessionApiTokenBoundToSelection("tok_1", "new")).toBe(false);
-  });
-
-  test("never treats an unbound secret as matching a selection", () => {
-    expect(sessionApiTokenBoundToSelection("", "tok_1")).toBe(false);
-    expect(sessionApiTokenBoundToSelection("", "new")).toBe(false);
-    expect(sessionApiTokenBoundToSelection("  ", "  ")).toBe(false);
+describe("isBuildStepUnlocked", () => {
+  test("lets people open a step only after earlier steps are done", () => {
+    const missingToken = completeSnapshot({
+      apiToken: "",
+      apiTokenGrantId: "",
+      mcpInstalledAgents: [],
+    });
+    const isDone = (step: (typeof BUILD_STEPS)[number]) =>
+      step.isComplete(missingToken);
+    expect(isBuildStepUnlocked("welcome", isDone)).toBe(true);
+    expect(isBuildStepUnlocked("assistant", isDone)).toBe(true);
+    expect(isBuildStepUnlocked("token", isDone)).toBe(true);
+    expect(isBuildStepUnlocked("install", isDone)).toBe(false);
+    expect(isBuildStepUnlocked("apps", isDone)).toBe(false);
   });
 });
 
-describe("tokensIncludingSessionGrant", () => {
-  test("isSetupTokenGrantId rejects radio sentinels", () => {
+describe("isSetupTokenGrantId", () => {
+  test("rejects radio sentinels", () => {
     expect(isSetupTokenGrantId(BUILD_CREATE_NEW_TOKEN_ID)).toBe(false);
     expect(isSetupTokenGrantId(BUILD_USE_EXISTING_TOKEN_ID)).toBe(false);
     expect(isSetupTokenGrantId("")).toBe(false);
     expect(isSetupTokenGrantId("tok_new")).toBe(true);
   });
+});
 
-  test("prepends a session-minted grant the server list omitted", () => {
-    const listed = tokensIncludingSessionGrant([token], {
-      grantId: "tok_new",
-      name: "Workspace assistant",
-      createdAt: "2026-08-14T15:00:00Z",
+describe("mcpInstalledForAgent", () => {
+  test("install complete is scoped to the acknowledged assistant", () => {
+    expect(mcpInstalledForAgent(["cursor"], "cursor")).toBe(true);
+    expect(mcpInstalledForAgent(["cursor"], "chatgpt")).toBe(false);
+    expect(mcpInstalledForAgent(["cursor"], "")).toBe(false);
+    const otherAssistant = completeSnapshot({
+      installAgentId: "chatgpt",
+      mcpInstalledAgents: ["cursor"],
     });
-    expect(listed.map((item) => item.id)).toEqual(["tok_new", "tok_1"]);
-    expect(listed[0]).toEqual({
-      id: "tok_new",
-      name: "Workspace assistant",
-      createdAt: "2026-08-14T15:00:00Z",
+    expect(isBuildComplete(otherAssistant)).toBe(false);
+    expect(firstIncompleteStepId(otherAssistant)).toBe("install");
+  });
+});
+
+describe("tryStepCatalogApp", () => {
+  test("uses live catalog fields and fills mount and copy gaps", () => {
+    expect(
+      tryStepCatalogApp({
+        appId: "aiSpendTracker",
+        catalog: {
+          name: "aiSpendTracker",
+          displayName: "AI Spend Tracker",
+          description: "Live description",
+          iconSvg: "<svg></svg>",
+          credentialState: "connected",
+          status: "ready",
+        },
+        label: "Fallback",
+        description: "Fallback copy",
+        mountedPath: "/ai-spend",
+      }),
+    ).toMatchObject({
+      name: "aiSpendTracker",
+      displayName: "AI Spend Tracker",
+      description: "Live description",
+      iconSvg: "<svg></svg>",
+      mountedPath: "/ai-spend",
     });
   });
 
-  test("does not duplicate a grant the server already returned", () => {
+  test("builds a catalog tile when the app is missing from the workspace", () => {
     expect(
-      tokensIncludingSessionGrant([token], {
-        grantId: "tok_1",
-        name: "Test",
+      tryStepCatalogApp({
+        appId: "example-app",
+        label: "Example app",
+        description: "Open Example app in Gestalt.",
+        mountedPath: "/example-app",
       }),
-    ).toEqual([token]);
-  });
-
-  test("does not inject radio sentinels or an unbound grant", () => {
-    expect(
-      tokensIncludingSessionGrant([token], {
-        grantId: BUILD_CREATE_NEW_TOKEN_ID,
-      }),
-    ).toEqual([token]);
-    expect(tokensIncludingSessionGrant([token], { grantId: "" })).toEqual([
-      token,
-    ]);
+    ).toEqual({
+      name: "example-app",
+      displayName: "Example app",
+      description: "Open Example app in Gestalt.",
+      mountedPath: "/example-app",
+    });
   });
 });

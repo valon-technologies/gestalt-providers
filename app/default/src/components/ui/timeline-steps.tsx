@@ -10,9 +10,11 @@ import {
   StepRailIndicator,
   StepRailSeparator,
   stepRailCompletedChromeAccentClassName,
+  stepRailCompletedChromeOutcomeClassName,
   stepRailRootClassName,
   stepRailSizeVar,
   stepRailTimelineRootClassName,
+  type StepRailCompletedChrome,
   type StepRailSize,
 } from "@/components/ui/step-rail";
 import {
@@ -102,7 +104,6 @@ const timelineStepsVariants = cva(
   [
     "flex",
     stepRailRootClassName,
-    stepRailCompletedChromeAccentClassName,
     stepRailTimelineRootClassName,
     "[--step-rail-trigger-pad:0px]",
     "[--timeline-rail-lane-size:var(--step-rail-indicator-size)]",
@@ -124,20 +125,35 @@ const timelineStepsVariants = cva(
       default: `${stepRailSizeVar("default")} ${timelineStepsTextScale("default")}`,
       lg: `${stepRailSizeVar("lg")} ${timelineStepsTextScale("lg")}`,
     },
+    completedChrome: {
+      accent: stepRailCompletedChromeAccentClassName,
+      outcome: stepRailCompletedChromeOutcomeClassName,
+    },
   },
   defaultVariants: {
     orientation: "vertical",
     position: "left",
     size: "default",
+    completedChrome: "accent",
   },
 });
 
 interface TimelineStepsProps extends React.ComponentProps<"div">, VariantProps<typeof timelineStepsVariants> {
   /** `none` = dot-only indicators (no numerals / checks). Default `auto`. */
   glyph?: "auto" | "none";
+  /** Completed disc/check paint. Default `accent` (gold). Pass `outcome` for green fill and white check. */
+  completedChrome?: StepRailCompletedChrome;
 }
 
-function TimelineSteps({ className, orientation, position, size, glyph = "auto", ...props }: TimelineStepsProps) {
+function TimelineSteps({
+  className,
+  orientation,
+  position,
+  size,
+  glyph = "auto",
+  completedChrome = "accent",
+  ...props
+}: TimelineStepsProps) {
   const resolvedOrientation = orientation ?? "vertical";
   const resolvedSize = size ?? "default";
   const [order, setOrder] = React.useState<string[]>([]);
@@ -179,7 +195,12 @@ function TimelineSteps({ className, orientation, position, size, glyph = "auto",
         data-position={position}
         data-size={resolvedSize}
         className={cn(
-          timelineStepsVariants({ orientation: resolvedOrientation, position, size: resolvedSize }),
+          timelineStepsVariants({
+            orientation: resolvedOrientation,
+            position,
+            size: resolvedSize,
+            completedChrome,
+          }),
           className,
         )}
         {...props}

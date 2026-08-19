@@ -11,6 +11,7 @@ import {
   getDocsJourneyEdges,
   docsSubsectionLabel,
 } from "./docs-data";
+import { ASSISTANT_OVERLAP_TITLE } from "@/lib/assistantConnectionCopy";
 
 describe("docs IA invariants", () => {
   it("keeps unique hrefs and ids", () => {
@@ -76,7 +77,11 @@ describe("docs IA invariants", () => {
     const invoke = docsNavItems.find((item) => item.id === "invoke");
     // Hash-backed SegmentedControl options must not appear as TOC targets —
     // DocsOptionSwitcher intentionally omits matching DOM ids.
-    expect(mcp?.subsections).toEqual([]);
+    expect(mcp?.subsections.map((s) => s.id)).toEqual(["mcp-overlap"]);
+    expect(mcp?.subsections[0]?.label).toBe(ASSISTANT_OVERLAP_TITLE);
+    expect(mcp?.subsections.some((s) => s.id.startsWith("mcp-claude"))).toBe(
+      false,
+    );
     expect(invoke?.subsections).toEqual([]);
     const gettingStarted = docsNavItems.find(
       (item) => item.id === "getting-started",
@@ -91,6 +96,8 @@ describe("docs IA invariants", () => {
     );
     expect(content).toContain("docsSubsectionLabel");
     expect(content).not.toMatch(/<Subheading[^>]*title=/);
+    expect(content).not.toContain('activeTabId === "mcp-claude"');
+    expect(content).not.toContain('activeTabId === "mcp-chatgpt"');
     for (const item of docsNavItems) {
       for (const subsection of item.subsections) {
         expect(content).toContain(`<Subheading id="${subsection.id}" />`);
