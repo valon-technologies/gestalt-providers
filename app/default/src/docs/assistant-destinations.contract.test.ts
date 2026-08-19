@@ -69,6 +69,7 @@ describe("assistant destination switcher", () => {
     expect(source).toContain("Create a token here");
     expect(source).toContain("Then go here");
     expect(source).toContain("Place the token here");
+    expect(source).not.toContain("data-docs-token-paste-target");
     expect(source).not.toMatch(/[\u2013\u2014]/);
   });
 });

@@ -123,7 +123,7 @@ export function GettingStartedDocsPage() {
         <p>
           Connect the Apps you need, then create an API token for MCP clients
           and the CLI. This page covers those first steps in the browser only.
-          Prefer a guided walkthrough? Open{" "}
+          Prefer a guided walkthrough? Open{"\u00a0"}
           <DocsLink to={SETUP_PATH}>Setup</DocsLink>.
         </p>
         <WorkspaceUrlBlock origin={origin} />
@@ -217,7 +217,12 @@ export function CliDocsPage() {
       <DocsPageHeader title="Gestalt CLI" />
       <DocsPageBody>
         <p>
-          Use the Gestalt CLI for terminal setup, scripts, and automation.
+          The Gestalt CLI gives you the same capabilities as the browser, from
+          the terminal. Use it for scripting and automation, or when you need
+          something the UI does not expose, such as choosing among multiple
+          connections or calling operations with JSON payloads.
+        </p>
+        <p>
           Install the CLI, point it at this workspace, then authenticate. This
           page covers setup only. For connecting Apps, see{" "}
           <DocsLink to={DOCS_CONNECT_PATH}>Connect Apps</DocsLink>. For admin
@@ -348,8 +353,9 @@ export function ConnectDocsPage() {
     <>
       <DocsPageHeader title="Connect Apps" />
       <DocsPageBody>
+        <Subheading id="connect-browser" />
         <p>
-          Connect Apps in the browser. Open{" "}
+          Open{" "}
           <DocsLink to="/apps">Apps</DocsLink>, choose an App, and complete its
           OAuth or manual credential flow. Confirm the App shows as connected
           for your account.{" "}
@@ -809,9 +815,12 @@ function DocsPageBody({ children }: { children: ReactNode }) {
   // Chrome islands use `.not-typeset` or `[data-typeset-chrome]` (flow gap only).
   // Set h2 start on this node — `.typeset` owns the token and would ignore an
   // inherited value from PageLayout.
+  // Title lives outside this node. A leading paragraph uses flow gap; a
+  // leading h2 uses the same section gap as later h2s (first-child h2 margin
+  // is otherwise zeroed).
   return (
     <div
-      className="typeset typeset-docs mt-[length:var(--typeset-flow,1.5em)]"
+      className="typeset typeset-docs mt-[length:var(--typeset-flow,1.5em)] has-[>h2:first-child]:mt-[length:var(--typeset-h2-margin-start)]"
       style={
         {
           "--typeset-h2-margin-start": DOCS_PAGE_TOP_GAP,

@@ -34,6 +34,9 @@ test("typeset-reading defines docs flow tokens and chrome-in-flow gaps", () => {
     /\.typeset\s*>\s*:where\(\.not-typeset,\s*\[data-not-typeset\],\s*\[data-typeset-chrome\]\)/,
   );
   expect(TYPESET).toContain("margin-block-start: var(--typeset-flow)");
+  expect(TYPESET).toMatch(
+    /\[data-docs-option-switcher\]\s*\[role="region"\]\s*>\s*:where\(\.not-typeset,\s*\[data-not-typeset\]\)/,
+  );
 });
 
 test("typeset-reading paragraphs use text-wrap pretty to avoid orphans", () => {

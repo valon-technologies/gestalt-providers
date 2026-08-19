@@ -1,6 +1,3 @@
-import type { ReactNode } from "react";
-import { Info } from "lucide-react";
-import { AlertDescription, AlertTitle, Callout } from "@/components/ui/alert";
 import { CodeBlock } from "@/components/ui/code-block";
 import { Code } from "@/components/ui/code";
 import { DocsLink } from "./DocsLink";
@@ -96,10 +93,6 @@ function ClaudeDestination({ mcpUrl }: { mcpUrl: string }) {
         code="Bearer gst_api_your_token_here"
         copyLabel="Copy Bearer prefix"
       />
-      <TokenPasteCallout>
-        Request headers, header name{" "}
-        <Code>authorization</Code>. Value is Bearer, a space, then your token.
-      </TokenPasteCallout>
     </>
   );
 }
@@ -144,9 +137,13 @@ function ChatGptDestination({ mcpUrl }: { mcpUrl: string }) {
         code={mcpUrl}
         copyLabel="Copy MCP URL"
       />
-      <TokenPasteCallout>
-        Token or API key field. Paste the secret you copied from Settings.
-      </TokenPasteCallout>
+      <p>Token or API key (replace the placeholder with your token):</p>
+      <CodeBlock
+        chrome="inset"
+        language="plaintext"
+        code="gst_api_your_token_here"
+        copyLabel="Copy token placeholder"
+      />
     </>
   );
 }
@@ -184,10 +181,10 @@ function CursorDestination({
         code={mcpUrl}
         copyLabel="Copy MCP URL"
       />
-      <TokenPasteCallout>
-        The Authorization value in the file. Replace the placeholder with your
-        token.
-      </TokenPasteCallout>
+      <p>
+        Authorization in <Code>.cursor/mcp.json</Code> (replace the
+        placeholder with your token):
+      </p>
       <CodeBlock
         language="json"
         filename=".cursor/mcp.json"
@@ -206,18 +203,6 @@ function CursorDestination({
   );
 }
 
-function TokenPasteCallout({ children }: { children: ReactNode }) {
-  return (
-    <div className="not-typeset" data-docs-token-paste-target>
-      <Callout variant="info">
-        <Info aria-hidden="true" />
-        <AlertTitle>Place the token here</AlertTitle>
-        <AlertDescription>{children}</AlertDescription>
-      </Callout>
-    </div>
-  );
-}
-
 function DestinationMedia({
   videoSrc,
   posterSrc,
@@ -228,7 +213,7 @@ function DestinationMedia({
   caption: string;
 }) {
   return (
-    <figure className="not-typeset mt-[length:var(--typeset-flow,1.5em)]">
+    <figure className="not-typeset">
       <video
         className="w-full rounded-lg border border-border"
         controls

@@ -143,6 +143,12 @@ test.describe("Docs page", () => {
     await expect(
       page.getByRole("heading", { name: "Gestalt CLI" }),
     ).toBeVisible();
+    await expect(page.locator("article")).toContainText(
+      "same capabilities as the browser",
+    );
+    await expect(page.locator("article")).toContainText(
+      "JSON payloads",
+    );
     await expect(
       page.getByRole("radiogroup", { name: "Install methods" }),
     ).toBeVisible();
@@ -182,6 +188,9 @@ test.describe("Docs page", () => {
 
     await leftNav.getByRole("link", { name: "Connect Apps" }).click();
     await expect(page).toHaveURL(/\/docs\/connect/);
+    await expect(
+      page.getByRole("heading", { name: "Connect Apps in the browser" }),
+    ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Connect from the terminal" }),
     ).toBeVisible();
@@ -251,12 +260,21 @@ test.describe("Docs page", () => {
     await expect(page.locator("article")).toContainText(
       "Request headers",
     );
+    await expect(
+      page.getByRole("heading", { name: "Place the token here" }),
+    ).toHaveCount(0);
+    await expect(page.locator("article")).toContainText(
+      "Bearer gst_api_your_token_here",
+    );
     await tokensDestSwitch.getByRole("radio", { name: "ChatGPT" }).click();
     await expect(page).toHaveURL(/\/docs\/tokens#dest-chatgpt$/);
     await expect(page.locator("article")).toContainText("Developer mode");
-    await expect(
-      page.getByText("Place the token here").first(),
-    ).toBeVisible();
+    await expect(page.locator("article")).toContainText(
+      "Token or API key (replace the placeholder with your token)",
+    );
+    await expect(page.locator("article")).toContainText(
+      "gst_api_your_token_here",
+    );
     const settingsLinkBox = await page
       .locator("article")
       .getByRole("link", { name: "Settings → API tokens" })

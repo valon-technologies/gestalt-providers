@@ -129,6 +129,7 @@ export const docsNavItems: DocsNavItem[] = [
     group: "terminal",
     audience: "user",
     subsections: [
+      { id: "connect-browser", label: "Connect Apps in the browser" },
       { id: "connect-cli", label: "Connect from the terminal" },
     ],
   },

@@ -108,7 +108,10 @@ describe("docs IA invariants", () => {
     ]);
     const connect = docsNavItems.find((item) => item.id === "connect");
     expect(connect?.group).toBe("terminal");
-    expect(connect?.subsections.map((s) => s.id)).toEqual(["connect-cli"]);
+    expect(connect?.subsections.map((s) => s.id)).toEqual([
+      "connect-browser",
+      "connect-cli",
+    ]);
     expect(
       docsNavItems.filter((item) => item.group === "setup").map((item) => item.id),
     ).toEqual(["getting-started", "tokens"]);
