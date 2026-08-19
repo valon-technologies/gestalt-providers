@@ -93,7 +93,10 @@ test.describe("Docs page", () => {
     ).toBeVisible();
     await expect(page.getByRole("heading", { name: "Sign in" })).toHaveCount(0);
     await expect(page.locator("article")).toContainText(
-      "You are in this Gestalt workspace",
+      "Gestalt is an API proxy",
+    );
+    await expect(page.locator("article")).toContainText(
+      "universal key for your tools",
     );
     await expect(
       page.getByRole("heading", { name: "Connect Apps" }),
@@ -240,15 +243,15 @@ test.describe("Docs page", () => {
     await expect(
       page.getByRole("heading", { name: "What to do with the token" }),
     ).toBeVisible();
-    const destSwitch = page.getByRole("radiogroup", {
+    const tokensDestSwitch = page.getByRole("radiogroup", {
       name: "Choose your assistant",
     });
-    await expect(destSwitch.getByRole("radio", { name: "Claude" })).toBeChecked();
-    await expect(destSwitch.getByRole("radio", { name: "ChatGPT" })).toBeVisible();
+    await expect(tokensDestSwitch.getByRole("radio", { name: "Claude" })).toBeChecked();
+    await expect(tokensDestSwitch.getByRole("radio", { name: "ChatGPT" })).toBeVisible();
     await expect(page.locator("article")).toContainText(
       "Request headers",
     );
-    await destSwitch.getByRole("radio", { name: "ChatGPT" }).click();
+    await tokensDestSwitch.getByRole("radio", { name: "ChatGPT" }).click();
     await expect(page).toHaveURL(/\/docs\/tokens#dest-chatgpt$/);
     await expect(page.locator("article")).toContainText("Developer mode");
     await expect(
@@ -291,11 +294,11 @@ test.describe("Docs page", () => {
     await expect(
       page.getByRole("heading", { name: "Choose your assistant" }),
     ).toBeVisible();
-    const destSwitch = page.getByRole("radiogroup", {
+    const mcpDestSwitch = page.getByRole("radiogroup", {
       name: "Choose your assistant",
     });
-    await expect(destSwitch.getByRole("radio", { name: "Claude" })).toBeChecked();
-    await expect(destSwitch.getByRole("radio", { name: "ChatGPT" })).toBeVisible();
+    await expect(mcpDestSwitch.getByRole("radio", { name: "Claude" })).toBeChecked();
+    await expect(mcpDestSwitch.getByRole("radio", { name: "ChatGPT" })).toBeVisible();
     await expect(page.locator("article video")).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Store the token on your computer" }),

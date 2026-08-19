@@ -111,10 +111,19 @@ export function GettingStartedDocsPage() {
       <DocsPageHeader title="Getting Started" />
       <DocsPageBody>
         <p>
-          You are in this Gestalt workspace. Connect the Apps you need, then
-          create an API token for MCP clients and the CLI. This page covers
-          those first steps in the browser only. Prefer a guided walkthrough?
-          Open{" "}
+          Gestalt is an API proxy: a central hub for managing authentication
+          across the tools you use at work. Instead of configuring each App
+          separately (Slack, Notion, GitHub, and more), you authenticate once
+          through Gestalt and it handles the rest.
+        </p>
+        <p>
+          Think of it as a universal key for your tools. You log in once, and
+          Gestalt securely manages your access behind the scenes.
+        </p>
+        <p>
+          Connect the Apps you need, then create an API token for MCP clients
+          and the CLI. This page covers those first steps in the browser only.
+          Prefer a guided walkthrough? Open{" "}
           <DocsLink to={SETUP_PATH}>Setup</DocsLink>.
         </p>
         <WorkspaceUrlBlock origin={origin} />
