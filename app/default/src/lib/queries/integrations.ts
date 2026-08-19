@@ -17,6 +17,7 @@ import {
   type IntegrationOperation,
 } from "@/lib/api";
 import {
+  applyDisconnectToConnectionStatuses,
   applyDisconnectToIntegrations,
   type IntegrationDisconnectSpec,
 } from "@/lib/applyIntegrationDisconnect";
@@ -179,18 +180,34 @@ export function useInvalidateIntegrations() {
     queryClient.invalidateQueries({ queryKey: queryKeys.integrations.root });
 }
 
-/** Write a confirmed disconnect into the catalog cache before the refetch. */
+/** Write a confirmed disconnect into overlay (or composed listing) before refetch. */
 export async function commitIntegrationDisconnect(
   queryClient: QueryClient,
   integrationName: string,
   spec: IntegrationDisconnectSpec,
 ): Promise<void> {
-  await queryClient.cancelQueries({ queryKey: queryKeys.integrations.list() });
-  queryClient.setQueryData<Integration[]>(
-    queryKeys.integrations.list(),
+  await queryClient.cancelQueries({ queryKey: queryKeys.integrations.root });
+  queryClient.setQueryData<AppConnectionStatus[]>(
+    queryKeys.integrations.connections(),
     (current) =>
       current
-        ? applyDisconnectToIntegrations(current, integrationName, spec)
+        ? applyDisconnectToConnectionStatuses(current, integrationName, spec)
         : current,
+  );
+  queryClient.setQueryData<AppsDirectory>(
+    queryKeys.integrations.directory(),
+    (current) => {
+      if (!current || current.source !== "composed") {
+        return current;
+      }
+      return {
+        ...current,
+        integrations: applyDisconnectToIntegrations(
+          current.integrations,
+          integrationName,
+          spec,
+        ),
+      };
+    },
   );
 }

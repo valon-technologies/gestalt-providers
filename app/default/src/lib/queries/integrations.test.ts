@@ -1,13 +1,22 @@
+import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
-import { APIError, APITimeoutError, type Integration } from "@/lib/api";
+import {
+  APIError,
+  APITimeoutError,
+  type AppConnectionStatus,
+  type AppsDirectory,
+  type Integration,
+} from "@/lib/api";
 import {
   appsCatalogQueryStatus,
+  commitIntegrationDisconnect,
   connectionOverlayKnown,
   shouldRetryAppsCatalogQuery,
   workspaceConnectionView,
   workspaceIntegrationsPending,
 } from "@/lib/queries/integrations";
+import { queryKeys } from "@/lib/query-keys";
 
 const cached: Integration[] = [{ name: "example-app", displayName: "Example App" }];
 
@@ -124,5 +133,78 @@ describe("workspaceConnectionView", () => {
         overlayError: null,
       }),
     ).toEqual({ status: "ready" });
+  });
+});
+
+describe("commitIntegrationDisconnect", () => {
+  const overlay: AppConnectionStatus[] = [
+    {
+      name: "gmail",
+      connected: true,
+      connections: [
+        {
+          name: "default",
+          connected: true,
+          instances: [{ name: "work", connection: "default", preferred: true }],
+        },
+      ],
+    },
+  ];
+
+  it("writes the disconnect into overlay and leaves a catalog directory untouched", async () => {
+    const queryClient = new QueryClient();
+    const directory: AppsDirectory = {
+      source: "catalog",
+      entries: [{ name: "gmail", displayName: "Gmail" }],
+    };
+    queryClient.setQueryData(queryKeys.integrations.connections(), overlay);
+    queryClient.setQueryData(queryKeys.integrations.directory(), directory);
+
+    await commitIntegrationDisconnect(queryClient, "gmail", {
+      instance: "work",
+      connection: "default",
+    });
+
+    expect(
+      queryClient.getQueryData<AppConnectionStatus[]>(
+        queryKeys.integrations.connections(),
+      )?.[0],
+    ).toMatchObject({ connected: false, connections: [{ instances: [] }] });
+    expect(
+      queryClient.getQueryData<AppsDirectory>(queryKeys.integrations.directory()),
+    ).toBe(directory);
+  });
+
+  it("rewrites composed listings that still carry connection status", async () => {
+    const queryClient = new QueryClient();
+    const gmail: Integration = {
+      name: "gmail",
+      connections: [
+        {
+          name: "default",
+          connected: true,
+          instances: [{ name: "work", connection: "default" }],
+        },
+      ],
+    };
+    queryClient.setQueryData<AppsDirectory>(queryKeys.integrations.directory(), {
+      source: "composed",
+      entries: [{ name: "gmail" }],
+      integrations: [gmail],
+    });
+
+    await commitIntegrationDisconnect(queryClient, "gmail", {
+      instance: "work",
+      connection: "default",
+    });
+
+    const next = queryClient.getQueryData<AppsDirectory>(
+      queryKeys.integrations.directory(),
+    );
+    expect(next?.source).toBe("composed");
+    if (next?.source !== "composed") {
+      throw new Error("expected composed directory");
+    }
+    expect(next.integrations[0]?.connections?.[0]?.instances).toEqual([]);
   });
 });
