@@ -5,6 +5,9 @@ import {
   SETTINGS_TOKENS_CREATE_CTA,
   SETTINGS_TOKENS_EMPTY_TITLE,
   SETTINGS_TOKENS_LIST_TITLE,
+  SETTINGS_TOKENS_SCOPES_SHOW_LESS,
+  SETTINGS_TOKENS_UNNAMED_LABEL,
+  settingsTokensScopesMoreLabel,
 } from "./tokens-copy";
 
 describe("settings tokens copy", () => {
@@ -13,6 +16,10 @@ describe("settings tokens copy", () => {
     expect(SETTINGS_TOKEN_CREATE_TITLE).toBe("Create token");
     expect(SETTINGS_TOKENS_LIST_TITLE).toBe("API tokens");
     expect(SETTINGS_TOKENS_EMPTY_TITLE).toBe("No API tokens yet.");
+    expect(SETTINGS_TOKENS_UNNAMED_LABEL).toBe("No name");
+    expect(settingsTokensScopesMoreLabel(1)).toBe("Show 1 more scope");
+    expect(settingsTokensScopesMoreLabel(42)).toBe("Show 42 more scopes");
+    expect(SETTINGS_TOKENS_SCOPES_SHOW_LESS).toBe("Show less");
   });
 
   it("uses settings-native one-time secret copy (not Build tutorial framing)", () => {

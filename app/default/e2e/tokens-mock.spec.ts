@@ -46,6 +46,63 @@ test.describe("Token Management", () => {
     await expect(page.getByText("other-app:read")).toBeVisible();
   });
 
+  test("lists tokens newest created first and sorts from column headers", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    await mockTokens(page, sampleTokens);
+    await mockIntegrations(page, []);
+
+    await page.goto("/settings/tokens");
+    const rows = page.locator("table tbody tr");
+    await expect(page.getByRole("columnheader", { name: "Created" })).toHaveAttribute(
+      "aria-sort",
+      "descending",
+    );
+    await expect(rows.nth(0)).toContainText("Local CLI");
+    await expect(rows.nth(1)).toContainText("CI pipeline");
+
+    await page.getByRole("columnheader", { name: "Name" }).getByRole("button").click();
+    await expect(page.getByRole("columnheader", { name: "Name" })).toHaveAttribute(
+      "aria-sort",
+      "ascending",
+    );
+    await expect(rows.nth(0)).toContainText("CI pipeline");
+    await expect(rows.nth(1)).toContainText("Local CLI");
+  });
+
+  test("collapses long scope lists behind a count", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    await mockTokens(page, [
+      {
+        id: "tok-long",
+        name: "Example app token",
+        scopes: [
+          "example-app:attachments.create",
+          "example-app:contentRevisions.list",
+          "example-app:customers.delete",
+          "example-app:issues.list",
+          "example-app:issues.update",
+        ],
+        createdAt: "2026-08-19T12:00:00Z",
+      },
+    ]);
+    await mockIntegrations(page, []);
+
+    await page.goto("/settings/tokens");
+    await expect(page.getByText("example-app:attachments.create")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Show 2 more scopes" }),
+    ).toBeVisible();
+    await expect(page.getByText("example-app:issues.update")).toBeHidden();
+
+    await page.getByRole("button", { name: "Show 2 more scopes" }).click();
+    await expect(page.getByRole("button", { name: "Show less" })).toBeVisible();
+    await expect(page.getByText("example-app:issues.update")).toBeVisible();
+  });
+
   test("shows empty state when no tokens", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
     await mockTokens(page, []);
@@ -169,7 +226,10 @@ test.describe("Token Management", () => {
     await page.goto("/settings/tokens");
     await expect(page.getByText("tok-1")).toBeVisible();
 
-    await page.getByRole("button", { name: "Revoke" }).first().click();
+    await page
+      .locator("tr", { hasText: "tok-1" })
+      .getByRole("button", { name: "Revoke" })
+      .click();
     const revokeDialog = page.getByRole("alertdialog", { name: "Revoke token" });
     await expect(revokeDialog).toBeVisible();
     await revokeDialog.getByRole("button", { name: "Revoke token" }).click();
