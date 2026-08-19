@@ -78,13 +78,13 @@ test.describe("Token Management", () => {
     await mockTokens(page, [
       {
         id: "tok-long",
-        name: "issues",
+        name: "Example app token",
         scopes: [
-          "g-issues:attachments.create",
-          "g-issues:contentRevisions.list",
-          "g-issues:customers.delete",
-          "g-issues:issues.list",
-          "g-issues:issues.update",
+          "example-app:attachments.create",
+          "example-app:contentRevisions.list",
+          "example-app:customers.delete",
+          "example-app:issues.list",
+          "example-app:issues.update",
         ],
         createdAt: "2026-08-19T12:00:00Z",
       },
@@ -92,15 +92,15 @@ test.describe("Token Management", () => {
     await mockIntegrations(page, []);
 
     await page.goto("/settings/tokens");
-    await expect(page.getByText("g-issues:attachments.create")).toBeVisible();
+    await expect(page.getByText("example-app:attachments.create")).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Show 2 more scopes" }),
     ).toBeVisible();
-    await expect(page.getByText("g-issues:issues.update")).toBeHidden();
+    await expect(page.getByText("example-app:issues.update")).toBeHidden();
 
     await page.getByRole("button", { name: "Show 2 more scopes" }).click();
     await expect(page.getByRole("button", { name: "Show less" })).toBeVisible();
-    await expect(page.getByText("g-issues:issues.update")).toBeVisible();
+    await expect(page.getByText("example-app:issues.update")).toBeVisible();
   });
 
   test("shows empty state when no tokens", async ({ authenticatedPage }) => {

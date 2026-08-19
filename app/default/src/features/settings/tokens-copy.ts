@@ -25,7 +25,9 @@ export const SETTINGS_TOKENS_SCOPES_ALL_LABEL = "all";
 export const SETTINGS_TOKENS_SCOPES_SHOW_LESS = "Show less";
 
 export function settingsTokensScopesMoreLabel(hiddenCount: number): string {
-  return `${hiddenCount} more`;
+  return hiddenCount === 1
+    ? "Show 1 more scope"
+    : `Show ${hiddenCount} more scopes`;
 }
 
 /** Inventory table: token does not expire. */

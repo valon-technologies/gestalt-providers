@@ -21,6 +21,7 @@ import {
 import {
   Collapsible,
   CollapsibleContent,
+  CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import {
   DataTableColumnHeader,
@@ -40,20 +41,21 @@ import {
   SETTINGS_TOKENS_EMPTY_TITLE,
   SETTINGS_TOKENS_SCOPES_ALL_LABEL,
   SETTINGS_TOKENS_SCOPES_SHOW_LESS,
-  SETTINGS_TOKENS_UNNAMED_LABEL,
   settingsTokensScopesMoreLabel,
 } from "@/features/settings/tokens-copy";
 import {
   TOKEN_INVENTORY_DEFAULT_SORT,
   splitCollapsedTokenScopes,
   tokenCreatedAtMs,
+  tokenCreatedLabel,
+  tokenDisplayName,
   tokenExpiresAtMs,
   tokenExpiresLabel,
-  tokenNameSortKey,
   tokenScopeEntries,
   tokenScopesSortKey,
+  tokenStoredName,
   type TokenScopeEntry,
-} from "@/features/settings/token-inventory-sort";
+} from "@/features/settings/token-inventory";
 import { cn } from "@/lib/cn";
 import { disclosureCaretClassName } from "@/lib/disclosure-caret";
 import { appIdFromTokenScope } from "@/lib/tokenScopes";
@@ -146,25 +148,26 @@ function TokenScopesCell({ token }: { token: APIToken }) {
             <TokenScopeChip key={`${entry.key}-${index}`} entry={entry} />
           ))}
           <Button
-            type="button"
+            asChild
             variant="ghost"
             size="xs"
             className="group -ml-1 gap-0.5 px-1.5 text-muted-foreground"
-            aria-expanded={expanded}
-            aria-label={
-              expanded
-                ? SETTINGS_TOKENS_SCOPES_SHOW_LESS
-                : `Show ${rest.length} more scopes`
-            }
-            onClick={() => setExpanded((open) => !open)}
           >
-            {expanded
-              ? SETTINGS_TOKENS_SCOPES_SHOW_LESS
-              : settingsTokensScopesMoreLabel(rest.length)}
-            <ChevronDown
-              aria-hidden
-              className={cn(disclosureCaretClassName, "opacity-100")}
-            />
+            <CollapsibleTrigger
+              type="button"
+              className="w-auto max-w-none justify-start gap-0.5 px-1.5 font-normal text-muted-foreground"
+            >
+              {expanded
+                ? SETTINGS_TOKENS_SCOPES_SHOW_LESS
+                : settingsTokensScopesMoreLabel(rest.length)}
+              <ChevronDown
+                aria-hidden
+                className={cn(
+                  disclosureCaretClassName,
+                  "opacity-100 motion-reduce:transition-none",
+                )}
+              />
+            </CollapsibleTrigger>
           </Button>
         </span>
         <CollapsibleContent className="flex flex-wrap gap-x-2 gap-y-1">
@@ -197,21 +200,21 @@ export default function TokenTable({ tokens }: TokenTableProps) {
 
   const columns = useMemo(
     () => [
-      columnHelper.accessor((row) => tokenNameSortKey(row), {
+      columnHelper.accessor((row) => tokenDisplayName(row), {
         id: "name",
         meta: { className: "min-w-0", headerClassName: "min-w-0" },
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Name" />
         ),
         cell: ({ row }) => {
-          const name = row.original.name?.trim();
-          return name ? (
+          const stored = tokenStoredName(row.original);
+          return stored ? (
             <span className="font-medium text-foreground break-words">
-              {name}
+              {stored}
             </span>
           ) : (
             <span className="text-muted-foreground">
-              {SETTINGS_TOKENS_UNNAMED_LABEL}
+              {tokenDisplayName(row.original)}
             </span>
           );
         },
@@ -240,7 +243,7 @@ export default function TokenTable({ tokens }: TokenTableProps) {
         ),
         cell: ({ row }) => (
           <span className="text-muted-foreground">
-            {new Date(row.original.createdAt).toLocaleDateString()}
+            {tokenCreatedLabel(row.original)}
           </span>
         ),
       }),
@@ -391,21 +394,19 @@ export default function TokenTable({ tokens }: TokenTableProps) {
             </AlertDialogDescription>
           </AlertDialogHeader>
           {pendingToken ? (
-            <DescriptionList
-              density="condensed"
-              termWidth="6.5rem"
-              className="[&_[data-slot=description-item]]:gap-2"
-            >
+            <DescriptionList density="condensed" termWidth="6.5rem">
               <DescriptionItem>
                 <DescriptionTerm>Token</DescriptionTerm>
                 <DescriptionDetails>
-                  {pendingToken.name?.trim() ? (
-                    <span className="font-medium">{pendingToken.name.trim()}</span>
-                  ) : (
-                    <span className="text-muted-foreground">
-                      {SETTINGS_TOKENS_UNNAMED_LABEL}
-                    </span>
-                  )}
+                  <span
+                    className={
+                      tokenStoredName(pendingToken)
+                        ? "font-medium"
+                        : "text-muted-foreground"
+                    }
+                  >
+                    {tokenDisplayName(pendingToken)}
+                  </span>
                 </DescriptionDetails>
               </DescriptionItem>
               <DescriptionItem>

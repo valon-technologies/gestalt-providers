@@ -17,13 +17,25 @@ export const TOKEN_INVENTORY_DEFAULT_SORT = {
   desc: true,
 } as const;
 
-export function tokenNameSortKey(token: APIToken): string {
-  return token.name?.trim() || SETTINGS_TOKENS_UNNAMED_LABEL;
+/** Stored name after trim, or null when the grant has no display name. */
+export function tokenStoredName(token: Pick<APIToken, "name">): string | null {
+  const name = token.name?.trim();
+  return name ? name : null;
+}
+
+/** Visible Name-column text (stored name, or the unnamed label). */
+export function tokenDisplayName(token: Pick<APIToken, "name">): string {
+  return tokenStoredName(token) ?? SETTINGS_TOKENS_UNNAMED_LABEL;
 }
 
 export function tokenCreatedAtMs(token: APIToken): number {
   const ms = Date.parse(token.createdAt);
   return Number.isFinite(ms) ? ms : 0;
+}
+
+export function tokenCreatedLabel(token: APIToken): string {
+  const ms = Date.parse(token.createdAt);
+  return Number.isFinite(ms) ? new Date(ms).toLocaleDateString() : "";
 }
 
 /** Never-expiring tokens sort after every dated expiry. */
@@ -36,8 +48,12 @@ export function tokenExpiresAtMs(token: APIToken): number {
 }
 
 export function tokenExpiresLabel(token: APIToken): string {
-  return token.expiresAt
-    ? new Date(token.expiresAt).toLocaleDateString()
+  if (!token.expiresAt) {
+    return SETTINGS_TOKENS_EXPIRES_NEVER_LABEL;
+  }
+  const ms = Date.parse(token.expiresAt);
+  return Number.isFinite(ms)
+    ? new Date(ms).toLocaleDateString()
     : SETTINGS_TOKENS_EXPIRES_NEVER_LABEL;
 }
 
@@ -69,13 +85,13 @@ export function tokenScopesSortKey(token: APIToken): string {
 }
 
 /** Show this many scopes before a count when the list is long. */
-export const TOKEN_SCOPE_COLLAPSED_PREVIEW = 3;
+const TOKEN_SCOPE_COLLAPSED_PREVIEW = 3;
 
 /**
  * Collapse only when the row would otherwise wrap a long manual-permission list.
  * Short lists stay fully visible.
  */
-export const TOKEN_SCOPE_COLLAPSE_AFTER = 4;
+const TOKEN_SCOPE_COLLAPSE_AFTER = 4;
 
 export function splitCollapsedTokenScopes(entries: TokenScopeEntry[]): {
   preview: TokenScopeEntry[];

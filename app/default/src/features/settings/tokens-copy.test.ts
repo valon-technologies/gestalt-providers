@@ -17,7 +17,8 @@ describe("settings tokens copy", () => {
     expect(SETTINGS_TOKENS_LIST_TITLE).toBe("API tokens");
     expect(SETTINGS_TOKENS_EMPTY_TITLE).toBe("No API tokens yet.");
     expect(SETTINGS_TOKENS_UNNAMED_LABEL).toBe("No name");
-    expect(settingsTokensScopesMoreLabel(42)).toBe("42 more");
+    expect(settingsTokensScopesMoreLabel(1)).toBe("Show 1 more scope");
+    expect(settingsTokensScopesMoreLabel(42)).toBe("Show 42 more scopes");
     expect(SETTINGS_TOKENS_SCOPES_SHOW_LESS).toBe("Show less");
   });
 

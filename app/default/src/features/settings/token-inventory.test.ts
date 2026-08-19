@@ -3,31 +3,39 @@ import type { APIToken } from "@/lib/api";
 import {
   splitCollapsedTokenScopes,
   tokenCreatedAtMs,
+  tokenCreatedLabel,
+  tokenDisplayName,
   tokenExpiresAtMs,
-  tokenNameSortKey,
+  tokenExpiresLabel,
   tokenScopeEntries,
   tokenScopesSortKey,
-} from "./token-inventory-sort";
+  tokenStoredName,
+} from "./token-inventory";
 
 function token(partial: Partial<APIToken> & Pick<APIToken, "id" | "createdAt">): APIToken {
   return partial;
 }
 
-describe("token inventory sort keys", () => {
-  it("sorts unnamed tokens with the visible No name label", () => {
-    expect(tokenNameSortKey(token({ id: "a", createdAt: "2026-01-01T00:00:00Z" }))).toBe(
-      "No name",
-    );
-    expect(
-      tokenNameSortKey(
-        token({ id: "a", createdAt: "2026-01-01T00:00:00Z", name: "  " }),
-      ),
-    ).toBe("No name");
-    expect(
-      tokenNameSortKey(
-        token({ id: "a", createdAt: "2026-01-01T00:00:00Z", name: "CI" }),
-      ),
-    ).toBe("CI");
+describe("token inventory display", () => {
+  it("uses the stored name for display and sort, and No name when none is stored", () => {
+    const unnamed = token({ id: "a", createdAt: "2026-01-01T00:00:00Z" });
+    const whitespace = token({
+      id: "a",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "  ",
+    });
+    const named = token({
+      id: "a",
+      createdAt: "2026-01-01T00:00:00Z",
+      name: "CI",
+    });
+
+    expect(tokenStoredName(unnamed)).toBeNull();
+    expect(tokenDisplayName(unnamed)).toBe("No name");
+    expect(tokenStoredName(whitespace)).toBeNull();
+    expect(tokenDisplayName(whitespace)).toBe("No name");
+    expect(tokenStoredName(named)).toBe("CI");
+    expect(tokenDisplayName(named)).toBe("CI");
   });
 
   it("orders created timestamps newest first when compared descending", () => {
@@ -39,6 +47,16 @@ describe("token inventory sort keys", () => {
     expect(ordered.map((row) => row.id)).toEqual(["grant-a", "grant-z"]);
   });
 
+  it("formats created dates and leaves invalid createdAt blank", () => {
+    const dated = token({ id: "a", createdAt: "2026-01-15T10:00:00Z" });
+    expect(tokenCreatedLabel(dated)).toBe(
+      new Date("2026-01-15T10:00:00Z").toLocaleDateString(),
+    );
+    expect(
+      tokenCreatedLabel(token({ id: "b", createdAt: "not-a-date" })),
+    ).toBe("");
+  });
+
   it("sorts never-expiring tokens after dated expiries", () => {
     const dated = token({
       id: "a",
@@ -48,6 +66,18 @@ describe("token inventory sort keys", () => {
     const never = token({ id: "b", createdAt: "2026-01-01T00:00:00Z" });
     expect(tokenExpiresAtMs(dated)).toBeLessThan(tokenExpiresAtMs(never));
     expect(tokenExpiresAtMs(never)).toBe(Number.POSITIVE_INFINITY);
+    expect(
+      tokenExpiresLabel(token({ id: "c", createdAt: "2026-01-01T00:00:00Z" })),
+    ).toBe("Never");
+    expect(
+      tokenExpiresLabel(
+        token({
+          id: "d",
+          createdAt: "2026-01-01T00:00:00Z",
+          expiresAt: "not-a-date",
+        }),
+      ),
+    ).toBe("Never");
   });
 
   it("sorts unscoped tokens with the visible all label", () => {
@@ -59,17 +89,22 @@ describe("token inventory sort keys", () => {
         token({
           id: "a",
           createdAt: "2026-01-01T00:00:00Z",
-          scopeDetails: [{ scope: "slack", resources: ["workspace"] }],
+          scopeDetails: [{ scope: "example-app", resources: ["workspace"] }],
         }),
       ),
-    ).toBe("slack (workspace)");
+    ).toBe("example-app (workspace)");
   });
 });
 
 describe("collapsed token scopes", () => {
   it("keeps short lists fully visible", () => {
     const entries = tokenScopeEntries({
-      scopes: ["g-issues:read", "g-issues:write", "slack", "github"],
+      scopes: [
+        "example-app:read",
+        "example-app:write",
+        "example-registry:read",
+        "my-store:read",
+      ],
     });
     expect(splitCollapsedTokenScopes(entries).rest).toEqual([]);
     expect(splitCollapsedTokenScopes(entries).preview).toHaveLength(4);
@@ -78,18 +113,18 @@ describe("collapsed token scopes", () => {
   it("previews the first scopes and counts the rest when the list is long", () => {
     const entries = tokenScopeEntries({
       scopes: [
-        "g-issues:attachments.create",
-        "g-issues:contentRevisions.list",
-        "g-issues:customers.delete",
-        "g-issues:issues.list",
-        "g-issues:issues.update",
+        "example-app:attachments.create",
+        "example-app:contentRevisions.list",
+        "example-app:customers.delete",
+        "example-app:issues.list",
+        "example-app:issues.update",
       ],
     });
     const split = splitCollapsedTokenScopes(entries);
     expect(split.preview.map((entry) => entry.scope)).toEqual([
-      "g-issues:attachments.create",
-      "g-issues:contentRevisions.list",
-      "g-issues:customers.delete",
+      "example-app:attachments.create",
+      "example-app:contentRevisions.list",
+      "example-app:customers.delete",
     ]);
     expect(split.rest).toHaveLength(2);
   });
