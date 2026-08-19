@@ -33,6 +33,19 @@ describe("DescriptionList", () => {
     expect(SOURCE).toContain('data-density={density ?? "default"}');
   });
 
+  test("condensed row density tightens the term-to-value gutter", () => {
+    expect(SOURCE).toContain("compoundVariants:");
+    expect(SOURCE).toContain(
+      'class: "[&_[data-slot=description-item]]:gap-3"',
+    );
+    expect(SOURCE).toContain(
+      'class: "[&_[data-slot=description-item]]:gap-2"',
+    );
+    expect(SOURCE).not.toContain(
+      "[&_[data-slot=description-item]]:items-baseline [&_[data-slot=description-item]]:gap-3",
+    );
+  });
+
   test("DescriptionTerm uses scannable display caption type", () => {
     expect(SOURCE).toContain(
       "font-display text-sm italic tracking-wide text-muted-foreground",
