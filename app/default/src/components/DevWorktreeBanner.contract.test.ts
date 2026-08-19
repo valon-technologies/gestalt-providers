@@ -21,6 +21,7 @@ const NAV = readFileSync(
 describe("DevWorktreeBanner", () => {
   test("uses Registry Banner for shell chrome, not Alert", () => {
     expect(SOURCE).toContain('from "@/components/ui/banner"');
+    expect(SOURCE).toMatch(/<Banner[\s>]/);
     expect(SOURCE).toContain('variant="warning"');
     expect(SOURCE).toContain("<BannerTitle>Worktree</BannerTitle>");
     expect(SOURCE).toContain("<BannerDescription>{name}</BannerDescription>");

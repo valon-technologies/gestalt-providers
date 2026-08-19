@@ -10,10 +10,13 @@ const SOURCE = readFileSync(
 
 describe("AppsCatalogPageClient notices", () => {
   test("connected-success is an in-page Alert, not shell Banner", () => {
-    const start = SOURCE.indexOf("connectedSuccessLabel ?");
+    const mark = SOURCE.indexOf('data-testid="apps-connected-toast"');
+    expect(mark).toBeGreaterThan(-1);
+    const start = SOURCE.lastIndexOf("<Alert", mark);
+    const end = SOURCE.indexOf("</Alert>", mark);
     expect(start).toBeGreaterThan(-1);
-    const next = SOURCE.indexOf("needsAttentionCopy ?", start + 1);
-    const body = SOURCE.slice(start, next === -1 ? undefined : next);
+    expect(end).toBeGreaterThan(start);
+    const body = SOURCE.slice(start, end + "</Alert>".length);
     expect(body).toContain("<Alert");
     expect(body).toContain('variant="success"');
     expect(body).toContain('data-testid="apps-connected-toast"');
