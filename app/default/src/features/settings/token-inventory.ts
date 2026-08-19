@@ -4,6 +4,7 @@ import {
   SETTINGS_TOKENS_SCOPES_ALL_LABEL,
   SETTINGS_TOKENS_UNNAMED_LABEL,
 } from "@/features/settings/tokens-copy";
+import { formatEventWhen } from "@/lib/date";
 
 export type TokenScopeEntry = {
   key: string;
@@ -33,9 +34,14 @@ export function tokenCreatedAtMs(token: APIToken): number {
   return Number.isFinite(ms) ? ms : 0;
 }
 
+/** Finder-style stamp via Registry `formatEventWhen` ("Today at 5:05 PM"). */
+function tokenTimestampLabel(iso: string): string {
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? formatEventWhen(iso) : "";
+}
+
 export function tokenCreatedLabel(token: APIToken): string {
-  const ms = Date.parse(token.createdAt);
-  return Number.isFinite(ms) ? new Date(ms).toLocaleDateString() : "";
+  return tokenTimestampLabel(token.createdAt);
 }
 
 /** Never-expiring tokens sort after every dated expiry. */
@@ -51,10 +57,7 @@ export function tokenExpiresLabel(token: APIToken): string {
   if (!token.expiresAt) {
     return SETTINGS_TOKENS_EXPIRES_NEVER_LABEL;
   }
-  const ms = Date.parse(token.expiresAt);
-  return Number.isFinite(ms)
-    ? new Date(ms).toLocaleDateString()
-    : SETTINGS_TOKENS_EXPIRES_NEVER_LABEL;
+  return tokenTimestampLabel(token.expiresAt) || SETTINGS_TOKENS_EXPIRES_NEVER_LABEL;
 }
 
 function scopeLabel(scope: string, resources?: string[]): string {
