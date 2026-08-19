@@ -192,6 +192,9 @@ test.describe("Authentication", () => {
       }
       route.fallback();
     });
+    await page.route("**/api/v1/catalog/apps", (route) => {
+      route.fulfill({ status: 401, json: { error: "invalid token" } });
+    });
     await page.route("**/api/v1/apps", (route) => {
       route.fulfill({ status: 401, json: { error: "invalid token" } });
     });

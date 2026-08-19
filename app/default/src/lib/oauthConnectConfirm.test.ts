@@ -79,7 +79,8 @@ describe("refetchIntegrationConnected", () => {
       join(dirname(fileURLToPath(import.meta.url)), "oauthConnectConfirm.ts"),
       "utf8",
     );
-    expect(source).toContain("queryFn: ({ signal }) => getIntegrations(signal)");
-    expect(source).not.toContain("queryFn: getIntegrations,");
+    expect(source).toContain("queryFn: ({ signal }) => getAppsDirectory(signal)");
+    expect(source).toContain("queryFn: ({ signal }) => getAppConnections(signal)");
+    expect(source).not.toContain("getIntegrations");
   });
 });

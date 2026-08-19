@@ -15,6 +15,7 @@ import {
   accountRelationshipLabel,
   addAccountFormCopy,
   disconnectConfirmCopy,
+  disconnectConfirmAccountLabel,
   ADD_ACCOUNT_LABEL,
   USE_ACCOUNT_LABEL,
   DEFAULT_ACCOUNT_LABEL,
@@ -28,6 +29,7 @@ describe("connection surface copy", () => {
   test("page title is always Connection", () => {
     expect(connectionSurfaceCopy("connect").title).toBe(CONNECTION_SURFACE_TITLE);
     expect(connectionSurfaceCopy("manage").title).toBe(CONNECTION_SURFACE_TITLE);
+    expect(connectionSurfaceCopy("shared").title).toBe(CONNECTION_SURFACE_TITLE);
     expect(connectionSurfaceCopy("none").title).toBe(CONNECTION_SURFACE_TITLE);
   });
 
@@ -73,6 +75,28 @@ describe("connection surface copy", () => {
       }),
     );
     expect(connectionSurfaceMode(status)).toBe("connect");
+  });
+
+  test("MCP passthrough stays a Connection surface", () => {
+    const status = normalizeIntegrationStatus(
+      stub({
+        name: "mcp-passthrough-svc",
+        status: "ready",
+        credentialState: "not_required",
+        connections: [
+          {
+            name: "MCP",
+            displayName: "MCP",
+            credentialMode: "none",
+            credentialState: "not_required",
+            status: "ready",
+            mcpPassthrough: true,
+          },
+        ],
+      }),
+    );
+    expect(connectionSurfaceMode(status)).toBe("shared");
+    expect(connectionSurfaceCopy("shared").description).toMatch(/shared connection/i);
   });
 
   test("humanize default machine names", () => {
@@ -137,6 +161,25 @@ describe("connection surface copy", () => {
     expect(copy.heading).toBe("Disconnect hello?");
     expect(copy.body).toMatch(/hello/);
     expect(copy.body).toMatch(/Gmail/);
+  });
+
+  test("instance-scoped disconnect names a default account as Account", () => {
+    expect(
+      disconnectConfirmAccountLabel({ instanceName: "default" }),
+    ).toBe(DEFAULT_ACCOUNT_LABEL);
+    expect(
+      disconnectConfirmCopy({
+        displayName: "OAuth Service",
+        accountLabel: disconnectConfirmAccountLabel({ instanceName: "default" }),
+      }).heading,
+    ).toBe("Disconnect Account?");
+    expect(
+      disconnectConfirmAccountLabel({
+        identityPrimary: "ada@example.com",
+        instanceName: "default",
+      }),
+    ).toBe("ada@example.com");
+    expect(disconnectConfirmAccountLabel({})).toBeNull();
   });
 
   test("accountIdentityLines splits primary and additional facts", () => {

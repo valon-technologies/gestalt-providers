@@ -56,6 +56,7 @@ const wideMonogramSizeClass = {
 
 export default function IntegrationIcon({
   iconSvg,
+  iconUrl,
   name,
   displayName,
   className,
@@ -63,6 +64,7 @@ export default function IntegrationIcon({
   variant = "tile",
 }: {
   iconSvg?: string;
+  iconUrl?: string;
   /** Stable app id. Used to derive a monogram when there is no brand mark. */
   name?: string;
   displayName?: string;
@@ -76,9 +78,11 @@ export default function IntegrationIcon({
 }) {
   const iconIDPrefix = `provider-icon-${useId().replace(/:/g, "")}`;
   const iconNode = iconSvg ? renderSafeIcon(iconSvg, iconIDPrefix) : null;
-  const hasBrandMark = iconNode != null;
+  const hasInlineBrandMark = iconNode != null;
+  const hasLinkedBrandMark = Boolean(iconUrl) && !hasInlineBrandMark;
+  const hasBrandMark = hasInlineBrandMark || hasLinkedBrandMark;
   const shape =
-    hasBrandMark && iconSvg && iconSvgHasPaintableContent(iconSvg)
+    hasInlineBrandMark && iconSvg && iconSvgHasPaintableContent(iconSvg)
       ? describeBrandMark(iconSvg)
       : null;
   const fullBleed = shape?.fullBleed ?? false;
@@ -120,8 +124,15 @@ export default function IntegrationIcon({
         className,
       )}
     >
-      {hasBrandMark ? (
+      {hasInlineBrandMark ? (
         iconNode
+      ) : hasLinkedBrandMark ? (
+        <img
+          src={iconUrl ?? ""}
+          alt=""
+          draggable={false}
+          className="size-[70%] object-contain"
+        />
       ) : initials ? (
         <span
           data-testid="app-monogram"

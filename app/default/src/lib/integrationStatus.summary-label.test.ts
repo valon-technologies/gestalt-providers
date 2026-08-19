@@ -125,4 +125,34 @@ describe("integration summaryLabel — credential absence silent", () => {
     expect(status.connections[0]?.canReconnect).toBe(true);
     expect(status.tone).toBe("danger");
   });
+
+  test("no-auth rows do not mark the app connected when a subject connection is missing", () => {
+    const status = normalizeIntegrationStatus(
+      stub({
+        name: "no-auth-svc",
+        connections: [
+          {
+            name: "webhook",
+            displayName: "Webhook",
+            credentialMode: "none",
+            credentialState: "not_required",
+            status: "ready",
+          },
+          {
+            name: "workspace",
+            displayName: "Workspace",
+            authTypes: ["oauth"],
+            credentialState: "missing",
+            status: "needs_user_connection",
+            actions: ["connect"],
+          },
+        ],
+      }),
+    );
+    expect(status.connected).toBe(false);
+    expect(status.connections.find((connection) => connection.key === "webhook")?.connected).toBe(
+      false,
+    );
+    expect(hasCredentialSurface(status)).toBe(true);
+  });
 });

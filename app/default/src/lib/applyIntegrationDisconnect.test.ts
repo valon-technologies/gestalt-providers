@@ -1,8 +1,9 @@
 import { describe, expect, test } from "vitest";
 
-import type { Integration } from "@/lib/api";
+import type { AppConnectionStatus, Integration } from "@/lib/api";
 import { connectionSurfaceMode } from "@/features/app-workspace/connection-surface-copy";
 import {
+  applyDisconnectToConnectionStatuses,
   applyDisconnectToIntegration,
   applyDisconnectToIntegrations,
 } from "./applyIntegrationDisconnect";
@@ -241,5 +242,56 @@ describe("applyDisconnectToIntegrations", () => {
 
     expect(next[0]?.connections?.[0]?.instances).toEqual([]);
     expect(next[1]).toBe(slack);
+  });
+});
+
+describe("applyDisconnectToConnectionStatuses", () => {
+  test("clears the overlay connected rollup when the last account is removed", () => {
+    const overlay: AppConnectionStatus[] = [
+      {
+        name: "gmail",
+        connected: true,
+        connections: [
+          {
+            name: "default",
+            connected: true,
+            instances: [{ name: "work", connection: "default", preferred: true }],
+          },
+        ],
+      },
+    ];
+    const next = applyDisconnectToConnectionStatuses(overlay, "gmail", {
+      instance: "work",
+      connection: "default",
+    });
+    expect(next[0]?.connected).toBe(false);
+    expect(next[0]?.connections?.[0]?.instances).toEqual([]);
+  });
+
+  test("keeps the overlay connected rollup when a sibling account remains", () => {
+    const overlay: AppConnectionStatus[] = [
+      {
+        name: "gmail",
+        connected: true,
+        connections: [
+          {
+            name: "default",
+            connected: true,
+            instances: [
+              { name: "work", connection: "default", preferred: true },
+              { name: "personal", connection: "default", preferred: false },
+            ],
+          },
+        ],
+      },
+    ];
+    const next = applyDisconnectToConnectionStatuses(overlay, "gmail", {
+      instance: "work",
+      connection: "default",
+    });
+    expect(next[0]?.connected).toBe(true);
+    expect(next[0]?.connections?.[0]?.instances?.map((instance) => instance.name)).toEqual(
+      ["personal"],
+    );
   });
 });

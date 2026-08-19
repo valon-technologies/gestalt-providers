@@ -7,6 +7,7 @@ import {
   overviewConnectionOutcomeStatus,
   primaryConnectLabel,
 } from "./catalogFilters";
+import { isCatalogInstalled } from "./catalogBuckets";
 import { normalizeIntegrationStatus } from "./integrationStatus";
 import type { Integration } from "@/lib/api";
 
@@ -104,6 +105,97 @@ describe("appShowsCredentialSurface", () => {
           connections: [],
         }),
       ),
+    ).toBe(false);
+  });
+
+  test("shows Connection when a connection is advertised MCP passthrough", () => {
+    expect(
+      appShowsCredentialSurface(
+        stub({
+          name: "mcp-passthrough-svc",
+          status: "ready",
+          credentialState: "not_required",
+          connections: [
+            {
+              name: "MCP",
+              displayName: "MCP",
+              credentialMode: "none",
+              credentialState: "not_required",
+              status: "ready",
+              mcpPassthrough: true,
+            },
+          ],
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  test("shared MCP passthrough is not a Connected catalog install", () => {
+    const integration = stub({
+      name: "mcp-passthrough-svc",
+      status: "ready",
+      credentialState: "not_required",
+      connections: [
+        {
+          name: "MCP",
+          displayName: "MCP",
+          credentialMode: "none",
+          credentialState: "not_required",
+          status: "ready",
+          connected: false,
+          mcpPassthrough: true,
+        },
+      ],
+    });
+    expect(catalogInstallState(integration)).toBe("not_connected");
+    expect(isCatalogInstalled(integration)).toBe(false);
+    expect(normalizeIntegrationStatus(integration).connected).toBe(false);
+  });
+
+  test("daemon app-level connected is the catalog rollup", () => {
+    expect(
+      catalogInstallState(
+        stub({
+          name: "slack",
+          status: "ready",
+          credentialState: "connected",
+          connected: true,
+          connections: [
+            {
+              name: "default",
+              status: "ready",
+              credentialState: "connected",
+              connected: true,
+            },
+          ],
+        }),
+      ),
+    ).toBe("connected");
+    expect(
+      normalizeIntegrationStatus(
+        stub({
+          name: "ready-no-account",
+          status: "ready",
+          credentialState: "not_required",
+          connected: false,
+        }),
+      ).connected,
+    ).toBe(false);
+    expect(
+      normalizeIntegrationStatus(
+        stub({
+          name: "overlay-false",
+          connected: false,
+          connections: [
+            {
+              name: "MCP",
+              status: "ready",
+              connected: true,
+              mcpPassthrough: true,
+            },
+          ],
+        }),
+      ).connected,
     ).toBe(false);
   });
 

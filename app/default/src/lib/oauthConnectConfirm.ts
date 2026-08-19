@@ -1,5 +1,10 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { getIntegrations, type Integration } from "@/lib/api";
+import {
+  getAppConnections,
+  getAppsDirectory,
+  type Integration,
+} from "@/lib/api";
+import { integrationsFromDirectory } from "@/lib/app-catalog";
 import { normalizeIntegrationStatus } from "@/lib/integrationStatus";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -26,15 +31,25 @@ export function oauthConnectedToastMessage(
   return connected ? appIsConnectedCopy(label) : null;
 }
 
-/** Reload the catalog and report whether this app is connected now. */
+/** Reload directory plus overlay and report whether this app is connected now. */
 export async function refetchIntegrationConnected(
   queryClient: QueryClient,
   integrationName: string,
 ): Promise<boolean> {
   await queryClient.invalidateQueries({ queryKey: queryKeys.integrations.root });
-  const catalog = await queryClient.fetchQuery({
-    queryKey: queryKeys.integrations.list(),
-    queryFn: ({ signal }) => getIntegrations(signal),
+  const directory = await queryClient.fetchQuery({
+    queryKey: queryKeys.integrations.directory(),
+    queryFn: ({ signal }) => getAppsDirectory(signal),
   });
-  return isConnectedInCatalog(catalog, integrationName);
+  const overlay =
+    directory.source === "catalog"
+      ? await queryClient.fetchQuery({
+          queryKey: queryKeys.integrations.connections(),
+          queryFn: ({ signal }) => getAppConnections(signal),
+        })
+      : undefined;
+  return isConnectedInCatalog(
+    integrationsFromDirectory(directory, overlay),
+    integrationName,
+  );
 }

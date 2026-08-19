@@ -1,4 +1,5 @@
 import type {
+  AppConnectionStatus,
   ConnectionDefInfo,
   CredentialState,
   InstanceInfo,
@@ -12,11 +13,11 @@ export type IntegrationDisconnectSpec = {
 };
 
 /**
- * Apply a successful disconnect to the catalog entry.
+ * Apply a successful disconnect to linked-account structure.
  *
- * The integrations list is the canonical record of linked accounts. After
- * DELETE succeeds, the UI must reflect that mutation immediately — not wait
- * for a later GET to catch up.
+ * Overlay (or composed listing) is the mutation store for connection status.
+ * After DELETE succeeds, write that structure immediately instead of waiting
+ * for a later GET.
  *
  * Mutate structural connection state only. Clear `actions` so
  * `normalizeIntegrationStatus` remains the single derivation path.
@@ -50,6 +51,43 @@ export function applyDisconnectToIntegrations(
       ? applyDisconnectToIntegration(integration, spec)
       : integration,
   );
+}
+
+/**
+ * Overlay owns product-connected status. Write the same disconnect into that
+ * cache so the catalog merge does not keep a chosen-account rollup.
+ */
+export function applyDisconnectToConnectionStatuses(
+  overlay: AppConnectionStatus[],
+  integrationName: string,
+  spec: IntegrationDisconnectSpec,
+): AppConnectionStatus[] {
+  return overlay.map((row) => {
+    if (row.name !== integrationName) {
+      return row;
+    }
+    const next = applyDisconnectToIntegration(
+      {
+        name: row.name,
+        status: row.status,
+        credentialState: row.credentialState,
+        healthState: row.healthState,
+        actions: row.actions,
+        connected: row.connected,
+        connections: row.connections,
+      },
+      spec,
+    );
+    return {
+      ...row,
+      status: next.status,
+      credentialState: next.credentialState,
+      healthState: next.healthState,
+      actions: next.actions,
+      connected: next.connections?.some((connection) => connection.connected) ?? false,
+      connections: next.connections,
+    };
+  });
 }
 
 function connectionMatches(

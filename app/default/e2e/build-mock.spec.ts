@@ -9,6 +9,8 @@ import {
   enableSetupActivationPrompt,
   seedSetupSession,
   clickOpensOAuthPopup,
+  mockAppsDirectoryUnavailable,
+  mockAppConnectionsUnavailable,
 } from "./fixtures";
 import type { Page } from "@playwright/test";
 
@@ -1177,7 +1179,7 @@ test.describe("Setup page", () => {
     authenticatedPage: page,
   }) => {
     let catalogReleased = false;
-    await page.route("**/api/v1/apps", async (route, request) => {
+    await page.route("**/api/v1/catalog/apps", async (route, request) => {
       if (request.method() !== "GET") {
         await route.fallback();
         return;
@@ -1204,21 +1206,9 @@ test.describe("Setup page", () => {
     authenticatedPage: page,
   }) => {
     let fail = true;
-    await page.route("**/api/v1/apps", async (route, request) => {
-      if (request.method() !== "GET") {
-        await route.fallback();
-        return;
-      }
-      if (fail) {
-        await route.fulfill({
-          status: 503,
-          contentType: "application/json",
-          body: JSON.stringify({ error: "Service Unavailable" }),
-        });
-        return;
-      }
-      await route.fulfill({ json: catalogFixtures });
-    });
+    await mockAppsDirectoryUnavailable(page, () =>
+      fail ? null : catalogFixtures,
+    );
     await mockTokens(page, [defaultToken]);
     await seedSetupSession(page, {
       introSeen: true,
@@ -1243,26 +1233,62 @@ test.describe("Setup page", () => {
     await expect(page.getByTestId("build-connect-apps")).toBeVisible();
   });
 
+  test("apps step overlay 503 keeps the catalog and recovers Connect on retry", async ({
+    authenticatedPage: page,
+  }) => {
+    let fail = true;
+    const connectableCatalog = catalogFixtures.map((item) =>
+      item.credentialState === "missing"
+        ? {
+            ...item,
+            connections: [
+              { name: "default", authTypes: ["oauth" as const] },
+            ],
+          }
+        : item,
+    );
+    await mockIntegrations(page, connectableCatalog);
+    await mockAppConnectionsUnavailable(page, () =>
+      fail ? null : connectableCatalog,
+    );
+    await mockTokens(page, [defaultToken]);
+    await seedSetupSession(page, {
+      introSeen: true,
+      selectedTokenId: "tok_123",
+      mcpInstalled: true,
+      installAgent: "claude",
+      activeExemplarId: "oncall",
+    });
+
+    await page.goto("/setup");
+
+    await expect(page).toHaveURL(/\/setup\/apps$/);
+    await expect(page.getByTestId("build-connect-apps")).toBeVisible();
+    await expect(page.getByTestId("build-connect-app-slack")).toBeVisible();
+    await expect(page.getByTestId("error-notice")).toBeVisible();
+    await expect(
+      page.getByText("Unable to load connection status. Try again."),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Connect Slack" }),
+    ).toHaveCount(0);
+
+    fail = false;
+    await page.getByRole("button", { name: "Retry" }).click();
+    await expect(page.getByTestId("error-notice")).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Connect Slack" }),
+    ).toBeVisible();
+  });
+
   test("token select-apps catalog 503 recovers on retry", async ({
     authenticatedPage: page,
   }) => {
     let fail = true;
-    await page.route("**/api/v1/apps", async (route, request) => {
-      if (request.method() !== "GET") {
-        await route.fallback();
-        return;
-      }
-      if (fail) {
-        await route.fulfill({
-          status: 503,
-          contentType: "application/json",
-          body: JSON.stringify({ error: "Service Unavailable" }),
-        });
-        return;
-      }
-      await route.fulfill({ json: catalogFixtures });
-    });
-
+    await mockAppsDirectoryUnavailable(page, () =>
+      fail ? null : catalogFixtures,
+    );
+    await mockTokens(page, []);
     await seedSetupSession(page, {
       introSeen: true,
       installAgent: "cursor",

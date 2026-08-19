@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   useQuery,
   useQueryClient,
@@ -5,20 +6,25 @@ import {
   type UseQueryOptions,
 } from "@tanstack/react-query";
 import {
+  getAppConnections,
+  getAppsDirectory,
   getIntegrationOperations,
-  getIntegrations,
   isAPIErrorStatus,
   isAPITimeoutError,
+  type AppConnectionStatus,
+  type AppsDirectory,
   type Integration,
   type IntegrationOperation,
 } from "@/lib/api";
 import {
+  applyDisconnectToConnectionStatuses,
   applyDisconnectToIntegrations,
   type IntegrationDisconnectSpec,
 } from "@/lib/applyIntegrationDisconnect";
+import { integrationsFromDirectory } from "@/lib/app-catalog";
 import { queryKeys } from "@/lib/query-keys";
 
-/** Query view for GET /api/v1/apps: loading, ready, or unavailable (may keep cache). */
+/** Query view for the apps directory: loading, ready, or unavailable (may keep cache). */
 export type AppsCatalogQueryStatus =
   | { status: "loading"; integrations: Integration[] }
   | { status: "unavailable"; error: Error; integrations: Integration[] }
@@ -49,18 +55,108 @@ export function shouldRetryAppsCatalogQuery(
   return failureCount < 1;
 }
 
-export function useIntegrationsQuery(
+/** Workspace pages need overlay status; the Apps catalog paints without it. */
+export function workspaceIntegrationsPending(
+  directoryPending: boolean,
+  overlayPending: boolean,
+): boolean {
+  return directoryPending || overlayPending;
+}
+
+/**
+ * Overlay owns product-connected status. Composed listings already include it.
+ * Catalog-source rows are unknown until the overlay query succeeds.
+ */
+export function connectionOverlayKnown(
+  overlayEnabled: boolean,
+  overlayPending: boolean,
+  overlayError: Error | null,
+): boolean {
+  if (!overlayEnabled) {
+    return true;
+  }
+  return !overlayPending && overlayError == null;
+}
+
+export type WorkspaceConnectionView =
+  | { status: "loading" }
+  | { status: "overlay_unavailable"; error: Error }
+  | { status: "ready" };
+
+/** Gate for app workspace surfaces that show connection status. */
+export function workspaceConnectionView(input: {
+  directoryPending: boolean;
+  overlayPending: boolean;
+  overlayError: Error | null;
+}): WorkspaceConnectionView {
+  if (
+    workspaceIntegrationsPending(input.directoryPending, input.overlayPending)
+  ) {
+    return { status: "loading" };
+  }
+  if (input.overlayError) {
+    return { status: "overlay_unavailable", error: input.overlayError };
+  }
+  return { status: "ready" };
+}
+
+export function useAppsDirectoryQuery(
   options?: Omit<
-    UseQueryOptions<Integration[], Error>,
+    UseQueryOptions<AppsDirectory, Error>,
     "queryKey" | "queryFn"
   >,
 ) {
   return useQuery({
     ...options,
-    queryKey: queryKeys.integrations.list(),
-    queryFn: ({ signal }) => getIntegrations(signal),
+    queryKey: queryKeys.integrations.directory(),
+    queryFn: ({ signal }) => getAppsDirectory(signal),
     retry: options?.retry ?? shouldRetryAppsCatalogQuery,
   });
+}
+
+export function useAppConnectionsQuery(
+  options?: Omit<
+    UseQueryOptions<AppConnectionStatus[], Error>,
+    "queryKey" | "queryFn"
+  > & { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: queryKeys.integrations.connections(),
+    queryFn: ({ signal }) => getAppConnections(signal),
+    retry: options?.retry ?? shouldRetryAppsCatalogQuery,
+    ...options,
+  });
+}
+
+export function useIntegrationsQuery(
+  options?: Omit<
+    UseQueryOptions<AppsDirectory, Error>,
+    "queryKey" | "queryFn"
+  >,
+) {
+  const directoryQuery = useAppsDirectoryQuery(options);
+  const overlayEnabled =
+    (options?.enabled ?? true) && directoryQuery.data?.source === "catalog";
+  const connectionsQuery = useAppConnectionsQuery({
+    enabled: overlayEnabled,
+  });
+  const data = useMemo(
+    () =>
+      integrationsFromDirectory(directoryQuery.data, connectionsQuery.data),
+    [directoryQuery.data, connectionsQuery.data],
+  );
+
+  return {
+    ...directoryQuery,
+    data,
+    overlayEnabled,
+    overlayPending: overlayEnabled && connectionsQuery.isPending,
+    overlayError: overlayEnabled ? connectionsQuery.error : null,
+    overlayFetching: overlayEnabled && connectionsQuery.isFetching,
+    refetchDirectory: () => directoryQuery.refetch(),
+    refetchOverlay: () => connectionsQuery.refetch(),
+    refetch: () => directoryQuery.refetch(),
+  };
 }
 
 export function useIntegrationOperationsQuery(
@@ -80,22 +176,38 @@ export function useIntegrationOperationsQuery(
 
 export function useInvalidateIntegrations() {
   const queryClient = useQueryClient();
-  return () =>
+  return (): Promise<void> =>
     queryClient.invalidateQueries({ queryKey: queryKeys.integrations.root });
 }
 
-/** Write a confirmed disconnect into the catalog cache before the refetch. */
+/** Write a confirmed disconnect into overlay (or composed listing) before refetch. */
 export async function commitIntegrationDisconnect(
   queryClient: QueryClient,
   integrationName: string,
   spec: IntegrationDisconnectSpec,
 ): Promise<void> {
-  await queryClient.cancelQueries({ queryKey: queryKeys.integrations.list() });
-  queryClient.setQueryData<Integration[]>(
-    queryKeys.integrations.list(),
+  await queryClient.cancelQueries({ queryKey: queryKeys.integrations.root });
+  queryClient.setQueryData<AppConnectionStatus[]>(
+    queryKeys.integrations.connections(),
     (current) =>
       current
-        ? applyDisconnectToIntegrations(current, integrationName, spec)
+        ? applyDisconnectToConnectionStatuses(current, integrationName, spec)
         : current,
+  );
+  queryClient.setQueryData<AppsDirectory>(
+    queryKeys.integrations.directory(),
+    (current) => {
+      if (!current || current.source !== "composed") {
+        return current;
+      }
+      return {
+        ...current,
+        integrations: applyDisconnectToIntegrations(
+          current.integrations,
+          integrationName,
+          spec,
+        ),
+      };
+    },
   );
 }

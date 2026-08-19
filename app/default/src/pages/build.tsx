@@ -100,6 +100,7 @@ import { useBuildSession } from "@/hooks/use-build-session";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import {
   appsCatalogQueryStatus,
+  connectionOverlayKnown,
   useIntegrationsQuery,
   useInvalidateIntegrations,
   useInvalidateTokens,
@@ -157,6 +158,7 @@ import {
 import { SETUP_PATH } from "@/lib/constants";
 import {
   APPS_CATALOG_UNAVAILABLE,
+  CONNECTION_STATUS_UNAVAILABLE,
   TOKENS_UNAVAILABLE,
   userFacingError,
 } from "@/lib/user-facing-error";
@@ -412,6 +414,17 @@ export default function BuildStepPage() {
     catalog.status === "unavailable"
       ? userFacingError(catalog.error, APPS_CATALOG_UNAVAILABLE)
       : null;
+  const overlayKnown = connectionOverlayKnown(
+    integrationsQuery.overlayEnabled,
+    integrationsQuery.overlayPending,
+    integrationsQuery.overlayError,
+  );
+  const overlayError = integrationsQuery.overlayError
+    ? userFacingError(
+        integrationsQuery.overlayError,
+        CONNECTION_STATUS_UNAVAILABLE,
+      )
+    : null;
 
   const stepUnlocked = isBuildStepUnlocked(stepId, (step) =>
     step.isComplete(snapshot),
@@ -493,7 +506,14 @@ export default function BuildStepPage() {
           catalogError={catalogError}
           catalogRetrying={integrationsQuery.isFetching}
           onRetryCatalog={() => {
-            void integrationsQuery.refetch();
+            void integrationsQuery.refetchDirectory();
+          }}
+          overlayKnown={overlayKnown}
+          overlayPending={integrationsQuery.overlayPending}
+          overlayError={overlayError}
+          overlayRetrying={integrationsQuery.overlayFetching}
+          onRetryOverlay={() => {
+            void integrationsQuery.refetchOverlay();
           }}
           integrations={snapshot.integrations}
           catalogLoadState={snapshot.catalogLoadState}
@@ -877,6 +897,11 @@ function BuildStepPanel({
   catalogError,
   catalogRetrying,
   onRetryCatalog,
+  overlayKnown,
+  overlayPending,
+  overlayError,
+  overlayRetrying,
+  onRetryOverlay,
   integrations,
   catalogLoadState,
   activeExemplar,
@@ -900,6 +925,11 @@ function BuildStepPanel({
   catalogError: string | null;
   catalogRetrying: boolean;
   onRetryCatalog: () => void;
+  overlayKnown: boolean;
+  overlayPending: boolean;
+  overlayError: string | null;
+  overlayRetrying: boolean;
+  onRetryOverlay: () => void;
   integrations: Integration[];
   catalogLoadState: CatalogLoadState;
   activeExemplar: BuildExemplar;
@@ -944,7 +974,7 @@ function BuildStepPanel({
       aria-busy={
         (step.id === "token" && !tokensReady) ||
         ((step.id === "apps" || step.id === "try") &&
-          (!tokensReady || !catalogSettled))
+          (!tokensReady || !catalogSettled || overlayPending))
       }
     >
       {step.id === "welcome" ? (
@@ -990,6 +1020,10 @@ function BuildStepPanel({
           catalogError={catalogError}
           catalogRetrying={catalogRetrying}
           onRetryCatalog={onRetryCatalog}
+          overlayKnown={overlayKnown}
+          overlayError={overlayError}
+          overlayRetrying={overlayRetrying}
+          onRetryOverlay={onRetryOverlay}
           installAgentId={installAgentId}
         />
       ) : null}
@@ -1011,10 +1045,19 @@ function BuildStepPanel({
                 onRetry={onRetryCatalog}
               />
             ) : null}
+            {overlayError ? (
+              <ErrorNotice
+                className="mb-4"
+                message={overlayError}
+                retrying={overlayRetrying}
+                onRetry={onRetryOverlay}
+              />
+            ) : null}
             <InvokeStepActions
               exemplar={activeExemplar}
               integrations={integrations}
               installAgentId={installAgentId}
+              overlayKnown={overlayKnown}
               onMarkTrySeen={onMarkTrySeen}
             />
           </>
@@ -1232,11 +1275,13 @@ function InvokeStepActions({
   exemplar,
   integrations,
   installAgentId,
+  overlayKnown,
   onMarkTrySeen,
 }: {
   exemplar: BuildExemplar;
   integrations: Integration[];
   installAgentId: BuildInstallAgentId | "";
+  overlayKnown: boolean;
   onMarkTrySeen: () => void;
 }) {
   useEffect(() => {
@@ -1333,6 +1378,7 @@ function InvokeStepActions({
           <IntegrationCard
             integration={featuredApp}
             returnPath={tryReturnPath}
+            connectionStatusKnown={overlayKnown}
             actions="launch"
           />
         </div>
@@ -1369,6 +1415,7 @@ function InvokeStepActions({
                     mountedPath: related?.mountedPath?.trim(),
                   })}
                   returnPath={tryReturnPath}
+                  connectionStatusKnown={overlayKnown}
                   actions="launch"
                 />
               </div>
@@ -1388,6 +1435,10 @@ function ConnectStepActions({
   catalogError,
   catalogRetrying,
   onRetryCatalog,
+  overlayKnown,
+  overlayError,
+  overlayRetrying,
+  onRetryOverlay,
   installAgentId,
 }: {
   exemplar: BuildExemplar;
@@ -1397,6 +1448,10 @@ function ConnectStepActions({
   catalogError: string | null;
   catalogRetrying: boolean;
   onRetryCatalog: () => void;
+  overlayKnown: boolean;
+  overlayError: string | null;
+  overlayRetrying: boolean;
+  onRetryOverlay: () => void;
   installAgentId: BuildInstallAgentId | "";
 }) {
   const invalidateIntegrations = useInvalidateIntegrations();
@@ -1420,6 +1475,13 @@ function ConnectStepActions({
       message={catalogError}
       retrying={catalogRetrying}
       onRetry={onRetryCatalog}
+    />
+  ) : null;
+  const overlayNotice = overlayError ? (
+    <ErrorNotice
+      message={overlayError}
+      retrying={overlayRetrying}
+      onRetry={onRetryOverlay}
     />
   ) : null;
 
@@ -1496,6 +1558,7 @@ function ConnectStepActions({
         <IntegrationCard
           integration={integration}
           returnPath={returnPath}
+          connectionStatusKnown={overlayKnown}
           onConnected={() => void refreshIntegrations()}
           onDisconnected={() => void refreshIntegrations()}
           actions="connect"
@@ -1507,6 +1570,7 @@ function ConnectStepActions({
   return (
     <div className="flex flex-col gap-8" data-testid="build-connect-apps">
       {catalogNotice}
+      {overlayNotice}
       <SetupOverlapCallout agentId={installAgentId} />
       <div className="flex flex-col gap-10">
         {suggested.length > 0 ? (

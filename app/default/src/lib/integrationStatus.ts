@@ -186,8 +186,9 @@ export function normalizeIntegrationStatus(
       ? derivedHealthState
       : (validHealthState(integration.healthState) ?? derivedHealthState);
   const connected =
-    connections.some((connection) => connection.connected) ||
-    (credentialState === "not_required" && status === "ready");
+    typeof integration.connected === "boolean"
+      ? integration.connected
+      : connections.some((connection) => connection.connected);
   const hasActionableConnections = connections.some(
     (connection) =>
       connection.canConnect ||
@@ -247,14 +248,15 @@ export function hasCredentialSurface(
   if (normalized.credentialState === "not_required") {
     return normalized.connections.some(
       (connection) =>
-        !connection.isNoAuth &&
-        (connection.canConnect ||
-          connection.canDisconnect ||
-          connection.canReconnect ||
-          connection.canAddInstance ||
-          connection.canSelectInstance ||
-          connection.instances.length > 0 ||
-          connection.usefulStatusDetail),
+        connection.isMCPPassthrough ||
+        (!connection.isNoAuth &&
+          (connection.canConnect ||
+            connection.canDisconnect ||
+            connection.canReconnect ||
+            connection.canAddInstance ||
+            connection.canSelectInstance ||
+            connection.instances.length > 0 ||
+            connection.usefulStatusDetail)),
     );
   }
 
@@ -577,7 +579,8 @@ function productConnectedFromStatus(
   // Chosen-account invariant: accounts without a selection are not connected.
   if (status === "needs_instance_selection") return false;
   if (status === "needs_user_connection") return false;
-  if (credentialState === "not_required") return true;
+  // No-auth / mode-none is ready to use, not a subject identity.
+  if (credentialState === "not_required") return false;
   return (
     status === "ready" ||
     status === "degraded" ||
