@@ -100,8 +100,18 @@ test.describe("Docs page", () => {
       "universal key for your tools",
     );
     await expect(
-      page.getByRole("heading", { name: "Connect Apps" }),
+      page.getByRole("heading", { name: "Connect Apps", exact: true }),
     ).toBeVisible();
+    const connectPermalink = page.getByRole("link", {
+      name: "Link to Connect Apps",
+    });
+    await expect(connectPermalink).toHaveAttribute("href", "#connect-apps");
+    await page
+      .getByRole("heading", { name: "Connect Apps", exact: true })
+      .hover();
+    await expect(connectPermalink).toBeVisible();
+    await connectPermalink.click();
+    await expect(page).toHaveURL(/#connect-apps$/);
     await expect(
       page.getByRole("heading", { name: "Create an API token" }),
     ).toBeVisible();

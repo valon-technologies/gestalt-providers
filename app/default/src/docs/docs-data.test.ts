@@ -229,7 +229,12 @@ describe("docs IA invariants", () => {
     expect(content).toContain("docsSubsectionLabel");
     expect(content).toContain("data-heading-permalink");
     expect(content).toContain("href={`#${id}`}");
+    expect(content).toContain("aria-label={`Link to ${title}`}");
+    expect(content).toContain("aria-labelledby={titleId}");
     expect(content).not.toMatch(/<Subheading[^>]*title=/);
+    expect(content).not.toMatch(
+      /<a href=\{`#\$\{id\}`\} data-heading-permalink>\s*\{title\}/,
+    );
     for (const item of docsNavItems) {
       for (const subsection of item.subsections) {
         expect(content).toContain(`<Subheading id="${subsection.id}" />`);

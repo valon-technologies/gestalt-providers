@@ -54,13 +54,18 @@ test("typeset-reading stays tenant-neutral (no org brand filename/comments)", ()
   expect(TYPESET).not.toMatch(/Melange|Season Serif/i);
 });
 
-test("typeset heading permalinks inherit heading ink", () => {
+test("typeset heading permalinks are a muted hash, not a gold body link", () => {
   expect(TYPESET).toContain("a[data-heading-permalink]");
   expect(TYPESET).toMatch(
     /:is\(h1, h2, h3, h4\) > a\[data-heading-permalink\]/,
   );
+  expect(TYPESET).toContain("color: var(--typeset-muted)");
+  expect(TYPESET).toContain("@media (hover: hover)");
   expect(TYPESET).toMatch(
-    /a\[data-heading-permalink\]\) \{\s*color: inherit;\s*background-image: none;\s*transition: none;/s,
+    /:is\(h1, h2, h3, h4\):hover > a\[data-heading-permalink\]/,
+  );
+  expect(TYPESET).not.toMatch(
+    /a\[data-heading-permalink\]:hover\) \{\s*color: inherit;\s*background-image: linear-gradient/,
   );
 });
 

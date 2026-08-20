@@ -1064,13 +1064,24 @@ function Subheading({ id }: { id: string }) {
   // scrollIntoView only apply scroll-margin on the matched element.
   // Offset token includes measured sticky chrome (worktree banner + top bar).
   // Title comes from docs-data so TOC labels and headings cannot drift.
-  // Inner hash link is the shadcn heading-anchor pattern: the heading itself
-  // is the permalink. Typeset must not paint it as a body gold link.
+  // The muted `#` is the permalink (Bun-style), not the heading text and not a
+  // gold body link. `aria-labelledby` keeps the heading name as the title so
+  // the `#` stays a separate link.
   const title = docsSubsectionLabel(id);
+  const titleId = `${id}-title`;
   return (
-    <h2 id={id} className="scroll-mt-[var(--page-layout-anchor-offset)]">
-      <a href={`#${id}`} data-heading-permalink>
-        {title}
+    <h2
+      id={id}
+      className="scroll-mt-[var(--page-layout-anchor-offset)]"
+      aria-labelledby={titleId}
+    >
+      <span id={titleId}>{title}</span>
+      <a
+        href={`#${id}`}
+        data-heading-permalink
+        aria-label={`Link to ${title}`}
+      >
+        #
       </a>
     </h2>
   );
