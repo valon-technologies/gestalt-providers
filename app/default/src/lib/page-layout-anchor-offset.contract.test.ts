@@ -94,4 +94,10 @@ describe("page-layout anchor offset ownership", () => {
     expect(DOCS_SHELL).not.toContain('max-w-[65ch]"');
     expect(SETTINGS_LAYOUT).not.toContain('max-w-[65ch]"');
   });
+
+  test("setup reading column uses Registry typeset", () => {
+    expect(SETUP).toContain("SETUP_TYPESET_CLASS");
+    expect(SETUP).toContain("data-typeset-chrome");
+    expect(SETUP).toContain("SETUP_TYPESET_CHROME_CLASS");
+  });
 });

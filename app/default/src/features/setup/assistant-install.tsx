@@ -61,6 +61,7 @@ import {
 import { resolveGestaltPublicOrigin } from "@/lib/gestaltPublicOrigin";
 import { appPath } from "@/lib/mount";
 import { RecipeEmphasis } from "@/lib/recipe-emphasis";
+import { SETUP_TYPESET_CHROME_CLASS } from "./setup-typeset";
 
 function hostIcon(host: AssistantHost): ReactNode {
   const Icon = ASSISTANT_HOST_ICON[host.iconKey];
@@ -90,6 +91,7 @@ export function AssistantPickerStepActions({
   onSelectedAgent: (id: BuildInstallAgentId) => void;
 }) {
   return (
+    <div className={`${SETUP_TYPESET_CHROME_CLASS} space-y-3`}>
     <RadioGroup
       value={selectedAgent || undefined}
       onValueChange={(value) => onSelectedAgent(value as BuildInstallAgentId)}
@@ -135,12 +137,17 @@ export function AssistantPickerStepActions({
         );
       })}
     </RadioGroup>
+    </div>
   );
 }
 
 function CreateTokenFirstCallout() {
   return (
-    <Callout variant="info" data-testid="build-install-token-needed">
+    <Callout
+      variant="info"
+      className={SETUP_TYPESET_CHROME_CLASS}
+      data-testid="build-install-token-needed"
+    >
       <AlertTitle>Create a token first</AlertTitle>
       <AlertDescription>
         We can only add Gestalt with a token created in this session. Existing
@@ -169,14 +176,7 @@ function RecipeSteps({
   children: ReactNode;
   testId: string;
 }) {
-  return (
-    <ol
-      className="list-decimal space-y-3 pl-5 text-sm text-pretty text-foreground"
-      data-testid={testId}
-    >
-      {children}
-    </ol>
-  );
+  return <ol data-testid={testId}>{children}</ol>;
 }
 
 function ClaudeConnectorRecipe({
@@ -203,13 +203,13 @@ function ClaudeConnectorRecipe({
         </li>
         <li className="space-y-2">
           <span className="block">{CLAUDE_INSTALL_ADD_CONNECTOR}</span>
-          <div>
+          <div className={SETUP_TYPESET_CHROME_CLASS}>
             <CopyableCode value={mcpUrl} tooltip="Copy connection URL" />
           </div>
         </li>
         <li className="space-y-2">
           <span className="block">{CLAUDE_INSTALL_REQUEST_HEADER}</span>
-          <div>
+          <div className={SETUP_TYPESET_CHROME_CLASS}>
             <CopyableCode value={bearerValue} tooltip="Copy Authorization value" />
           </div>
         </li>
@@ -268,11 +268,13 @@ function ChatGptConnectorRecipe({
   return (
     <div className="space-y-4">
       {installDemo ? (
-        <SetupInstallDemo
-          demo={installDemo}
-          label={CHATGPT_INSTALL_DEMO_LABEL}
-          testId="build-install-chatgpt-demo"
-        />
+        <div className={SETUP_TYPESET_CHROME_CLASS}>
+          <SetupInstallDemo
+            demo={installDemo}
+            label={CHATGPT_INSTALL_DEMO_LABEL}
+            testId="build-install-chatgpt-demo"
+          />
+        </div>
       ) : null}
       <p className="text-sm text-muted-foreground text-pretty">
         {CHATGPT_INSTALL_PREAMBLE}
@@ -288,7 +290,7 @@ function ChatGptConnectorRecipe({
           <span className="block">
             <RecipeEmphasis text={CHATGPT_INSTALL_URL} />
           </span>
-          <div>
+          <div className={SETUP_TYPESET_CHROME_CLASS}>
             <CopyableCode value={mcpUrl} tooltip="Copy connection URL" />
           </div>
         </li>
@@ -296,7 +298,7 @@ function ChatGptConnectorRecipe({
           <span className="block">
             <RecipeEmphasis text={CHATGPT_INSTALL_TOKEN} />
           </span>
-          <div>
+          <div className={SETUP_TYPESET_CHROME_CLASS}>
             <CopyableCode
               value={tokenValue}
               tooltip="Copy token"
@@ -350,16 +352,18 @@ function CursorInstallRecipe({
 
   return (
     <div data-testid="build-install-cursor-recipe">
-      <Button asChild>
-        <a
-          href={cursorInstallHref}
-          data-testid="build-add-to-cursor"
-          onClick={() => onMarkMcpInstalled()}
-        >
-          <CursorIcon />
-          Add in Cursor
-        </a>
-      </Button>
+      <div className={SETUP_TYPESET_CHROME_CLASS}>
+        <Button asChild>
+          <a
+            href={cursorInstallHref}
+            data-testid="build-add-to-cursor"
+            onClick={() => onMarkMcpInstalled()}
+          >
+            <CursorIcon />
+            Add in Cursor
+          </a>
+        </Button>
+      </div>
     </div>
   );
 }
@@ -391,7 +395,10 @@ function ClaudeCodeInstallRecipe({
   --header "Authorization: ${gestaltMcpBearerValue(apiToken)}" \\
   gestalt "${mcpUrl}"`;
   return (
-    <div data-testid="build-install-claude-code-snippet">
+    <div
+      className={SETUP_TYPESET_CHROME_CLASS}
+      data-testid="build-install-claude-code-snippet"
+    >
       <CodeBlock
         variant="outline"
         chrome="inset"
@@ -451,7 +458,7 @@ function OtherInstallRecipe({ mcpUrl, apiToken }: HostInstallRecipeProps) {
     <div className="space-y-4" data-testid="build-install-other-recipe">
       <div className="space-y-2">
         <span className="block text-sm font-medium text-foreground">URL</span>
-        <div>
+        <div className={SETUP_TYPESET_CHROME_CLASS}>
           <CopyableCode value={mcpUrl} tooltip="Copy connection URL" />
         </div>
       </div>
@@ -459,7 +466,7 @@ function OtherInstallRecipe({ mcpUrl, apiToken }: HostInstallRecipeProps) {
         <span className="block text-sm font-medium text-foreground">
           Authorization
         </span>
-        <div>
+        <div className={SETUP_TYPESET_CHROME_CLASS}>
           <CopyableCode
             value={bearerValue}
             tooltip="Copy Authorization value"

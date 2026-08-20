@@ -60,6 +60,11 @@ import {
   StepperTrigger,
 } from "@/components/ui/stepper";
 import {
+  SETUP_TYPESET_CHROME_CLASS,
+  SETUP_TYPESET_CLASS,
+  SETUP_TYPESET_NESTED_CHROME_CLASS,
+} from "@/features/setup/setup-typeset";
+import {
   AGENT_CONSOLE_THEME_CLAUDE,
   AGENT_CONSOLE_THEME_CODEX,
   AGENT_CONSOLE_THEME_CURSOR,
@@ -126,6 +131,7 @@ import {
   isBuildComplete,
   isBuildStepId,
   isLegacySetupConnectStepId,
+  resolveCatalogApp,
   resolveExemplarOpenPath,
   SETUP_PRODUCT_NAME,
   isSetupDataSourceApp,
@@ -316,7 +322,7 @@ function SetupPageChrome({
             isStepReachable={isStepReachable}
           />
         </Stepper>
-        <div className="mt-8">{children}</div>
+        <div className={`${SETUP_TYPESET_CLASS} mt-8`}>{children}</div>
       </div>
     </Container>
   );
@@ -336,7 +342,10 @@ function SetupOverview({ snapshot }: { snapshot: BuildWorkspaceSnapshot }) {
       titleForStep={(step) => buildStepTitle(step, snapshot.installAgentId)}
       itemTestId={(id) => `build-overview-${id}`}
     >
-      <div className="space-y-8" data-testid="build-setup-overview">
+      <div
+        className={`${SETUP_TYPESET_CHROME_CLASS} space-y-8`}
+        data-testid="build-setup-overview"
+      >
         <PageHeader>
           <PageHeaderContent size="md">
             <PageHeaderTitle>You&apos;re all set</PageHeaderTitle>
@@ -474,18 +483,20 @@ export default function BuildStepPage() {
       }
     >
       {tokensError ? (
-        <ErrorNotice
-          className="mb-8"
-          message={tokensError}
-          onRetry={() => {
-            void tokensQuery.refetch();
-          }}
-          retrying={tokensQuery.isFetching}
-        />
+        <div className={SETUP_TYPESET_CHROME_CLASS}>
+          <ErrorNotice
+            className="mb-8"
+            message={tokensError}
+            onRetry={() => {
+              void tokensQuery.refetch();
+            }}
+            retrying={tokensQuery.isFetching}
+          />
+        </div>
       ) : null}
 
-      <div className="space-y-8">
-        {stepId !== "welcome" ? (
+      {stepId !== "welcome" ? (
+        <div className={SETUP_TYPESET_CHROME_CLASS}>
           <PageHeader>
             <PageHeaderContent size="md">
               <PageHeaderTitle>
@@ -496,7 +507,8 @@ export default function BuildStepPage() {
               </PageHeaderDescription>
             </PageHeaderContent>
           </PageHeader>
-        ) : null}
+        </div>
+      ) : null}
 
         <BuildStepPanel
           step={currentStep}
@@ -531,7 +543,6 @@ export default function BuildStepPage() {
           onMarkTrySeen={session.markTrySeen}
           onGoToStep={goToStep}
         />
-      </div>
     </SetupPageChrome>
   );
 }
@@ -821,69 +832,55 @@ function WelcomeStorytelling({
   }
 
   return (
-    <div className="space-y-8" data-testid="build-welcome">
-      <PageHeader>
-        <PageHeaderContent size="md">
-          <PageHeaderTitle>
-            Your AI assistant, wired into your work
-          </PageHeaderTitle>
-          <PageHeaderDescription>
-            Generic AI doesn&apos;t know how your company runs.{" "}
-            {SETUP_PRODUCT_NAME} connects the assistant you already use to the
-            company apps your teams rely on, with your permission.
-          </PageHeaderDescription>
-        </PageHeaderContent>
-      </PageHeader>
+    <div data-testid="build-welcome">
+      <div className={SETUP_TYPESET_CHROME_CLASS}>
+        <PageHeader>
+          <PageHeaderContent size="md">
+            <PageHeaderTitle>
+              Your AI assistant, wired into your work
+            </PageHeaderTitle>
+            <PageHeaderDescription>
+              Generic AI doesn&apos;t know how your company runs.{" "}
+              {SETUP_PRODUCT_NAME} connects the assistant you already use to the
+              company apps your teams rely on, with your permission.
+            </PageHeaderDescription>
+          </PageHeaderContent>
+        </PageHeader>
+      </div>
 
-      <ul className="max-w-xl space-y-3 text-body-lg text-muted-foreground">
-        <li className="flex gap-2">
-          <span className="text-foreground" aria-hidden>
-            ·
-          </span>
-          <span>{WELCOME_ASSISTANT_EXAMPLES}</span>
-        </li>
-        <li className="flex gap-2">
-          <span className="text-foreground" aria-hidden>
-            ·
-          </span>
-          <span>Answers from real company systems, not generic web results</span>
-        </li>
-        <li className="flex gap-2">
-          <span className="text-foreground" aria-hidden>
-            ·
-          </span>
-          <span>You choose which apps to connect</span>
-        </li>
-        <li className="flex gap-2">
-          <span className="text-foreground" aria-hidden>
-            ·
-          </span>
-          <span>Switch assistants anytime from Setup in the top nav</span>
-        </li>
+      <ul>
+        <li>{WELCOME_ASSISTANT_EXAMPLES}</li>
+        <li>Answers from real company systems, not generic web results</li>
+        <li>You choose which apps to connect</li>
+        <li>Switch assistants anytime from Setup in the top nav</li>
       </ul>
 
-      <p className="flex items-center gap-1.5 text-sm text-muted-foreground-soft">
+      <p
+        className={`${SETUP_TYPESET_NESTED_CHROME_CLASS} flex items-center gap-1.5 text-sm text-muted-foreground-soft`}
+      >
         <Clock className="size-3.5" aria-hidden />
         About 5 minutes
       </p>
 
-      <StepPager variant="ghost" aria-label="Continue">
-        <button
-          type="button"
-          data-testid="build-welcome-skip"
-          onClick={handleSkip}
-          className="self-center text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-        >
-          Skip for now
-        </button>
-        <StepPagerNext asChild title="Choose your assistant">
+      <div className={SETUP_TYPESET_NESTED_CHROME_CLASS}>
+        <StepPager variant="ghost" aria-label="Continue">
           <button
             type="button"
-            data-testid="build-welcome-continue"
-            onClick={handleContinue}
-          />
-        </StepPagerNext>
-      </StepPager>
+            data-testid="build-welcome-skip"
+            onClick={handleSkip}
+            className="self-center text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+          >
+            Skip for now
+          </button>
+          <StepPagerNext asChild title="Choose your assistant">
+            <button
+              type="button"
+              data-testid="build-welcome-continue"
+              onClick={handleContinue}
+            />
+          </StepPagerNext>
+        </StepPager>
+      </div>
     </div>
   );
 }
@@ -970,6 +967,7 @@ function BuildStepPanel({
   return (
     <section
       data-testid="build-step-panel"
+      data-typeset-chrome
       className="space-y-3"
       aria-busy={
         (step.id === "token" && !tokensReady) ||
@@ -1030,28 +1028,34 @@ function BuildStepPanel({
 
       {step.id === "try" ? (
         catalogError && !catalogHasApps ? (
-          <ErrorNotice
-            message={catalogError}
-            retrying={catalogRetrying}
-            onRetry={onRetryCatalog}
-          />
+          <div className={SETUP_TYPESET_CHROME_CLASS}>
+            <ErrorNotice
+              message={catalogError}
+              retrying={catalogRetrying}
+              onRetry={onRetryCatalog}
+            />
+          </div>
         ) : (
           <>
             {catalogError ? (
-              <ErrorNotice
-                className="mb-4"
-                message={catalogError}
-                retrying={catalogRetrying}
-                onRetry={onRetryCatalog}
-              />
+              <div className={SETUP_TYPESET_CHROME_CLASS}>
+                <ErrorNotice
+                  className="mb-4"
+                  message={catalogError}
+                  retrying={catalogRetrying}
+                  onRetry={onRetryCatalog}
+                />
+              </div>
             ) : null}
             {overlayError ? (
-              <ErrorNotice
-                className="mb-4"
-                message={overlayError}
-                retrying={overlayRetrying}
-                onRetry={onRetryOverlay}
-              />
+              <div className={SETUP_TYPESET_CHROME_CLASS}>
+                <ErrorNotice
+                  className="mb-4"
+                  message={overlayError}
+                  retrying={overlayRetrying}
+                  onRetry={onRetryOverlay}
+                />
+              </div>
             ) : null}
             <InvokeStepActions
               exemplar={activeExemplar}
@@ -1065,33 +1069,35 @@ function BuildStepPanel({
       ) : null}
 
       {step.id !== "welcome" ? (
-        <BuildStepPager
-          stepId={step.id}
-          installAgentId={installAgentId}
-          onGoToStep={(id) => {
-            void handleStepNext(id);
-          }}
-          terminalNext={
-            step.id === "try"
-              ? { label: "Browse apps", to: "/apps" }
-              : undefined
-          }
-          nextDisabled={
-            (step.id === "assistant" && !installReady) ||
-            (step.id === "token" && !mcpCredentialReady) ||
-            (step.id === "install" && !mcpCredentialReady) ||
-            (step.id === "apps" && appsContinueBlocked !== null)
-          }
-          nextDisabledTitle={
-            step.id === "assistant"
-              ? "Choose your assistant before continuing"
-              : step.id === "token" || step.id === "install"
-                ? SETUP_TOKEN_NEXT_DISABLED_TITLE
-                : step.id === "apps"
-                  ? (appsContinueBlocked ?? undefined)
-                  : undefined
-          }
-        />
+        <div className={SETUP_TYPESET_CHROME_CLASS}>
+          <BuildStepPager
+            stepId={step.id}
+            installAgentId={installAgentId}
+            onGoToStep={(id) => {
+              void handleStepNext(id);
+            }}
+            terminalNext={
+              step.id === "try"
+                ? { label: "Browse apps", to: "/apps" }
+                : undefined
+            }
+            nextDisabled={
+              (step.id === "assistant" && !installReady) ||
+              (step.id === "token" && !mcpCredentialReady) ||
+              (step.id === "install" && !mcpCredentialReady) ||
+              (step.id === "apps" && appsContinueBlocked !== null)
+            }
+            nextDisabledTitle={
+              step.id === "assistant"
+                ? "Choose your assistant before continuing"
+                : step.id === "token" || step.id === "install"
+                  ? SETUP_TOKEN_NEXT_DISABLED_TITLE
+                  : step.id === "apps"
+                    ? (appsContinueBlocked ?? undefined)
+                    : undefined
+            }
+          />
+        </div>
       ) : null}
     </section>
   );
@@ -1217,7 +1223,7 @@ function AuthorizeStepActions({
       orientation="vertical"
       size="sm"
       completedChrome="outcome"
-      className="w-full max-w-xl"
+      className={`${SETUP_TYPESET_CHROME_CLASS} w-full max-w-xl`}
       data-testid="build-token-setup"
       aria-label="Create a token"
     >
@@ -1298,6 +1304,23 @@ function AuthorizeStepActions({
   );
 }
 
+function SetupAppNotInWorkspaceNotice({ appId }: { appId: string }) {
+  const missingLabel = companionAppLabel(appId);
+  return (
+    <div className="h-full rounded-xl bg-neutral-hover p-3 text-foreground">
+      <div className="flex items-start gap-3">
+        <IntegrationIcon name={appId} displayName={missingLabel} size="md" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-heading text-foreground">{missingLabel}</p>
+          <Badge variant="warning" size="sm" className="mt-2">
+            Not in workspace
+          </Badge>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function InvokeStepActions({
   exemplar,
   integrations,
@@ -1314,35 +1337,47 @@ function InvokeStepActions({
   useEffect(() => {
     onMarkTrySeen();
   }, [onMarkTrySeen]);
-  const integration = integrations.find((item) => item.name === exemplar.id);
+  const integration = resolveCatalogApp(
+    integrations,
+    exemplar.id,
+    exemplar.knownMountPath,
+  );
   const open = resolveExemplarOpenPath(exemplar, integration);
   const displayName = integration?.displayName?.trim() || exemplar.label;
-  const featuredApp = tryStepCatalogApp({
-    appId: exemplar.id,
-    catalog: integration,
-    label: displayName,
-    description: integration?.description?.trim() || exemplar.need,
-    mountedPath: open.kind === "mount" ? open.href : undefined,
-  });
+  const featuredApp = integration
+    ? tryStepCatalogApp({
+        catalog: integration,
+        label: displayName,
+        description: integration.description?.trim() || exemplar.need,
+        mountedPath: open.kind === "mount" ? open.href : undefined,
+      })
+    : null;
   const tryReturnPath = `${SETUP_PATH}/try`;
+  const invokeApp = resolveCatalogApp(
+    integrations,
+    exemplar.invokeAppId,
+    exemplar.knownMountPath,
+  );
+  const invokeAppId = invokeApp?.name ?? exemplar.invokeAppId;
   const invokeAppLabel =
-    integrations.find((item) => item.name === exemplar.invokeAppId)
-      ?.displayName?.trim() || exemplar.invokeAppId;
+    invokeApp?.displayName?.trim() || companionAppLabel(exemplar.invokeAppId);
   const agentSkin = buildAgentSkin(installAgentId);
   const productLabel = buildAgentProductLabel(installAgentId);
   const cwd = `~/${exemplar.department.toLowerCase().replace(/\s+/g, "-")}`;
 
   return (
     <div className="space-y-16" data-testid="build-first-call">
-      <div className="space-y-5" data-testid="build-golden-prompt">
-        <p className="text-body-lg font-normal text-muted-foreground text-pretty">
+      <div data-testid="build-golden-prompt">
+        <p>
           Prompt your favorite LLM with{" "}
-          <CopyableCode value={exemplar.llmPrompt} tooltip="Copy prompt" />{" "}
+          <span className={SETUP_TYPESET_CHROME_CLASS}>
+            <CopyableCode value={exemplar.llmPrompt} tooltip="Copy prompt" />
+          </span>{" "}
           and it should reply like in this example below.
         </p>
 
         <div
-          className="min-h-[16rem] w-full"
+          className={`${SETUP_TYPESET_NESTED_CHROME_CLASS} min-h-[16rem] w-full`}
           data-testid="build-agent-console-reply"
           data-agent-skin={agentSkin}
         >
@@ -1355,13 +1390,15 @@ function InvokeStepActions({
           />
         </div>
 
-        <p className="text-body-lg font-normal text-muted-foreground text-pretty">
+        <p>
           Behind the scenes this calls{" "}
-          <InvokeOperationReference
-            appId={exemplar.invokeAppId}
-            operationId={exemplar.operationId}
-            appLabel={invokeAppLabel}
-          />
+          <span className={SETUP_TYPESET_CHROME_CLASS}>
+            <InvokeOperationReference
+              appId={invokeAppId}
+              operationId={exemplar.operationId}
+              appLabel={invokeAppLabel}
+            />
+          </span>
           .
         </p>
 
@@ -1369,7 +1406,7 @@ function InvokeStepActions({
           collapsible
           defaultOpen
           variant="outline"
-          className="w-full"
+          className={`${SETUP_TYPESET_NESTED_CHROME_CLASS} w-full`}
           data-testid="build-cli-alert"
         >
           <AlertTrigger>
@@ -1389,7 +1426,10 @@ function InvokeStepActions({
         </Alert>
       </div>
 
-      <div className="space-y-6" data-testid="build-shipped-app">
+      <div
+        className={`${SETUP_TYPESET_CHROME_CLASS} space-y-6`}
+        data-testid="build-shipped-app"
+      >
         <SectionHeader>
           <SectionHeaderContent>
             <SectionHeaderTitle>Already shipped</SectionHeaderTitle>
@@ -1402,16 +1442,23 @@ function InvokeStepActions({
           </SectionHeaderContent>
         </SectionHeader>
         <div className="w-full" data-testid="build-open-exemplar">
-          <IntegrationCard
-            integration={featuredApp}
-            returnPath={tryReturnPath}
-            connectionStatusKnown={overlayKnown}
-            actions="launch"
-          />
+          {featuredApp ? (
+            <IntegrationCard
+              integration={featuredApp}
+              returnPath={tryReturnPath}
+              connectionStatusKnown={overlayKnown}
+              actions="launch"
+            />
+          ) : (
+            <SetupAppNotInWorkspaceNotice appId={exemplar.id} />
+          )}
         </div>
       </div>
 
-      <div className="space-y-6" data-testid="build-related-apps">
+      <div
+        className={`${SETUP_TYPESET_CHROME_CLASS} space-y-6`}
+        data-testid="build-related-apps"
+      >
         <SectionHeader>
           <SectionHeaderContent>
             <SectionHeaderTitle>Related apps</SectionHeaderTitle>
@@ -1422,7 +1469,7 @@ function InvokeStepActions({
         </SectionHeader>
         <div className="grid grid-cols-1 items-stretch gap-6 sm:grid-cols-2">
           {exemplar.relatedAppIds.map((appId) => {
-            const related = integrations.find((item) => item.name === appId);
+            const related = resolveCatalogApp(integrations, appId);
             const label =
               related?.displayName?.trim() || companionAppLabel(appId);
             return (
@@ -1431,20 +1478,23 @@ function InvokeStepActions({
                 className="h-full"
                 data-testid={`build-open-app-${appId}`}
               >
-                <IntegrationCard
-                  integration={tryStepCatalogApp({
-                    appId,
-                    catalog: related,
-                    label,
-                    description:
-                      related?.description?.trim() ||
-                      `Open ${label} in Gestalt.`,
-                    mountedPath: related?.mountedPath?.trim(),
-                  })}
-                  returnPath={tryReturnPath}
-                  connectionStatusKnown={overlayKnown}
-                  actions="launch"
-                />
+                {related ? (
+                  <IntegrationCard
+                    integration={tryStepCatalogApp({
+                      catalog: related,
+                      label,
+                      description:
+                        related.description?.trim() ||
+                        `Open ${label} in Gestalt.`,
+                      mountedPath: related.mountedPath?.trim(),
+                    })}
+                    returnPath={tryReturnPath}
+                    connectionStatusKnown={overlayKnown}
+                    actions="launch"
+                  />
+                ) : (
+                  <SetupAppNotInWorkspaceNotice appId={appId} />
+                )}
               </div>
             );
           })}
@@ -1513,21 +1563,30 @@ function ConnectStepActions({
   ) : null;
 
   if (catalogError && !catalogHasApps) {
-    return catalogNotice;
+    return (
+      <div className={SETUP_TYPESET_CHROME_CLASS}>{catalogNotice}</div>
+    );
   }
 
   if (!catalogSettled && !catalogHasApps) {
-    return <p className="text-sm text-faint">Loading apps…</p>;
+    return <p className={`${SETUP_TYPESET_CHROME_CLASS} text-sm text-faint`}>Loading apps…</p>;
   }
 
   const companionIds = new Set(exemplar.companionAppIds);
   const suggested = exemplar.companionAppIds.flatMap((appId) => {
-    const integration = integrations.find((item) => item.name === appId);
+    const integration = resolveCatalogApp(integrations, appId);
     if (integration && !isSetupDataSourceApp(integration)) return [];
     return [{ appId, integration }];
   });
+  const suggestedCatalogNames = new Set(
+    suggested.flatMap((item) => (item.integration ? [item.integration.name] : [])),
+  );
   const more = setupDataSourceIntegrations(integrations)
-    .filter((integration) => !companionIds.has(integration.name))
+    .filter(
+      (integration) =>
+        !companionIds.has(integration.name) &&
+        !suggestedCatalogNames.has(integration.name),
+    )
     .sort((a, b) =>
       getIntegrationLabel(a).localeCompare(getIntegrationLabel(b)),
     );
@@ -1556,26 +1615,8 @@ function ConnectStepActions({
   function renderConnectCard(appId: string, integration: Integration | undefined) {
     if (!integration) {
       return (
-        <div
-          key={appId}
-          className="h-full rounded-xl bg-neutral-hover p-3 text-foreground"
-          data-testid={`build-connect-app-${appId}`}
-        >
-          <div className="flex items-start gap-3">
-            <IntegrationIcon
-              name={appId}
-              displayName={companionAppLabel(appId)}
-              size="md"
-            />
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-heading text-foreground">
-                {companionAppLabel(appId)}
-              </p>
-              <Badge variant="warning" size="sm" className="mt-2">
-                Not in workspace
-              </Badge>
-            </div>
-          </div>
+        <div key={appId} className="h-full" data-testid={`build-connect-app-${appId}`}>
+          <SetupAppNotInWorkspaceNotice appId={appId} />
         </div>
       );
     }
@@ -1595,7 +1636,10 @@ function ConnectStepActions({
   }
 
   return (
-    <div className="flex flex-col gap-8" data-testid="build-connect-apps">
+    <div
+      className={`${SETUP_TYPESET_CHROME_CLASS} flex flex-col gap-8`}
+      data-testid="build-connect-apps"
+    >
       {catalogNotice}
       {overlayNotice}
       <SetupOverlapCallout agentId={installAgentId} />

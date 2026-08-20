@@ -12,9 +12,8 @@ const SOURCE = readFileSync(
 
 describe("assistant install guidance", () => {
   test("token needed callout is standing help, not a live region", () => {
-    expect(SOURCE).toContain(
-      '<Callout variant="info" data-testid="build-install-token-needed">',
-    );
+    expect(SOURCE).toContain('data-testid="build-install-token-needed"');
+    expect(SOURCE).toContain("SETUP_TYPESET_CHROME_CLASS");
     expect(SOURCE).not.toContain("setup-overlap-callout");
     expect(SOURCE).not.toContain("live={false}");
     expect(SOURCE).toContain('from "@/components/ui/alert"');
@@ -36,6 +35,8 @@ describe("assistant install guidance", () => {
     expect(SOURCE).toContain('"size-12 shrink-0"');
     expect(SOURCE).not.toContain("ClaudeCodeIcon");
     expect(SOURCE).toContain("CursorAgentInstallRecipe");
+    expect(SOURCE).toContain("SETUP_TYPESET_CHROME_CLASS");
+    expect(SOURCE).not.toContain("list-decimal");
   });
 
   test("every assistant host has an install recipe", () => {

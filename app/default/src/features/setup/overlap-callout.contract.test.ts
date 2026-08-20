@@ -10,9 +10,8 @@ const SOURCE = readFileSync(
 
 describe("setup overlap callout", () => {
   test("standing overlap help is a Callout, not a live region", () => {
-    expect(SOURCE).toContain(
-      '<Callout variant="info" data-testid="setup-overlap-callout">',
-    );
+    expect(SOURCE).toContain('data-testid="setup-overlap-callout"');
+    expect(SOURCE).toContain("SETUP_TYPESET_CHROME_CLASS");
     expect(SOURCE).toContain("assistantOverlapBody(agentId)");
     expect(SOURCE).not.toContain("live={false}");
     expect(SOURCE).toContain('from "@/components/ui/alert"');

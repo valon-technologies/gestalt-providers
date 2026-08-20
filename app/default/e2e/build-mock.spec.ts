@@ -213,6 +213,10 @@ test.describe("Setup page", () => {
     ).toHaveAttribute("data-size", "md");
 
     await expect(page.getByTestId("build-welcome")).toBeVisible();
+    await expect(page.locator("main .typeset.typeset-docs")).toBeVisible();
+    await expect(page.getByTestId("build-welcome").locator("ul > li")).toHaveCount(
+      4,
+    );
     await expect(page.getByText(/About 5 minutes/)).toBeVisible();
     await expect(page.getByText(/you choose which apps/i)).toBeVisible();
     await expect(page.getByText(/\bMCP\b/)).toHaveCount(0);
@@ -432,6 +436,26 @@ test.describe("Setup page", () => {
     await expect(page.getByTestId("build-install-chatgpt-recipe")).toBeVisible();
     await expect(page.getByText("Streamable HTTP")).toBeVisible();
     await expect(page.getByTestId("build-install-chatgpt-demo")).toBeVisible();
+    await expect(
+      page.getByTestId("build-install-chatgpt-demo").locator("video"),
+    ).toBeVisible();
+    await expect(page.getByTestId("build-install-chatgpt-recipe")).toContainText(
+      "Add MCP server",
+    );
+    await expect(page.getByTestId("build-install-chatgpt-recipe")).toContainText(
+      "Bearer token env var",
+    );
+    const chatgptRecipe = page.getByTestId("build-install-chatgpt-recipe");
+    await expect(chatgptRecipe.locator("strong")).toHaveCount(8);
+    await expect(
+      chatgptRecipe.locator("strong").filter({ hasText: "Settings" }),
+    ).toBeVisible();
+    await expect(
+      chatgptRecipe.locator("strong").filter({ hasText: "Streamable HTTP" }),
+    ).toBeVisible();
+    await expect(page.getByText("If ChatGPT only shows STDIO")).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Open Plugins" })).toHaveCount(0);
+    await expect(page.getByText("Developer mode")).toHaveCount(0);
 
     await page.goto("/setup/assistant");
     await page.getByTestId("build-install-card-codex").click();
@@ -1069,11 +1093,19 @@ test.describe("Setup page", () => {
     ).toHaveAttribute("href", /\/apps\/aiSpendTracker/);
     await expect(page.getByTestId("open-app-aiSpendTracker")).toBeVisible();
     await expect(
+      page.getByTestId("build-open-exemplar").getByRole("button", {
+        name: "Add AI Spend Tracker",
+      }),
+    ).toHaveCount(0);
+    await expect(
       page.getByTestId("integration-card-more-aiSpendTracker"),
     ).toHaveCount(0);
     await expect(
       page.getByTestId("build-related-apps").locator('[data-testid^="integration-card-more-"]'),
     ).toHaveCount(0);
+    await expect(
+      page.getByTestId("build-open-app-modelProviderBillingMetrics"),
+    ).toContainText("Not in workspace");
     await expect(page.getByTestId("build-step-next")).toHaveAttribute(
       "href",
       "/apps",
