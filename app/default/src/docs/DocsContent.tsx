@@ -31,12 +31,12 @@ import {
 } from "./docs-data";
 import { ASSISTANT_OVERLAP_TITLE } from "@/lib/assistantConnectionCopy";
 import {
-  MCP_CLIENT_TABS,
   assistantDocsLandingHash,
   assistantHostById,
 } from "@/lib/assistantHosts";
 import { SETUP_PATH } from "@/lib/constants";
 import { gestaltMcpClientConfigJson } from "@/lib/gestaltMcpClientConfig";
+import { DOCS_TOKEN_PLACEHOLDER } from "./assistant-destinations";
 import { resolveGestaltPublicOrigin } from "@/lib/gestaltPublicOrigin";
 import { DocsAudienceCallout } from "./DocsAudienceCallout";
 import { AssistantDestinationSwitcher } from "./AssistantDestinationSwitcher";
@@ -44,19 +44,13 @@ import { DocsOptionSwitcher, useHashTab } from "./docs-option-switcher";
 import { DOCS_PAGE_TOP_GAP } from "./docs-chrome";
 import { DocsLink } from "./DocsLink";
 
-const mcpTabs = MCP_CLIENT_TABS;
-
 const agentEnvironmentTabs = [
   { id: "agent-claude-code", label: "Claude Code web" },
   { id: "agent-codex", label: "Codex Cloud" },
   { id: "agent-cursor", label: "Cursor Cloud Agents" },
 ] as const;
 
-type McpTabId = (typeof mcpTabs)[number]["id"];
 type AgentEnvironmentTabId = (typeof agentEnvironmentTabs)[number]["id"];
-
-const mcpTabIds = mcpTabs.map((tab) => tab.id);
-const defaultMcpTabId: McpTabId = mcpTabs[0]!.id;
 
 const agentEnvironmentTabIds = agentEnvironmentTabs.map((tab) => tab.id);
 const defaultAgentEnvironmentTabId: AgentEnvironmentTabId = "agent-claude-code";
@@ -85,7 +79,7 @@ const GESTALT_INSTALL_METHODS = [
 
 function cloudEnvironmentVariables(origin: string) {
   return `GESTALT_URL=${origin}
-GESTALT_API_KEY=gst_api_your_token_here`;
+GESTALT_API_KEY=${DOCS_TOKEN_PLACEHOLDER}`;
 }
 
 function WorkspaceUrlBlock({ origin }: { origin: string }) {
@@ -181,7 +175,8 @@ export function GettingStartedDocsPage() {
 
         <Subheading id="next-steps" />
         <p>
-          If you use Claude, ChatGPT, Cursor, or another assistant, open{" "}
+          If you use Claude Code, ChatGPT, Codex, Cursor, or another assistant,
+          open{" "}
           <DocsLink to={DOCS_MCP_PATH}>MCP Clients</DocsLink> next. That page
           shows how to save this workspace and your token in the assistant&apos;s
           settings. You do not need the Gestalt CLI.
@@ -337,7 +332,7 @@ export function CliDocsPage() {
             {
               id: "auth-token",
               label: "GESTALT_API_KEY",
-              code: "export GESTALT_API_KEY=gst_api_your_token_here",
+              code: `export GESTALT_API_KEY=${DOCS_TOKEN_PLACEHOLDER}`,
               description:
                 "Uses an API token directly for scripts, MCP clients, and other non-interactive flows.",
             },
@@ -403,15 +398,14 @@ export function InvokeDocsPage() {
 }
 
 export function TokensDocsPage() {
-  const origin = useDeploymentOrigin();
-
   return (
     <>
       <DocsPageHeader title="API Tokens" />
       <DocsPageBody>
         <p>
-          An API token is a secret password. Claude, ChatGPT, Cursor, and the
-          Gestalt CLI use it to act as you with the Apps you have connected.
+          An API token is a secret password. Claude Code, ChatGPT, Codex, Cursor,
+          and the Gestalt CLI use it to act as you with the Apps you have
+          connected.
         </p>
         <p>
           Create one in the browser: open{" "}
@@ -424,11 +418,11 @@ export function TokensDocsPage() {
 
         <Subheading id="tokens-use" />
         <p>
-          Pick your assistant. Each option is three steps: create a token here,
-          then go to the app, then place the URL and token in the fields it
-          shows.
+          After you copy the secret, open{" "}
+          <DocsLink to={DOCS_MCP_PATH}>MCP Clients</DocsLink> and pick your
+          assistant. That page has the Claude Code, ChatGPT, Codex, Cursor, and
+          Cursor Agent walkthroughs.
         </p>
-        <AssistantDestinationSwitcher origin={origin} />
         <p>
           Do not share the token. Anyone who has it can act as you.
         </p>
@@ -611,13 +605,14 @@ export function McpDocsPage() {
       <DocsPageHeader title="MCP Clients" />
       <DocsPageBody>
         <p>
-          Add this Gestalt workspace to Claude, ChatGPT, Cursor, or another
-          assistant so it can use your connected Apps as tools.
+          Add this Gestalt workspace to Claude Code, ChatGPT, Codex, Cursor,
+          Cursor Agent, or another assistant so it can use your connected Apps
+          as tools.
         </p>
         <p>
           Pick your assistant below. Each option is the full path: create a
-          token, open the app, and place the URL and token in the fields it
-          shows. You can also create tokens from the terminal (see{" "}
+          token, open the app, and place the URL and token where that product
+          expects them. You can also create tokens from the terminal (see{" "}
           <DocsLink to={DOCS_TOKENS_PATH}>API Tokens</DocsLink>
           ).
         </p>
@@ -628,10 +623,6 @@ export function McpDocsPage() {
         </p>
 
         <Subheading id="mcp-connect" />
-        <p>
-          Pick Claude, ChatGPT, or Cursor. Each option has three steps: create
-          the token, open the app, then paste the URL and token.
-        </p>
         <AssistantDestinationSwitcher origin={origin} />
 
         <Subheading id="mcp-overlap" />
@@ -664,14 +655,14 @@ export function McpDocsPage() {
         <CodeBlock
           chrome="inset"
           language="shellscript"
-          code="export GESTALT_API_KEY=gst_api_your_token_here"
+          code={`export GESTALT_API_KEY=${DOCS_TOKEN_PLACEHOLDER}`}
         />
         <p>
           If you add it to <Code>~/.zshrc</Code>, run{" "}
           <Code>source ~/.zshrc</Code> afterward.
         </p>
         <p>
-          If a recipe below asks for a host named{" "}
+          If a recipe on this page asks for a host named{" "}
           <Code>GESTALT_URL</Code>, also set:
         </p>
         <CodeBlock
@@ -681,7 +672,7 @@ export function McpDocsPage() {
         />
         <p>
           On workspaces with authentication disabled, omit the token from the
-          recipes below.
+          recipes on this page.
         </p>
         <InfoTable
           rows={[
@@ -696,11 +687,8 @@ export function McpDocsPage() {
             ],
           ]}
         />
-        <p>
-          If you use Claude Code, Codex, or a JSON config file, use the recipes
-          below.
-        </p>
-        <McpClientTabs origin={origin} />
+        <Subheading id="mcp-other" />
+        <McpOtherClients origin={origin} />
 
         <Subheading id="mcp-cloud" />
         <p>
@@ -1029,137 +1017,34 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
   );
 }
 
-function McpClientTabs({ origin }: { origin: string }) {
-  const [activeTabId, setActiveTabId] = useHashTab(mcpTabIds, defaultMcpTabId);
-
+function McpOtherClients({ origin }: { origin: string }) {
   return (
-    <DocsOptionSwitcher
-      label="MCP client configuration"
-      options={mcpTabs.map((tab) => ({ value: tab.id, label: tab.label }))}
-      value={activeTabId as McpTabId}
-      onValueChange={setActiveTabId}
-    >
-      {activeTabId === "mcp-claude-code" ? (
-        <>
-          <p>
-            Put the Gestalt URL and your token in{" "}
-            <Code>.mcp.json</Code>{" "}
-            (project) or{" "}
-            <Code>~/.claude.json</Code>{" "}
-            (your user), or run the command below.
-          </p>
-          <CodeBlock
-            language="json"
-            filename=".mcp.json"
-            code={`{
-  "mcpServers": {
-    "gestalt": {
-      "type": "http",
-      "url": "\${GESTALT_URL}/mcp",
-      "headers": {
-        "Authorization": "Bearer \${GESTALT_API_KEY}"
-      }
-    }
-  }
-}`}
-          />
-          <p>Or add it from the CLI:</p>
-          <CodeBlock chrome="inset"
-            language="cli"
-            code={`claude mcp add --transport http --scope project \\
-  --header "Authorization: Bearer $GESTALT_API_KEY" \\
-  gestalt "$GESTALT_URL/mcp"`}
-          />
-        </>
-      ) : null}
-
-      {activeTabId === "mcp-codex" ? (
-        <>
-          <p>
-            On the machine where Codex Desktop runs, open Terminal (not the
-            Codex chat) and register this workspace:
-          </p>
-          <CodeBlock chrome="inset"
-            language="cli"
-            code={`codex mcp add gestalt --url "$GESTALT_URL/mcp" --bearer-token-env-var GESTALT_API_KEY`}
-          />
-          <p>
-            Set{" "}
-            <Code>GESTALT_API_KEY</Code> in your shell profile if you want the
-            token to persist across Terminal sessions. Restart Codex Desktop
-            after adding the server.
-          </p>
-          <p>
-            If authentication is disabled, omit{" "}
-            <Code>--bearer-token-env-var GESTALT_API_KEY</Code>{" "}
-            from the command.
-          </p>
-          <p>
-            Cloud agents do not use local{" "}
-            <Code>codex mcp add</Code>. Configure environment variables and the
-            install script in{" "}
-            <DocsLink to={DOCS_MCP_PATH} hash="agent-codex">
-              Configure Codex Cloud
-            </DocsLink>
-            .
-          </p>
-        </>
-      ) : null}
-
-      {activeTabId === "mcp-cursor" ? (
-        <>
-          <p>
-            Put the Gestalt URL and your token in{" "}
-            <Code>.cursor/mcp.json</Code>{" "}
-            in your project root, or{" "}
-            <Code>~/.cursor/mcp.json</Code>{" "}
-            for every project.
-          </p>
-          <CodeBlock
-            language="json"
-            filename=".cursor/mcp.json"
-            code={`{
-  "mcpServers": {
-    "gestalt": {
-      "url": "\${env:GESTALT_URL}/mcp",
-      "headers": {
-        "Authorization": "Bearer \${env:GESTALT_API_KEY}"
-      }
-    }
-  }
-}`}
-          />
-        </>
-      ) : null}
-
-      {activeTabId === "mcp-other" ? (
-        <>
-          <p>
-            If the assistant has a connector, tools, or custom MCP screen,
-            paste the URL and the token into those fields. If it uses a JSON
-            config file, use the example below.
-          </p>
-          <p>You need:</p>
-          <InfoTable
-            rows={[
-              ["Where to connect", `${origin}/mcp`],
-              [
-                "How to sign in",
-                "Your API token, in the API key or password field",
-              ],
-              ["If it uses a file", "usually a key named mcpServers"],
-            ]}
-          />
-          <CodeBlock chrome="inset"
-            language="json"
-            code={gestaltMcpClientConfigJson({
-              url: `${origin}/mcp`,
-              token: "gst_api_your_token_here",
-            })}
-          />
-        </>
-      ) : null}
-    </DocsOptionSwitcher>
+    <>
+      <p>
+        If the assistant has a connector, tools, or custom MCP screen,
+        paste the URL and the token into those fields. If it uses a JSON
+        config file, use the example below.
+      </p>
+      <p>You need:</p>
+      <InfoTable
+        rows={[
+          ["Where to connect", `${origin}/mcp`],
+          [
+            "How to sign in",
+            "Your API token, in the API key or password field",
+          ],
+          ["If it uses a file", "usually a key named mcpServers"],
+        ]}
+      />
+      <CodeBlock
+        chrome="inset"
+        language="json"
+        code={gestaltMcpClientConfigJson({
+          url: `${origin}/mcp`,
+          token: DOCS_TOKEN_PLACEHOLDER,
+        })}
+      />
+    </>
   );
 }
 
@@ -1179,9 +1064,14 @@ function Subheading({ id }: { id: string }) {
   // scrollIntoView only apply scroll-margin on the matched element.
   // Offset token includes measured sticky chrome (worktree banner + top bar).
   // Title comes from docs-data so TOC labels and headings cannot drift.
+  // Inner hash link is the shadcn heading-anchor pattern: the heading itself
+  // is the permalink. Typeset must not paint it as a body gold link.
+  const title = docsSubsectionLabel(id);
   return (
     <h2 id={id} className="scroll-mt-[var(--page-layout-anchor-offset)]">
-      {docsSubsectionLabel(id)}
+      <a href={`#${id}`} data-heading-permalink>
+        {title}
+      </a>
     </h2>
   );
 }

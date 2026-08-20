@@ -6,10 +6,13 @@ import {
   DOCS_AUTHORIZATION_PATH,
   DOCS_NAV_GROUPS,
   DOCS_SETTINGS_TOKENS_HREF,
+  docsJourneyTrackItems,
+  docsJourneyTracks,
   docsNavItems,
   getActiveDocsNavItem,
   getDocsJourneyEdges,
   docsSubsectionLabel,
+  type DocsJourneyTrackId,
 } from "./docs-data";
 import { ASSISTANT_OVERLAP_TITLE } from "@/lib/assistantConnectionCopy";
 
@@ -43,25 +46,67 @@ describe("docs IA invariants", () => {
     expect(grant?.href).toBe(DOCS_AUTHORIZATION_PATH);
   });
 
-  it("derives journey edges from sidebar order", () => {
-    // Footer Next/Previous follow the left-rail sequence so readers are not
-    // skipped past a page that already appears between two destinations.
-    for (let i = 0; i < docsNavItems.length; i++) {
-      const item = docsNavItems[i]!;
-      const edges = getDocsJourneyEdges(item);
-      const predecessor = i > 0 ? docsNavItems[i - 1] : undefined;
-      const following =
-        i < docsNavItems.length - 1 ? docsNavItems[i + 1] : undefined;
-      expect(edges.previous).toEqual(
-        predecessor
-          ? { href: predecessor.href, label: predecessor.label }
-          : null,
-      );
-      expect(edges.next).toEqual(
-        following ? { href: following.href, label: following.label } : null,
-      );
-    }
+  it("places every nav group in exactly one journey track", () => {
+    const assigned = Object.values(docsJourneyTracks).flat();
+    expect(new Set(assigned)).toEqual(
+      new Set(DOCS_NAV_GROUPS.map((group) => group.id)),
+    );
+    expect(assigned).toHaveLength(DOCS_NAV_GROUPS.length);
+  });
+
+  it("walks Next/Previous inside a journey track, not the full sidebar", () => {
+    const byId = Object.fromEntries(
+      docsNavItems.map((item) => [item.id, item]),
+    );
+    const gettingStarted = byId["getting-started"]!;
+    const tokens = byId["tokens"]!;
+    const mcp = byId["mcp"]!;
+    const cli = byId["cli"]!;
+    const connect = byId["connect"]!;
+    const workflows = byId["workflows"]!;
+    const authorization = byId["authorization"]!;
+    const troubleshooting = byId["troubleshooting"]!;
+
+    expect(getDocsJourneyEdges(gettingStarted)).toEqual({
+      previous: null,
+      next: { href: tokens.href, label: tokens.label },
+    });
+    expect(getDocsJourneyEdges(tokens)).toEqual({
+      previous: { href: gettingStarted.href, label: gettingStarted.label },
+      next: { href: mcp.href, label: mcp.label },
+    });
+    expect(getDocsJourneyEdges(mcp)).toEqual({
+      previous: { href: tokens.href, label: tokens.label },
+      next: null,
+    });
+    expect(getDocsJourneyEdges(cli)).toEqual({
+      previous: null,
+      next: { href: connect.href, label: connect.label },
+    });
+    expect(getDocsJourneyEdges(workflows).next).toBeNull();
+    expect(getDocsJourneyEdges(authorization)).toEqual({
+      previous: null,
+      next: null,
+    });
+    expect(getDocsJourneyEdges(troubleshooting)).toEqual({
+      previous: null,
+      next: null,
+    });
     expect(docsNavItems.every((item) => !("next" in item))).toBe(true);
+
+    for (const trackId of Object.keys(docsJourneyTracks) as DocsJourneyTrackId[]) {
+      const items = docsJourneyTrackItems(trackId);
+      for (const [index, item] of items.entries()) {
+        const previous = index === 0 ? null : items[index - 1];
+        const next = index === items.length - 1 ? null : items[index + 1];
+        expect(getDocsJourneyEdges(item)).toEqual({
+          previous: previous
+            ? { href: previous.href, label: previous.label }
+            : null,
+          next: next ? { href: next.href, label: next.label } : null,
+        });
+      }
+    }
   });
 
   it("resolves /docs and /docs/getting-started to Getting Started", () => {
@@ -76,13 +121,14 @@ describe("docs IA invariants", () => {
   it("keeps TOC subsections as real heading ids only", () => {
     const mcp = docsNavItems.find((item) => item.id === "mcp");
     const invoke = docsNavItems.find((item) => item.id === "invoke");
-    // MCP destination tabs and client recipes stay hash-backed (no TOC ids).
-    // Connect, env, cloud, and verify are real headings. Invoke option
-    // switchers still omit matching DOM ids.
+    // Destination tabs stay hash-backed (no TOC ids). Other clients is a
+    // heading because it is not a dest tab. Invoke option switchers still
+    // omit matching DOM ids.
     expect(mcp?.subsections.map((s) => s.id)).toEqual([
       "mcp-connect",
       "mcp-overlap",
       "mcp-env",
+      "mcp-other",
       "mcp-cloud",
       "mcp-verify",
     ]);
@@ -160,12 +206,29 @@ describe("docs IA invariants", () => {
     );
   });
 
+  it("keeps Choose your assistant on MCP Clients only", () => {
+    const content = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "DocsContent.tsx"),
+      "utf8",
+    );
+    const tokensPage = content.slice(
+      content.indexOf("export function TokensDocsPage"),
+      content.indexOf("export function AuthorizationDocsPage"),
+    );
+    const mcpPage = content.slice(content.indexOf("export function McpDocsPage"));
+    expect(tokensPage).not.toContain("AssistantDestinationSwitcher");
+    expect(mcpPage).toContain("<AssistantDestinationSwitcher");
+    expect(content.match(/<AssistantDestinationSwitcher/g)).toHaveLength(1);
+  });
+
   it("wires every TOC subsection id to a DocsContent heading owned by docs-data", () => {
     const content = readFileSync(
       join(dirname(fileURLToPath(import.meta.url)), "DocsContent.tsx"),
       "utf8",
     );
     expect(content).toContain("docsSubsectionLabel");
+    expect(content).toContain("data-heading-permalink");
+    expect(content).toContain("href={`#${id}`}");
     expect(content).not.toMatch(/<Subheading[^>]*title=/);
     for (const item of docsNavItems) {
       for (const subsection of item.subsections) {

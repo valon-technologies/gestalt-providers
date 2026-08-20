@@ -54,6 +54,16 @@ test("typeset-reading stays tenant-neutral (no org brand filename/comments)", ()
   expect(TYPESET).not.toMatch(/Melange|Season Serif/i);
 });
 
+test("typeset heading permalinks inherit heading ink", () => {
+  expect(TYPESET).toContain("a[data-heading-permalink]");
+  expect(TYPESET).toMatch(
+    /:is\(h1, h2, h3, h4\) > a\[data-heading-permalink\]/,
+  );
+  expect(TYPESET).toMatch(
+    /a\[data-heading-permalink\]\) \{\s*color: inherit;\s*background-image: none;\s*transition: none;/s,
+  );
+});
+
 test("typeset muted fallback matches secondary body ink at 80%", () => {
   expect(TYPESET).toContain(
     "color-mix(in oklab, currentColor 80%, transparent)",

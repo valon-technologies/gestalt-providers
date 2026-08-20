@@ -282,7 +282,7 @@ test.describe("Setup page", () => {
       page.getByText("Pick the assistant you already use. You can add more later."),
     ).toBeVisible();
     await expect(page.getByTestId("build-install-card-claude")).toHaveCount(0);
-    await expect(page.getByTestId("build-install-card-chatgpt")).toHaveCount(0);
+    await expect(page.getByTestId("build-install-card-chatgpt")).toBeVisible();
     await expect(page.getByTestId("build-install-card-claude-code")).toBeVisible();
     await expect(page.getByTestId("build-install-card-codex")).toBeVisible();
     await expect(page.getByTestId("build-install-card-cursor")).toBeVisible();
@@ -341,7 +341,7 @@ test.describe("Setup page", () => {
       "Add in Cursor",
     );
     await expect(page.getByText(".cursor/mcp.json")).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "MCP setup docs" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "MCP Clients" })).toBeVisible();
     await expect(page.getByTestId("setup-overlap-callout")).toHaveCount(0);
 
     await page.goto("/setup/token");
@@ -426,11 +426,8 @@ test.describe("Setup page", () => {
       page.getByRole("heading", { name: "Add Gestalt in ChatGPT", exact: true }),
     ).toBeVisible();
     await expect(page.getByTestId("build-install-chatgpt-recipe")).toBeVisible();
-    await expect(page.getByText("turn on Developer mode")).toBeVisible();
-    await expect(page.getByRole("link", { name: "Open Plugins" })).toHaveAttribute(
-      "href",
-      "https://chatgpt.com/plugins",
-    );
+    await expect(page.getByText("Streamable HTTP")).toBeVisible();
+    await expect(page.getByTestId("build-install-chatgpt-demo")).toBeVisible();
 
     await page.goto("/setup/assistant");
     await page.getByTestId("build-install-card-codex").click();

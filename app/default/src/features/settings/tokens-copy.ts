@@ -41,15 +41,17 @@ export const SETTINGS_TOKEN_CREATE_DESCRIPTION =
 export const SETTINGS_TOKEN_CREATED_TITLE = "Token created";
 
 export const SETTINGS_TOKEN_CREATED_DESCRIPTION =
-  "Copy the secret below. Next, open Docs, then API Tokens, and pick your assistant.";
+  "Next, open MCP Clients and pick your assistant.";
 
 /** One-time secret alert after mint — settings-native, not Build tutorial. */
 export const SETTINGS_TOKEN_PLAINTEXT_DESCRIPTION =
-  "Copy this token now. We won't show the full value again. Open Docs, then API Tokens, for the next steps.";
+  "Copy this token now. We won't show the full value again.";
 
 export const SETTINGS_TOKEN_CREATE_CANCEL = "Cancel";
 
-export const SETTINGS_TOKEN_CREATE_DONE = "Done";
+export const SETTINGS_TOKEN_CREATE_CONTINUE = "Open MCP Clients";
+
+export const SETTINGS_TOKEN_CREATE_DONE = "Back to tokens";
 
 export const SETTINGS_TOKENS_DOCUMENT_TITLE = "API tokens";
 

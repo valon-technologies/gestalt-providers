@@ -160,14 +160,15 @@ test.describe("Token Management", () => {
       page.getByText(/Copy this token now\. We won't show the full value again/),
     ).toBeVisible();
     await expect(
-      page.getByText(
-        "Next, open Docs, then API Tokens, and pick your assistant.",
-      ),
+      page.getByText("Next, open MCP Clients and pick your assistant."),
     ).toBeVisible();
     await expect(page.getByRole("heading", { name: "Token created" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Cancel" })).toHaveCount(0);
+    await expect(
+      page.getByRole("link", { name: "Open MCP Clients" }),
+    ).toHaveAttribute("href", "/docs/mcp");
 
-    await page.getByRole("link", { name: "Done" }).click();
+    await page.getByRole("link", { name: "Back to tokens" }).click();
     await expect(page).toHaveURL(/\/settings\/tokens$/);
     await expect(page.locator("tr", { hasText: "tok-new" })).toBeVisible();
   });
@@ -217,7 +218,7 @@ test.describe("Token Management", () => {
     await expect(page.getByText("gestalt_race_secret")).toBeVisible();
     await expect(page.getByRole("button", { name: "Copy token" })).toBeVisible();
 
-    await page.getByRole("link", { name: "Done" }).click();
+    await page.getByRole("link", { name: "Back to tokens" }).click();
     await expect(page).toHaveURL(/\/settings\/tokens$/);
     await expect(page.locator("tr", { hasText: "tok-race" })).toBeVisible();
     await expect(page.getByText("No API tokens yet.")).toHaveCount(0);

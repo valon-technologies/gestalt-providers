@@ -16,8 +16,9 @@ export const pageLayoutContentTopStyle = {
 } as CSSProperties;
 
 /**
- * Center reading column. Docs article and Setup share this so the measure
- * stays in the 60–70 character band. Do not restyle with a one-off max-w-*.
+ * Center reading column. Docs, Setup, and single-column Settings tasks share
+ * this so the measure stays in the 60-70 character band. Do not restyle with
+ * a one-off max-w-*.
  */
 export const PAGE_LAYOUT_READING_COLUMN_CLASS =
   "mx-auto min-w-0 w-full max-w-[65ch]";

@@ -32,11 +32,9 @@ describe("assistant install guidance", () => {
     expect(SOURCE).toContain("ASSISTANT_HOST_PICKER_GRID_CLASS");
     expect(SOURCE).not.toContain("ASSISTANT_HOST_GROUPS");
     expect(SOURCE).not.toContain("assistantHostsInGroup");
-    expect(SOURCE).toContain("ClaudeCodeIcon");
-    expect(SOURCE).toContain('<ClaudeCodeIcon className="size-12 shrink-0" />');
-    expect(SOURCE).not.toContain("<ClaudeCodeIcon className={iconClass} />");
-    expect(SOURCE).toContain('<ChatGptIcon className="size-12 shrink-0" />');
-    expect(SOURCE).not.toContain("<ChatGptIcon className={iconClass} />");
+    expect(SOURCE).toContain("ASSISTANT_HOST_ICON[host.iconKey]");
+    expect(SOURCE).toContain('"size-12 shrink-0"');
+    expect(SOURCE).not.toContain("ClaudeCodeIcon");
     expect(SOURCE).toContain("CursorAgentInstallRecipe");
   });
 
@@ -65,9 +63,13 @@ describe("assistant install guidance", () => {
   test("Cursor install is the one-click button; Cursor Agent keeps the paste recipe", () => {
     expect(SOURCE).toContain('data-testid="build-install-cursor-recipe"');
     expect(SOURCE).toContain('data-testid="build-add-to-cursor"');
+    expect(SOURCE).toContain("<CursorIcon />");
+    expect(SOURCE).toContain("cursorMcpInstallHref");
     expect(SOURCE).not.toContain("build-install-cursor-method");
     expect(SOURCE).not.toContain("Paste the config yourself");
     expect(SOURCE).toContain('data-testid="build-install-cursor-agent-recipe"');
     expect(SOURCE).toContain("CursorMcpConfigBlock");
+    expect(SOURCE).toContain("RecipeEmphasis");
+    expect(SOURCE).not.toContain("CHATGPT_INSTALL_AUTH_NOTE");
   });
 });

@@ -150,10 +150,11 @@ export function SegmentedControl<V extends string>({
   const buttonsRef = React.useRef<Array<HTMLButtonElement | null>>([]);
 
   const count = options.length;
-  const activeIndex = Math.max(
-    0,
-    options.findIndex((option) => option.value === value),
-  );
+  const matchedIndex = options.findIndex((option) => option.value === value);
+  const hasMatchedValue = matchedIndex >= 0;
+  // Unmatched `value` (hash-only destinations) must not paint the first
+  // segment as selected. Keyboard still starts from index 0.
+  const activeIndex = hasMatchedValue ? matchedIndex : 0;
   const isVertical = orientation === "vertical";
 
   // Pill geometry is measured from the active segment (labels make widths uneven,
@@ -167,6 +168,10 @@ export function SegmentedControl<V extends string>({
   const [animate, setAnimate] = React.useState(false);
 
   const measure = React.useCallback(() => {
+    if (!hasMatchedValue) {
+      setPill((prev) => (prev == null ? prev : null));
+      return;
+    }
     const btn = buttonsRef.current[activeIndex];
     if (!btn) return;
     const next: PillRect = {
@@ -180,7 +185,7 @@ export function SegmentedControl<V extends string>({
         ? prev
         : next,
     );
-  }, [activeIndex]);
+  }, [activeIndex, hasMatchedValue]);
 
   useIsomorphicLayoutEffect(() => {
     measure();
@@ -257,7 +262,11 @@ export function SegmentedControl<V extends string>({
     >
       <span
         aria-hidden
-        style={pill ? { left: pill.left, top: pill.top, width: pill.width, height: pill.height } : { opacity: 0 }}
+        style={
+          pill && hasMatchedValue
+            ? { left: pill.left, top: pill.top, width: pill.width, height: pill.height }
+            : { opacity: 0 }
+        }
         className={cn(
           // Radix Themes `surface`: raised chip via fill + inset 1px hairline
           // (elevation.md canvas rule — not shadow-md/lg). Inset (not spread)
@@ -281,10 +290,10 @@ export function SegmentedControl<V extends string>({
             }}
             type="button"
             role="radio"
-            aria-checked={checked}
+            aria-checked={hasMatchedValue && checked}
             aria-label={option.label}
             aria-controls={panelId}
-            tabIndex={checked ? 0 : -1}
+            tabIndex={checked || (!hasMatchedValue && index === 0) ? 0 : -1}
             onClick={() => onValueChange(option.value)}
             className={cn(
               "focus-ring relative z-10 inline-flex items-center justify-center gap-1.5 rounded-md font-medium text-muted-foreground transition-colors duration-hover-out ease-out-quart hover:duration-hover-in hover:text-foreground aria-checked:text-foreground",

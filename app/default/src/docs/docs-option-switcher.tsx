@@ -55,6 +55,7 @@ export function DocsOptionSwitcher<V extends string>({
   value,
   onValueChange,
   hashAliases,
+  unmatchedLabel,
   children,
 }: {
   label: string;
@@ -63,6 +64,8 @@ export function DocsOptionSwitcher<V extends string>({
   onValueChange: (value: V) => void;
   /** Extra hashes that should scroll this switcher (legacy aliases). */
   hashAliases?: Readonly<Record<string, string>>;
+  /** Panel name when `value` is not a visible tab (hash-only destinations). */
+  unmatchedLabel?: string;
   children: ReactNode;
 }) {
   // Stable panel id — never the option value. Hash-backed switchers write
@@ -70,10 +73,17 @@ export function DocsOptionSwitcher<V extends string>({
   // panel under sticky app chrome.
   const panelId = useId();
   const activeLabel =
-    options.find((option) => option.value === value)?.label ?? label;
+    options.find((option) => option.value === value)?.label ??
+    unmatchedLabel ??
+    label;
   const hashIds = [
-    ...options.map((option) => option.value),
-    ...Object.keys(hashAliases ?? {}),
+    ...new Set([
+      ...options.map((option) => option.value),
+      ...Object.keys(hashAliases ?? {}),
+      // Alias targets (e.g. dest-chatgpt) must scroll this switcher after
+      // the URL is rewritten off the leftover mcp-* hash.
+      ...Object.values(hashAliases ?? {}),
+    ]),
   ].join(" ");
 
   return (

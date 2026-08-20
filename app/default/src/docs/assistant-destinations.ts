@@ -1,23 +1,61 @@
 /**
- * Where a personal API token is saved in each assistant.
- * Hash ids are distinct from MCP config-file recipes (`mcp-claude-code`, …)
- * so both switchers can share a page without stealing each other's hash.
+ * Where a personal API token is saved in each offered assistant.
+ *
+ * Visible tabs are Setup's offered named products (not Others). Tab ids are
+ * `dest-${host.id}` so they do not collide with leftover `mcp-*` hashes.
+ *
+ * `dest-claude` is hash-only: Claude.ai leftover links. It is not a tab.
+ * ChatGPT and Codex are separate products.
  */
-export const assistantDestinationTabs = [
-  { id: "dest-claude", label: "Claude" },
-  { id: "dest-chatgpt", label: "ChatGPT" },
-  { id: "dest-cursor", label: "Cursor" },
-] as const;
+import {
+  ASSISTANT_HOSTS_OFFERED,
+  assistantDestinationHash,
+  type AssistantHost,
+  type AssistantHostId,
+} from "@/lib/assistantHosts";
+
+export type AssistantDestinationTabHostId = Exclude<
+  AssistantHostId,
+  "claude" | "other"
+>;
+
+export type AssistantDestinationTabId =
+  `dest-${AssistantDestinationTabHostId}`;
+
+export const assistantDestinationLegacyIds = ["dest-claude"] as const;
+
+export type AssistantDestinationLegacyId =
+  (typeof assistantDestinationLegacyIds)[number];
 
 export type AssistantDestinationId =
-  (typeof assistantDestinationTabs)[number]["id"];
+  | AssistantDestinationTabId
+  | AssistantDestinationLegacyId;
 
-export const assistantDestinationIds = assistantDestinationTabs.map(
+function isDestinationTabHost(
+  host: AssistantHost,
+): host is AssistantHost & { id: AssistantDestinationTabHostId } {
+  return host.id !== "other" && host.id !== "claude";
+}
+
+export const assistantDestinationTabs = ASSISTANT_HOSTS_OFFERED.filter(
+  isDestinationTabHost,
+).map((host) => ({
+  id: assistantDestinationHash(host.id),
+  hostId: host.id,
+  label: host.label,
+}));
+
+export const assistantDestinationTabIds = assistantDestinationTabs.map(
   (tab) => tab.id,
 );
 
-export const defaultAssistantDestinationId: AssistantDestinationId =
-  "dest-claude";
+export const assistantDestinationIds: readonly AssistantDestinationId[] = [
+  ...assistantDestinationTabIds,
+  ...assistantDestinationLegacyIds,
+];
+
+export const defaultAssistantDestinationId: AssistantDestinationTabId =
+  "dest-claude-code";
 
 export const ASSISTANT_DESTINATION_SWITCHER_LABEL = "Choose your assistant";
 
@@ -27,9 +65,6 @@ export const assistantDestinationMedia = {
     poster: "/docs/add-token-claude.jpg",
     caption: "Claude connector form. Paste the token in Request headers.",
   },
-  "dest-chatgpt": {
-    video: "/docs/add-token-chatgpt.mp4",
-    poster: "/docs/add-token-chatgpt.jpg",
-    caption: "ChatGPT connector form. Paste the token in the Token field.",
-  },
 } as const;
+
+export const DOCS_TOKEN_PLACEHOLDER = "gst_api_your_token_here";

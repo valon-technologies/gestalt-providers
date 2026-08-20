@@ -1,11 +1,13 @@
 /**
  * Canonical catalog of Setup host products (the app the human already uses).
  *
- * `offered` hosts appear in Choose your assistant and in MCP docs. Claude
- * (web / desktop) and ChatGPT stay in this catalog so an in-progress Setup
- * session can still finish their install recipe. They are not offered.
+ * `offered` hosts appear in Setup's Choose your assistant. Docs MCP Clients
+ * uses the same named products (minus Others) for destination tabs. Claude
+ * (web / desktop) stays in this catalog so an in-progress Setup session can
+ * still finish its install recipe. It is not offered.
  *
  * `claude` is Claude on the web / desktop. `claude-code` is the terminal.
+ * `chatgpt` is the ChatGPT app (custom MCP). `codex` is Codex Desktop.
  * `cursor` is the Cursor app. `cursor-agent` is Cursor Agent (same
  * `.cursor/mcp.json` as Cursor, no one-click IDE button).
  * Session storage v1 used `claude` for Claude Code; readers migrate that.
@@ -33,6 +35,12 @@ export type AssistantHostIconKey =
 /** Setup AgentConsole composition skin — not an AgentConsole prop. */
 export type AssistantHostConsoleSkin = "claude" | "codex" | "cursor";
 
+/** Optional walkthrough video for a host install recipe. Paths are app-absolute. */
+export type AssistantInstallDemo = {
+  src: string;
+  poster: string;
+};
+
 export type McpDocsHash =
   | "mcp-claude"
   | "mcp-chatgpt"
@@ -45,7 +53,6 @@ export type AssistantHost = {
   id: AssistantHostId;
   label: string;
   docsHash: McpDocsHash;
-  docsTabLabel: string;
   testId: string;
   installDescription: string;
   iconKey: AssistantHostIconKey;
@@ -55,6 +62,7 @@ export type AssistantHost = {
    * recipe for in-progress sessions only.
    */
   offered: boolean;
+  installDemo?: AssistantInstallDemo;
 };
 
 export const ASSISTANT_HOST_PICKER_GRID_CLASS =
@@ -65,7 +73,6 @@ export const ASSISTANT_HOSTS: readonly AssistantHost[] = [
     id: "claude",
     label: "Claude",
     docsHash: "mcp-claude",
-    docsTabLabel: "Claude",
     testId: "build-install-card-claude",
     installDescription:
       "Add a custom connector in Claude on the web or in the Claude desktop app.",
@@ -77,7 +84,6 @@ export const ASSISTANT_HOSTS: readonly AssistantHost[] = [
     id: "claude-code",
     label: "Claude Code",
     docsHash: "mcp-claude-code",
-    docsTabLabel: "Claude Code",
     testId: "build-install-card-claude-code",
     installDescription:
       "Run this command in your terminal from a project folder.",
@@ -89,19 +95,21 @@ export const ASSISTANT_HOSTS: readonly AssistantHost[] = [
     id: "chatgpt",
     label: "ChatGPT",
     docsHash: "mcp-chatgpt",
-    docsTabLabel: "ChatGPT",
     testId: "build-install-card-chatgpt",
     installDescription:
-      "Add Gestalt as a developer-mode app in ChatGPT.",
+      "Add Gestalt as a custom MCP in the ChatGPT app. You will paste a URL and a token.",
     iconKey: "chatgpt",
     consoleSkin: "codex",
-    offered: false,
+    offered: true,
+    installDemo: {
+      src: "/setup/chatgpt-install.mp4",
+      poster: "/setup/chatgpt-install.jpg",
+    },
   },
   {
     id: "codex",
     label: "Codex",
     docsHash: "mcp-codex",
-    docsTabLabel: "Codex",
     testId: "build-install-card-codex",
     installDescription:
       "Run these commands in Terminal on the Mac where Codex is installed.",
@@ -113,7 +121,6 @@ export const ASSISTANT_HOSTS: readonly AssistantHost[] = [
     id: "cursor",
     label: "Cursor",
     docsHash: "mcp-cursor",
-    docsTabLabel: "Cursor",
     testId: "build-install-card-cursor",
     installDescription: "Connect Cursor so it can use your Gestalt apps.",
     iconKey: "cursor",
@@ -124,7 +131,6 @@ export const ASSISTANT_HOSTS: readonly AssistantHost[] = [
     id: "cursor-agent",
     label: "Cursor Agent",
     docsHash: "mcp-cursor",
-    docsTabLabel: "Cursor",
     testId: "build-install-card-cursor-agent",
     installDescription:
       "Paste this into .cursor/mcp.json. Cursor Agent reads the same MCP config as Cursor.",
@@ -136,7 +142,6 @@ export const ASSISTANT_HOSTS: readonly AssistantHost[] = [
     id: "other",
     label: "Others",
     docsHash: "mcp-other",
-    docsTabLabel: "Other clients",
     testId: "build-install-card-other",
     installDescription:
       "Use these MCP settings in any client that accepts a URL and an Authorization header.",
@@ -168,45 +173,43 @@ export function assistantHostById(
 }
 
 /**
+ * MCP Clients hash for a host. Named products (including leftover Claude on
+ * the web) use `dest-${id}`. Others stays the Other clients heading.
+ */
+export function assistantDestinationHash(
+  hostId: Exclude<AssistantHostId, "other">,
+): `dest-${Exclude<AssistantHostId, "other">}` {
+  return `dest-${hostId}`;
+}
+
+/**
  * URL hash for "open docs for this host".
  *
- * `docsHash` still names the config-file recipe tab (`mcp-codex`, …).
- * Claude and ChatGPT no longer have recipe tabs; their walkthroughs live
- * under `dest-*`. Setup and other deep links must use this landing hash,
- * not `docsHash`, or `#mcp-chatgpt` falls through to Claude.
+ * Offered named products land on Choose your assistant (`dest-*`).
+ * Claude on the web keeps leftover `dest-claude` (not a tab). Others still
+ * uses the config-file heading `mcp-other`. Do not alias `mcp-cursor` onto
+ * Cursor Agent: Cursor and Cursor Agent share that leftover hash, and it
+ * must stay Cursor.
  */
 export function assistantDocsLandingHash(
   host: AssistantHost | undefined,
 ): string {
-  if (!host) return "mcp-other";
-  if (host.id === "claude") return "dest-claude";
-  if (host.id === "chatgpt") return "dest-chatgpt";
-  return host.docsHash;
+  if (!host || host.id === "other") return "mcp-other";
+  return assistantDestinationHash(host.id);
 }
 
-/** Old recipe hashes that now select a dest-* walkthrough. */
+/** Leftover `mcp-*` hashes that now select a dest walkthrough. */
 export const ASSISTANT_DOCS_LANDING_HASH_ALIASES: Readonly<
   Record<string, string>
 > = Object.fromEntries(
-  ASSISTANT_HOSTS.flatMap((host) => {
-    const landing = assistantDocsLandingHash(host);
-    return landing === host.docsHash ? [] : [[host.docsHash, landing]];
-  }),
+  ASSISTANT_HOSTS.filter(
+    (
+      host,
+    ): host is AssistantHost & {
+      id: Exclude<AssistantHostId, "other" | "cursor-agent">;
+    } => host.id !== "other" && host.id !== "cursor-agent",
+  ).map((host) => [host.docsHash, assistantDestinationHash(host.id)]),
 );
-
-export const MCP_CLIENT_TABS: ReadonlyArray<{
-  id: McpDocsHash;
-  label: string;
-}> = (() => {
-  const seen = new Set<McpDocsHash>();
-  const tabs: Array<{ id: McpDocsHash; label: string }> = [];
-  for (const host of ASSISTANT_HOSTS_OFFERED) {
-    if (seen.has(host.docsHash)) continue;
-    seen.add(host.docsHash);
-    tabs.push({ id: host.docsHash, label: host.docsTabLabel });
-  }
-  return tabs;
-})();
 
 /**
  * v1 stored `claude` for Claude Code. Map that onto `claude-code` so an
