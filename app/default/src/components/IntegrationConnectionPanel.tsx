@@ -17,6 +17,7 @@ import { CircleAlert } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {
   ACCOUNT_NAME_FALLBACK,
+  OTHER_SIGN_IN_METHODS_LABEL,
   SIGNING_IN_LABEL,
   SIGN_IN_DETAILS_HEADING,
   connectionForAppAriaLabel,
@@ -46,7 +47,6 @@ import {
   disconnectConfirmAccountLabel,
   USE_ACCOUNT_LABEL,
   DEFAULT_ACCOUNT_LABEL,
-  OTHER_CONNECTION_METHODS_LABEL,
   connectionPanelAttention,
   connectionMethodTitle,
   connectionMethodPurpose,
@@ -1024,12 +1024,13 @@ export default function IntegrationConnectionPanel({
                     className="group w-auto max-w-none justify-start gap-inline-glyph rounded-md px-2.5 py-2 font-normal text-muted-foreground"
                   >
                     <ChevronDownIcon
+                      aria-hidden
                       className={cn(
                         disclosureCaretClassName,
                         "size-inline-glyph stroke-inline-glyph text-current",
                       )}
                     />
-                    {OTHER_CONNECTION_METHODS_LABEL}
+                    {OTHER_SIGN_IN_METHODS_LABEL}
                   </CollapsibleTrigger>
                   <CollapsibleContent className="space-y-3 pt-3">
                     {otherConnections.map((connection) =>

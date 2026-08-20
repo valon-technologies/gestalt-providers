@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 
+import { OTHER_SIGN_IN_METHODS_LABEL } from "@/lib/accountCopy";
 import type { Integration } from "@/lib/api";
 import { normalizeIntegrationStatus } from "@/lib/integrationStatus";
 import {
@@ -19,7 +20,6 @@ import {
   USE_ACCOUNT_LABEL,
   DEFAULT_ACCOUNT_LABEL,
   IN_USE_LABEL,
-  OTHER_CONNECTION_METHODS_LABEL,
   connectionMethodKind,
   connectionMethodTitle,
   connectionMethodPurpose,
@@ -381,7 +381,7 @@ describe("connection surface copy", () => {
     expect(connectionMethodKind(byKey.PAT!)).toBe("pat");
     expect(connectionMethodTitle(byKey.MCP!)).toBe("MCP");
     expect(connectionMethodTitle(byKey.OAuth!)).toBe("OAuth");
-    expect(connectionMethodPurpose(byKey.ApiKey!)).toMatch(/Internal integration secret/);
+    expect(connectionMethodPurpose(byKey.ApiKey!)).toMatch(/Enter an API key/);
     expect(connectionMethodPurpose(byKey.MCP!)).toMatch(/assistants/);
     expect(connectionMethodPurpose(byKey.OAuth!)).toMatch(/API access/);
     expect(connectionMethodPurpose(byKey.PAT!)).toMatch(/user token/);
@@ -467,7 +467,7 @@ describe("connection surface copy", () => {
     const partitioned = partitionConnectionMethods(status.connections);
     expect(partitioned.primary.map((c) => c.key)).toEqual(["MCP", "OAuth"]);
     expect(partitioned.other.map((c) => c.key)).toEqual(["ApiKey", "PAT"]);
-    expect(OTHER_CONNECTION_METHODS_LABEL).toBe("Other sign-in methods");
+    expect(OTHER_SIGN_IN_METHODS_LABEL).toBe("Other sign-in methods");
   });
 
   test("reconnect keeps unused methods visible instead of collapsing them", () => {

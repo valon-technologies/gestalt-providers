@@ -34,9 +34,7 @@ import {
 import { appPath } from "@/lib/mount";
 import { appIsConnectedCopy } from "@/lib/oauthConnectConfirm";
 import {
-  CONNECTION_CONNECTED_LABEL,
-} from "@/features/app-workspace/connection-surface-copy";
-import {
+  APP_CONNECTED_LABEL,
   APPS_CATALOG_DESCRIPTION,
   APPS_CONNECTED_BUCKET_DESCRIPTION,
 } from "@/lib/accountCopy";
@@ -100,9 +98,8 @@ import {
 } from "@/lib/buildPaths";
 import {
   SETUP_RESUME_BANNER_BODY,
-  SETUP_RESUME_BANNER_TITLE,
 } from "@/lib/assistantConnectionCopy";
-import { RESUME_SETUP_LABEL, DISMISS_SETUP_REMINDER_LABEL } from "@/lib/setupJourneyCopy";
+import { FINISH_SETUP_LABEL, RESUME_SETUP_LABEL, DISMISS_SETUP_REMINDER_LABEL } from "@/lib/setupJourneyCopy";
 import {
   APPS_CATALOG_UNAVAILABLE,
   CONNECTION_STATUS_UNAVAILABLE,
@@ -293,7 +290,7 @@ export default function AppsCatalogPageClient() {
     if (installed.length > 0) {
       sections.push({
         id: "catalog-bucket-installed",
-        label: CONNECTION_CONNECTED_LABEL,
+        label: APP_CONNECTED_LABEL,
       });
     }
     for (const { bucket } of catalogSections) {
@@ -453,7 +450,7 @@ export default function AppsCatalogPageClient() {
               onNavSectionSelect("catalog-bucket-installed");
             }}
           >
-            <NavListItemLabel>{CONNECTION_CONNECTED_LABEL}</NavListItemLabel>
+            <NavListItemLabel>{APP_CONNECTED_LABEL}</NavListItemLabel>
           </NavListItem>
         ) : null}
         {catalogSections.length > 0 ? (
@@ -552,7 +549,7 @@ export default function AppsCatalogPageClient() {
           <div className="mb-6 space-y-3">
             {showResumeBanner ? (
               <Callout variant="info" data-testid="setup-resume-banner">
-                <AlertTitle>{SETUP_RESUME_BANNER_TITLE}</AlertTitle>
+                <AlertTitle>{FINISH_SETUP_LABEL}</AlertTitle>
                 <AlertDescription>{SETUP_RESUME_BANNER_BODY}</AlertDescription>
                 <AlertActions>
                   <UiButton variant="secondary" size="sm" asChild>
@@ -720,7 +717,7 @@ export default function AppsCatalogPageClient() {
               >
                 <CatalogBucketSectionHeader
                   id="catalog-bucket-installed"
-                  title={CONNECTION_CONNECTED_LABEL}
+                  title={APP_CONNECTED_LABEL}
                   description={APPS_CONNECTED_BUCKET_DESCRIPTION}
                 />
                 <div className="grid grid-cols-1 items-stretch gap-6 sm:grid-cols-2">

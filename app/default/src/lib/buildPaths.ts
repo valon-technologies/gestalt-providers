@@ -183,7 +183,7 @@ Ready for a new attempt when you are.`,
 ];
 
 /** Address-bar path for a Setup step. Welcome is the journey index. */
-export function connectStepHref(stepId: BuildStepId): string {
+export function setupStepHref(stepId: BuildStepId): string {
   return stepId === "welcome" ? SETUP_PATH : `${SETUP_PATH}/${stepId}`;
 }
 
@@ -197,7 +197,7 @@ export const BUILD_STEPS: BuildStep[] = [
     description:
       "Set up the assistant you already use so it can use your company’s apps, with your permission.",
     ctaLabel: "Choose your assistant",
-    to: connectStepHref("welcome"),
+    to: setupStepHref("welcome"),
     isComplete: (snapshot) => snapshot.welcomeSeen,
   },
   {
@@ -205,7 +205,7 @@ export const BUILD_STEPS: BuildStep[] = [
     title: "Choose your assistant",
     description: ASSISTANT_PICKER_DESCRIPTION,
     ctaLabel: "Continue",
-    to: connectStepHref("assistant"),
+    to: setupStepHref("assistant"),
     isComplete: (snapshot) => isBuildInstallAgentId(snapshot.installAgentId),
   },
   {
@@ -213,7 +213,7 @@ export const BUILD_STEPS: BuildStep[] = [
     title: "Create a token",
     description: TOKEN_STEP_DESCRIPTION,
     ctaLabel: "Continue",
-    to: connectStepHref("token"),
+    to: setupStepHref("token"),
     isComplete: (snapshot) => buildMcpCredentialReady(snapshot),
   },
   {
@@ -221,7 +221,7 @@ export const BUILD_STEPS: BuildStep[] = [
     title: `Add ${SETUP_PRODUCT_NAME}`,
     description: `Add ${SETUP_PRODUCT_NAME} so your assistant can reach this workspace.`,
     ctaLabel: "Continue",
-    to: connectStepHref("install"),
+    to: setupStepHref("install"),
     isComplete: (snapshot) =>
       mcpInstalledForAgent(snapshot.mcpInstalledAgents, snapshot.installAgentId),
   },
@@ -231,7 +231,7 @@ export const BUILD_STEPS: BuildStep[] = [
     description:
       "Pick the apps your assistant can use. Connect at least one to continue.",
     ctaLabel: "Continue",
-    to: connectStepHref("apps"),
+    to: setupStepHref("apps"),
     isComplete: (snapshot) => setupAppsStepComplete(snapshot),
   },
   {
@@ -240,7 +240,7 @@ export const BUILD_STEPS: BuildStep[] = [
     description:
       "Paste a test prompt in your assistant and see it use this workspace.",
     ctaLabel: "Browse apps",
-    to: connectStepHref("try"),
+    to: setupStepHref("try"),
     isComplete: (snapshot) => snapshot.trySeen,
   },
 ];

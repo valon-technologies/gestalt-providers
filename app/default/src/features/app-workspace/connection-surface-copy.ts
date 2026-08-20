@@ -1,10 +1,6 @@
 import {
   ACCOUNT_NAME_FALLBACK,
-  APP_CONNECTED_LABEL,
-  CONNECTION_NAV_LABEL,
   CONNECTION_SURFACE_TITLE,
-  MANAGE_CONNECTION_LABEL,
-  OTHER_SIGN_IN_METHODS_LABEL,
   connectAppActionLabel,
   connectAppDialogTitle,
 } from "@/lib/accountCopy";
@@ -39,21 +35,15 @@ import type { AccountIdentity, IdentityFact, Integration } from "@/lib/api";
  * silence or "Ready". Actionable auth states own Connect {app} / Connection copy.
  * Setup is the assistant journey, not this surface.
  */
-export { CONNECTION_SURFACE_TITLE };
-
-export const CONNECTION_SURFACE_NAV_LABEL = CONNECTION_NAV_LABEL;
 
 /**
  * Happy-path credential state. Overview Status, catalog checkmark, and the
- * catalog “already connected” browse section. Pair with “Not connected”.
+ * catalog "already connected" browse section. Pair with "Not connected".
  */
-export const CONNECTION_CONNECTED_LABEL = APP_CONNECTED_LABEL;
+export { CONNECTION_SURFACE_TITLE };
 
 /** Preferred-account badge. Scoped to a method when more than one method is in use. */
 export const IN_USE_LABEL = "In use" as const;
-
-/** Disclosure for unused connectable methods once something is already linked. */
-export const OTHER_CONNECTION_METHODS_LABEL = OTHER_SIGN_IN_METHODS_LABEL;
 
 export type ConnectionMethodKind =
   | "mcp"
@@ -94,7 +84,7 @@ export function connectionMethodTitle(
 export function connectionMethodShortName(
   connection: NormalizedConnection,
 ): string {
-  return humanizeConnectionName(connection.label);
+  return connectionMethodTitle(connection);
 }
 
 /**
@@ -113,7 +103,7 @@ export function connectionMethodPurpose(
     case "oauth":
       return "Sign in for API access from this workspace.";
     case "api_key":
-      return "Internal integration secret for API calls from this workspace.";
+      return "Enter an API key so this workspace can call the API.";
     case "pat":
       return "Your user token for API calls. Rotate it before it expires.";
     case "manual":
@@ -599,9 +589,6 @@ export function disconnectConfirmAccountLabel(args: {
 /** Overview blurb when the app has a credential/connection surface. */
 export const CONNECTION_ACCESS_BLURB =
   "Manage connected accounts and which one this workspace uses." as const;
-
-/** Overview secondary CTA when already connected (no Connect {app} / Sign in again). */
-export { MANAGE_CONNECTION_LABEL };
 
 /** Per-account primary action when multiple instances need an active choice. */
 export const USE_ACCOUNT_LABEL = "Use this account" as const;

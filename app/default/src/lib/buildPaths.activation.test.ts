@@ -24,6 +24,7 @@ import {
   setupAppsHasConnectable,
   setupAppsStepComplete,
   setupDataSourceIntegrations,
+  setupStepHref,
   tryStepCatalogApp,
   type BuildWorkspaceSnapshot,
 } from "@/lib/buildPaths";
@@ -559,67 +560,80 @@ describe("mcpInstalledForAgent", () => {
   });
 });
 
+describe("setupStepHref", () => {
+  test("Setup step URLs live under /setup", () => {
+    expect(setupStepHref("welcome")).toBe("/setup");
+    expect(setupStepHref("apps")).toBe("/setup/apps");
+    expect(BUILD_STEPS.every((step) => step.to.startsWith("/setup"))).toBe(
+      true,
+    );
+  });
+});
+
 describe("resolveCatalogApp", () => {
   test("uses the live catalog name when Setup's journey id differs", () => {
     const catalog: Integration = {
-      name: "ai-spend-tracker",
-      displayName: "AI Spend Tracker",
-      description: "Personal AI spend",
-      mountedPath: "/ai-spend",
+      name: "example-app",
+      displayName: "Example App",
+      description: "Personal example",
+      mountedPath: "/example-app",
       credentialState: "not_required",
       status: "ready",
     };
     expect(
-      resolveCatalogApp([catalog], "aiSpendTracker", "/ai-spend")?.name,
-    ).toBe("ai-spend-tracker");
+      resolveCatalogApp([catalog], "exampleApp", "/example-app")?.name,
+    ).toBe("example-app");
   });
 
   test("prefers an exact catalog name over a folded match", () => {
     const exact: Integration = {
-      name: "aiSpendTracker",
+      name: "exampleApp",
       displayName: "Exact",
       description: "",
     };
     const kebab: Integration = {
-      name: "ai-spend-tracker",
+      name: "example-app",
       displayName: "Kebab",
       description: "",
-      mountedPath: "/ai-spend",
+      mountedPath: "/example-app",
     };
-    expect(resolveCatalogApp([kebab, exact], "aiSpendTracker")?.name).toBe(
-      "aiSpendTracker",
+    expect(resolveCatalogApp([kebab, exact], "exampleApp")?.name).toBe(
+      "exampleApp",
     );
   });
 
   test("matches a known mount when names do not fold together", () => {
     const catalog: Integration = {
-      name: "valon-sats",
-      displayName: "Valon SATs",
+      name: "example-quiz",
+      displayName: "Example Quiz",
       description: "",
-      mountedPath: "/servicing-quiz",
+      mountedPath: "/example-quiz",
     };
     expect(
-      resolveCatalogApp([catalog], "servicingQuiz", "/servicing-quiz")?.name,
-    ).toBe("valon-sats");
+      resolveCatalogApp([catalog], "exampleJourney", "/example-quiz")?.name,
+    ).toBe("example-quiz");
   });
 
   test("returns undefined when the workspace has no such app", () => {
     expect(
       resolveCatalogApp(
         [{ name: "slack", displayName: "Slack", description: "" }],
-        "aiSpendTracker",
-        "/ai-spend",
+        "exampleApp",
+        "/example-app",
       ),
     ).toBeUndefined();
   });
 });
 
 describe("companionAppLabel", () => {
-  test("uses the same label for camelCase and kebab-case catalog ids", () => {
-    expect(companionAppLabel("aiSpendTracker")).toBe("AI Spend Tracker");
-    expect(companionAppLabel("ai-spend-tracker")).toBe("AI Spend Tracker");
-    expect(companionAppLabel("talentTeam")).toBe("Talent Team");
-    expect(companionAppLabel("talent-team")).toBe("Talent Team");
+  test("known public apps keep a readable label", () => {
+    expect(companionAppLabel("slack")).toBe("Slack");
+    expect(companionAppLabel("pagerduty")).toBe("PagerDuty");
+  });
+
+  test("unknown ids fall back to the raw id", () => {
+    expect(companionAppLabel("example-app")).toBe("example-app");
+    expect(companionAppLabel("exampleApp")).toBe("exampleApp");
   });
 });
 
@@ -628,8 +642,8 @@ describe("tryStepCatalogApp", () => {
     expect(
       tryStepCatalogApp({
         catalog: {
-          name: "ai-spend-tracker",
-          displayName: "AI Spend Tracker",
+          name: "example-app",
+          displayName: "Example App",
           description: "Live description",
           iconSvg: "<svg></svg>",
           credentialState: "connected",
@@ -637,14 +651,14 @@ describe("tryStepCatalogApp", () => {
         },
         label: "Fallback",
         description: "Fallback copy",
-        mountedPath: "/ai-spend",
+        mountedPath: "/example-app",
       }),
     ).toMatchObject({
-      name: "ai-spend-tracker",
-      displayName: "AI Spend Tracker",
+      name: "example-app",
+      displayName: "Example App",
       description: "Live description",
       iconSvg: "<svg></svg>",
-      mountedPath: "/ai-spend",
+      mountedPath: "/example-app",
     });
   });
 });

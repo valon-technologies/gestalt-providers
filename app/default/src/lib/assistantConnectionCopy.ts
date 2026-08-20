@@ -1,5 +1,3 @@
-import { FINISH_SETUP_LABEL } from "./setupJourneyCopy";
-
 /** Canonical copy for Gestalt MCP vs native plugins vs assistant skills. */
 
 export const MCP_DOCS_TITLE = "MCP setup";
@@ -12,8 +10,6 @@ export const ASSISTANT_PICKER_DESCRIPTION =
 
 export const TOKEN_STEP_DESCRIPTION =
   "Your assistant uses this token to reach Gestalt. Setup fills it into the install commands for you.";
-
-export const SETUP_RESUME_BANNER_TITLE = FINISH_SETUP_LABEL;
 
 export const SETUP_RESUME_BANNER_BODY = "Pick up where you left off.";
 

@@ -4,7 +4,7 @@ import type { ConnectionContext } from "@/lib/integrationStatus";
  * Jobs this App Card instance offers. Install state still decides whether a
  * job can appear (Open app only when mounted, More only when connected).
  *
- * - `manage` — Apps store: Add, Open app, More (Remove)
+ * - `manage` — Apps store: Connect, Open app, More (Remove)
  * - `connect` — Setup Connect: Connect / connected mark
  * - `launch` — Setup Try: Open app, no More, no Add
  */

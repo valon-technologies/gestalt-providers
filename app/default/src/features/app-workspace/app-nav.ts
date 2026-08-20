@@ -1,5 +1,5 @@
 import { APP_METRICS_NAV_LABEL } from "./app-metrics-copy";
-import { CONNECTION_SURFACE_NAV_LABEL } from "./connection-surface-copy";
+import { CONNECTION_NAV_LABEL } from "@/lib/accountCopy";
 import {
   SERVICE_ACCOUNTS_COPY,
   SERVICE_ACCOUNTS_LEGACY_PATH_SEGMENT,
@@ -38,7 +38,7 @@ export const APP_USER_NAV = [
   },
   {
     id: "connection" as const,
-    label: CONNECTION_SURFACE_NAV_LABEL,
+    label: CONNECTION_NAV_LABEL,
     to: "/apps/$app/connection" as const,
     /** Shown only when {@link appShowsCredentialSurface} is true. */
     when: "hasCredentialSurface" as const,

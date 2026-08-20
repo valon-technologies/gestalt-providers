@@ -36,6 +36,7 @@ import {
   SETUP_STEPS_ARIA_LABEL,
   SETUP_STEP_NAV_ARIA_LABEL,
   SWITCH_ASSISTANTS_NAV_HINT,
+  SETUP_MISSING_APPS_ADMIN_HINT,
 } from "./setupJourneyCopy";
 
 const SETUP_FAMILY_STRINGS = [
@@ -48,6 +49,7 @@ const SETUP_FAMILY_STRINGS = [
   AFTER_SETUP_ARIA_LABEL,
   LOADING_SETUP_LABEL,
   DISMISS_SETUP_REMINDER_LABEL,
+  SETUP_MISSING_APPS_ADMIN_HINT,
 ];
 
 const APP_CONNECTION_STRINGS = [
@@ -102,6 +104,9 @@ describe("copy families", () => {
     expect(CONNECTION_NAV_LABEL).toBe("Connection");
     expect(appConnectedCopy("Slack")).toBe("Slack is connected.");
     expect(appDisconnectedCopy("Slack")).toBe("Slack is disconnected.");
+    expect(CONNECTION_STATUS_UNAVAILABLE).toBe(
+      "Couldn't load connection status. Try again.",
+    );
   });
 
   test("Setup chrome does not collide with app Connect copy", () => {

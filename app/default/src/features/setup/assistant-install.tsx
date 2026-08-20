@@ -182,9 +182,11 @@ function RecipeSteps({
 function ClaudeConnectorRecipe({
   mcpUrl,
   bearerValue,
+  apiToken,
 }: {
   mcpUrl: string;
   bearerValue: string;
+  apiToken: string;
 }) {
   return (
     <div className="space-y-4">
@@ -210,7 +212,13 @@ function ClaudeConnectorRecipe({
         <li className="space-y-2">
           <span className="block">{CLAUDE_INSTALL_REQUEST_HEADER}</span>
           <div className={SETUP_TYPESET_CHROME_CLASS}>
-            <CopyableCode value={bearerValue} tooltip="Copy Authorization value" />
+            <CopyableCode
+              value={bearerValue}
+              tooltip="Copy Authorization value"
+              sensitive
+              secrets={[apiToken]}
+              {...INSTALL_SECRET_REVEAL}
+            />
           </div>
         </li>
         <li>{CLAUDE_INSTALL_ENABLE}</li>
@@ -375,6 +383,7 @@ function ClaudeInstallRecipe({ mcpUrl, apiToken }: HostInstallRecipeProps) {
     <ClaudeConnectorRecipe
       mcpUrl={mcpUrl}
       bearerValue={gestaltMcpBearerValue(apiToken)}
+      apiToken={apiToken}
     />
   );
 }

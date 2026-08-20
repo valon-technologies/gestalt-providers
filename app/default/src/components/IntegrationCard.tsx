@@ -44,8 +44,9 @@ import {
 } from "@/lib/row-link";
 import { useIntegrationConnection } from "@/hooks/useIntegrationConnection";
 import { cn } from "@/lib/cn";
-import { CONNECTION_CONNECTED_LABEL, MANAGE_CONNECTION_LABEL } from "@/features/app-workspace/connection-surface-copy";
 import {
+  APP_CONNECTED_LABEL,
+  MANAGE_CONNECTION_LABEL,
   SIGN_IN_AGAIN_LABEL,
   connectAppActionLabel,
   signInAgainActionAriaLabel,
@@ -57,7 +58,6 @@ import { CircleAlert } from "lucide-react";
 import IntegrationIcon from "./IntegrationIcon";
 import {
   MoreHorizontalIcon,
-  PlusIcon,
   TrashIcon,
 } from "./icons";
 import IntegrationSettingsModal from "./IntegrationSettingsModal";
@@ -466,12 +466,12 @@ export default function IntegrationCard({
                         status="success"
                         size={compact ? "sm" : "md"}
                         iconOnly
-                        label={CONNECTION_CONNECTED_LABEL}
+                        label={APP_CONNECTED_LABEL}
                       />
                     </span>
                   </TooltipTrigger>
                   <TooltipContent side="top">
-                    {CONNECTION_CONNECTED_LABEL}
+                    {APP_CONNECTED_LABEL}
                   </TooltipContent>
                 </Tooltip>
               ) : null}
@@ -544,23 +544,16 @@ export default function IntegrationCard({
               ) : null}
 
               {showAddButton ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="inline-flex">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        loading={connection.loading}
-                        aria-label={connectActionAriaLabel}
-                        onClick={() => void beginConnect()}
-                      >
-                        <PlusIcon />
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">{connectActionLabel}</TooltipContent>
-                </Tooltip>
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  loading={connection.loading}
+                  aria-label={connectActionAriaLabel}
+                  onClick={() => void beginConnect()}
+                >
+                  {connectActionLabel}
+                </Button>
               ) : null}
             </TooltipProvider>
           </div>

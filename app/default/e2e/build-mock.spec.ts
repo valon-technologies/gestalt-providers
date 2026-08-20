@@ -12,6 +12,8 @@ import {
   mockAppsDirectoryUnavailable,
   mockAppConnectionsUnavailable,
 } from "./fixtures";
+import { maskCopyableValue } from "../src/components/ui/copyable-code";
+import { CONNECTION_STATUS_UNAVAILABLE } from "../src/lib/accountCopy";
 import type { Page } from "@playwright/test";
 
 const catalogFixtures = [
@@ -152,10 +154,6 @@ const defaultToken = {
   scopes: ["api"],
   createdAt: "2026-04-13T00:00:00Z",
 };
-
-function maskedCopyableSecret(value: string): string {
-  return `${value.slice(0, 4)}${"*".repeat(value.length - 8)}${value.slice(-4)}`;
-}
 
 function withConnectedConnection<T extends { name: string }>(item: T) {
   return {
@@ -509,7 +507,7 @@ test.describe("Setup page", () => {
     await expect(otherRecipe).toBeVisible();
     await expect(otherRecipe).toContainText("/mcp");
     await expect(otherRecipe).toContainText(
-      `Bearer ${maskedCopyableSecret("gst_api_test_token_for_install")}`,
+      `Bearer ${maskCopyableValue("gst_api_test_token_for_install")}`,
     );
     await expect(otherRecipe).not.toContainText("gst_api_test_token_for_install");
     await expect(otherRecipe.getByRole("button", { name: "Show token" })).toHaveCount(
@@ -566,7 +564,7 @@ test.describe("Setup page", () => {
     );
     const createdSecret = page.getByTestId("build-token-created-secret");
     await expect(createdSecret).toContainText(
-      maskedCopyableSecret("gst_api_created_once_secret"),
+      maskCopyableValue("gst_api_created_once_secret"),
     );
     await expect(createdSecret).not.toContainText("gst_api_created_once_secret");
     await createdSecret.getByRole("button", { name: "Show token" }).click();
@@ -640,7 +638,7 @@ test.describe("Setup page", () => {
     );
     const createdSecret = page.getByTestId("build-token-created-secret");
     await expect(createdSecret).toContainText(
-      maskedCopyableSecret("gst_api_created_once_secret"),
+      maskCopyableValue("gst_api_created_once_secret"),
     );
     await expect(createdSecret).not.toContainText("gst_api_created_once_secret");
     await createdSecret.getByRole("button", { name: "Show token" }).click();
@@ -692,7 +690,7 @@ test.describe("Setup page", () => {
     );
     const firstSecret = page.getByTestId("build-token-created-secret");
     await expect(firstSecret).toContainText(
-      maskedCopyableSecret("gst_api_first_secret"),
+      maskCopyableValue("gst_api_first_secret"),
     );
     await expect(firstSecret).not.toContainText("gst_api_first_secret");
     await firstSecret.getByRole("button", { name: "Show token" }).click();
@@ -714,7 +712,7 @@ test.describe("Setup page", () => {
     );
     const secondSecret = page.getByTestId("build-token-created-secret");
     await expect(secondSecret).toContainText(
-      maskedCopyableSecret("gst_api_second_secret"),
+      maskCopyableValue("gst_api_second_secret"),
     );
     await expect(secondSecret).not.toContainText("gst_api_second_secret");
     await secondSecret.getByRole("button", { name: "Show token" }).click();
@@ -1412,7 +1410,7 @@ test.describe("Setup page", () => {
     await expect(page.getByTestId("build-connect-app-slack")).toBeVisible();
     await expect(page.getByTestId("error-notice")).toBeVisible();
     await expect(
-      page.getByText("Unable to load connection status. Try again."),
+      page.getByText(CONNECTION_STATUS_UNAVAILABLE),
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Connect Slack" }),

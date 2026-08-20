@@ -26,6 +26,8 @@ describe("IntegrationCard navigation contract", () => {
     expect(SOURCE).toContain('actions = "manage"');
     expect(SOURCE).toContain("policy.density === \"compact\"");
     expect(SOURCE).toContain("connectActionLabel = connectLabel ?? connectAppActionLabel(label)");
+    expect(SOURCE).toContain("{connectActionLabel}");
+    expect(SOURCE).not.toContain("PlusIcon");
     expect(SOURCE).toContain("connectAppActionLabel(label)");
     expect(SOURCE).toContain("signInAgainActionAriaLabel(label)");
     expect(SOURCE).toContain(
@@ -67,7 +69,7 @@ describe("IntegrationCard navigation contract", () => {
     expect(SOURCE).toContain("OutcomeStatusIndicator");
     expect(SOURCE).toContain('status="success"');
     expect(SOURCE).toContain("iconOnly");
-    expect(SOURCE).toContain("CONNECTION_CONNECTED_LABEL");
+    expect(SOURCE).toContain("APP_CONNECTED_LABEL");
     expect(SOURCE).not.toContain("SelectionCheck");
   });
 

@@ -18,4 +18,4 @@
  * `size-4`, `ml-2`, or `opacity-50`.
  */
 export const disclosureCaretClassName =
-  "shrink-0 transition-transform duration-overshoot ease-out-back group-data-[state=open]:rotate-180 group-aria-expanded:rotate-180";
+  "shrink-0 transition-transform duration-overshoot ease-out-back motion-reduce:transition-none group-data-[state=open]:rotate-180 group-aria-expanded:rotate-180";

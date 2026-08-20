@@ -1,7 +1,10 @@
 import { test, expect, mockIntegrations, mockManualConnect, mockTokens, clickOpensOAuthPopup, mockAppsDirectoryUnavailable, mockAppConnectionsUnavailable } from "./fixtures";
 import type { Locator, Page } from "@playwright/test";
 import type { Integration } from "../src/lib/api";
-import { connectAppActionLabel } from "../src/lib/accountCopy";
+import {
+  CONNECTION_STATUS_UNAVAILABLE,
+  connectAppActionLabel,
+} from "../src/lib/accountCopy";
 
 async function openAppConnection(page: Page, appName: string) {
   await page.goto(`/apps/${appName}/connection`);
@@ -415,7 +418,7 @@ test.describe("Integrations", () => {
     await expect(page.getByText("OAuth Service")).toBeVisible();
     await expect(page.getByTestId("error-notice")).toBeVisible();
     await expect(
-      page.getByText("Unable to load connection status. Try again."),
+      page.getByText(CONNECTION_STATUS_UNAVAILABLE),
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Connect OAuth Service" }),
@@ -449,7 +452,7 @@ test.describe("Integrations", () => {
     await page.goto("/apps/manual-svc/connection");
     await expect(page.getByTestId("error-notice")).toBeVisible();
     await expect(
-      page.getByText("Unable to load connection status. Try again."),
+      page.getByText(CONNECTION_STATUS_UNAVAILABLE),
     ).toBeVisible();
     await expect(page.getByTestId("app-admin-connection")).toHaveCount(0);
     await expect(

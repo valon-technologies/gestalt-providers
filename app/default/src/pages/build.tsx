@@ -131,7 +131,7 @@ import {
   isBuildComplete,
   isBuildStepId,
   isLegacySetupConnectStepId,
-  connectStepHref,
+  setupStepHref,
   resolveCatalogApp,
   resolveExemplarOpenPath,
   SETUP_PRODUCT_NAME,
@@ -163,6 +163,7 @@ import {
   SETUP_STEP_NAV_ARIA_LABEL,
   LOADING_SETUP_LABEL,
   SWITCH_ASSISTANTS_NAV_HINT,
+  SETUP_MISSING_APPS_ADMIN_HINT,
 } from "@/lib/setupJourneyCopy";
 import {
   assistantHostById,
@@ -1367,7 +1368,12 @@ function InvokeStepActions({
         mountedPath: open.kind === "mount" ? open.href : undefined,
       })
     : null;
-  const tryReturnPath = connectStepHref("try");
+  const tryReturnPath = setupStepHref("try");
+  const missingTryApps =
+    !featuredApp ||
+    exemplar.relatedAppIds.some(
+      (appId) => !resolveCatalogApp(integrations, appId),
+    );
   const invokeApp = resolveCatalogApp(
     integrations,
     exemplar.invokeAppId,
@@ -1514,6 +1520,11 @@ function InvokeStepActions({
             );
           })}
         </div>
+        {missingTryApps ? (
+          <p className="text-sm text-muted-foreground">
+            {SETUP_MISSING_APPS_ADMIN_HINT}
+          </p>
+        ) : null}
       </div>
     </div>
   );
@@ -1553,7 +1564,7 @@ function ConnectStepActions({
   const deferredQuery = useDeferredValue(query);
   const suggestedLabelId = useId();
   const moreLabelId = useId();
-  const returnPath = connectStepHref("apps");
+  const returnPath = setupStepHref("apps");
 
   async function refreshIntegrations() {
     await invalidateIntegrations();
@@ -1788,8 +1799,7 @@ function ConnectStepActions({
 
         {missingFromCatalog.length > 0 ? (
           <p className="text-sm text-muted-foreground">
-            Ask an admin to add missing apps to this workspace before you
-            continue.
+            {SETUP_MISSING_APPS_ADMIN_HINT}
           </p>
         ) : null}
         </div>

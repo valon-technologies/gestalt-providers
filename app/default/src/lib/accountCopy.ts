@@ -35,7 +35,7 @@ export const IDENTITY_CONNECTION_REQUIRED_LABEL =
 export const SIGN_IN_WITH_OAUTH_LABEL = "Sign in with OAuth" as const;
 
 export const CONNECTION_STATUS_UNAVAILABLE =
-  "Unable to load connection status. Try again." as const;
+  "Couldn't load connection status. Try again." as const;
 
 /** Human label when the API ships a `default` method/account slug. */
 export const ACCOUNT_NAME_FALLBACK = "Account" as const;
@@ -45,9 +45,8 @@ export function connectAppActionLabel(displayName: string): string {
   return `Connect ${displayName}`;
 }
 
-export function connectAppDialogTitle(displayName: string): string {
-  return connectAppActionLabel(displayName);
-}
+/** Dialog title uses the same Connect {app} string as the CTA. */
+export const connectAppDialogTitle = connectAppActionLabel;
 
 export function signInAgainActionAriaLabel(displayName: string): string {
   return `${SIGN_IN_AGAIN_LABEL} for ${displayName}`;

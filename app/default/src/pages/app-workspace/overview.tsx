@@ -39,10 +39,10 @@ import {
   PageHeaderTitle,
 } from "@/components/ui/page-header";
 import { OutcomeStatusIndicator } from "@/components/ui/outcome-status-indicator";
+import { MANAGE_CONNECTION_LABEL } from "@/lib/accountCopy";
 import { useAppWorkspace } from "@/features/app-workspace/app-workspace-context";
 import {
   CONNECTION_ACCESS_BLURB,
-  MANAGE_CONNECTION_LABEL,
   overviewConnectionAttention,
 } from "@/features/app-workspace/connection-surface-copy";
 

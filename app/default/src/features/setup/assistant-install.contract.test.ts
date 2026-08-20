@@ -45,6 +45,12 @@ describe("assistant install guidance", () => {
     );
   });
 
+  test("Claude connector Authorization value stays masked until revealed", () => {
+    expect(SOURCE).toContain("function ClaudeConnectorRecipe");
+    expect(SOURCE).toContain("sensitive");
+    expect(SOURCE).toContain("secrets={[apiToken]}");
+  });
+
   test("Claude Code Authorization header uses gestaltMcpBearerValue", () => {
     expect(SOURCE).toContain(
       '--header "Authorization: ${gestaltMcpBearerValue(apiToken)}"',

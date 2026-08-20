@@ -23,3 +23,6 @@ export const AFTER_SETUP_ARIA_LABEL = "After setup" as const;
 export const LOADING_SETUP_LABEL = "Loading Setup…" as const;
 
 export const DISMISS_SETUP_REMINDER_LABEL = "Dismiss setup reminder" as const;
+
+export const SETUP_MISSING_APPS_ADMIN_HINT =
+  "Ask an admin to add missing apps to this workspace before you continue." as const;
