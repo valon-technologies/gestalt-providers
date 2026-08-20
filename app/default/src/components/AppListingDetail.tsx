@@ -119,12 +119,12 @@ export default function AppListingDetail({
 
         {mountedPath ? (
           <p className="text-sm text-muted-foreground">
-            Has an app page. Open it after you connect.
+            Has an app page. Open it after you connect {label}.
           </p>
         ) : null}
 
         <p className="text-xs text-muted-foreground-soft">
-          Connecting lets this workspace use {label} with your credentials. You
+          Connect {label} so this workspace can use it with your credentials. You
           can disconnect anytime from settings.
         </p>
       </div>

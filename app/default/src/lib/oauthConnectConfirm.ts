@@ -5,6 +5,7 @@ import {
   type Integration,
 } from "@/lib/api";
 import { integrationsFromDirectory } from "@/lib/app-catalog";
+import { appConnectedCopy } from "@/lib/accountCopy";
 import { normalizeIntegrationStatus } from "@/lib/integrationStatus";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -17,7 +18,7 @@ export function isConnectedInCatalog(
 }
 
 export function appIsConnectedCopy(label: string): string {
-  return `${label} is connected.`;
+  return appConnectedCopy(label);
 }
 
 /**

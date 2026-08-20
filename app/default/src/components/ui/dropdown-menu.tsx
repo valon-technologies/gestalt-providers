@@ -21,7 +21,7 @@ function DropdownMenuCaret({ className, ...props }: React.ComponentProps<typeof 
   return (
     <ChevronDown
       aria-hidden
-      className={cn(disclosureCaretClassName, "ml-2", className)}
+      className={cn(disclosureCaretClassName, "stroke-inline-glyph text-current", className)}
       {...props}
     />
   );
@@ -159,7 +159,7 @@ const DropdownMenuLabel = React.forwardRef<
 >(({ className, inset, ...props }, ref) => (
   <DropdownMenuPrimitive.Label
     ref={ref}
-    className={cn("px-2 py-1.5 text-sm font-semibold", inset && "pl-8", className)}
+    className={cn("px-2 py-1.5 text-sm font-medium", inset && "pl-8", className)}
     {...props}
   />
 ));

@@ -12,3 +12,6 @@ export const SETUP_TOKEN_CREATE_TRACK = {
 
 /** Clears TimelineStepsContent’s description pull-up so the field group sits below the title. */
 export const SETUP_TOKEN_CREATE_CONTENT_CLASS = "mt-5";
+
+/** Completed secret: a short gap under the title, not the form’s field clearance. */
+export const SETUP_TOKEN_CREATED_CONTENT_CLASS = "mt-2";

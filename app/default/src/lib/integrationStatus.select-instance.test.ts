@@ -62,4 +62,31 @@ describe("normalizeIntegrationStatus preferred-account actions", () => {
     expect(status.connections[0]?.canSelectInstance).toBe(false);
     expect(status.connections[0]?.actions).not.toContain("select_instance");
   });
+
+  test("infers select_instance when the server lists other actions but omits it", () => {
+    const status = normalizeIntegrationStatus(
+      stub({
+        name: "user-actions-svc",
+        status: "ready",
+        credentialState: "connected",
+        connections: [
+          {
+            name: "workspace",
+            status: "ready",
+            credentialState: "connected",
+            authTypes: ["manual"],
+            actions: ["add_instance", "reconnect", "disconnect"],
+            instances: [
+              { name: "prod", connection: "workspace" },
+              { name: "staging", connection: "workspace" },
+            ],
+          },
+        ],
+      }),
+      "current_user",
+    );
+
+    expect(status.connections[0]?.canSelectInstance).toBe(true);
+    expect(status.connections[0]?.actions).toContain("select_instance");
+  });
 });

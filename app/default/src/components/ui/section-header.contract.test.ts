@@ -33,19 +33,24 @@ describe("SectionHeader", () => {
     expect(SOURCE).toContain("createHeaderChromeScale");
     expect(SOURCE).toContain('title: { kind: "section"');
     expect(SOURCE).toContain('alignBetweenItems: "sm:items-baseline"');
-    expect(SOURCE).toContain("SECTION_HEADER_ACTIONS_BASELINE_NUDGE");
-    expect(SOURCE).toContain(
+    expect(SOURCE).toContain('title: "font-sans text-base leading-none"');
+    expect(SOURCE).toContain('title: "font-sans text-heading-sm leading-none"');
+    expect(SOURCE).not.toContain("SECTION_HEADER_ACTIONS_BASELINE_NUDGE");
+    expect(SOURCE).not.toContain(
       "sm:[&:has([data-slot=section-header-content][data-size=sm])_[data-slot=section-header-actions]]:translate-y-1",
     );
     expect(SOURCE).toContain('title: "font-display text-heading-lg tracking-heading"');
     expect(SOURCE).toContain("SECTION_HEADER_ICON_STACK");
+    expect(SOURCE).toContain(
+      "[&:has([data-slot=section-header-content][data-size=xs])]:gap-y-1.5",
+    );
     expect(SOURCE).toContain(
       "[&:has([data-slot=section-header-content][data-size=default])]:gap-y-2.5",
     );
   });
 
   test("icon stack padding equals svg box + content gap per tier", () => {
-    for (const tier of ["sm", "lg", "default", "md"] as const) {
+    for (const tier of ["xs", "sm", "lg", "default", "md"] as const) {
       const { svg, gapY, textPad } = SECTION_HEADER_ICON_STACK[tier];
       expect(TW_PX[textPad]).toBe(SVG_PX[svg]! + TW_PX[gapY]!);
     }

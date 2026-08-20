@@ -182,6 +182,11 @@ Ready for a new attempt when you are.`,
   },
 ];
 
+/** Address-bar path for a Setup step. Welcome is the journey index. */
+export function setupStepHref(stepId: BuildStepId): string {
+  return stepId === "welcome" ? SETUP_PATH : `${SETUP_PATH}/${stepId}`;
+}
+
 /** Tenant-neutral product noun for Setup copy (deployments may override later). */
 export const SETUP_PRODUCT_NAME = "Gestalt";
 
@@ -190,9 +195,9 @@ export const BUILD_STEPS: BuildStep[] = [
     id: "welcome",
     title: "Welcome",
     description:
-      "Connect the assistant you already use to this workspace so it can use your company’s apps, with your permission.",
+      "Set up the assistant you already use so it can use your company’s apps, with your permission.",
     ctaLabel: "Choose your assistant",
-    to: `${SETUP_PATH}/welcome`,
+    to: setupStepHref("welcome"),
     isComplete: (snapshot) => snapshot.welcomeSeen,
   },
   {
@@ -200,7 +205,7 @@ export const BUILD_STEPS: BuildStep[] = [
     title: "Choose your assistant",
     description: ASSISTANT_PICKER_DESCRIPTION,
     ctaLabel: "Continue",
-    to: `${SETUP_PATH}/assistant`,
+    to: setupStepHref("assistant"),
     isComplete: (snapshot) => isBuildInstallAgentId(snapshot.installAgentId),
   },
   {
@@ -208,7 +213,7 @@ export const BUILD_STEPS: BuildStep[] = [
     title: "Create a token",
     description: TOKEN_STEP_DESCRIPTION,
     ctaLabel: "Continue",
-    to: `${SETUP_PATH}/token`,
+    to: setupStepHref("token"),
     isComplete: (snapshot) => buildMcpCredentialReady(snapshot),
   },
   {
@@ -216,7 +221,7 @@ export const BUILD_STEPS: BuildStep[] = [
     title: `Add ${SETUP_PRODUCT_NAME}`,
     description: `Add ${SETUP_PRODUCT_NAME} so your assistant can reach this workspace.`,
     ctaLabel: "Continue",
-    to: `${SETUP_PATH}/install`,
+    to: setupStepHref("install"),
     isComplete: (snapshot) =>
       mcpInstalledForAgent(snapshot.mcpInstalledAgents, snapshot.installAgentId),
   },
@@ -226,7 +231,7 @@ export const BUILD_STEPS: BuildStep[] = [
     description:
       "Pick the apps your assistant can use. Connect at least one to continue.",
     ctaLabel: "Continue",
-    to: `${SETUP_PATH}/apps`,
+    to: setupStepHref("apps"),
     isComplete: (snapshot) => setupAppsStepComplete(snapshot),
   },
   {
@@ -235,7 +240,7 @@ export const BUILD_STEPS: BuildStep[] = [
     description:
       "Paste a test prompt in your assistant and see it use this workspace.",
     ctaLabel: "Browse apps",
-    to: `${SETUP_PATH}/try`,
+    to: setupStepHref("try"),
     isComplete: (snapshot) => snapshot.trySeen,
   },
 ];
@@ -332,7 +337,7 @@ export function connectedAppIds(integrations: Integration[]): Set<string> {
 }
 
 /**
- * Setup Connect apps — only catalog rows that connect this workspace to an
+ * Connect apps — only catalog rows that connect this workspace to an
  * external data source (OAuth / API key). Native / mount-only products stay
  * in the store, not on this step.
  */
@@ -473,8 +478,46 @@ export function isActivationDue(args: {
   return true;
 }
 
+/**
+ * Fold catalog / Setup ids so `aiSpendTracker` and `ai-spend-tracker` match.
+ * Workspace catalog `name` is the store route identity; Setup journey ids
+ * are not always the same string.
+ */
+export function catalogAppIdKey(appId: string): string {
+  return appId.trim().toLowerCase().replace(/[-_]/g, "");
+}
+
+/**
+ * Live catalog row for a Setup app reference. Name match wins, then the
+ * same id with kebab/camel/snake differences, then a known mount path.
+ * Returns undefined when this workspace has no such app — callers must not
+ * invent a catalog `name` to navigate to.
+ */
+export function resolveCatalogApp(
+  integrations: Integration[],
+  appId: string,
+  mountedPath?: string,
+): Integration | undefined {
+  const want = appId.trim();
+  if (!want) return undefined;
+  const exact = integrations.find((item) => item.name === want);
+  if (exact) return exact;
+
+  const key = catalogAppIdKey(want);
+  if (key) {
+    const folded = integrations.find(
+      (item) => catalogAppIdKey(item.name) === key,
+    );
+    if (folded) return folded;
+  }
+
+  const mount = mountedPath?.trim();
+  if (!mount) return undefined;
+  return integrations.find((item) => item.mountedPath?.trim() === mount);
+}
+
 export function companionAppLabel(appId: string): string {
-  switch (appId) {
+  switch (catalogAppIdKey(appId)) {
     case "slack":
       return "Slack";
     case "pagerduty":
@@ -485,25 +528,25 @@ export function companionAppLabel(appId: string): string {
       return "Ashby";
     case "intercom":
       return "Intercom";
-    case "aiSpendTracker":
+    case "aispendtracker":
       return "AI Spend Tracker";
     case "oncall":
       return "Oncall";
-    case "servicingQuiz":
+    case "servicingquiz":
       return "Servicing Quiz";
-    case "learnPortal":
+    case "learnportal":
       return "Learn Portal";
-    case "trainingCurriculum":
+    case "trainingcurriculum":
       return "Training Curriculum";
-    case "modelProviderBillingMetrics":
+    case "modelproviderbillingmetrics":
       return "Model provider billing";
-    case "incident_io":
+    case "incidentio":
       return "incident.io";
     case "datadog":
       return "Datadog";
     case "rippling":
       return "Rippling";
-    case "talentTeam":
+    case "talentteam":
       return "Talent Team";
     default:
       return appId;
@@ -522,7 +565,7 @@ export function resolveExemplarOpenPath(
     return { href: exemplar.knownMountPath, kind: "mount" };
   }
   return {
-    href: `/apps/${encodeURIComponent(exemplar.id)}/admin`,
+    href: `/apps/${encodeURIComponent(integration?.name ?? exemplar.id)}/admin`,
     kind: "store",
   };
 }
@@ -530,29 +573,21 @@ export function resolveExemplarOpenPath(
 /**
  * Catalog Integration for a Try-step store tile. Live catalog fields win;
  * label, description, and known mount fill gaps so Setup never forks a
- * second card primitive.
+ * second card primitive. Requires a real catalog row — do not synthesize a
+ * `name` that `/apps/$app` cannot load.
  */
 export function tryStepCatalogApp(args: {
-  appId: string;
-  catalog?: Integration;
+  catalog: Integration;
   label: string;
   description: string;
   mountedPath?: string;
 }): Integration {
-  const { appId, catalog, label, description, mountedPath } = args;
-  if (catalog) {
-    return {
-      ...catalog,
-      displayName: catalog.displayName?.trim() || label,
-      description: catalog.description?.trim() || description,
-      mountedPath: catalog.mountedPath?.trim() || mountedPath,
-    };
-  }
+  const { catalog, label, description, mountedPath } = args;
   return {
-    name: appId,
-    displayName: label,
-    description,
-    mountedPath,
+    ...catalog,
+    displayName: catalog.displayName?.trim() || label,
+    description: catalog.description?.trim() || description,
+    mountedPath: catalog.mountedPath?.trim() || mountedPath,
   };
 }
 

@@ -97,7 +97,7 @@ describe("integration summaryLabel — credential absence silent", () => {
     expect(hasCredentialSurface(connected)).toBe(true);
   });
 
-  test("rejected stored login is Needs reconnect, not Connected or Not connected", () => {
+  test("rejected stored login is Needs sign-in, not Connected or Not connected", () => {
     const status = normalizeIntegrationStatus(
       stub({
         name: "notion",
@@ -120,8 +120,8 @@ describe("integration summaryLabel — credential absence silent", () => {
       }),
       "current_user",
     );
-    expect(status.summaryLabel).toBe("Needs reconnect");
-    expect(status.connections[0]?.summaryLabel).toBe("Needs reconnect");
+    expect(status.summaryLabel).toBe("Needs sign-in");
+    expect(status.connections[0]?.summaryLabel).toBe("Needs sign-in");
     expect(status.connections[0]?.canReconnect).toBe(true);
     expect(status.tone).toBe("danger");
   });

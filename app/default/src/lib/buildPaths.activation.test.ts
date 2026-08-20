@@ -9,6 +9,7 @@ import {
   buildStepDescription,
   buildStepTitle,
   catalogLoadStateFromQuery,
+  companionAppLabel,
   firstIncompleteStepId,
   isActivationDue,
   isBuildStepUnlocked,
@@ -17,11 +18,13 @@ import {
   isSetupTokenGrantId,
   isWorkspaceWarm,
   mcpInstalledForAgent,
+  resolveCatalogApp,
   setupAppsConnected,
   setupAppsContinueBlockedReason,
   setupAppsHasConnectable,
   setupAppsStepComplete,
   setupDataSourceIntegrations,
+  setupStepHref,
   tryStepCatalogApp,
   type BuildWorkspaceSnapshot,
 } from "@/lib/buildPaths";
@@ -325,11 +328,14 @@ describe("buildStepTitle", () => {
     expect(buildStepDescription(install, "cursor")).toBe(
       "Connect Cursor so it can use your Gestalt apps.",
     );
+    expect(buildStepDescription(install, "chatgpt")).toBe(
+      "Add Gestalt as a custom MCP in the ChatGPT app. You will paste a URL and a token.",
+    );
     expect(buildStepDescription(install, "codex")).toBe(
       "Run these commands in Terminal on the Mac where Codex is installed.",
     );
     expect(buildStepDescription(install, "cursor-agent")).toBe(
-      "Paste this into .cursor/mcp.json. Cursor Agent reads the same MCP config as Cursor.",
+      "Connect Cursor Agent so it can use your Gestalt apps.",
     );
     expect(buildStepDescription(install, "other")).toBe(
       "Use these MCP settings in any client that accepts a URL and an Authorization header.",
@@ -353,6 +359,17 @@ describe("buildStepTitle", () => {
     );
     expect(token.description).not.toContain("We only show");
     expect(token.description).not.toContain("coding agent");
+  });
+
+  test("welcome lives at /setup; later steps are /setup/$stepId", () => {
+    expect(BUILD_STEPS.map((step) => step.to)).toEqual([
+      "/setup",
+      "/setup/assistant",
+      "/setup/token",
+      "/setup/install",
+      "/setup/apps",
+      "/setup/try",
+    ]);
   });
 });
 
@@ -543,14 +560,90 @@ describe("mcpInstalledForAgent", () => {
   });
 });
 
+describe("setupStepHref", () => {
+  test("Setup step URLs live under /setup", () => {
+    expect(setupStepHref("welcome")).toBe("/setup");
+    expect(setupStepHref("apps")).toBe("/setup/apps");
+    expect(BUILD_STEPS.every((step) => step.to.startsWith("/setup"))).toBe(
+      true,
+    );
+  });
+});
+
+describe("resolveCatalogApp", () => {
+  test("uses the live catalog name when Setup's journey id differs", () => {
+    const catalog: Integration = {
+      name: "example-app",
+      displayName: "Example App",
+      description: "Personal example",
+      mountedPath: "/example-app",
+      credentialState: "not_required",
+      status: "ready",
+    };
+    expect(
+      resolveCatalogApp([catalog], "exampleApp", "/example-app")?.name,
+    ).toBe("example-app");
+  });
+
+  test("prefers an exact catalog name over a folded match", () => {
+    const exact: Integration = {
+      name: "exampleApp",
+      displayName: "Exact",
+      description: "",
+    };
+    const kebab: Integration = {
+      name: "example-app",
+      displayName: "Kebab",
+      description: "",
+      mountedPath: "/example-app",
+    };
+    expect(resolveCatalogApp([kebab, exact], "exampleApp")?.name).toBe(
+      "exampleApp",
+    );
+  });
+
+  test("matches a known mount when names do not fold together", () => {
+    const catalog: Integration = {
+      name: "example-quiz",
+      displayName: "Example Quiz",
+      description: "",
+      mountedPath: "/example-quiz",
+    };
+    expect(
+      resolveCatalogApp([catalog], "exampleJourney", "/example-quiz")?.name,
+    ).toBe("example-quiz");
+  });
+
+  test("returns undefined when the workspace has no such app", () => {
+    expect(
+      resolveCatalogApp(
+        [{ name: "slack", displayName: "Slack", description: "" }],
+        "exampleApp",
+        "/example-app",
+      ),
+    ).toBeUndefined();
+  });
+});
+
+describe("companionAppLabel", () => {
+  test("known public apps keep a readable label", () => {
+    expect(companionAppLabel("slack")).toBe("Slack");
+    expect(companionAppLabel("pagerduty")).toBe("PagerDuty");
+  });
+
+  test("unknown ids fall back to the raw id", () => {
+    expect(companionAppLabel("example-app")).toBe("example-app");
+    expect(companionAppLabel("exampleApp")).toBe("exampleApp");
+  });
+});
+
 describe("tryStepCatalogApp", () => {
   test("uses live catalog fields and fills mount and copy gaps", () => {
     expect(
       tryStepCatalogApp({
-        appId: "aiSpendTracker",
         catalog: {
-          name: "aiSpendTracker",
-          displayName: "AI Spend Tracker",
+          name: "example-app",
+          displayName: "Example App",
           description: "Live description",
           iconSvg: "<svg></svg>",
           credentialState: "connected",
@@ -558,29 +651,13 @@ describe("tryStepCatalogApp", () => {
         },
         label: "Fallback",
         description: "Fallback copy",
-        mountedPath: "/ai-spend",
-      }),
-    ).toMatchObject({
-      name: "aiSpendTracker",
-      displayName: "AI Spend Tracker",
-      description: "Live description",
-      iconSvg: "<svg></svg>",
-      mountedPath: "/ai-spend",
-    });
-  });
-
-  test("builds a catalog tile when the app is missing from the workspace", () => {
-    expect(
-      tryStepCatalogApp({
-        appId: "example-app",
-        label: "Example app",
-        description: "Open Example app in Gestalt.",
         mountedPath: "/example-app",
       }),
-    ).toEqual({
+    ).toMatchObject({
       name: "example-app",
-      displayName: "Example app",
-      description: "Open Example app in Gestalt.",
+      displayName: "Example App",
+      description: "Live description",
+      iconSvg: "<svg></svg>",
       mountedPath: "/example-app",
     });
   });

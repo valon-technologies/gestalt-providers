@@ -245,7 +245,10 @@ export function PeoplePicker({
             ) : null}
             <span className="truncate">{selectedLabel}</span>
           </span>
-          <ChevronDown aria-hidden className={cn(disclosureCaretClassName, "ml-2")} />
+          <ChevronDown
+            aria-hidden
+            className={cn(disclosureCaretClassName, "stroke-inline-glyph text-current")}
+          />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">

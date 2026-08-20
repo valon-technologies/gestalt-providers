@@ -2,7 +2,9 @@ import { describe, expect, test } from "vitest";
 import type { Integration } from "@/lib/api";
 import {
   catalogCardDescription,
+  filterIntegrations,
   getIntegrationLabel,
+  integrationMatchesQuery,
 } from "./integrationSearch";
 
 function stub(partial: Partial<Integration> & Pick<Integration, "name">): Integration {
@@ -51,5 +53,35 @@ describe("getIntegrationLabel", () => {
     expect(
       getIntegrationLabel(stub({ name: "slack", displayName: "Slack" })),
     ).toBe("Slack");
+  });
+});
+
+describe("integrationMatchesQuery", () => {
+  test("matches display name, plugin id, or description", () => {
+    const notion = stub({
+      name: "notion",
+      displayName: "Notion",
+      description: "Pages, databases, and MCP tools.",
+    });
+    expect(integrationMatchesQuery(notion, "Noti")).toBe(true);
+    expect(integrationMatchesQuery(notion, "notion")).toBe(true);
+    expect(integrationMatchesQuery(notion, "databases")).toBe(true);
+    expect(integrationMatchesQuery(notion, "slack")).toBe(false);
+  });
+});
+
+describe("filterIntegrations", () => {
+  test("keeps apps that contain every query token", () => {
+    const catalog = [
+      stub({ name: "notion", displayName: "Notion" }),
+      stub({ name: "slack", displayName: "Slack" }),
+    ];
+    expect(filterIntegrations(catalog, "not").map((app) => app.name)).toEqual([
+      "notion",
+    ]);
+    expect(filterIntegrations(catalog, "").map((app) => app.name)).toEqual([
+      "notion",
+      "slack",
+    ]);
   });
 });

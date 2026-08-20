@@ -43,6 +43,8 @@ import SettingsTokensSection from "@/components/SettingsTokensSection";
 import { canAccessAdminRoute, hasGrantedGestaltAdminAccess } from "@/features/admin-access/admin-access-gate";
 import { AdminLayout } from "@/features/admin-access/admin-layout";
 import { appBasepath } from "@/lib/mount";
+import { CONNECT_PATH, SETUP_PATH } from "@/lib/constants";
+import { LEGACY_SETUP_CONNECT_STEP_ID } from "@/lib/buildPaths";
 import { parseWorkflowRunsSearch } from "@/features/app-workflows/workflow-runs-list-query";
 import { rootRoute } from "./routes/__root";
 
@@ -60,7 +62,7 @@ function DocsGettingStartedRoute() {
 }
 
 function DocsConnectRoute() {
-  useDocumentTitle("Connect Apps");
+  useDocumentTitle("Connect apps");
   return <ConnectDocsPage />;
 }
 
@@ -204,21 +206,60 @@ const adminRegistryAppRedirectRoute = createRoute({
 
 const setupIndexRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/setup",
+  path: SETUP_PATH,
   component: BuildIndexRedirect,
 });
 
 const setupStepRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/setup/$stepId",
+  beforeLoad: ({ params }) => {
+    if (params.stepId === "welcome") {
+      throw redirect({ to: SETUP_PATH });
+    }
+    if (params.stepId === LEGACY_SETUP_CONNECT_STEP_ID) {
+      throw redirect({
+        to: "/setup/$stepId",
+        params: { stepId: "token" },
+      });
+    }
+  },
   component: BuildPage,
+});
+
+const connectIndexRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: CONNECT_PATH,
+  beforeLoad: () => {
+    throw redirect({ to: SETUP_PATH });
+  },
+});
+
+const connectStepRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/connect/$stepId",
+  beforeLoad: ({ params }) => {
+    if (params.stepId === "welcome") {
+      throw redirect({ to: SETUP_PATH });
+    }
+    if (params.stepId === LEGACY_SETUP_CONNECT_STEP_ID) {
+      throw redirect({
+        to: "/setup/$stepId",
+        params: { stepId: "token" },
+      });
+    }
+    throw redirect({
+      to: "/setup/$stepId",
+      params: { stepId: params.stepId },
+    });
+  },
 });
 
 const buildIndexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/build",
   beforeLoad: () => {
-    throw redirect({ to: "/setup" });
+    throw redirect({ to: SETUP_PATH });
   },
 });
 
@@ -226,6 +267,15 @@ const buildStepRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/build/$stepId",
   beforeLoad: ({ params }) => {
+    if (params.stepId === "welcome") {
+      throw redirect({ to: SETUP_PATH });
+    }
+    if (params.stepId === LEGACY_SETUP_CONNECT_STEP_ID) {
+      throw redirect({
+        to: "/setup/$stepId",
+        params: { stepId: "token" },
+      });
+    }
     throw redirect({
       to: "/setup/$stepId",
       params: { stepId: params.stepId },
@@ -592,6 +642,8 @@ const routeTree = rootRoute.addChildren([
     appAdminServiceAccountsRoute,
     appAdminAgentIdentitiesRedirectRoute,
   ]),
+  connectIndexRoute,
+  connectStepRoute,
   setupIndexRoute,
   setupStepRoute,
   buildIndexRoute,

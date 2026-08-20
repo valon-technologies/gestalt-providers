@@ -12,9 +12,8 @@ const SOURCE = readFileSync(
 
 describe("assistant install guidance", () => {
   test("token needed callout is standing help, not a live region", () => {
-    expect(SOURCE).toContain(
-      '<Callout variant="info" data-testid="build-install-token-needed">',
-    );
+    expect(SOURCE).toContain('data-testid="build-install-token-needed"');
+    expect(SOURCE).toContain("SETUP_TYPESET_CHROME_CLASS");
     expect(SOURCE).not.toContain("setup-overlap-callout");
     expect(SOURCE).not.toContain("live={false}");
     expect(SOURCE).toContain('from "@/components/ui/alert"');
@@ -36,12 +35,20 @@ describe("assistant install guidance", () => {
     expect(SOURCE).toContain('"size-12 shrink-0"');
     expect(SOURCE).not.toContain("ClaudeCodeIcon");
     expect(SOURCE).toContain("CursorAgentInstallRecipe");
+    expect(SOURCE).toContain("SETUP_TYPESET_CHROME_CLASS");
+    expect(SOURCE).not.toContain("list-decimal");
   });
 
   test("every assistant host has an install recipe", () => {
     expect(Object.keys(HOST_INSTALL_RECIPES).sort()).toEqual(
       ASSISTANT_HOSTS.map((host) => host.id).sort(),
     );
+  });
+
+  test("Claude connector Authorization value stays masked until revealed", () => {
+    expect(SOURCE).toContain("function ClaudeConnectorRecipe");
+    expect(SOURCE).toContain("sensitive");
+    expect(SOURCE).toContain("secrets={[apiToken]}");
   });
 
   test("Claude Code Authorization header uses gestaltMcpBearerValue", () => {
@@ -58,6 +65,8 @@ describe("assistant install guidance", () => {
     expect(SOURCE).toContain("gestaltMcpClientConfigJson");
     expect(SOURCE).toContain("gestaltMcpBearerValue");
     expect(SOURCE).toContain("function OtherInstallRecipe({ mcpUrl, apiToken }");
+    expect(SOURCE).toContain("secrets={[apiToken]}");
+    expect(SOURCE).toContain('revealLabel: "Show token"');
   });
 
   test("Cursor install is the one-click button; Cursor Agent keeps the paste recipe", () => {

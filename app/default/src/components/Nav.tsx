@@ -1,10 +1,10 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { clearSession, sessionDisplayLabel, sessionInitials } from "@/lib/auth";
-import { ADMIN_PATH, SETUP_PATH } from "@/lib/constants";
 import { appPath } from "@/lib/mount";
 import { useAuthInfoQuery, useAuthSessionQuery, useGestaltAdminQuery } from "@/lib/queries";
 import { canShowAdminNav } from "@/features/admin-access/admin-access-gate";
 import { AccountMenu } from "./AccountMenu";
+import { chromeProductNav } from "./chrome-nav";
 import {
   AppTopBar,
   AppTopBarBrand,
@@ -22,11 +22,6 @@ import {
 } from "./ui/navigation-menu";
 import { ThemeToggle } from "./ui/theme-toggle";
 
-const productLinks = [
-  { href: "/apps", label: "Apps" },
-  { href: SETUP_PATH, label: "Setup" },
-] as const;
-
 export default function Nav() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const sessionQuery = useAuthSessionQuery();
@@ -39,9 +34,7 @@ export default function Nav() {
     enabled: Boolean(displayLabel),
   });
   const showAdmin = canShowAdminNav(gestaltAdminQuery.data);
-  const links = showAdmin
-    ? [...productLinks, { href: ADMIN_PATH, label: "Admin" as const }]
-    : [...productLinks];
+  const links = chromeProductNav(showAdmin);
 
   async function handleLogout() {
     clearSession();
@@ -72,11 +65,11 @@ export default function Nav() {
             <NavigationMenuList>
               {links.map((link) => {
                 const isActive =
-                  pathname === link.href || pathname.startsWith(link.href + "/");
+                  pathname === link.to || pathname.startsWith(link.to + "/");
                 return (
-                  <NavigationMenuItem key={link.href}>
+                  <NavigationMenuItem key={link.to}>
                     <NavigationMenuLink asChild active={isActive}>
-                      <Link to={link.href}>{link.label}</Link>
+                      <Link to={link.to}>{link.label}</Link>
                     </NavigationMenuLink>
                   </NavigationMenuItem>
                 );

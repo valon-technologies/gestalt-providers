@@ -81,8 +81,8 @@ const columnHelper = createColumnHelper<APIToken>();
 const TOKEN_INVENTORY_COLUMN_WIDTHS = {
   name: "14rem",
   id: "12rem",
-  created: "8rem",
-  expires: "8rem",
+  created: "14rem",
+  expires: "14rem",
   actions: "6rem",
 } as const;
 
@@ -164,7 +164,7 @@ function TokenScopesCell({ token }: { token: APIToken }) {
                 aria-hidden
                 className={cn(
                   disclosureCaretClassName,
-                  "opacity-100 motion-reduce:transition-none",
+                  "stroke-inline-glyph text-current motion-reduce:transition-none",
                 )}
               />
             </CollapsibleTrigger>
@@ -238,25 +238,34 @@ export default function TokenTable({ tokens }: TokenTableProps) {
       }),
       columnHelper.accessor((row) => tokenCreatedAtMs(row), {
         id: "createdAt",
+        meta: { className: "whitespace-nowrap" },
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Created" />
         ),
         cell: ({ row }) => (
-          <span className="text-muted-foreground">
+          <time dateTime={row.original.createdAt} className="text-muted-foreground">
             {tokenCreatedLabel(row.original)}
-          </span>
+          </time>
         ),
       }),
       columnHelper.accessor((row) => tokenExpiresAtMs(row), {
         id: "expiresAt",
+        meta: { className: "whitespace-nowrap" },
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Expires" />
         ),
-        cell: ({ row }) => (
-          <span className="text-muted-foreground">
-            {tokenExpiresLabel(row.original)}
-          </span>
-        ),
+        cell: ({ row }) => {
+          const iso = row.original.expiresAt;
+          const label = tokenExpiresLabel(row.original);
+          if (!iso || !Number.isFinite(Date.parse(iso))) {
+            return <span className="text-muted-foreground">{label}</span>;
+          }
+          return (
+            <time dateTime={iso} className="text-muted-foreground">
+              {label}
+            </time>
+          );
+        },
       }),
       columnHelper.display({
         id: "actions",

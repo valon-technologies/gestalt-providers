@@ -62,9 +62,9 @@ describe("ThemeToggle placement contract", () => {
 });
 
 describe("AccountMenu beat-order contract", () => {
-  test("exports utility links with Setup before Docs", () => {
+  test("exports utility links as Docs then Settings", () => {
+    expect(ACCOUNT_MENU).toContain("chromeUtilityNav");
     expect(ACCOUNT_MENU_UTILITY_LINKS.map((link) => link.label)).toEqual([
-      "Setup",
       "Docs",
       "Settings",
     ]);
@@ -137,8 +137,8 @@ describe("Nav account chrome ownership", () => {
   });
 
   test("primary nav stays product destinations", () => {
-    expect(NAV).toContain('{ href: "/apps", label: "Apps" }');
-    expect(NAV).toContain('{ href: SETUP_PATH, label: "Setup" }');
+    expect(NAV).toContain("chromeProductNav");
+    expect(NAV).not.toContain("chromeUtilityNav");
     expect(NAV).not.toContain('label: "Docs"');
   });
 });

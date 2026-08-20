@@ -9,31 +9,36 @@ import {
   type HeaderChromeTierTable,
 } from "./header-chrome";
 
-type SectionHeaderSize = "sm" | "default" | "lg" | "md";
+type SectionHeaderSize = "xs" | "sm" | "default" | "lg" | "md";
 
 const SECTION_HEADER_ALIGN_CENTER =
   "[&_[data-slot=section-header-content]]:items-center [&_[data-slot=section-header-actions]]:justify-center";
 
 /**
- * `<button>` under parent `items-baseline` synthesizes from the margin box, so
- * control-sm labels sit ~4px above Heading SM’s alphabetic baseline. Nudge only
- * the sm tier (default/md title lines are taller than the control), and only
- * from the same `sm:` breakpoint as `alignBetweenItems` — below that the header
- * stacks and gap-y already owns vertical rhythm.
- */
-const SECTION_HEADER_ACTIONS_BASELINE_NUDGE =
-  "sm:[&:has([data-slot=section-header-content][data-size=sm])_[data-slot=section-header-actions]]:translate-y-1";
-
-/**
  * Canonical section-header tier table. `iconStackPadding` must equal the SVG
  * box height plus `contentGapY` for each tier.
+ *
+ * `xs` is one step below Heading SM (`text-base`) for nested section titles
+ * inside a dialog or other sm header. Heading SM ships 18px type on a 24px
+ * line; beside control-sm (32px) that extra leading makes `items-baseline`
+ * look vertically centered. `leading-none` keeps the title box on the glyph
+ * line so actions sit on the title baseline.
  */
 const SECTION_HEADER_TIERS = {
+  xs: {
+    contentGapY: "gap-y-1.5",
+    stackedRowGapY:
+      "[&:has([data-slot=section-header-content][data-size=xs])]:gap-y-1.5",
+    title: "font-sans text-base leading-none",
+    description: "text-xs",
+    icon: "[&_svg:not([class*='size-'])]:size-4",
+    iconStackPadding: "pt-5.5",
+  },
   sm: {
     contentGapY: "gap-y-1.5",
     stackedRowGapY:
       "[&:has([data-slot=section-header-content][data-size=sm])]:gap-y-1.5",
-    title: "font-sans text-heading-sm",
+    title: "font-sans text-heading-sm leading-none",
     description: "text-xs",
     icon: "[&_svg:not([class*='size-'])]:size-4",
     iconStackPadding: "pt-5.5",
@@ -68,10 +73,7 @@ const SECTION_HEADER_TIERS = {
 } as const satisfies HeaderChromeTierTable<SectionHeaderSize>;
 
 const SECTION_HEADER_SCALE = createHeaderChromeScale(SECTION_HEADER_TIERS);
-const SECTION_HEADER_STACKED_ROW_GAP_Y = [
-  ...SECTION_HEADER_SCALE.stackedRowGapY,
-  SECTION_HEADER_ACTIONS_BASELINE_NUDGE,
-] as const;
+const SECTION_HEADER_STACKED_ROW_GAP_Y = SECTION_HEADER_SCALE.stackedRowGapY;
 
 type SectionHeaderIconStack = {
   readonly [K in SectionHeaderSize]: {

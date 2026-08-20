@@ -205,7 +205,7 @@ function TargetStepDetails({ step }: { step: WorkflowStepTarget }) {
         ) : null}
         {step.app?.connection ? (
           <DescriptionItem>
-            <DescriptionTerm>Connection</DescriptionTerm>
+            <DescriptionTerm>Sign-in method</DescriptionTerm>
             <DescriptionDetails>{step.app.connection}</DescriptionDetails>
           </DescriptionItem>
         ) : null}

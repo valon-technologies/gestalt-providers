@@ -4,11 +4,16 @@ import {
   ASSISTANT_OVERLAP_TITLE,
   assistantOverlapBody,
 } from "@/lib/assistantConnectionCopy";
+import { SETUP_TYPESET_CHROME_CLASS } from "./setup-typeset";
 
 /** Standing help for Connect apps: Gestalt MCP is the path for company apps. */
 export function SetupOverlapCallout({ agentId }: { agentId: string }) {
   return (
-    <Callout variant="info" data-testid="setup-overlap-callout">
+    <Callout
+      variant="info"
+      className={SETUP_TYPESET_CHROME_CLASS}
+      data-testid="setup-overlap-callout"
+    >
       <Info aria-hidden="true" />
       <AlertTitle>{ASSISTANT_OVERLAP_TITLE}</AlertTitle>
       <AlertDescription>{assistantOverlapBody(agentId)}</AlertDescription>

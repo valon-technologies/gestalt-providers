@@ -89,7 +89,8 @@ const alertLayoutClasses = {
   chrome: "",
 } as const;
 
-const alertRootClasses = "group/alert relative w-full rounded-lg text-sm text-foreground";
+const alertRootClasses =
+  "group/alert relative w-full rounded-lg text-sm text-foreground [--radius-in-panel:var(--radius-nested)]";
 
 const alertVariants = cva(
   alertRootClasses,
@@ -268,12 +269,12 @@ function AlertIcon({ className, ...props }: Omit<React.ComponentProps<"div">, "a
 function AlertTitle({ className, ...props }: React.ComponentProps<"div">) {
   // Inherited `text-sm` leading — titles wrap (`wrap-break-word`). `leading-none`
   // is for one-line chrome (Eyebrow); on two lines it stacks the next line into
-  // descenders.
+  // descenders. `font-medium` — same as CardTitle; do not use synthesized semibold.
   return (
     <div
       data-slot="alert-title"
       className={cn(
-        "min-h-4 min-w-0 wrap-break-word font-semibold tracking-tight group-data-[layout=default]/alert:col-start-2 group-data-[layout=banner]/alert:col-start-2 group-data-[layout=banner]/alert:row-start-1",
+        "min-h-4 min-w-0 wrap-break-word font-medium tracking-tight group-data-[layout=default]/alert:col-start-2 group-data-[layout=banner]/alert:col-start-2 group-data-[layout=banner]/alert:row-start-1",
         className,
       )}
       {...props}

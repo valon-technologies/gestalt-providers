@@ -22,9 +22,14 @@ describe("IntegrationCard navigation contract", () => {
     expect(SOURCE).toContain('"relative h-full rounded-xl bg-neutral-hover');
     expect(SOURCE).toContain('from "@/lib/row-link"');
     expect(SOURCE).toContain("integrationCardActionPolicy");
+    expect(SOURCE).toContain("policy.allowConnect");
     expect(SOURCE).toContain('actions = "manage"');
     expect(SOURCE).toContain("policy.density === \"compact\"");
-    expect(SOURCE).toContain('compact ? "Connect" : "Add"');
+    expect(SOURCE).toContain("connectActionLabel = connectLabel ?? connectAppActionLabel(label)");
+    expect(SOURCE).toContain("{connectActionLabel}");
+    expect(SOURCE).not.toContain("PlusIcon");
+    expect(SOURCE).toContain("connectAppActionLabel(label)");
+    expect(SOURCE).toContain("signInAgainActionAriaLabel(label)");
     expect(SOURCE).toContain(
       'useCardClickActivate && !showAddButton ? "link"',
     );
@@ -64,7 +69,7 @@ describe("IntegrationCard navigation contract", () => {
     expect(SOURCE).toContain("OutcomeStatusIndicator");
     expect(SOURCE).toContain('status="success"');
     expect(SOURCE).toContain("iconOnly");
-    expect(SOURCE).toContain("CONNECTION_CONNECTED_LABEL");
+    expect(SOURCE).toContain("APP_CONNECTED_LABEL");
     expect(SOURCE).not.toContain("SelectionCheck");
   });
 

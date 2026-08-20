@@ -12,7 +12,7 @@ describe("DescriptionList", () => {
     expect(SOURCE).toContain('plain: ""');
     expect(SOURCE).toContain("outline: cn(");
     expect(SOURCE).toContain('cardVariants({ variant: "outline" })');
-    expect(SOURCE).toContain("overflow-hidden rounded-lg");
+    expect(SOURCE).toContain("overflow-hidden [&_[data-slot=description-item]]:px-4");
     // Horizontal pad on rows; vertical rhythm is owned by density.
     expect(SOURCE).toContain("[&_[data-slot=description-item]]:px-4");
     expect(SOURCE).not.toContain(

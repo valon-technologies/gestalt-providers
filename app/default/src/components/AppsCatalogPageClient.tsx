@@ -33,7 +33,11 @@ import {
 } from "@/lib/authReturn";
 import { appPath } from "@/lib/mount";
 import { appIsConnectedCopy } from "@/lib/oauthConnectConfirm";
-import { CONNECTION_CONNECTED_LABEL } from "@/features/app-workspace/connection-surface-copy";
+import {
+  APP_CONNECTED_LABEL,
+  APPS_CATALOG_DESCRIPTION,
+  APPS_CONNECTED_BUCKET_DESCRIPTION,
+} from "@/lib/accountCopy";
 import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
 import PluginSearchBar from "@/components/PluginSearchBar";
@@ -75,6 +79,7 @@ import { CheckCircleIcon, CloseIcon, SpinnerIcon } from "@/components/icons";
 import Button from "@/components/Button";
 import ErrorNotice from "@/components/ErrorNotice";
 import { useBuildSession } from "@/hooks/use-build-session";
+import { SETUP_PATH } from "@/lib/constants";
 import {
   appsCatalogQueryStatus,
   connectionOverlayKnown,
@@ -93,8 +98,8 @@ import {
 } from "@/lib/buildPaths";
 import {
   SETUP_RESUME_BANNER_BODY,
-  SETUP_RESUME_BANNER_TITLE,
 } from "@/lib/assistantConnectionCopy";
+import { FINISH_SETUP_LABEL, RESUME_SETUP_LABEL, DISMISS_SETUP_REMINDER_LABEL } from "@/lib/setupJourneyCopy";
 import {
   APPS_CATALOG_UNAVAILABLE,
   CONNECTION_STATUS_UNAVAILABLE,
@@ -285,7 +290,7 @@ export default function AppsCatalogPageClient() {
     if (installed.length > 0) {
       sections.push({
         id: "catalog-bucket-installed",
-        label: CONNECTION_CONNECTED_LABEL,
+        label: APP_CONNECTED_LABEL,
       });
     }
     for (const { bucket } of catalogSections) {
@@ -387,8 +392,7 @@ export default function AppsCatalogPageClient() {
       })
     ) {
       void navigate({
-        to: "/setup/$stepId",
-        params: { stepId: "welcome" },
+        to: SETUP_PATH,
         replace: true,
       });
     }
@@ -446,7 +450,7 @@ export default function AppsCatalogPageClient() {
               onNavSectionSelect("catalog-bucket-installed");
             }}
           >
-            <NavListItemLabel>{CONNECTION_CONNECTED_LABEL}</NavListItemLabel>
+            <NavListItemLabel>{APP_CONNECTED_LABEL}</NavListItemLabel>
           </NavListItem>
         ) : null}
         {catalogSections.length > 0 ? (
@@ -499,8 +503,7 @@ export default function AppsCatalogPageClient() {
           <PageHeaderContent size="lg">
             <PageHeaderTitle>Apps</PageHeaderTitle>
             <PageHeaderDescription>
-              Browse installed apps by category, or connect a new one. Open a
-              web app from its card when one is available.
+              {APPS_CATALOG_DESCRIPTION}
             </PageHeaderDescription>
           </PageHeaderContent>
           <PageHeaderActions className="w-full max-w-md sm:w-auto">
@@ -546,17 +549,17 @@ export default function AppsCatalogPageClient() {
           <div className="mb-6 space-y-3">
             {showResumeBanner ? (
               <Callout variant="info" data-testid="setup-resume-banner">
-                <AlertTitle>{SETUP_RESUME_BANNER_TITLE}</AlertTitle>
+                <AlertTitle>{FINISH_SETUP_LABEL}</AlertTitle>
                 <AlertDescription>{SETUP_RESUME_BANNER_BODY}</AlertDescription>
                 <AlertActions>
                   <UiButton variant="secondary" size="sm" asChild>
-                    <Link to="/setup">Resume setup</Link>
+                    <Link to={SETUP_PATH}>{RESUME_SETUP_LABEL}</Link>
                   </UiButton>
                   <UiButton
                     type="button"
                     variant="ghost"
                     size="icon-xs"
-                    aria-label="Dismiss setup reminder"
+                    aria-label={DISMISS_SETUP_REMINDER_LABEL}
                     onClick={() => {
                       writeResumeBannerDismissed(true);
                       setResumeBannerDismissed(true);
@@ -714,8 +717,8 @@ export default function AppsCatalogPageClient() {
               >
                 <CatalogBucketSectionHeader
                   id="catalog-bucket-installed"
-                  title={CONNECTION_CONNECTED_LABEL}
-                  description="Apps you’re already connected to. Use Open app when available, or the card menu to manage the app."
+                  title={APP_CONNECTED_LABEL}
+                  description={APPS_CONNECTED_BUCKET_DESCRIPTION}
                 />
                 <div className="grid grid-cols-1 items-stretch gap-6 sm:grid-cols-2">
                   {installed.map((integration) => (

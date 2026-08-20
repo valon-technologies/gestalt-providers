@@ -18,7 +18,7 @@ import { cn } from "@/lib/cn";
 //
 // Compound: StepPager / StepPagerPrevious / StepPagerNext / StepPagerStartSpacer.
 // Use asChild so the card can be a <button>, router <Link>, or <a>.
-// Surfaces: solid/outline compose Card tokens (rounded-lg override); ghost is
+// Surfaces: solid/outline compose Card tokens (canvas rounded-lg); ghost is
 // quiet destination chrome (Neutral wash — not Button ghostQuietChrome).
 // Disabled is a RECOLOR (disabled-states.md), never opacity dim. Links that
 // cannot use native disabled use aria-disabled + tabindex=-1 at the call site.
@@ -27,7 +27,7 @@ const stepPagerDisabledChrome =
   "disabled:cursor-not-allowed disabled:border-border disabled:bg-disabled disabled:text-disabled-foreground disabled:shadow-none disabled:hover:bg-disabled disabled:active:bg-disabled disabled:[&_[data-slot=eyebrow]]:text-disabled-foreground disabled:[&_svg]:text-disabled-foreground aria-disabled:cursor-not-allowed aria-disabled:border-border aria-disabled:bg-disabled aria-disabled:text-disabled-foreground aria-disabled:shadow-none aria-disabled:hover:bg-disabled aria-disabled:active:bg-disabled aria-disabled:[&_[data-slot=eyebrow]]:text-disabled-foreground aria-disabled:[&_svg]:text-disabled-foreground";
 
 const stepPagerLinkVariants = cva(
-  // rounded-lg matches Alert / section card shells (not Card's rounded-xl).
+  // rounded-lg — canvas panel radius (Card / Alert / CodeFence).
   cn(
     "group flex h-fit w-fit max-w-full flex-col self-start text-left text-foreground transition-[background-color,border-color,color] duration-hover-out ease-out-quart hover:duration-hover-in focus-ring",
     stepPagerDisabledChrome,

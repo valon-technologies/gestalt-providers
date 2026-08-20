@@ -43,12 +43,12 @@ const descriptionListVariants = cva("min-w-0 text-sm", {
     surface: {
       // Flush in a parent pane — no own border/fill.
       plain: "",
-      // Compose Card outline tokens; override radius to section/Alert `rounded-lg`
-      // (not Card's `rounded-xl`). Horizontal pad on rows (not the shell) so
-      // `divide-y` hairlines run edge-to-edge — vertical rhythm stays on `density`.
+      // Compose Card outline tokens (fill, border, rounded-lg). Horizontal
+      // pad on rows (not the shell) so `divide-y` hairlines run edge-to-edge —
+      // vertical rhythm stays on `density`.
       outline: cn(
         cardVariants({ variant: "outline" }),
-        "overflow-hidden rounded-lg [&_[data-slot=description-item]]:px-4",
+        "overflow-hidden [&_[data-slot=description-item]]:px-4",
       ),
     },
   },

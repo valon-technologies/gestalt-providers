@@ -10,7 +10,7 @@ import {
 } from "./authReturn";
 
 describe("sanitizeAuthReturnPath", () => {
-  test("keeps Setup connect apps", () => {
+  test("keeps Setup connect-apps return", () => {
     expect(sanitizeAuthReturnPath("/setup/apps")).toBe("/setup/apps");
   });
 

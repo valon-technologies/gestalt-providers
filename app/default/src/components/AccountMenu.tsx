@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
-import { DOCS_PATH, SETUP_PATH } from "@/lib/constants";
 import { cn } from "@/lib/cn";
+import { chromeUtilityNav } from "./chrome-nav";
 import { Avatar, AvatarFallback } from "./ui/avatar";
 import { Button } from "./ui/button";
 import {
@@ -21,14 +21,11 @@ export const ACCOUNT_MENU_THEME_LABEL_ID = "account-menu-theme-label";
 export const ACCOUNT_MENU_THEME_SECTION_LABEL = "Theme";
 
 /**
- * Signed-in utilities in the account flyout.
+ * Signed-in utilities in the account flyout (Docs, Settings).
+ * Product destinations (Apps, Setup, Admin) stay in the top nav.
  * Docs is account-gated (docs routes require auth); not shown in guest chrome.
  */
-export const ACCOUNT_MENU_UTILITY_LINKS = [
-  { to: SETUP_PATH, label: "Setup" },
-  { to: DOCS_PATH, label: "Docs" },
-  { to: "/settings", label: "Settings" },
-] as const;
+export const ACCOUNT_MENU_UTILITY_LINKS = chromeUtilityNav();
 
 export type AccountMenuProps = {
   displayLabel: string;
@@ -40,7 +37,8 @@ export type AccountMenuProps = {
 
 /**
  * Signed-in account chrome: identity → utilities → theme → session.
- * Owns flyout IA; Nav only decides when this menu is shown.
+ * Owns flyout beat-order; destination class lives in chrome-nav.
+ * Nav only decides when this menu is shown.
  */
 export function AccountMenu({
   displayLabel,

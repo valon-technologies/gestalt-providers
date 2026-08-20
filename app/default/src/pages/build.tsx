@@ -1,17 +1,16 @@
-import { useEffect, useId, useState, type ReactNode } from "react";
-import { Clock } from "lucide-react";
+import { useDeferredValue, useEffect, useId, useState, type ReactNode } from "react";
+import { Clock, RotateCcw } from "lucide-react";
 import {
   Link,
   Navigate,
   useNavigate,
   useParams,
 } from "@tanstack/react-router";
-import { Badge } from "@/components/ui/badge";
 import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
+import PluginSearchBar from "@/components/PluginSearchBar";
 import SeeMoreAppsTrigger from "@/components/SeeMoreAppsTrigger";
 import { InvokeOperationReference } from "@/components/InvokeOperationReference";
-import IntegrationIcon from "@/components/IntegrationIcon";
 import {
   Alert,
   AlertCollapsibleContent,
@@ -43,14 +42,12 @@ import { CopyableCode } from "@/components/ui/copyable-code";
 import {
   TimelineSteps,
   TimelineStepsContent,
-  TimelineStepsDescription,
   TimelineStepsHeader,
   TimelineStepsIcon,
   TimelineStepsItem,
   TimelineStepsTitle,
 } from "@/components/ui/timeline-steps";
 import { Button } from "@/components/ui/button";
-import { Link as UiLink } from "@/components/ui/link";
 import { ChipGroup, ChipGroupItem } from "@/components/ui/chip-group";
 import {
   Stepper,
@@ -61,6 +58,11 @@ import {
   StepperTitle,
   StepperTrigger,
 } from "@/components/ui/stepper";
+import {
+  SETUP_TYPESET_CHROME_CLASS,
+  SETUP_TYPESET_CLASS,
+  SETUP_TYPESET_NESTED_CHROME_CLASS,
+} from "@/features/setup/setup-typeset";
 import {
   AGENT_CONSOLE_THEME_CLAUDE,
   AGENT_CONSOLE_THEME_CODEX,
@@ -92,7 +94,9 @@ import {
   SingleAgentMcpInstall,
 } from "@/features/setup/assistant-install";
 import { SetupOverlapCallout } from "@/features/setup/overlap-callout";
+import { SetupAppNotInWorkspaceNotice } from "@/features/setup/setup-app-not-in-workspace";
 import {
+  SETUP_TOKEN_CREATED_CONTENT_CLASS,
   SETUP_TOKEN_CREATE_CONTENT_CLASS,
   SETUP_TOKEN_CREATE_TRACK,
 } from "@/features/setup/token-create-layout";
@@ -127,6 +131,8 @@ import {
   isBuildComplete,
   isBuildStepId,
   isLegacySetupConnectStepId,
+  setupStepHref,
+  resolveCatalogApp,
   resolveExemplarOpenPath,
   SETUP_PRODUCT_NAME,
   isSetupDataSourceApp,
@@ -141,14 +147,24 @@ import {
   type CatalogLoadState,
 } from "@/lib/buildPaths";
 import {
-  CONNECT_ANOTHER_ASSISTANT_LABEL,
+  SETUP_ANOTHER_ASSISTANT_LABEL,
   SETUP_TOKEN_CREATE_DIFFERENT,
-  SETUP_TOKEN_CREATE_DONE,
   SETUP_TOKEN_CREATE_ITEM_TITLE,
   SETUP_TOKEN_CREATED_ITEM_TITLE,
+  SETUP_TOKEN_CREATED_LEAD,
+  SETUP_TOKEN_CREATED_TAIL,
   SETUP_TOKEN_NEXT_DISABLED_TITLE,
   WELCOME_ASSISTANT_EXAMPLES,
 } from "@/lib/assistantConnectionCopy";
+import {
+  AFTER_SETUP_ARIA_LABEL,
+  SETUP_JOURNEY_LABEL,
+  SETUP_STEPS_ARIA_LABEL,
+  SETUP_STEP_NAV_ARIA_LABEL,
+  LOADING_SETUP_LABEL,
+  SWITCH_ASSISTANTS_NAV_HINT,
+  SETUP_MISSING_APPS_ADMIN_HINT,
+} from "@/lib/setupJourneyCopy";
 import {
   assistantHostById,
   isBuildInstallAgentId,
@@ -164,11 +180,7 @@ import {
 } from "@/lib/user-facing-error";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import {
-  catalogBucketIdFor,
-  catalogBucketsPresentIn,
-  CATALOG_BUCKETS,
-} from "@/lib/catalogBuckets";
-import {
+  presentSetupConnectApps,
   SETUP_APPS_CATEGORY_ALL,
   SETUP_APPS_GRID_CLASS,
   SETUP_APPS_PAGE_SIZE,
@@ -188,9 +200,27 @@ function buildSnapshot(
   );
 }
 
-/** `/setup` → overview when complete, else first incomplete step. */
+function goToSetupStep(
+  navigate: ReturnType<typeof useNavigate>,
+  stepId: BuildStepId,
+) {
+  if (stepId === "welcome") {
+    void navigate({ to: SETUP_PATH });
+    return;
+  }
+  void navigate({ to: "/setup/$stepId", params: { stepId } });
+}
+
+function SetupStepRedirect({ stepId }: { stepId: BuildStepId }) {
+  if (stepId === "welcome") {
+    return <Navigate to={SETUP_PATH} replace />;
+  }
+  return <Navigate to="/setup/$stepId" params={{ stepId }} replace />;
+}
+
+/** `/setup` → overview when complete, welcome in place, else first incomplete step. */
 export function BuildIndexRedirect() {
-  useDocumentTitle("Setup");
+  useDocumentTitle(SETUP_JOURNEY_LABEL);
   const session = useBuildSession();
   const integrationsQuery = useIntegrationsQuery();
   const tokensQuery = useTokensQuery();
@@ -207,7 +237,7 @@ export function BuildIndexRedirect() {
         <div className="mx-auto flex min-h-[50vh] w-full max-w-4xl items-center justify-center">
           <p className="flex items-center gap-2 text-sm text-faint">
             <SpinnerIcon className="size-3.5 animate-spin" aria-hidden />
-            Loading setup…
+            {LOADING_SETUP_LABEL}
           </p>
         </div>
       </Container>
@@ -248,6 +278,10 @@ export function BuildIndexRedirect() {
     isStepDone(step, snapshot, tokensReady, catalogSettled),
   );
 
+  if (stepId === "welcome") {
+    return <BuildStepPage />;
+  }
+
   return <Navigate to="/setup/$stepId" params={{ stepId }} replace />;
 }
 
@@ -263,7 +297,7 @@ function SetupStepperList({
   isStepReachable?: (id: BuildStepId) => boolean;
 }) {
   return (
-    <StepperList aria-label="Setup steps" data-testid={listTestId}>
+    <StepperList aria-label={SETUP_STEPS_ARIA_LABEL} data-testid={listTestId}>
       {BUILD_STEPS.map((step) => (
         <StepperItem
           key={step.id}
@@ -316,7 +350,7 @@ function SetupPageChrome({
             isStepReachable={isStepReachable}
           />
         </Stepper>
-        <div className="mt-8">{children}</div>
+        <div className={`${SETUP_TYPESET_CLASS} mt-8`}>{children}</div>
       </div>
     </Container>
   );
@@ -331,24 +365,27 @@ function SetupOverview({ snapshot }: { snapshot: BuildWorkspaceSnapshot }) {
       value={lastStepId}
       onValueChange={(next) => {
         if (!isBuildStepId(next)) return;
-        void navigate({ to: "/setup/$stepId", params: { stepId: next } });
+        goToSetupStep(navigate, next);
       }}
       titleForStep={(step) => buildStepTitle(step, snapshot.installAgentId)}
       itemTestId={(id) => `build-overview-${id}`}
     >
-      <div className="space-y-8" data-testid="build-setup-overview">
+      <div
+        className={`${SETUP_TYPESET_CHROME_CLASS} space-y-8`}
+        data-testid="build-setup-overview"
+      >
         <PageHeader>
           <PageHeaderContent size="md">
             <PageHeaderTitle>You&apos;re all set</PageHeaderTitle>
             <PageHeaderDescription>
-              Your assistant is connected and your workspace apps are ready to
+              Your assistant is set up and your workspace apps are ready to
               use.
             </PageHeaderDescription>
           </PageHeaderContent>
         </PageHeader>
 
-        <StepPager variant="ghost" aria-label="After setup">
-          <StepPagerPrevious asChild title={CONNECT_ANOTHER_ASSISTANT_LABEL}>
+        <StepPager variant="ghost" aria-label={AFTER_SETUP_ARIA_LABEL}>
+          <StepPagerPrevious asChild title={SETUP_ANOTHER_ASSISTANT_LABEL}>
             <Link to="/setup/$stepId" params={{ stepId: "assistant" }} />
           </StepPagerPrevious>
           <StepPagerNext asChild title="Browse apps">
@@ -372,15 +409,22 @@ export default function BuildStepPage() {
   const legacyConnect = Boolean(
     rawStepId && isLegacySetupConnectStepId(rawStepId),
   );
-  const stepId =
-    !legacyConnect && rawStepId && isBuildStepId(rawStepId) ? rawStepId : null;
+  const stepId: BuildStepId | null = legacyConnect
+    ? null
+    : !rawStepId
+      ? "welcome"
+      : isBuildStepId(rawStepId)
+        ? rawStepId
+        : null;
   const currentStep = stepId
     ? BUILD_STEPS.find((s) => s.id === stepId)!
     : null;
   const stepTitle = currentStep
     ? buildStepTitle(currentStep, session.installAgentId)
-    : "Setup";
-  useDocumentTitle(currentStep ? `${stepTitle} · Setup` : "Setup");
+    : SETUP_JOURNEY_LABEL;
+  useDocumentTitle(
+    currentStep ? `${stepTitle} · ${SETUP_JOURNEY_LABEL}` : SETUP_JOURNEY_LABEL,
+  );
 
   if (legacyConnect) {
     return (
@@ -389,7 +433,7 @@ export default function BuildStepPage() {
   }
 
   if (!stepId || !currentStep) {
-    return <Navigate to="/setup" replace />;
+    return <Navigate to={SETUP_PATH} replace />;
   }
 
   const tokensReady = !tokensQuery.isPending;
@@ -436,16 +480,14 @@ export default function BuildStepPage() {
   ) {
     const dest = firstIncompleteStepId(snapshot);
     if (dest !== stepId) {
-      return (
-        <Navigate to="/setup/$stepId" params={{ stepId: dest }} replace />
-      );
+      return <SetupStepRedirect stepId={dest} />;
     }
   }
 
   const activeExemplar = getExemplar(session.activeExemplarId);
 
   function goToStep(id: BuildStepId) {
-    void navigate({ to: "/setup/$stepId", params: { stepId: id } });
+    goToSetupStep(navigate, id);
   }
 
   const stepIsDone = (step: BuildStep) =>
@@ -474,18 +516,20 @@ export default function BuildStepPage() {
       }
     >
       {tokensError ? (
-        <ErrorNotice
-          className="mb-8"
-          message={tokensError}
-          onRetry={() => {
-            void tokensQuery.refetch();
-          }}
-          retrying={tokensQuery.isFetching}
-        />
+        <div className={SETUP_TYPESET_CHROME_CLASS}>
+          <ErrorNotice
+            className="mb-8"
+            message={tokensError}
+            onRetry={() => {
+              void tokensQuery.refetch();
+            }}
+            retrying={tokensQuery.isFetching}
+          />
+        </div>
       ) : null}
 
-      <div className="space-y-8">
-        {stepId !== "welcome" ? (
+      {stepId !== "welcome" ? (
+        <div className={SETUP_TYPESET_CHROME_CLASS}>
           <PageHeader>
             <PageHeaderContent size="md">
               <PageHeaderTitle>
@@ -496,7 +540,8 @@ export default function BuildStepPage() {
               </PageHeaderDescription>
             </PageHeaderContent>
           </PageHeader>
-        ) : null}
+        </div>
+      ) : null}
 
         <BuildStepPanel
           step={currentStep}
@@ -531,7 +576,6 @@ export default function BuildStepPage() {
           onMarkTrySeen={session.markTrySeen}
           onGoToStep={goToStep}
         />
-      </div>
     </SetupPageChrome>
   );
 }
@@ -821,69 +865,55 @@ function WelcomeStorytelling({
   }
 
   return (
-    <div className="space-y-8" data-testid="build-welcome">
-      <PageHeader>
-        <PageHeaderContent size="md">
-          <PageHeaderTitle>
-            Your AI assistant, wired into your work
-          </PageHeaderTitle>
-          <PageHeaderDescription>
-            Generic AI doesn&apos;t know how your company runs.{" "}
-            {SETUP_PRODUCT_NAME} connects the assistant you already use to the
-            company apps your teams rely on, with your permission.
-          </PageHeaderDescription>
-        </PageHeaderContent>
-      </PageHeader>
+    <div data-testid="build-welcome">
+      <div className={SETUP_TYPESET_CHROME_CLASS}>
+        <PageHeader>
+          <PageHeaderContent size="md">
+            <PageHeaderTitle>
+              Your AI assistant, wired into your work
+            </PageHeaderTitle>
+            <PageHeaderDescription>
+              Generic AI doesn&apos;t know how your company runs.{" "}
+              {SETUP_PRODUCT_NAME} lets the assistant you already use reach the
+              company apps your teams rely on, with your permission.
+            </PageHeaderDescription>
+          </PageHeaderContent>
+        </PageHeader>
+      </div>
 
-      <ul className="max-w-xl space-y-3 text-body-lg text-muted-foreground">
-        <li className="flex gap-2">
-          <span className="text-foreground" aria-hidden>
-            ·
-          </span>
-          <span>{WELCOME_ASSISTANT_EXAMPLES}</span>
-        </li>
-        <li className="flex gap-2">
-          <span className="text-foreground" aria-hidden>
-            ·
-          </span>
-          <span>Answers from real company systems, not generic web results</span>
-        </li>
-        <li className="flex gap-2">
-          <span className="text-foreground" aria-hidden>
-            ·
-          </span>
-          <span>You choose which apps to connect</span>
-        </li>
-        <li className="flex gap-2">
-          <span className="text-foreground" aria-hidden>
-            ·
-          </span>
-          <span>Switch assistants anytime from Setup in the top nav</span>
-        </li>
+      <ul>
+        <li>{WELCOME_ASSISTANT_EXAMPLES}</li>
+        <li>Answers from real company systems, not generic web results</li>
+        <li>You choose which apps to connect</li>
+        <li>{SWITCH_ASSISTANTS_NAV_HINT}</li>
       </ul>
 
-      <p className="flex items-center gap-1.5 text-sm text-muted-foreground-soft">
+      <p
+        className={`${SETUP_TYPESET_NESTED_CHROME_CLASS} flex items-center gap-1.5 text-sm text-muted-foreground-soft`}
+      >
         <Clock className="size-3.5" aria-hidden />
         About 5 minutes
       </p>
 
-      <StepPager variant="ghost" aria-label="Continue">
-        <button
-          type="button"
-          data-testid="build-welcome-skip"
-          onClick={handleSkip}
-          className="self-center text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-        >
-          Skip for now
-        </button>
-        <StepPagerNext asChild title="Choose your assistant">
+      <div className={SETUP_TYPESET_NESTED_CHROME_CLASS}>
+        <StepPager variant="ghost" aria-label="Continue">
           <button
             type="button"
-            data-testid="build-welcome-continue"
-            onClick={handleContinue}
-          />
-        </StepPagerNext>
-      </StepPager>
+            data-testid="build-welcome-skip"
+            onClick={handleSkip}
+            className="self-center text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+          >
+            Skip for now
+          </button>
+          <StepPagerNext asChild title="Choose your assistant">
+            <button
+              type="button"
+              data-testid="build-welcome-continue"
+              onClick={handleContinue}
+            />
+          </StepPagerNext>
+        </StepPager>
+      </div>
     </div>
   );
 }
@@ -970,6 +1000,7 @@ function BuildStepPanel({
   return (
     <section
       data-testid="build-step-panel"
+      data-typeset-chrome
       className="space-y-3"
       aria-busy={
         (step.id === "token" && !tokensReady) ||
@@ -1030,28 +1061,34 @@ function BuildStepPanel({
 
       {step.id === "try" ? (
         catalogError && !catalogHasApps ? (
-          <ErrorNotice
-            message={catalogError}
-            retrying={catalogRetrying}
-            onRetry={onRetryCatalog}
-          />
+          <div className={SETUP_TYPESET_CHROME_CLASS}>
+            <ErrorNotice
+              message={catalogError}
+              retrying={catalogRetrying}
+              onRetry={onRetryCatalog}
+            />
+          </div>
         ) : (
           <>
             {catalogError ? (
-              <ErrorNotice
-                className="mb-4"
-                message={catalogError}
-                retrying={catalogRetrying}
-                onRetry={onRetryCatalog}
-              />
+              <div className={SETUP_TYPESET_CHROME_CLASS}>
+                <ErrorNotice
+                  className="mb-4"
+                  message={catalogError}
+                  retrying={catalogRetrying}
+                  onRetry={onRetryCatalog}
+                />
+              </div>
             ) : null}
             {overlayError ? (
-              <ErrorNotice
-                className="mb-4"
-                message={overlayError}
-                retrying={overlayRetrying}
-                onRetry={onRetryOverlay}
-              />
+              <div className={SETUP_TYPESET_CHROME_CLASS}>
+                <ErrorNotice
+                  className="mb-4"
+                  message={overlayError}
+                  retrying={overlayRetrying}
+                  onRetry={onRetryOverlay}
+                />
+              </div>
             ) : null}
             <InvokeStepActions
               exemplar={activeExemplar}
@@ -1065,33 +1102,35 @@ function BuildStepPanel({
       ) : null}
 
       {step.id !== "welcome" ? (
-        <BuildStepPager
-          stepId={step.id}
-          installAgentId={installAgentId}
-          onGoToStep={(id) => {
-            void handleStepNext(id);
-          }}
-          terminalNext={
-            step.id === "try"
-              ? { label: "Browse apps", to: "/apps" }
-              : undefined
-          }
-          nextDisabled={
-            (step.id === "assistant" && !installReady) ||
-            (step.id === "token" && !mcpCredentialReady) ||
-            (step.id === "install" && !mcpCredentialReady) ||
-            (step.id === "apps" && appsContinueBlocked !== null)
-          }
-          nextDisabledTitle={
-            step.id === "assistant"
-              ? "Choose your assistant before continuing"
-              : step.id === "token" || step.id === "install"
-                ? SETUP_TOKEN_NEXT_DISABLED_TITLE
-                : step.id === "apps"
-                  ? (appsContinueBlocked ?? undefined)
-                  : undefined
-          }
-        />
+        <div className={SETUP_TYPESET_CHROME_CLASS}>
+          <BuildStepPager
+            stepId={step.id}
+            installAgentId={installAgentId}
+            onGoToStep={(id) => {
+              void handleStepNext(id);
+            }}
+            terminalNext={
+              step.id === "try"
+                ? { label: "Browse apps", to: "/apps" }
+                : undefined
+            }
+            nextDisabled={
+              (step.id === "assistant" && !installReady) ||
+              (step.id === "token" && !mcpCredentialReady) ||
+              (step.id === "install" && !mcpCredentialReady) ||
+              (step.id === "apps" && appsContinueBlocked !== null)
+            }
+            nextDisabledTitle={
+              step.id === "assistant"
+                ? "Choose your assistant before continuing"
+                : step.id === "token" || step.id === "install"
+                  ? SETUP_TOKEN_NEXT_DISABLED_TITLE
+                  : step.id === "apps"
+                    ? (appsContinueBlocked ?? undefined)
+                    : undefined
+            }
+          />
+        </div>
       ) : null}
     </section>
   );
@@ -1127,7 +1166,7 @@ function BuildStepPager({
   return (
     <StepPager
       variant="ghost"
-      aria-label="Setup step navigation"
+      aria-label={SETUP_STEP_NAV_ARIA_LABEL}
       data-testid="build-step-pager"
       className="mt-8"
     >
@@ -1217,7 +1256,7 @@ function AuthorizeStepActions({
       orientation="vertical"
       size="sm"
       completedChrome="outcome"
-      className="w-full max-w-xl"
+      className={`${SETUP_TYPESET_CHROME_CLASS} w-full max-w-xl`}
       data-testid="build-token-setup"
       aria-label="Create a token"
     >
@@ -1229,28 +1268,55 @@ function AuthorizeStepActions({
         <TimelineStepsHeader>
           <TimelineStepsIcon />
           <TimelineStepsTitle>
-            {credentialReady
-              ? SETUP_TOKEN_CREATED_ITEM_TITLE
-              : SETUP_TOKEN_CREATE_ITEM_TITLE}
+            {credentialReady ? (
+              tokenName.trim() ? (
+                <>
+                  {SETUP_TOKEN_CREATED_LEAD}{" "}
+                  <span className="font-semibold">{tokenName.trim()}</span>{" "}
+                  {SETUP_TOKEN_CREATED_TAIL}
+                </>
+              ) : (
+                SETUP_TOKEN_CREATED_ITEM_TITLE
+              )
+            ) : (
+              SETUP_TOKEN_CREATE_ITEM_TITLE
+            )}
           </TimelineStepsTitle>
         </TimelineStepsHeader>
         <TimelineStepsContent
-          className={credentialReady ? undefined : SETUP_TOKEN_CREATE_CONTENT_CLASS}
+          className={
+            credentialReady
+              ? SETUP_TOKEN_CREATED_CONTENT_CLASS
+              : SETUP_TOKEN_CREATE_CONTENT_CLASS
+          }
         >
           {credentialReady ? (
             <div className="space-y-3">
-              <TimelineStepsDescription>
-                {SETUP_TOKEN_CREATE_DONE}
-              </TimelineStepsDescription>
-              <UiLink asChild className="inline cursor-pointer p-0 text-[0.875em]">
-                <button
-                  type="button"
-                  data-testid="build-token-create-different"
-                  onClick={() => onApiToken("")}
-                >
-                  {SETUP_TOKEN_CREATE_DIFFERENT}
-                </button>
-              </UiLink>
+              <div
+                role="group"
+                aria-label="API token"
+                data-testid="build-token-created-secret"
+              >
+                <CopyableCode
+                  value={apiToken}
+                  size="lg"
+                  className="w-fit max-w-full"
+                  tooltip="Copy token"
+                  sensitive
+                  revealLabel="Show token"
+                  hideLabel="Hide token"
+                />
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                data-testid="build-token-create-different"
+                onClick={() => onApiToken("")}
+              >
+                <RotateCcw aria-hidden />
+                {SETUP_TOKEN_CREATE_DIFFERENT}
+              </Button>
             </div>
           ) : (
             <TokenCreateForm
@@ -1287,35 +1353,52 @@ function InvokeStepActions({
   useEffect(() => {
     onMarkTrySeen();
   }, [onMarkTrySeen]);
-  const integration = integrations.find((item) => item.name === exemplar.id);
+  const integration = resolveCatalogApp(
+    integrations,
+    exemplar.id,
+    exemplar.knownMountPath,
+  );
   const open = resolveExemplarOpenPath(exemplar, integration);
   const displayName = integration?.displayName?.trim() || exemplar.label;
-  const featuredApp = tryStepCatalogApp({
-    appId: exemplar.id,
-    catalog: integration,
-    label: displayName,
-    description: integration?.description?.trim() || exemplar.need,
-    mountedPath: open.kind === "mount" ? open.href : undefined,
-  });
-  const tryReturnPath = `${SETUP_PATH}/try`;
+  const featuredApp = integration
+    ? tryStepCatalogApp({
+        catalog: integration,
+        label: displayName,
+        description: integration.description?.trim() || exemplar.need,
+        mountedPath: open.kind === "mount" ? open.href : undefined,
+      })
+    : null;
+  const tryReturnPath = setupStepHref("try");
+  const missingTryApps =
+    !featuredApp ||
+    exemplar.relatedAppIds.some(
+      (appId) => !resolveCatalogApp(integrations, appId),
+    );
+  const invokeApp = resolveCatalogApp(
+    integrations,
+    exemplar.invokeAppId,
+    exemplar.knownMountPath,
+  );
+  const invokeAppId = invokeApp?.name ?? exemplar.invokeAppId;
   const invokeAppLabel =
-    integrations.find((item) => item.name === exemplar.invokeAppId)
-      ?.displayName?.trim() || exemplar.invokeAppId;
+    invokeApp?.displayName?.trim() || companionAppLabel(exemplar.invokeAppId);
   const agentSkin = buildAgentSkin(installAgentId);
   const productLabel = buildAgentProductLabel(installAgentId);
   const cwd = `~/${exemplar.department.toLowerCase().replace(/\s+/g, "-")}`;
 
   return (
     <div className="space-y-16" data-testid="build-first-call">
-      <div className="space-y-5" data-testid="build-golden-prompt">
-        <p className="text-body-lg font-normal text-muted-foreground text-pretty">
+      <div data-testid="build-golden-prompt">
+        <p>
           Prompt your favorite LLM with{" "}
-          <CopyableCode value={exemplar.llmPrompt} tooltip="Copy prompt" />{" "}
+          <span className={SETUP_TYPESET_CHROME_CLASS}>
+            <CopyableCode value={exemplar.llmPrompt} tooltip="Copy prompt" />
+          </span>{" "}
           and it should reply like in this example below.
         </p>
 
         <div
-          className="min-h-[16rem] w-full"
+          className={`${SETUP_TYPESET_NESTED_CHROME_CLASS} min-h-[16rem] w-full`}
           data-testid="build-agent-console-reply"
           data-agent-skin={agentSkin}
         >
@@ -1328,13 +1411,15 @@ function InvokeStepActions({
           />
         </div>
 
-        <p className="text-body-lg font-normal text-muted-foreground text-pretty">
+        <p>
           Behind the scenes this calls{" "}
-          <InvokeOperationReference
-            appId={exemplar.invokeAppId}
-            operationId={exemplar.operationId}
-            appLabel={invokeAppLabel}
-          />
+          <span className={SETUP_TYPESET_CHROME_CLASS}>
+            <InvokeOperationReference
+              appId={invokeAppId}
+              operationId={exemplar.operationId}
+              appLabel={invokeAppLabel}
+            />
+          </span>
           .
         </p>
 
@@ -1342,7 +1427,7 @@ function InvokeStepActions({
           collapsible
           defaultOpen
           variant="outline"
-          className="w-full"
+          className={`${SETUP_TYPESET_NESTED_CHROME_CLASS} w-full`}
           data-testid="build-cli-alert"
         >
           <AlertTrigger>
@@ -1362,7 +1447,10 @@ function InvokeStepActions({
         </Alert>
       </div>
 
-      <div className="space-y-6" data-testid="build-shipped-app">
+      <div
+        className={`${SETUP_TYPESET_CHROME_CLASS} space-y-6`}
+        data-testid="build-shipped-app"
+      >
         <SectionHeader>
           <SectionHeaderContent>
             <SectionHeaderTitle>Already shipped</SectionHeaderTitle>
@@ -1375,16 +1463,23 @@ function InvokeStepActions({
           </SectionHeaderContent>
         </SectionHeader>
         <div className="w-full" data-testid="build-open-exemplar">
-          <IntegrationCard
-            integration={featuredApp}
-            returnPath={tryReturnPath}
-            connectionStatusKnown={overlayKnown}
-            actions="launch"
-          />
+          {featuredApp ? (
+            <IntegrationCard
+              integration={featuredApp}
+              returnPath={tryReturnPath}
+              connectionStatusKnown={overlayKnown}
+              actions="launch"
+            />
+          ) : (
+            <SetupAppNotInWorkspaceNotice appId={exemplar.id} />
+          )}
         </div>
       </div>
 
-      <div className="space-y-6" data-testid="build-related-apps">
+      <div
+        className={`${SETUP_TYPESET_CHROME_CLASS} space-y-6`}
+        data-testid="build-related-apps"
+      >
         <SectionHeader>
           <SectionHeaderContent>
             <SectionHeaderTitle>Related apps</SectionHeaderTitle>
@@ -1395,7 +1490,7 @@ function InvokeStepActions({
         </SectionHeader>
         <div className="grid grid-cols-1 items-stretch gap-6 sm:grid-cols-2">
           {exemplar.relatedAppIds.map((appId) => {
-            const related = integrations.find((item) => item.name === appId);
+            const related = resolveCatalogApp(integrations, appId);
             const label =
               related?.displayName?.trim() || companionAppLabel(appId);
             return (
@@ -1404,24 +1499,32 @@ function InvokeStepActions({
                 className="h-full"
                 data-testid={`build-open-app-${appId}`}
               >
-                <IntegrationCard
-                  integration={tryStepCatalogApp({
-                    appId,
-                    catalog: related,
-                    label,
-                    description:
-                      related?.description?.trim() ||
-                      `Open ${label} in Gestalt.`,
-                    mountedPath: related?.mountedPath?.trim(),
-                  })}
-                  returnPath={tryReturnPath}
-                  connectionStatusKnown={overlayKnown}
-                  actions="launch"
-                />
+                {related ? (
+                  <IntegrationCard
+                    integration={tryStepCatalogApp({
+                      catalog: related,
+                      label,
+                      description:
+                        related.description?.trim() ||
+                        `Open ${label} in Gestalt.`,
+                      mountedPath: related.mountedPath?.trim(),
+                    })}
+                    returnPath={tryReturnPath}
+                    connectionStatusKnown={overlayKnown}
+                    actions="launch"
+                  />
+                ) : (
+                  <SetupAppNotInWorkspaceNotice appId={appId} />
+                )}
               </div>
             );
           })}
         </div>
+        {missingTryApps ? (
+          <p className="text-sm text-muted-foreground">
+            {SETUP_MISSING_APPS_ADMIN_HINT}
+          </p>
+        ) : null}
       </div>
     </div>
   );
@@ -1457,17 +1560,28 @@ function ConnectStepActions({
   const invalidateIntegrations = useInvalidateIntegrations();
   const [visibleMoreCount, setVisibleMoreCount] = useState(SETUP_APPS_PAGE_SIZE);
   const [categoryFilter, setCategoryFilter] = useState(SETUP_APPS_CATEGORY_ALL);
+  const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
   const suggestedLabelId = useId();
   const moreLabelId = useId();
-  const returnPath = `${SETUP_PATH}/apps`;
+  const returnPath = setupStepHref("apps");
 
   async function refreshIntegrations() {
     await invalidateIntegrations();
   }
 
+  function resetMorePage() {
+    setVisibleMoreCount(SETUP_APPS_PAGE_SIZE);
+  }
+
   function selectCategory(next: string) {
     setCategoryFilter(next || SETUP_APPS_CATEGORY_ALL);
-    setVisibleMoreCount(SETUP_APPS_PAGE_SIZE);
+    resetMorePage();
+  }
+
+  function onQueryChange(next: string) {
+    setQuery(next);
+    resetMorePage();
   }
 
   const catalogNotice = catalogError ? (
@@ -1486,69 +1600,64 @@ function ConnectStepActions({
   ) : null;
 
   if (catalogError && !catalogHasApps) {
-    return catalogNotice;
+    return (
+      <div className={SETUP_TYPESET_CHROME_CLASS}>{catalogNotice}</div>
+    );
   }
 
   if (!catalogSettled && !catalogHasApps) {
-    return <p className="text-sm text-faint">Loading apps…</p>;
+    return <p className={`${SETUP_TYPESET_CHROME_CLASS} text-sm text-faint`}>Loading apps…</p>;
   }
 
   const companionIds = new Set(exemplar.companionAppIds);
   const suggested = exemplar.companionAppIds.flatMap((appId) => {
-    const integration = integrations.find((item) => item.name === appId);
+    const integration = resolveCatalogApp(integrations, appId);
     if (integration && !isSetupDataSourceApp(integration)) return [];
     return [{ appId, integration }];
   });
+  const suggestedCatalogNames = new Set(
+    suggested.flatMap((item) => (item.integration ? [item.integration.name] : [])),
+  );
   const more = setupDataSourceIntegrations(integrations)
-    .filter((integration) => !companionIds.has(integration.name))
+    .filter(
+      (integration) =>
+        !companionIds.has(integration.name) &&
+        !suggestedCatalogNames.has(integration.name),
+    )
     .sort((a, b) =>
       getIntegrationLabel(a).localeCompare(getIntegrationLabel(b)),
     );
-  const categoryChips = catalogBucketsPresentIn(more);
-  const effectiveCategory =
-    categoryFilter === SETUP_APPS_CATEGORY_ALL ||
-    categoryChips.some((bucket) => bucket.id === categoryFilter)
-      ? categoryFilter
-      : SETUP_APPS_CATEGORY_ALL;
-  const activeCategory =
-    effectiveCategory === SETUP_APPS_CATEGORY_ALL
-      ? null
-      : (CATALOG_BUCKETS.find((bucket) => bucket.id === effectiveCategory) ??
-        null);
-  const filteredMore =
-    effectiveCategory === SETUP_APPS_CATEGORY_ALL
-      ? more
-      : more.filter(
-          (integration) => catalogBucketIdFor(integration) === effectiveCategory,
-        );
-  const visibleMore = filteredMore.slice(0, visibleMoreCount);
-  const remainingMore = filteredMore.slice(visibleMoreCount);
-  const missingFromCatalog = suggested.filter((item) => !item.integration);
-  const moreSectionTitle = activeCategory?.label ?? "More apps";
+  const {
+    visibleSuggested,
+    categoryChips,
+    effectiveCategory,
+    filteredMore,
+    visibleMore,
+    remainingMore,
+    moreSectionTitle,
+    hasSearchQuery,
+  } = presentSetupConnectApps({
+    suggested,
+    more,
+    query: deferredQuery,
+    category: categoryFilter,
+    visibleCount: visibleMoreCount,
+    labelFor: companionAppLabel,
+  });
+  const missingFromCatalog = visibleSuggested.filter((item) => !item.integration);
+  const showSuggested = visibleSuggested.length > 0;
+  const showSearchEmpty =
+    hasSearchQuery && !showSuggested && filteredMore.length === 0;
+  const showMoreSection =
+    more.length > 0 &&
+    !showSearchEmpty &&
+    !(hasSearchQuery && filteredMore.length === 0 && showSuggested);
 
   function renderConnectCard(appId: string, integration: Integration | undefined) {
     if (!integration) {
       return (
-        <div
-          key={appId}
-          className="h-full rounded-xl bg-neutral-hover p-3 text-foreground"
-          data-testid={`build-connect-app-${appId}`}
-        >
-          <div className="flex items-start gap-3">
-            <IntegrationIcon
-              name={appId}
-              displayName={companionAppLabel(appId)}
-              size="md"
-            />
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-heading text-foreground">
-                {companionAppLabel(appId)}
-              </p>
-              <Badge variant="warning" size="sm" className="mt-2">
-                Not in workspace
-              </Badge>
-            </div>
-          </div>
+        <div key={appId} className="h-full" data-testid={`build-connect-app-${appId}`}>
+          <SetupAppNotInWorkspaceNotice appId={appId} query={deferredQuery} />
         </div>
       );
     }
@@ -1559,6 +1668,7 @@ function ConnectStepActions({
           integration={integration}
           returnPath={returnPath}
           connectionStatusKnown={overlayKnown}
+          highlightQuery={deferredQuery}
           onConnected={() => void refreshIntegrations()}
           onDisconnected={() => void refreshIntegrations()}
           actions="connect"
@@ -1568,12 +1678,17 @@ function ConnectStepActions({
   }
 
   return (
-    <div className="flex flex-col gap-8" data-testid="build-connect-apps">
+    <div
+      className={`${SETUP_TYPESET_CHROME_CLASS} flex flex-col gap-8`}
+      data-testid="build-connect-apps"
+    >
       {catalogNotice}
       {overlayNotice}
       <SetupOverlapCallout agentId={installAgentId} />
-      <div className="flex flex-col gap-10">
-        {suggested.length > 0 ? (
+      <div className="flex flex-col gap-6">
+        <PluginSearchBar query={query} onQueryChange={onQueryChange} />
+        <div className="flex flex-col gap-10">
+        {showSuggested ? (
           <section
             className="space-y-3"
             aria-labelledby={suggestedLabelId}
@@ -1583,14 +1698,33 @@ function ConnectStepActions({
               Suggested
             </Eyebrow>
             <div className={SETUP_APPS_GRID_CLASS}>
-              {suggested.map(({ appId, integration }) =>
+              {visibleSuggested.map(({ appId, integration }) =>
                 renderConnectCard(appId, integration),
               )}
             </div>
           </section>
         ) : null}
 
-        {more.length > 0 ? (
+        {showSearchEmpty ? (
+          <div className="space-y-3" data-testid="build-apps-search-empty">
+            <p className="text-sm font-medium text-foreground">
+              No apps match "{query.trim()}"
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Try a different search, or clear it.
+            </p>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => onQueryChange("")}
+            >
+              Clear search
+            </Button>
+          </div>
+        ) : null}
+
+        {showMoreSection ? (
           <section
             className="space-y-3"
             aria-labelledby={moreLabelId}
@@ -1665,10 +1799,10 @@ function ConnectStepActions({
 
         {missingFromCatalog.length > 0 ? (
           <p className="text-sm text-muted-foreground">
-            Ask an admin to add missing apps to this workspace before you
-            continue.
+            {SETUP_MISSING_APPS_ADMIN_HINT}
           </p>
         ) : null}
+        </div>
       </div>
     </div>
   );

@@ -233,6 +233,16 @@ Guide inset is half the toggle gutter (`--tree-guide-inset`) so the line
 centers on +/- — not `indent/2`. Keep the local `--tree-padding` formula
 (`level * indent`) — Registry still uses `level - 1`.
 
+## Inline glyph / disclosure caret
+
+Registry `inline-glyph` + `disclosure-caret` are vendored in `src/lib/`. Tokens
+live in `globals.css` `@theme` (geometry, not the tenant theme API). A mark
+that sits in the line of type uses `size-inline-glyph` + `gap-inline-glyph` +
+`stroke-inline-glyph text-current`. Do not size it with rem `size-4` /
+`gap-1.5` / `opacity-50`. Carets inside Button inherit `--control-icon-*` and
+add `stroke-inline-glyph text-current` (`disclosureCaretClassName` is motion
+only).
+
 ## Card / Collapsible / Item
 
 Registry `card`, `collapsible`, and `item` are vendored here. Application record
@@ -241,7 +251,11 @@ lists (workflow runs, activity, directories) compose `SectionHeader` **above** a
 Do not hand-roll `ul.divide-y` when Item fits. Expand/collapse is owned by
 `Collapsible` — paint the root with `cardVariants({ variant: "outline" })` at
 the call site (cards.md Card Collapsible). Do not restyle trigger hover/press
-(List Item Neutral via `listItemInteraction`). Drawer height animation lives on
+(List Item Neutral via `listItemInteraction`). Canvas radius is `rounded-lg`
+(same rung as Alert / Callout / standalone CodeFence). Nested CodeFence inherits
+`--radius-nested` via `--radius-in-panel` on `cardVariants` — do not pass a
+radius prop. Flush list rows use `first:rounded-t-lg last:rounded-b-lg`.
+Floating overlays stay `rounded-xl`. Drawer height animation lives on
 `[data-slot=collapsible-content]` / `[data-slot=accordion-content]` in
 `globals.css`, keyed by role-named keyframes (`accordion-drawer-*`,
 `collapsible-maxwidth-*` for Alert `animateSize`).
@@ -250,8 +264,8 @@ the call site (cards.md Card Collapsible). Do not restyle trigger hover/press
 
 Registry `description-list` is vendored here. Prefer over hand-rolled KV tables for
 read-only metadata. Use `surface="outline"` for standalone inspector / docs
-panels (Card outline fill/border, `rounded-lg` — not Card's `rounded-xl`).
-Default `surface="plain"` stays flush in a parent pane. Compactness is
+panels (Card outline fill, border, and radius). Default `surface="plain"` stays
+flush in a parent pane. Compactness is
 `density="default"` (roomy padding and gutter) or `density="condensed"`
 (tight inspector / dialog rows, including a tighter term-to-value gap) —
 owned on the list, not per-item `py-*` or call-site `gap-*`. Terms use
@@ -308,7 +322,9 @@ Shiki for these surfaces. Shell paint maps Registry `bg-muted/50` /
 Pass `filename` only for real file paths with `chrome="header"` (default) —
 language is highlighting only, not a status label. Multi-file /
 language-tab recipes (`MultiFileCodeBlock`, `LanguageTabsCodeBlock`) use
-vendored `tabs`.
+vendored `tabs`. Standalone fences use `--radius-lg` (Card / Alert / Callout).
+Inside those padded panels the fence inherits `--radius-nested` via
+`--radius-in-panel` — do not pass a radius prop or restyle to `rounded-md`.
 
 ## Stepper
 

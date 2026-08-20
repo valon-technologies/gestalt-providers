@@ -83,7 +83,7 @@ describe("overviewConnectionOutcomeStatus", () => {
     const status = normalizeIntegrationStatus(integration);
     expect(overviewConnectionOutcomeStatus(status)).toBe("failure");
     expect(catalogInstallState(integration)).toBe("needs_attention");
-    expect(primaryConnectLabel(integration)).toBe("Reconnect");
+    expect(primaryConnectLabel(integration)).toBe("Sign in again");
     expect(
       catalogCardShowsConnectAction(
         catalogInstallState(integration),

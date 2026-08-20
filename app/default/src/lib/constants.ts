@@ -1,6 +1,8 @@
-/** Canonical setup / activation journey. */
-export const SETUP_PATH = "/setup";
-/** @deprecated Use {@link SETUP_PATH}. Kept for redirects and legacy imports. */
+/** Canonical Setup journey. Welcome is the index (`/setup`). */
+export const SETUP_PATH = "/setup" as const;
+/** Legacy assistant-journey URL. Redirects onto {@link SETUP_PATH}. */
+export const CONNECT_PATH = "/connect" as const;
+/** @deprecated Use {@link SETUP_PATH}. Kept for `/build` redirects. */
 export const BUILD_PATH = SETUP_PATH;
 /** Workspace Admin — who can use which apps. */
 export const ADMIN_PATH = "/admin";

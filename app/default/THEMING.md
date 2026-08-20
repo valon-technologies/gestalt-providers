@@ -23,7 +23,7 @@ dark).
 | `--brand`, `--brand-soft`, `--danger`, `--success` | brand accent pair / status colors | blue pair / red / green |
 | `--accent`, `--accent-subtle`, `--accent-vivid` | selected/hover **fills** (derived from `--brand-soft`) | soft blue washes |
 | `--accent-foreground`, `--accent-vivid-foreground` | **ink on accent fills** (always `--foreground`) | same as `--foreground` |
-| `--radius` | base corner radius; the CSS theme (`@theme` in `src/globals.css`) derives `rounded-sm` (−2px), `rounded`/`rounded-md` (as is), `rounded-lg` (+4px) | `0.5rem` (→ 6/8/12px) |
+| `--radius` | base corner radius; the CSS theme (`@theme` in `src/globals.css`) derives `rounded-sm` (−2px), `rounded`/`rounded-md` (as is), `rounded-lg` (+4px), and `--radius-nested` (`var(--radius-sm)`) for CodeFence inside Card / Alert / Callout | `0.5rem` (→ 6/8/12px) |
 | `--content-max-width` | shared max width of the nav and every contained page (see `src/components/Container.tsx`) | `80rem` |
 | `--heading-weight` | default `h1`–`h6` weight (applied by a `globals.css` base rule) | `400` (Newsreader ships one cut) |
 | `--font-display`, `--font-body`, `--font-mono` | type stacks (see the font seam below) | Newsreader (opsz 72) / Instrument Sans / Geist Mono — all OFL |

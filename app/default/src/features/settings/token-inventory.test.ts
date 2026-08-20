@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { APIToken } from "@/lib/api";
+import { formatEventWhen } from "@/lib/date";
 import {
   splitCollapsedTokenScopes,
   tokenCreatedAtMs,
@@ -47,11 +48,10 @@ describe("token inventory display", () => {
     expect(ordered.map((row) => row.id)).toEqual(["grant-a", "grant-z"]);
   });
 
-  it("formats created dates and leaves invalid createdAt blank", () => {
+  it("formats created timestamps with Finder-style date and time", () => {
     const dated = token({ id: "a", createdAt: "2026-01-15T10:00:00Z" });
-    expect(tokenCreatedLabel(dated)).toBe(
-      new Date("2026-01-15T10:00:00Z").toLocaleDateString(),
-    );
+    expect(tokenCreatedLabel(dated)).toBe(formatEventWhen("2026-01-15T10:00:00Z"));
+    expect(tokenCreatedLabel(dated)).toMatch(/ at /);
     expect(
       tokenCreatedLabel(token({ id: "b", createdAt: "not-a-date" })),
     ).toBe("");
@@ -78,6 +78,15 @@ describe("token inventory display", () => {
         }),
       ),
     ).toBe("Never");
+    const datedExpiry = token({
+      id: "e",
+      createdAt: "2026-01-01T00:00:00Z",
+      expiresAt: "2027-02-20T14:30:00Z",
+    });
+    expect(tokenExpiresLabel(datedExpiry)).toBe(
+      formatEventWhen("2027-02-20T14:30:00Z"),
+    );
+    expect(tokenExpiresLabel(datedExpiry)).toMatch(/ at /);
   });
 
   it("sorts unscoped tokens with the visible all label", () => {

@@ -133,7 +133,7 @@ export const ASSISTANT_HOSTS: readonly AssistantHost[] = [
     docsHash: "mcp-cursor",
     testId: "build-install-card-cursor-agent",
     installDescription:
-      "Paste this into .cursor/mcp.json. Cursor Agent reads the same MCP config as Cursor.",
+      "Connect Cursor Agent so it can use your Gestalt apps.",
     iconKey: "cursor",
     consoleSkin: "cursor",
     offered: true,

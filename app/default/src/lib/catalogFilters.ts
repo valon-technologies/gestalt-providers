@@ -1,5 +1,9 @@
 import type { Integration } from "@/lib/api";
 import {
+  connectAppActionLabel,
+  SIGN_IN_AGAIN_LABEL,
+} from "@/lib/accountCopy";
+import {
   hasCredentialSurface,
   integrationNeedsReconnect,
   normalizeIntegrationStatus,
@@ -172,8 +176,8 @@ function needsFirstUserConnection(
   if (integrationNeedsReconnect(status)) {
     return false;
   }
-  // Unused alternative methods still advertise `connect`. That is Add account
-  // on Connection — not app-level first-time connect — once any method works.
+  // Unused alternative methods still advertise `connect`. That is Connect {app}
+  // on Connection, not app-level first-time add, once any method works.
   if (status.connected) {
     return false;
   }
@@ -331,32 +335,34 @@ export function filterCatalogIntegrations(
 }
 
 /**
- * Catalog trailing + / Add is first-time connect chrome, not reconnect.
- * Dead logins already have Needs reconnect attention plus card navigation.
+ * Catalog trailing + / Add is first-time add chrome, not sign-in-again.
+ * Dead logins already have Needs sign-in attention plus card navigation.
  */
 export function catalogCardShowsConnectAction(
   installState: CatalogInstallState,
-  connectLabel: "Connect" | "Reconnect" | null,
+  connectLabel: string | null,
 ): boolean {
   if (installState === "needs_attention") return false;
-  // Add only when there is a connect action, not for every uninstalled card.
+  // Add only when there is a first-time add action, not for every uninstalled card.
   return installState === "mount_only" || connectLabel !== null;
 }
 
 export function primaryConnectLabel(
   integration: Integration,
   context: ConnectionContext = "current_user",
-): "Connect" | "Reconnect" | null {
+): string | null {
   const status = normalizeIntegrationStatus(integration, context);
-  if (integrationNeedsReconnect(status)) return "Reconnect";
+  if (integrationNeedsReconnect(status)) return SIGN_IN_AGAIN_LABEL;
   const canReconnect = status.connections.some(
     (connection) => connection.canReconnect,
   );
-  if (canReconnect) return "Reconnect";
+  if (canReconnect) return SIGN_IN_AGAIN_LABEL;
 
-  // Inferred "connect" actions can remain on already-connected rows; only
-  // surface Connect when the integration still needs a user connection.
-  if (needsFirstUserConnection(status)) return "Connect";
+  // Inferred "connect" actions can remain on already-linked rows; only
+  // surface Connect {app} when the integration still needs a user login.
+  if (needsFirstUserConnection(status)) {
+    return connectAppActionLabel(getIntegrationLabel(integration));
+  }
   return null;
 }
 

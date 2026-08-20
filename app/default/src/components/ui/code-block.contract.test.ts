@@ -13,7 +13,7 @@ describe("CodeBlock chrome contract", () => {
     expect(SOURCE).toContain("copyLabel?: string");
     expect(SOURCE).toContain('if (inset)');
     expect(SOURCE).toContain('data-slot="code-block-inset"');
-    expect(SOURCE).toContain('data-slot="code-block"');
+    expect(SOURCE).not.toMatch(/data-slot="code-block"(?!-)/);
     expect(SOURCE).toContain("CodeBlockInsetCopy");
     expect(SOURCE).toContain("[&_pre]:pe-10");
   });
@@ -23,6 +23,13 @@ describe("CodeBlock chrome contract", () => {
       '<CodeBlock chrome="inset" language="cli" code={command} variant={variant} />',
     );
     expect(SOURCE).not.toContain("flex h-10 items-center justify-between gap-2 px-3");
+  });
+
+  test("sensitive snippets mask secrets in the body and copy the real code", () => {
+    expect(SOURCE).toContain("secrets?: readonly string[]");
+    expect(SOURCE).toContain("maskSecretsInText");
+    expect(SOURCE).toContain('data-slot="code-block-reveal"');
+    expect(SOURCE).toContain('inset && (sensitive ? "[&_pre]:pe-16" : "[&_pre]:pe-10")');
   });
 
   test("highlighted lines use full-bleed flex rows with inset accent edge", () => {

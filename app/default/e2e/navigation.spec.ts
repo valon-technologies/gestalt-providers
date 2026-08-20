@@ -164,8 +164,19 @@ test.describe("Navigation", () => {
 
   test("nav links work", async ({ authenticatedPage: page }) => {
     await page.goto("/apps");
+    await expect(
+      page.getByRole("navigation", { name: "Primary" }).getByRole("link", {
+        name: "Setup",
+        exact: true,
+      }),
+    ).toBeVisible();
     await page.getByRole("button", { name: "Open user menu" }).click();
-    await expect(page.getByRole("menuitem", { name: "Setup", exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("menuitem", { name: "Setup", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("menuitem", { name: "Connect", exact: true }),
+    ).toHaveCount(0);
     await expect(page.getByRole("menuitem", { name: "Docs" })).toBeVisible();
     await page.getByRole("menuitem", { name: "Settings" }).click();
     await expect(page).toHaveURL(/\/settings/);
@@ -200,7 +211,7 @@ test.describe("Navigation", () => {
     await expect(page.getByRole("heading", { name: "Apps" })).toBeVisible();
   });
 
-  test("setup nav link opens setup journey", async ({ authenticatedPage: page }) => {
+  test("Setup nav link opens the Setup journey", async ({ authenticatedPage: page }) => {
     await page.addInitScript(() => {
       sessionStorage.setItem("gestalt.build.introSeen", "1");
     });
