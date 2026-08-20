@@ -48,5 +48,53 @@ describe("SegmentedControl unmatched value", () => {
     for (const radio of radios) {
       expect(radio.getAttribute("aria-checked")).toBe("false");
     }
+    expect(radios[0]?.getAttribute("tabindex")).toBe("0");
+    expect(radios[1]?.getAttribute("tabindex")).toBe("-1");
+  });
+
+  test("hides the pill when a matched value becomes unmatched", () => {
+    node = document.createElement("div");
+    document.body.append(node);
+    root = createRoot(node);
+
+    const options = [
+      { value: "dest-claude-code", label: "Claude Code" },
+      { value: "dest-chatgpt", label: "ChatGPT" },
+    ];
+
+    act(() => {
+      root!.render(
+        createElement(SegmentedControl, {
+          label: "Choose your assistant",
+          value: "dest-claude-code",
+          onValueChange: () => {},
+          options,
+          showLabels: true,
+          tooltips: false,
+        }),
+      );
+    });
+
+    act(() => {
+      root!.render(
+        createElement(SegmentedControl, {
+          label: "Choose your assistant",
+          value: "dest-claude",
+          onValueChange: () => {},
+          options,
+          showLabels: true,
+          tooltips: false,
+        }),
+      );
+    });
+
+    const radios = node.querySelectorAll('[role="radio"]');
+    for (const radio of radios) {
+      expect(radio.getAttribute("aria-checked")).toBe("false");
+    }
+    const pill = node.querySelector('[aria-hidden="true"]');
+    expect(pill).not.toBeNull();
+    expect((pill as HTMLElement).style.opacity).toBe("0");
+    expect((pill as HTMLElement).className).not.toContain("transition-[left,top,width,height]");
   });
 });

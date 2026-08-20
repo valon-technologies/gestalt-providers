@@ -3,10 +3,19 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { resolveSegmentedControlNameProps } from "./segmented-control";
+import {
+  resolveSegmentedControlNameProps,
+  resolveSegmentedControlSelection,
+  type SegmentedControlOption,
+} from "./segmented-control";
 
 const DIR = dirname(fileURLToPath(import.meta.url));
 const SOURCE = readFileSync(join(DIR, "segmented-control.tsx"), "utf8");
+
+const OPTIONS: ReadonlyArray<SegmentedControlOption> = [
+  { value: "list", label: "List" },
+  { value: "board", label: "Board" },
+];
 
 describe("SegmentedControl accessible-name contract", () => {
   test("uses Registry label XOR labelledBy ownership", () => {
@@ -72,6 +81,7 @@ describe("SegmentedControl track variants contract", () => {
     expect(SOURCE).not.toContain("React.useEffect(() => setAnimate(true), [])");
     expect(SOURCE).toContain("if (pill == null || animate) return");
     expect(SOURCE).toContain("setAnimate(true)");
+    expect(SOURCE).toContain("setAnimate(false)");
   });
 
   test("exposes variant on the radiogroup and keeps focus preventScroll", () => {
@@ -80,12 +90,24 @@ describe("SegmentedControl track variants contract", () => {
     expect(SOURCE).toContain("focus({ preventScroll: true })");
   });
 
-  test("unmatched value does not paint the first segment as selected", () => {
-    expect(SOURCE).toContain("hasMatchedValue");
-    expect(SOURCE).toContain(
-      "const matchedIndex = options.findIndex((option) => option.value === value);",
-    );
+  test("unmatched value is no selection, not index 0", () => {
+    expect(SOURCE).toContain("export function resolveSegmentedControlSelection");
     expect(SOURCE).not.toContain("Math.max(\n    0,\n    options.findIndex");
+    expect(resolveSegmentedControlSelection(OPTIONS, "list")).toEqual({
+      hasMatchedValue: true,
+      matchedIndex: 0,
+      keyboardIndex: 0,
+    });
+    expect(resolveSegmentedControlSelection(OPTIONS, "board")).toEqual({
+      hasMatchedValue: true,
+      matchedIndex: 1,
+      keyboardIndex: 1,
+    });
+    expect(resolveSegmentedControlSelection(OPTIONS, "missing")).toEqual({
+      hasMatchedValue: false,
+      matchedIndex: -1,
+      keyboardIndex: 0,
+    });
   });
 
   test("optional panelId wires aria-controls on every radio", () => {
