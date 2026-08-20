@@ -223,24 +223,15 @@
       outline-offset: 0;
       border-radius: 0.125em;
     }
-    /* Heading permalinks: muted `#` after the title, not a gold body link.
-       Pointer devices reveal it on heading hover; touch keeps it visible. */
+    /* Heading permalinks: Registry Link default paint. Typeset only places
+       the `#`, drops heading weight/size so it doesn't match the title, and
+       reveals it on heading hover (touch keeps it visible). */
     &:where(:is(h1, h2, h3, h4) > a[data-heading-permalink]) {
       margin-inline-start: 0.35em;
       font-size: 0.85em;
       font-weight: 400;
-      color: var(--typeset-muted);
-      background-image: none;
-      transition:
-        opacity var(--motion-move, 200ms)
-          var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1)),
-        color var(--motion-move, 200ms)
-          var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1));
-    }
-    &:where(:is(h1, h2, h3, h4) > a[data-heading-permalink]:hover),
-    &:where(:is(h1, h2, h3, h4) > a[data-heading-permalink]:active) {
-      color: inherit;
-      background-image: none;
+      transition: opacity var(--motion-move, 200ms)
+        var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1));
     }
     @media (hover: hover) {
       &:where(:is(h1, h2, h3, h4) > a[data-heading-permalink]) {

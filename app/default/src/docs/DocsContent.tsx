@@ -4,6 +4,7 @@ import { Info, TriangleAlert } from "lucide-react";
 import { AlertDescription, AlertTitle, Callout } from "@/components/ui/alert";
 import { CodeBlock } from "@/components/ui/code-block";
 import { Code } from "@/components/ui/code";
+import { Link } from "@/components/ui/link";
 import {
   DescriptionDetails,
   DescriptionItem,
@@ -1064,9 +1065,9 @@ function Subheading({ id }: { id: string }) {
   // scrollIntoView only apply scroll-margin on the matched element.
   // Offset token includes measured sticky chrome (worktree banner + top bar).
   // Title comes from docs-data so TOC labels and headings cannot drift.
-  // The muted `#` is the permalink (Bun-style), not the heading text and not a
-  // gold body link. `aria-labelledby` keeps the heading name as the title so
-  // the `#` stays a separate link.
+  // The `#` is the permalink, not the heading text. Registry Link default
+  // (gold ink, draw-underline on hover). `aria-labelledby` keeps the heading
+  // name as the title so the `#` stays a separate link.
   const title = docsSubsectionLabel(id);
   const titleId = `${id}-title`;
   return (
@@ -1076,13 +1077,13 @@ function Subheading({ id }: { id: string }) {
       aria-labelledby={titleId}
     >
       <span id={titleId}>{title}</span>
-      <a
+      <Link
         href={`#${id}`}
         data-heading-permalink
         aria-label={`Link to ${title}`}
       >
         #
-      </a>
+      </Link>
     </h2>
   );
 }
