@@ -285,7 +285,17 @@ indicator). Use for content navigation; mode switching stays on
 Registry `segmented-control` ships `variant="default"` (borderless muted well on
 paper) and `variant="outline"` (bordered well on muted chrome). ThemeToggle
 forwards `variant`; keep local `placement` (`header` | `menu`). Use `outline`
-only when the parent is muted (sidebar / rail).
+only when the parent is muted (sidebar / rail). Unmatched `value` is no
+selection (`resolveSegmentedControlSelection`); leftover hashes must not light
+the first segment.
+
+**Console adaptations (keep when syncing):**
+
+- `panelId` wires `aria-controls` on every radio. Docs hash switchers pair the
+  control with a stable `useId()` panel — never the option value, because that
+  value is also the URL hash.
+- `focus({ preventScroll: true })` keeps keyboard moves from jumping the page
+  under sticky app chrome.
 
 ## CodeBlock / code-fence
 

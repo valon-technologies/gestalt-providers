@@ -79,6 +79,11 @@ export type SegmentedControlNameProps =
 
 export type SegmentedControlProps<V extends string = string> = {
   options: ReadonlyArray<SegmentedControlOption<V>>;
+  /**
+   * Current selection. May be a leftover URL or unresolved preference that is
+   * not in `options`. When it does not match, nothing looks selected; keyboard
+   * still starts on the first segment.
+   */
   value: V;
   onValueChange: (value: V) => void;
   orientation?: "horizontal" | "vertical";
@@ -120,6 +125,26 @@ export function resolveSegmentedControlNameProps(
   );
 }
 
+export type SegmentedControlSelection = {
+  hasMatchedValue: boolean;
+  matchedIndex: number;
+  keyboardIndex: number;
+};
+
+/** Match `value` against `options`. Unmatched values are no selection, not index 0. */
+export function resolveSegmentedControlSelection<V extends string>(
+  options: ReadonlyArray<SegmentedControlOption<V>>,
+  value: V,
+): SegmentedControlSelection {
+  const matchedIndex = options.findIndex((option) => option.value === value);
+  const hasMatchedValue = matchedIndex >= 0;
+  return {
+    hasMatchedValue,
+    matchedIndex,
+    keyboardIndex: hasMatchedValue ? matchedIndex : 0,
+  };
+}
+
 type PillRect = { left: number; top: number; width: number; height: number };
 
 const useIsomorphicLayoutEffect =
@@ -150,11 +175,10 @@ export function SegmentedControl<V extends string>({
   const buttonsRef = React.useRef<Array<HTMLButtonElement | null>>([]);
 
   const count = options.length;
-  const matchedIndex = options.findIndex((option) => option.value === value);
-  const hasMatchedValue = matchedIndex >= 0;
-  // Unmatched `value` (hash-only destinations) must not paint the first
-  // segment as selected. Keyboard still starts from index 0.
-  const activeIndex = hasMatchedValue ? matchedIndex : 0;
+  const { hasMatchedValue, keyboardIndex } = resolveSegmentedControlSelection(
+    options,
+    value,
+  );
   const isVertical = orientation === "vertical";
 
   // Pill geometry is measured from the active segment (labels make widths uneven,
@@ -164,15 +188,18 @@ export function SegmentedControl<V extends string>({
   //   2. Measured — paint the correct rect once, then enable transitions so only
   //      subsequent value / layout moves animate (incl. ThemeToggle's post-hydration
   //      preference resolve, which must not slide from the origin).
+  // Unmatched `value` returns to phase 1, including `animate = false`, so a later
+  // match snaps into place instead of sliding from the origin.
   const [pill, setPill] = React.useState<PillRect | null>(null);
   const [animate, setAnimate] = React.useState(false);
 
   const measure = React.useCallback(() => {
     if (!hasMatchedValue) {
-      setPill((prev) => (prev == null ? prev : null));
+      setPill(null);
+      setAnimate(false);
       return;
     }
-    const btn = buttonsRef.current[activeIndex];
+    const btn = buttonsRef.current[keyboardIndex];
     if (!btn) return;
     const next: PillRect = {
       left: btn.offsetLeft,
@@ -185,7 +212,7 @@ export function SegmentedControl<V extends string>({
         ? prev
         : next,
     );
-  }, [activeIndex, hasMatchedValue]);
+  }, [keyboardIndex, hasMatchedValue]);
 
   useIsomorphicLayoutEffect(() => {
     measure();
@@ -224,9 +251,9 @@ export function SegmentedControl<V extends string>({
   }
 
   function onKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
-    let next = activeIndex;
-    if (NEXT_KEYS.has(event.key)) next = (activeIndex + 1) % count;
-    else if (PREV_KEYS.has(event.key)) next = (activeIndex - 1 + count) % count;
+    let next = keyboardIndex;
+    if (NEXT_KEYS.has(event.key)) next = (keyboardIndex + 1) % count;
+    else if (PREV_KEYS.has(event.key)) next = (keyboardIndex - 1 + count) % count;
     else if (event.key === "Home") next = 0;
     else if (event.key === "End") next = count - 1;
     else return;
@@ -282,7 +309,7 @@ export function SegmentedControl<V extends string>({
       />
       {options.map((option, index) => {
         const Icon = option.icon;
-        const checked = option.value === value;
+        const checked = hasMatchedValue && option.value === value;
         const segment = (
           <button
             ref={(node) => {
@@ -290,10 +317,10 @@ export function SegmentedControl<V extends string>({
             }}
             type="button"
             role="radio"
-            aria-checked={hasMatchedValue && checked}
+            aria-checked={checked}
             aria-label={option.label}
             aria-controls={panelId}
-            tabIndex={checked || (!hasMatchedValue && index === 0) ? 0 : -1}
+            tabIndex={index === keyboardIndex ? 0 : -1}
             onClick={() => onValueChange(option.value)}
             className={cn(
               "focus-ring relative z-10 inline-flex items-center justify-center gap-1.5 rounded-md font-medium text-muted-foreground transition-colors duration-hover-out ease-out-quart hover:duration-hover-in hover:text-foreground aria-checked:text-foreground",

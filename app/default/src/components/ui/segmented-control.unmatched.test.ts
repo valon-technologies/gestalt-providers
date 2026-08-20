@@ -48,5 +48,7 @@ describe("SegmentedControl unmatched value", () => {
     for (const radio of radios) {
       expect(radio.getAttribute("aria-checked")).toBe("false");
     }
+    expect(radios[0]?.getAttribute("tabindex")).toBe("0");
+    expect(radios[1]?.getAttribute("tabindex")).toBe("-1");
   });
 });
