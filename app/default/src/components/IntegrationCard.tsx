@@ -203,6 +203,7 @@ export default function IntegrationCard({
     (compact || useAppDetailConnection);
   const showAddButton =
     !readOnly &&
+    policy.allowConnect &&
     (installState === "mount_only" ||
       (connectionStatusKnown &&
         catalogCardShowsConnectAction(installState, connectLabel)));

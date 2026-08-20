@@ -473,8 +473,46 @@ export function isActivationDue(args: {
   return true;
 }
 
+/**
+ * Fold catalog / Setup ids so `aiSpendTracker` and `ai-spend-tracker` match.
+ * Workspace catalog `name` is the store route identity; Setup journey ids
+ * are not always the same string.
+ */
+export function catalogAppIdKey(appId: string): string {
+  return appId.trim().toLowerCase().replace(/[-_]/g, "");
+}
+
+/**
+ * Live catalog row for a Setup app reference. Name match wins, then the
+ * same id with kebab/camel/snake differences, then a known mount path.
+ * Returns undefined when this workspace has no such app — callers must not
+ * invent a catalog `name` to navigate to.
+ */
+export function resolveCatalogApp(
+  integrations: Integration[],
+  appId: string,
+  mountedPath?: string,
+): Integration | undefined {
+  const want = appId.trim();
+  if (!want) return undefined;
+  const exact = integrations.find((item) => item.name === want);
+  if (exact) return exact;
+
+  const key = catalogAppIdKey(want);
+  if (key) {
+    const folded = integrations.find(
+      (item) => catalogAppIdKey(item.name) === key,
+    );
+    if (folded) return folded;
+  }
+
+  const mount = mountedPath?.trim();
+  if (!mount) return undefined;
+  return integrations.find((item) => item.mountedPath?.trim() === mount);
+}
+
 export function companionAppLabel(appId: string): string {
-  switch (appId) {
+  switch (catalogAppIdKey(appId)) {
     case "slack":
       return "Slack";
     case "pagerduty":
@@ -485,25 +523,25 @@ export function companionAppLabel(appId: string): string {
       return "Ashby";
     case "intercom":
       return "Intercom";
-    case "aiSpendTracker":
+    case "aispendtracker":
       return "AI Spend Tracker";
     case "oncall":
       return "Oncall";
-    case "servicingQuiz":
+    case "servicingquiz":
       return "Servicing Quiz";
-    case "learnPortal":
+    case "learnportal":
       return "Learn Portal";
-    case "trainingCurriculum":
+    case "trainingcurriculum":
       return "Training Curriculum";
-    case "modelProviderBillingMetrics":
+    case "modelproviderbillingmetrics":
       return "Model provider billing";
-    case "incident_io":
+    case "incidentio":
       return "incident.io";
     case "datadog":
       return "Datadog";
     case "rippling":
       return "Rippling";
-    case "talentTeam":
+    case "talentteam":
       return "Talent Team";
     default:
       return appId;
@@ -522,7 +560,7 @@ export function resolveExemplarOpenPath(
     return { href: exemplar.knownMountPath, kind: "mount" };
   }
   return {
-    href: `/apps/${encodeURIComponent(exemplar.id)}/admin`,
+    href: `/apps/${encodeURIComponent(integration?.name ?? exemplar.id)}/admin`,
     kind: "store",
   };
 }
@@ -530,29 +568,21 @@ export function resolveExemplarOpenPath(
 /**
  * Catalog Integration for a Try-step store tile. Live catalog fields win;
  * label, description, and known mount fill gaps so Setup never forks a
- * second card primitive.
+ * second card primitive. Requires a real catalog row — do not synthesize a
+ * `name` that `/apps/$app` cannot load.
  */
 export function tryStepCatalogApp(args: {
-  appId: string;
-  catalog?: Integration;
+  catalog: Integration;
   label: string;
   description: string;
   mountedPath?: string;
 }): Integration {
-  const { appId, catalog, label, description, mountedPath } = args;
-  if (catalog) {
-    return {
-      ...catalog,
-      displayName: catalog.displayName?.trim() || label,
-      description: catalog.description?.trim() || description,
-      mountedPath: catalog.mountedPath?.trim() || mountedPath,
-    };
-  }
+  const { catalog, label, description, mountedPath } = args;
   return {
-    name: appId,
-    displayName: label,
-    description,
-    mountedPath,
+    ...catalog,
+    displayName: catalog.displayName?.trim() || label,
+    description: catalog.description?.trim() || description,
+    mountedPath: catalog.mountedPath?.trim() || mountedPath,
   };
 }
 

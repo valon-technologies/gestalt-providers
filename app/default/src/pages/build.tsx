@@ -6,12 +6,10 @@ import {
   useNavigate,
   useParams,
 } from "@tanstack/react-router";
-import { Badge } from "@/components/ui/badge";
 import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
 import SeeMoreAppsTrigger from "@/components/SeeMoreAppsTrigger";
 import { InvokeOperationReference } from "@/components/InvokeOperationReference";
-import IntegrationIcon from "@/components/IntegrationIcon";
 import {
   Alert,
   AlertCollapsibleContent,
@@ -95,6 +93,7 @@ import {
   SingleAgentMcpInstall,
 } from "@/features/setup/assistant-install";
 import { SetupOverlapCallout } from "@/features/setup/overlap-callout";
+import { SetupAppNotInWorkspaceNotice } from "@/features/setup/setup-app-not-in-workspace";
 import {
   SETUP_TOKEN_CREATED_CONTENT_CLASS,
   SETUP_TOKEN_CREATE_CONTENT_CLASS,
@@ -1301,23 +1300,6 @@ function AuthorizeStepActions({
         </TimelineStepsContent>
       </TimelineStepsItem>
     </TimelineSteps>
-  );
-}
-
-function SetupAppNotInWorkspaceNotice({ appId }: { appId: string }) {
-  const missingLabel = companionAppLabel(appId);
-  return (
-    <div className="h-full rounded-xl bg-neutral-hover p-3 text-foreground">
-      <div className="flex items-start gap-3">
-        <IntegrationIcon name={appId} displayName={missingLabel} size="md" />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-heading text-foreground">{missingLabel}</p>
-          <Badge variant="warning" size="sm" className="mt-2">
-            Not in workspace
-          </Badge>
-        </div>
-      </div>
-    </div>
   );
 }
 

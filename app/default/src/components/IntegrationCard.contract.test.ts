@@ -22,6 +22,7 @@ describe("IntegrationCard navigation contract", () => {
     expect(SOURCE).toContain('"relative h-full rounded-xl bg-neutral-hover');
     expect(SOURCE).toContain('from "@/lib/row-link"');
     expect(SOURCE).toContain("integrationCardActionPolicy");
+    expect(SOURCE).toContain("policy.allowConnect");
     expect(SOURCE).toContain('actions = "manage"');
     expect(SOURCE).toContain("policy.density === \"compact\"");
     expect(SOURCE).toContain('compact ? "Connect" : "Add"');

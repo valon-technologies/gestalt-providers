@@ -9,6 +9,7 @@ import {
   buildStepDescription,
   buildStepTitle,
   catalogLoadStateFromQuery,
+  companionAppLabel,
   firstIncompleteStepId,
   isActivationDue,
   isBuildStepUnlocked,
@@ -17,6 +18,7 @@ import {
   isSetupTokenGrantId,
   isWorkspaceWarm,
   mcpInstalledForAgent,
+  resolveCatalogApp,
   setupAppsConnected,
   setupAppsContinueBlockedReason,
   setupAppsHasConnectable,
@@ -543,13 +545,76 @@ describe("mcpInstalledForAgent", () => {
   });
 });
 
+describe("resolveCatalogApp", () => {
+  test("uses the live catalog name when Setup's journey id differs", () => {
+    const catalog: Integration = {
+      name: "ai-spend-tracker",
+      displayName: "AI Spend Tracker",
+      description: "Personal AI spend",
+      mountedPath: "/ai-spend",
+      credentialState: "not_required",
+      status: "ready",
+    };
+    expect(
+      resolveCatalogApp([catalog], "aiSpendTracker", "/ai-spend")?.name,
+    ).toBe("ai-spend-tracker");
+  });
+
+  test("prefers an exact catalog name over a folded match", () => {
+    const exact: Integration = {
+      name: "aiSpendTracker",
+      displayName: "Exact",
+      description: "",
+    };
+    const kebab: Integration = {
+      name: "ai-spend-tracker",
+      displayName: "Kebab",
+      description: "",
+      mountedPath: "/ai-spend",
+    };
+    expect(resolveCatalogApp([kebab, exact], "aiSpendTracker")?.name).toBe(
+      "aiSpendTracker",
+    );
+  });
+
+  test("matches a known mount when names do not fold together", () => {
+    const catalog: Integration = {
+      name: "valon-sats",
+      displayName: "Valon SATs",
+      description: "",
+      mountedPath: "/servicing-quiz",
+    };
+    expect(
+      resolveCatalogApp([catalog], "servicingQuiz", "/servicing-quiz")?.name,
+    ).toBe("valon-sats");
+  });
+
+  test("returns undefined when the workspace has no such app", () => {
+    expect(
+      resolveCatalogApp(
+        [{ name: "slack", displayName: "Slack", description: "" }],
+        "aiSpendTracker",
+        "/ai-spend",
+      ),
+    ).toBeUndefined();
+  });
+});
+
+describe("companionAppLabel", () => {
+  test("uses the same label for camelCase and kebab-case catalog ids", () => {
+    expect(companionAppLabel("aiSpendTracker")).toBe("AI Spend Tracker");
+    expect(companionAppLabel("ai-spend-tracker")).toBe("AI Spend Tracker");
+    expect(companionAppLabel("talentTeam")).toBe("Talent Team");
+    expect(companionAppLabel("talent-team")).toBe("Talent Team");
+  });
+});
+
 describe("tryStepCatalogApp", () => {
   test("uses live catalog fields and fills mount and copy gaps", () => {
     expect(
       tryStepCatalogApp({
-        appId: "aiSpendTracker",
         catalog: {
-          name: "aiSpendTracker",
+          name: "ai-spend-tracker",
           displayName: "AI Spend Tracker",
           description: "Live description",
           iconSvg: "<svg></svg>",
@@ -561,27 +626,11 @@ describe("tryStepCatalogApp", () => {
         mountedPath: "/ai-spend",
       }),
     ).toMatchObject({
-      name: "aiSpendTracker",
+      name: "ai-spend-tracker",
       displayName: "AI Spend Tracker",
       description: "Live description",
       iconSvg: "<svg></svg>",
       mountedPath: "/ai-spend",
-    });
-  });
-
-  test("builds a catalog tile when the app is missing from the workspace", () => {
-    expect(
-      tryStepCatalogApp({
-        appId: "example-app",
-        label: "Example app",
-        description: "Open Example app in Gestalt.",
-        mountedPath: "/example-app",
-      }),
-    ).toEqual({
-      name: "example-app",
-      displayName: "Example app",
-      description: "Open Example app in Gestalt.",
-      mountedPath: "/example-app",
     });
   });
 });
