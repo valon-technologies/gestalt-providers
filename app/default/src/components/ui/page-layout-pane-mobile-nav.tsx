@@ -300,10 +300,16 @@ function PageLayoutPaneMobileNav({
           <span
             className={cn(
               pageColumnClassName,
-              "flex min-w-0 items-center justify-start gap-1.5",
+              "flex min-w-0 items-center justify-start gap-inline-glyph",
             )}
           >
-            <ChevronDown className={disclosureCaretClassName} aria-hidden />
+            <ChevronDown
+              className={cn(
+                disclosureCaretClassName,
+                "size-inline-glyph stroke-inline-glyph text-current",
+              )}
+              aria-hidden
+            />
             <span className="min-w-0 truncate">{label}</span>
           </span>
         </button>

@@ -31,6 +31,9 @@ describe("PageLayoutPaneMobileNav disclosure contract", () => {
     expect(caretIdx).toBeGreaterThan(-1);
     expect(labelIdx).toBeGreaterThan(caretIdx);
     expect(SOURCE).toContain("disclosureCaretClassName");
+    expect(SOURCE).toContain("gap-inline-glyph");
+    expect(SOURCE).toContain("size-inline-glyph");
+    expect(SOURCE).toContain("stroke-inline-glyph");
   });
 
   test("keeps the Menu bar in flow (sticky owned by PageLayout)", () => {

@@ -164,7 +164,7 @@ function TokenScopesCell({ token }: { token: APIToken }) {
                 aria-hidden
                 className={cn(
                   disclosureCaretClassName,
-                  "opacity-100 motion-reduce:transition-none",
+                  "stroke-inline-glyph text-current motion-reduce:transition-none",
                 )}
               />
             </CollapsibleTrigger>

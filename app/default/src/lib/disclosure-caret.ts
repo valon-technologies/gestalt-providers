@@ -9,8 +9,13 @@
  * Tokens: `duration-overshoot` + `ease-out-back` (see `motion-tokens.md`).
  *
  * Put `group` on the open-state owner (Radix trigger with `data-state`, or a
- * `Button` with `aria-expanded`). Spacing (`ml-*`) stays at the call site —
- * Button already provides `gap-*`.
+ * `Button` with `aria-expanded`). This class is motion only.
+ *
+ * Size / ink: type-line carets add `size-inline-glyph stroke-inline-glyph
+ * text-current` (`icons.md`) so they share the letters' weight and color.
+ * Carets inside `Button` inherit `--control-icon-*` and add
+ * `stroke-inline-glyph text-current` (same ink as the label). Do not add
+ * `size-4`, `ml-2`, or `opacity-50`.
  */
 export const disclosureCaretClassName =
-  "size-4 shrink-0 opacity-50 transition-transform duration-overshoot ease-out-back group-data-[state=open]:rotate-180 group-aria-expanded:rotate-180";
+  "shrink-0 transition-transform duration-overshoot ease-out-back group-data-[state=open]:rotate-180 group-aria-expanded:rotate-180";

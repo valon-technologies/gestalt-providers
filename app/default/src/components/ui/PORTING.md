@@ -233,6 +233,16 @@ Guide inset is half the toggle gutter (`--tree-guide-inset`) so the line
 centers on +/- — not `indent/2`. Keep the local `--tree-padding` formula
 (`level * indent`) — Registry still uses `level - 1`.
 
+## Inline glyph / disclosure caret
+
+Registry `inline-glyph` + `disclosure-caret` are vendored in `src/lib/`. Tokens
+live in `globals.css` `@theme` (geometry, not the tenant theme API). A mark
+that sits in the line of type uses `size-inline-glyph` + `gap-inline-glyph` +
+`stroke-inline-glyph text-current`. Do not size it with rem `size-4` /
+`gap-1.5` / `opacity-50`. Carets inside Button inherit `--control-icon-*` and
+add `stroke-inline-glyph text-current` (`disclosureCaretClassName` is motion
+only).
+
 ## Card / Collapsible / Item
 
 Registry `card`, `collapsible`, and `item` are vendored here. Application record

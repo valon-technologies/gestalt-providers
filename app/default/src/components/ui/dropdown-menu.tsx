@@ -21,7 +21,7 @@ function DropdownMenuCaret({ className, ...props }: React.ComponentProps<typeof 
   return (
     <ChevronDown
       aria-hidden
-      className={cn(disclosureCaretClassName, "ml-2", className)}
+      className={cn(disclosureCaretClassName, "stroke-inline-glyph text-current", className)}
       {...props}
     />
   );

@@ -77,6 +77,18 @@
   --control-icon-sm: 1rem;
   --control-icon-default: 1rem;
   --control-icon-lg: 1.125rem;
+  /* Type-adjacent Lucide mark — size and gap track the line's font-size
+     (Registry icons.md). Distinct from --control-icon-* (button/select chrome). */
+  --inline-glyph-size: 1em;
+  --inline-glyph-gap: 0.5em;
+  /* Lucide user units (viewBox 24) per type weight. Diagonal carets read thinner
+     than vertical stems, so medium is a step-change — not +1 per 100. */
+  --inline-glyph-stroke: 3.5;
+  --inline-glyph-stroke-medium: 6;
+  --inline-glyph-stroke-semibold: 6.5;
+  --inline-glyph-stroke-bold: 7;
+  --size-inline-glyph: var(--inline-glyph-size);
+  --spacing-inline-glyph: var(--inline-glyph-gap);
 }
 
 /*
@@ -313,6 +325,34 @@
 /* Trim font metric leading so flex/grid centering matches visible glyphs (all fonts). */
 @utility text-box-cap-trim {
   text-box: trim-both cap alphabetic;
+}
+
+/* Center a 1em glyph box on the first-line cap band (not CSS `middle` / ½ex). */
+@utility align-inline-glyph {
+  vertical-align: calc((1cap - 1em) / 2);
+}
+
+/* Lucide stroke as a fraction of the 1em box (viewBox 24). Tailwind's
+   --tw-font-weight does not inherit onto the SVG, so weight is selected by
+   descendant class. Ink is the letters' currentColor — not muted, not
+   opacity-50. */
+@utility stroke-inline-glyph {
+  color: inherit;
+  stroke: currentColor;
+  opacity: 1;
+  stroke-width: calc(var(--inline-glyph-stroke) / 24 * 1em);
+}
+.font-medium :where(.stroke-inline-glyph),
+:where(.font-medium).stroke-inline-glyph {
+  stroke-width: calc(var(--inline-glyph-stroke-medium) / 24 * 1em);
+}
+.font-semibold :where(.stroke-inline-glyph),
+:where(.font-semibold).stroke-inline-glyph {
+  stroke-width: calc(var(--inline-glyph-stroke-semibold) / 24 * 1em);
+}
+.font-bold :where(.stroke-inline-glyph),
+:where(.font-bold).stroke-inline-glyph {
+  stroke-width: calc(var(--inline-glyph-stroke-bold) / 24 * 1em);
 }
 
 @font-face {
