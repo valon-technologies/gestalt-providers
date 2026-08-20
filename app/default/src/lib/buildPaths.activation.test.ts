@@ -327,6 +327,9 @@ describe("buildStepTitle", () => {
     expect(buildStepDescription(install, "cursor")).toBe(
       "Connect Cursor so it can use your Gestalt apps.",
     );
+    expect(buildStepDescription(install, "chatgpt")).toBe(
+      "Add Gestalt as a custom MCP in the ChatGPT app. You will paste a URL and a token.",
+    );
     expect(buildStepDescription(install, "codex")).toBe(
       "Run these commands in Terminal on the Mac where Codex is installed.",
     );
@@ -355,6 +358,17 @@ describe("buildStepTitle", () => {
     );
     expect(token.description).not.toContain("We only show");
     expect(token.description).not.toContain("coding agent");
+  });
+
+  test("welcome lives at /setup; later steps are /setup/$stepId", () => {
+    expect(BUILD_STEPS.map((step) => step.to)).toEqual([
+      "/setup",
+      "/setup/assistant",
+      "/setup/token",
+      "/setup/install",
+      "/setup/apps",
+      "/setup/try",
+    ]);
   });
 });
 

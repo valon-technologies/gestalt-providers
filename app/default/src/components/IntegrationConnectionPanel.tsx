@@ -14,7 +14,16 @@ import {
   type ConnectionAuthAction,
 } from "@/lib/connectionAuthActions";
 import { CircleAlert } from "lucide-react";
+import { cn } from "@/lib/cn";
+import {
+  ACCOUNT_NAME_FALLBACK,
+  SIGNING_IN_LABEL,
+  SIGN_IN_DETAILS_HEADING,
+  connectionForAppAriaLabel,
+  connectAppActionLabel,
+} from "@/lib/accountCopy";
 import { INPUT_CLASSES } from "@/lib/constants";
+import { disclosureCaretClassName } from "@/lib/disclosure-caret";
 import {
   alertVariantFromTone,
   badgeVariantFromTone,
@@ -26,7 +35,6 @@ import {
   statusTone,
   type ConnectionContext,
   type NormalizedConnection,
-  type NormalizedIntegrationStatus,
 } from "@/lib/integrationStatus";
 import {
   humanizeConnectionName,
@@ -38,7 +46,15 @@ import {
   disconnectConfirmAccountLabel,
   USE_ACCOUNT_LABEL,
   DEFAULT_ACCOUNT_LABEL,
+  OTHER_CONNECTION_METHODS_LABEL,
   connectionPanelAttention,
+  connectionMethodTitle,
+  connectionMethodPurpose,
+  connectionMethodShortName,
+  connectionDialogCopy,
+  partitionConnectionMethods,
+  shouldScopeInUseBadge,
+  isInUseRelationship,
 } from "@/features/app-workspace/connection-surface-copy";
 import {
   Alert,
@@ -72,7 +88,6 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Item,
@@ -83,7 +98,12 @@ import {
   ItemMedia,
   ItemTitle,
 } from "@/components/ui/item";
-import { CloseIcon } from "./icons";
+import { CloseIcon, ChevronDownIcon } from "./icons";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   SectionHeader,
   SectionHeaderActions,
@@ -149,16 +169,6 @@ export interface IntegrationConnectionPanelProps {
   onHeaderActionsChange?: (actions: ReactNode | null) => void;
   /** Fired when the disconnect confirm dialog is dismissed (cancel / overlay). */
   onDisconnectDialogClose?: () => void;
-}
-
-function shouldShowIntegrationSummary(status: NormalizedIntegrationStatus): boolean {
-  if (status.connections.some(connectionNeedsReconnect)) {
-    return true;
-  }
-  if (status.connected && status.status === "ready") {
-    return false;
-  }
-  return status.status !== "needs_user_connection";
 }
 
 function shouldShowConnectionStatusText(connection: NormalizedConnection): boolean {
@@ -277,8 +287,9 @@ export default function IntegrationConnectionPanel({
         )
       : null;
     return addAccountFormCopy({
+      appDisplayName: displayName,
       connectionKeyLabel:
-        keyLabel && keyLabel !== "Connection" ? keyLabel : null,
+        keyLabel && keyLabel !== ACCOUNT_NAME_FALLBACK ? keyLabel : null,
     });
   }, [normalizedStatus.connections, pendingAction]);
 
@@ -314,7 +325,17 @@ export default function IntegrationConnectionPanel({
     wasDisconnectingRef.current = disconnecting;
   }, [disconnecting, error]);
 
-  const authActions = buildAuthActions(normalizedStatus.connections);
+  const authActions = buildAuthActions(normalizedStatus.connections, displayName);
+  const { primary: primaryConnections, other: otherConnections } =
+    partitionConnectionMethods(normalizedStatus.connections);
+  const otherConnectionKeys = new Set(
+    otherConnections.map((connection) => connection.key),
+  );
+  const headerAuthActions = authActions.filter(
+    (action) => !otherConnectionKeys.has(action.connectionKey),
+  );
+  const scopeInUseBadge = shouldScopeInUseBadge(normalizedStatus.connections);
+  const dialogCopy = connectionDialogCopy(normalizedStatus, displayName);
   const pendingConnection = pendingAction
     ? normalizedStatus.connections.find(
         (connection) => connection.key === pendingAction.connectionKey,
@@ -341,7 +362,8 @@ export default function IntegrationConnectionPanel({
     disconnecting ? "1" : "0",
     selectingInstance ? "1" : "0",
     pendingAction?.key ?? "",
-    authActions.map((action) => action.key).join(","),
+    headerAuthActions.map((action) => action.key).join(","),
+    otherConnections.map((connection) => connection.key).join(","),
     normalizedStatus.connections
       .map(
         (connection) =>
@@ -362,7 +384,7 @@ export default function IntegrationConnectionPanel({
       return;
     }
 
-    const actionButtons = authActions.map((action) => (
+    const actionButtons = headerAuthActions.map((action) => (
       <Button
         key={action.key}
         type="button"
@@ -371,7 +393,7 @@ export default function IntegrationConnectionPanel({
         disabled={reconnecting || submitting || disconnecting || selectingInstance}
       >
         {reconnecting && isPendingAction(action, pendingAction)
-          ? "Connecting..."
+          ? SIGNING_IN_LABEL
           : action.label}
       </Button>
     ));
@@ -555,7 +577,7 @@ export default function IntegrationConnectionPanel({
             disabled={reconnecting || submitting}
           >
             {reconnecting && isPendingAction(action, pendingAction)
-              ? "Connecting..."
+              ? SIGNING_IN_LABEL
               : action.label}
           </Button>
         ))}
@@ -577,20 +599,25 @@ export default function IntegrationConnectionPanel({
     );
   }
 
-  function renderConnectionRow(connection: NormalizedConnection) {
+  function renderConnectionRow(
+    connection: NormalizedConnection,
+    opts?: { forceSectionActions?: boolean },
+  ) {
     const actionCopy = connectionActionCopy(connection, connectionContext);
-    const connectionTitle = humanizeConnectionName(connection.label);
+    const connectionTitle = connectionMethodTitle(connection);
     const titleId = `connection-section-${integration.name}-${connection.key}`;
+    const purpose = connectionMethodPurpose(connection);
     const description =
       actionCopy ||
-      (connection.detailLines.length > 0
-        ? connection.detailLines.join(" · ")
-        : null);
+      (connection.isMCPPassthrough
+        ? connection.detailLines[0] || purpose
+        : purpose);
     const statusBadge = renderStatusBadge(connection);
     const attention = renderConnectionAttention(connection);
-    const connectionActions = omitSectionHeader
-      ? null
-      : renderConnectionActions(connection);
+    const showSectionActions = opts?.forceSectionActions || !omitSectionHeader;
+    const connectionActions = showSectionActions
+      ? renderConnectionActions(connection)
+      : null;
     const showSectionHeader =
       (!omitSectionHeader ||
         connection.isMCPPassthrough ||
@@ -612,7 +639,7 @@ export default function IntegrationConnectionPanel({
       >
         {showSectionHeader ? (
           <SectionHeader>
-            <SectionHeaderContent size="sm">
+            <SectionHeaderContent size="xs">
               <SectionHeaderTitle as="h3" id={titleId}>
                 {connectionTitle}
               </SectionHeaderTitle>
@@ -656,6 +683,9 @@ export default function IntegrationConnectionPanel({
                 soleLinkedAccount:
                   connectionNeedsReconnect(connection) &&
                   connection.instances.length === 1,
+                methodScope: scopeInUseBadge
+                  ? connectionMethodShortName(connection)
+                  : null,
               });
               const loginRejected = connectionNeedsReconnect(connection);
               const { primary: identityPrimary, additional: identityAdditional } =
@@ -667,18 +697,15 @@ export default function IntegrationConnectionPanel({
                 connection.instances.length > 1 &&
                 !instance.preferred;
               return (
-                <Card
+                <Item
                   key={`${connection.key}:${instance.name}`}
                   variant="outline"
-                  className="overflow-hidden"
+                  className="items-baseline"
                   role="listitem"
                   data-testid={`connection-account-${instance.name}`}
+                  data-account-name={instance.name}
+                  data-preferred={instance.preferred ? "true" : undefined}
                 >
-                  <Item
-                    className="items-baseline border-0"
-                    data-account-name={instance.name}
-                    data-preferred={instance.preferred ? "true" : undefined}
-                  >
                     <ItemMedia>
                       <Avatar size="lg" aria-hidden>
                         <AvatarFallback>
@@ -689,7 +716,7 @@ export default function IntegrationConnectionPanel({
                     <ItemContent>
                       <div className="flex flex-wrap items-center gap-2">
                         <ItemTitle>{instanceLabel}</ItemTitle>
-                        {accountDescription === "In use" ? (
+                        {isInUseRelationship(accountDescription) ? (
                           <>
                             <Badge
                               variant={loginRejected ? "outline" : "success"}
@@ -719,7 +746,7 @@ export default function IntegrationConnectionPanel({
                           {fact.value}
                         </ItemDescription>
                       ))}
-                      {accountDescription !== "In use" &&
+                      {!isInUseRelationship(accountDescription) &&
                       accountDescription !== "Not in use" ? (
                         <ItemDescription>{accountDescription}</ItemDescription>
                       ) : null}
@@ -766,8 +793,7 @@ export default function IntegrationConnectionPanel({
                         ) : null}
                       </ItemActions>
                     ) : null}
-                  </Item>
-                </Card>
+                </Item>
               );
             })}
           </ItemGroup>
@@ -925,6 +951,7 @@ export default function IntegrationConnectionPanel({
             connectionParams={pendingConnectionParams}
             error={error}
             submitting={submitting}
+            submitLabel={connectAppActionLabel(displayName)}
             onSubmit={handleTokenSubmit}
             onCancel={() =>
               setView(pendingAction?.requiresInstanceName ? "instance" : "default")
@@ -948,14 +975,14 @@ export default function IntegrationConnectionPanel({
               <SectionHeader>
                 <SectionHeaderContent size="sm">
                   <SectionHeaderTitle as="h2" id={headingId}>
-                    {displayName}
+                    {dialogCopy.title}
                   </SectionHeaderTitle>
-                  {shouldShowIntegrationSummary(normalizedStatus) ? (
+                  {dialogCopy.description ? (
                     <SectionHeaderDescription className="text-sm">
-                      {normalizedStatus.summaryLabel}
+                      {dialogCopy.description}
                     </SectionHeaderDescription>
-                ) : null}
-              </SectionHeaderContent>
+                  ) : null}
+                </SectionHeaderContent>
               {isDialog ? (
                 <SectionHeaderActions>
                     <Button
@@ -972,7 +999,7 @@ export default function IntegrationConnectionPanel({
               </SectionHeader>
             ) : (
               <h2 id={headingId} className="sr-only">
-                Connections for {displayName}
+                {connectionForAppAriaLabel(displayName)}
               </h2>
             )}
 
@@ -984,7 +1011,35 @@ export default function IntegrationConnectionPanel({
             ) : null}
 
             <div className={showHeader ? "mt-5 space-y-3" : "space-y-3"}>
-              {normalizedStatus.connections.map(renderConnectionRow)}
+              {primaryConnections.map((connection) =>
+                renderConnectionRow(connection),
+              )}
+              {otherConnections.length > 0 ? (
+                <Collapsible
+                  defaultOpen={false}
+                  data-testid="connection-other-methods"
+                >
+                  <CollapsibleTrigger
+                    type="button"
+                    className="group w-auto max-w-none justify-start gap-inline-glyph rounded-md px-2.5 py-2 font-normal text-muted-foreground"
+                  >
+                    <ChevronDownIcon
+                      className={cn(
+                        disclosureCaretClassName,
+                        "size-inline-glyph stroke-inline-glyph text-current",
+                      )}
+                    />
+                    {OTHER_CONNECTION_METHODS_LABEL}
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="space-y-3 pt-3">
+                    {otherConnections.map((connection) =>
+                      renderConnectionRow(connection, {
+                        forceSectionActions: omitSectionHeader,
+                      }),
+                    )}
+                  </CollapsibleContent>
+                </Collapsible>
+              ) : null}
             </div>
           </>
         )}
@@ -1074,7 +1129,7 @@ function ConnectionParamsForm({
   return (
     <form onSubmit={onSubmit}>
       <h2 id={headingId} className="text-lg font-heading text-foreground">
-        Connection details
+        {SIGN_IN_DETAILS_HEADING}
       </h2>
       {Object.entries(connectionParams).map(([name, def]) => (
         <div key={name} className="mt-3">
@@ -1112,7 +1167,7 @@ function ConnectionParamsForm({
           Cancel
         </Button>
         <Button type="submit" className="flex-1" disabled={submitting}>
-          {submitting ? "Connecting..." : "Continue"}
+          {submitting ? SIGNING_IN_LABEL : "Continue"}
         </Button>
       </div>
     </form>
@@ -1126,6 +1181,7 @@ function TokenForm({
   connectionParams,
   error,
   submitting,
+  submitLabel,
   onSubmit,
   onCancel,
 }: {
@@ -1135,6 +1191,7 @@ function TokenForm({
   connectionParams: Record<string, ConnectionParamDef> | undefined;
   error: string | null;
   submitting: boolean;
+  submitLabel: string;
   onSubmit: (e: FormEvent<HTMLFormElement>) => void;
   onCancel: () => void;
 }) {
@@ -1207,7 +1264,7 @@ function TokenForm({
           Cancel
         </Button>
         <Button type="submit" className="flex-1" disabled={submitting}>
-          {submitting ? "Connecting…" : "Connect"}
+          {submitting ? SIGNING_IN_LABEL : submitLabel}
         </Button>
       </div>
     </form>

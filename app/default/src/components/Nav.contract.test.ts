@@ -35,15 +35,14 @@ describe("Nav AppTopBar composition", () => {
   });
 
   test("primary nav stays product destinations", () => {
-    expect(NAV).toContain('{ href: "/apps", label: "Apps" }');
-    expect(NAV).toContain('{ href: SETUP_PATH, label: "Setup" }');
+    expect(NAV).toContain("chromeProductNav");
+    expect(NAV).not.toContain("chromeUtilityNav");
     expect(NAV).not.toContain('label: "Docs"');
   });
 
   test("gates Admin nav on Gestalt admin probe", () => {
     expect(NAV).toContain("canShowAdminNav");
     expect(NAV).toContain("useGestaltAdminQuery");
-    expect(NAV).toContain("ADMIN_PATH");
-    expect(NAV).toContain('label: "Admin"');
+    expect(NAV).toContain("chromeProductNav(showAdmin)");
   });
 });

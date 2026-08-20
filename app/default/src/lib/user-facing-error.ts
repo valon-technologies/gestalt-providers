@@ -1,9 +1,9 @@
 import { APIError } from "@/lib/api";
+import { CONNECTION_STATUS_UNAVAILABLE } from "@/lib/accountCopy";
 import { WorkflowProviderConfigurationError } from "@/lib/workflowProvider";
 
 export const APPS_CATALOG_UNAVAILABLE = "Couldn't load apps. Try again.";
-export const CONNECTION_STATUS_UNAVAILABLE =
-  "Unable to load connection status. Try again.";
+export { CONNECTION_STATUS_UNAVAILABLE };
 export const TOKENS_UNAVAILABLE = "Couldn't load tokens. Try again.";
 
 const WORKFLOW_PROVIDER_UNAVAILABLE =

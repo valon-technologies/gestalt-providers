@@ -35,6 +35,7 @@ import {
   assistantDocsLandingHash,
   assistantHostById,
 } from "@/lib/assistantHosts";
+import { SETUP_JOURNEY_LABEL } from "@/lib/setupJourneyCopy";
 import { SETUP_PATH } from "@/lib/constants";
 import { gestaltMcpClientConfigJson } from "@/lib/gestaltMcpClientConfig";
 import { DOCS_TOKEN_PLACEHOLDER } from "./assistant-destinations";
@@ -120,10 +121,10 @@ export function GettingStartedDocsPage() {
           Gestalt securely manages your access behind the scenes.
         </p>
         <p>
-          Connect the Apps you need, then create an API token for MCP clients
+          Choose the Apps you need, then create an API token for MCP clients
           and the CLI. This page covers those first steps in the browser only.
           Prefer a guided walkthrough? Open{"\u00a0"}
-          <DocsLink to={SETUP_PATH}>Setup</DocsLink>.
+          <DocsLink to={SETUP_PATH}>{SETUP_JOURNEY_LABEL}</DocsLink>.
         </p>
         <WorkspaceUrlBlock origin={origin} />
         <div className="not-typeset">
@@ -148,7 +149,7 @@ export function GettingStartedDocsPage() {
         <p>
           To connect from the terminal, install the{" "}
           <DocsLink to={DOCS_CLI_PATH}>Gestalt CLI</DocsLink> first, then see{" "}
-          <DocsLink to={DOCS_CONNECT_PATH}>Connect Apps</DocsLink>.
+          <DocsLink to={DOCS_CONNECT_PATH}>Connect apps</DocsLink>.
         </p>
 
         <Subheading id="create-token" />
@@ -192,7 +193,7 @@ export function GettingStartedDocsPage() {
             : install the CLI, point it at this workspace, and authenticate.
           </li>
           <li>
-            <DocsLink to={DOCS_CONNECT_PATH}>Connect Apps</DocsLink>
+            <DocsLink to={DOCS_CONNECT_PATH}>Connect apps</DocsLink>
             : connect from the terminal after the CLI is installed.
           </li>
           <li>
@@ -224,8 +225,8 @@ export function CliDocsPage() {
         </p>
         <p>
           Install the CLI, point it at this workspace, then authenticate. This
-          page covers setup only. For connecting Apps, see{" "}
-          <DocsLink to={DOCS_CONNECT_PATH}>Connect Apps</DocsLink>. For admin
+          page covers setup only. For adding app accounts, see{" "}
+          <DocsLink to={DOCS_CONNECT_PATH}>Connect apps</DocsLink>. For admin
           grants, see{" "}
           <DocsLink to={DOCS_AUTHORIZATION_PATH}>Grant App Access</DocsLink>.
           For token lifecycle commands, see{" "}
@@ -351,7 +352,7 @@ export function CliDocsPage() {
 export function ConnectDocsPage() {
   return (
     <>
-      <DocsPageHeader title="Connect Apps" />
+      <DocsPageHeader title="Connect apps" />
       <DocsPageBody>
         <Subheading id="connect-browser" />
         <p>
@@ -607,7 +608,7 @@ export function McpDocsPage() {
       <DocsPageBody>
         <p>
           Add this Gestalt workspace to Claude Code, ChatGPT, Codex, Cursor,
-          Cursor Agent, or another assistant so it can use your connected Apps
+          Cursor Agent, or another assistant so it can use your linked Apps
           as tools.
         </p>
         <p>
@@ -629,12 +630,12 @@ export function McpDocsPage() {
         <Subheading id="mcp-overlap" />
         <p>
           Gestalt MCP is the default for company workspace apps. One MCP
-          endpoint, your workspace token, and the connections and grants you set
+          endpoint, your workspace token, and the accounts and grants you set
           up in this UI.
         </p>
         <p>
           Assistant skills are markdown playbooks (runbooks, SQL patterns, team
-          conventions). They do not replace Gestalt app connections. Enable a
+          conventions). They do not replace Gestalt app accounts. Enable a
           skill when you want procedural guidance, not when you need live API
           access.
         </p>
@@ -719,7 +720,7 @@ export function TroubleshootingDocsPage() {
       <DocsPageBody>
         <p>
           Most user-facing problems come down to the wrong URL, expired auth,
-          ambiguous connection selection, or a grant that has not taken effect
+          a missing app account, or a grant that has not taken effect
           yet.
         </p>
         <Subheading id="ts-not-authenticated" />
@@ -743,7 +744,7 @@ export function TroubleshootingDocsPage() {
         <Subheading id="ts-empty-tools" />
         <p>
           That usually means the app is available in the workspace config
-          but has not been connected for your current user yet.
+          but has not been linked for your current user yet.
         </p>
 
         <Subheading id="ts-forbidden" />
@@ -759,7 +760,7 @@ export function TroubleshootingDocsPage() {
         <p>
           If the same app appears twice (for example Notion in Gestalt and as a
           Codex plugin), disable the duplicate. Use Gestalt MCP for
-          workspace-connected apps. Use native plugins only for gaps Gestalt
+          workspace-linked apps. Use native plugins only for gaps Gestalt
           does not cover. See{" "}
           <DocsLink to={DOCS_MCP_PATH} hash="mcp-overlap">
             {ASSISTANT_OVERLAP_TITLE}

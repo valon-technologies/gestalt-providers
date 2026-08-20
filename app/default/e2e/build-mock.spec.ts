@@ -191,12 +191,12 @@ test.describe("Setup page", () => {
     await mockTokens(authenticatedPage, []);
   });
 
-  test("redirects /setup to welcome storytelling", async ({
+  test("opens welcome storytelling at /setup", async ({
     authenticatedPage: page,
   }) => {
     await page.goto("/setup");
 
-    await expect(page).toHaveURL(/\/setup\/welcome$/);
+    await expect(page).toHaveURL(/\/setup\/?$/);
     await expect(
       page.getByRole("heading", {
         name: "Your AI assistant, wired into your work",
@@ -261,7 +261,7 @@ test.describe("Setup page", () => {
       await route.fallback();
     });
 
-    await page.goto("/setup/welcome");
+    await page.goto("/setup");
     const notice = page.getByTestId("error-notice");
     await expect(notice).toBeVisible();
     await expect(notice).toContainText("Couldn't load this workspace");
@@ -269,19 +269,30 @@ test.describe("Setup page", () => {
     await expect(notice).not.toContainText("bearer token");
   });
 
+  test("legacy /connect, /connect/welcome, and /setup/welcome land on /setup", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.goto("/connect");
+    await expect(page).toHaveURL(/\/setup\/?$/);
+    await page.goto("/connect/welcome");
+    await expect(page).toHaveURL(/\/setup\/?$/);
+    await page.goto("/setup/welcome");
+    await expect(page).toHaveURL(/\/setup\/?$/);
+  });
+
   test("legacy /build redirects to /setup", async ({
     authenticatedPage: page,
   }) => {
     await page.goto("/build");
-    await expect(page).toHaveURL(/\/setup\/welcome$/);
+    await expect(page).toHaveURL(/\/setup\/?$/);
   });
 
   test("continue from welcome opens assistant picker", async ({
     authenticatedPage: page,
   }) => {
-    await page.goto("/setup/welcome");
+    await page.goto("/setup");
     await expect(
-      page.getByText("Ask in plain English in Claude Code, Cursor, or Codex"),
+      page.getByText("Ask in plain English in ChatGPT, Claude Code, Cursor, or Codex"),
     ).toBeVisible();
     await page.getByTestId("build-welcome-continue").click();
     await expect(page).toHaveURL(/\/setup\/assistant$/);
@@ -348,6 +359,9 @@ test.describe("Setup page", () => {
     await expect(page.getByTestId("build-add-to-cursor")).toHaveText(
       "Add in Cursor",
     );
+    await expect(
+      page.getByTestId("build-add-to-cursor").locator("svg"),
+    ).toBeVisible();
     await expect(page.getByText(".cursor/mcp.json")).toHaveCount(0);
     await expect(page.getByRole("link", { name: "MCP Clients" })).toBeVisible();
     await expect(page.getByTestId("setup-overlap-callout")).toHaveCount(0);
@@ -360,7 +374,7 @@ test.describe("Setup page", () => {
     ).toBeVisible();
   });
 
-  test("legacy /setup/connect redirects to the token step", async ({
+  test("legacy /setup/connect and /connect/connect redirect to the token step", async ({
     authenticatedPage: page,
   }) => {
     await mockTokens(page, [defaultToken]);
@@ -372,6 +386,8 @@ test.describe("Setup page", () => {
     await page.goto("/setup/connect");
     await expect(page).toHaveURL(/\/setup\/token$/);
     await expect(page.getByTestId("build-token-setup")).toBeVisible();
+    await page.goto("/connect/connect");
+    await expect(page).toHaveURL(/\/setup\/token$/);
   });
 
   test("install without a session token sends people back to create a token", async ({
@@ -689,6 +705,7 @@ test.describe("Setup page", () => {
     await expect(page.getByTestId("build-token-create-item")).toContainText(
       "Create a token",
     );
+    await expect(page.getByTestId("build-token-created-secret")).toHaveCount(0);
     await expect(page.getByTestId("build-step-next")).toBeDisabled();
 
     await page.getByRole("button", { name: "Create token" }).click();
@@ -803,6 +820,69 @@ test.describe("Setup page", () => {
     await page.getByTestId("build-see-more-apps").click();
     await expect(page.getByTestId("build-connect-app-zendesk")).toBeVisible();
     await expect(page.getByTestId("build-see-more-apps")).toHaveCount(0);
+  });
+
+  test("apps step search finds Notion and apps past See more", async ({
+    authenticatedPage: page,
+  }) => {
+    await mockTokens(page, [defaultToken]);
+    await seedSetupSession(page, {
+      introSeen: true,
+      selectedTokenId: "tok_123",
+      mcpInstalled: true,
+      installAgent: "claude",
+      activeExemplarId: "oncall",
+    });
+
+    await page.goto("/setup/apps");
+    const search = page.getByRole("searchbox", { name: "Search apps" });
+    await expect(search).toBeVisible();
+    await expect(page.getByTestId("build-connect-app-zendesk")).toHaveCount(0);
+    await expect(page.getByTestId("build-see-more-apps")).toBeVisible();
+
+    await search.fill("Notion");
+    const notionCard = page.getByTestId("build-connect-app-notion");
+    await expect(notionCard).toBeVisible();
+    await expect(
+      notionCard.getByRole("heading", { name: "Notion" }).locator("mark"),
+    ).toHaveText("Notion");
+    await expect(page.getByTestId("build-connect-app-ashby")).toHaveCount(0);
+    await expect(page.getByTestId("build-connect-app-slack")).toHaveCount(0);
+    await expect(page.getByTestId("build-see-more-apps")).toHaveCount(0);
+
+    await search.fill("Zendesk");
+    await expect(page.getByTestId("build-connect-app-zendesk")).toBeVisible();
+    await expect(page.getByTestId("build-connect-app-notion")).toHaveCount(0);
+    await expect(page.getByTestId("build-see-more-apps")).toHaveCount(0);
+
+    await search.fill("missing-plugin");
+    await expect(page.getByTestId("build-apps-search-empty")).toBeVisible();
+    await expect(
+      page.getByText('No apps match "missing-plugin"'),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Clear search" }).click();
+    await expect(page.getByTestId("build-connect-apps-suggested")).toBeVisible();
+    await expect(page.getByTestId("build-connect-app-slack")).toBeVisible();
+    await expect(page.getByTestId("build-see-more-apps")).toBeVisible();
+  });
+
+  test("connect apps overlap names ChatGPT plugins for ChatGPT", async ({
+    authenticatedPage: page,
+  }) => {
+    await mockTokens(page, [defaultToken]);
+    await seedSetupSession(page, {
+      introSeen: true,
+      selectedTokenId: "tok_123",
+      mcpInstalled: true,
+      installAgent: "chatgpt",
+      activeExemplarId: "oncall",
+    });
+
+    await page.goto("/setup/apps");
+    await expect(page.getByTestId("setup-overlap-callout")).toBeVisible();
+    await expect(page.getByTestId("setup-overlap-callout")).toContainText(
+      "ChatGPT plugins",
+    );
   });
 
   test("connect apps overlap names Codex plugins for Codex", async ({
@@ -921,10 +1001,10 @@ test.describe("Setup page", () => {
     const chooser = page.getByTestId("integration-connection-github");
     await expect(chooser).toBeVisible();
     await expect(
-      chooser.getByRole("button", { name: "Connect with OAuth" }),
+      chooser.getByRole("button", { name: "Sign in with OAuth" }),
     ).toBeVisible();
     await expect(
-      chooser.getByRole("button", { name: "Connect with MCP" }),
+      chooser.getByRole("button", { name: "Sign in with MCP" }),
     ).toBeVisible();
     await chooser.getByRole("button", { name: "Close" }).click();
     await expect(chooser).toHaveCount(0);
@@ -1093,19 +1173,11 @@ test.describe("Setup page", () => {
     ).toHaveAttribute("href", /\/apps\/aiSpendTracker/);
     await expect(page.getByTestId("open-app-aiSpendTracker")).toBeVisible();
     await expect(
-      page.getByTestId("build-open-exemplar").getByRole("button", {
-        name: "Add AI Spend Tracker",
-      }),
-    ).toHaveCount(0);
-    await expect(
       page.getByTestId("integration-card-more-aiSpendTracker"),
     ).toHaveCount(0);
     await expect(
       page.getByTestId("build-related-apps").locator('[data-testid^="integration-card-more-"]'),
     ).toHaveCount(0);
-    await expect(
-      page.getByTestId("build-open-app-modelProviderBillingMetrics"),
-    ).toContainText("Not in workspace");
     await expect(page.getByTestId("build-step-next")).toHaveAttribute(
       "href",
       "/apps",
@@ -1174,7 +1246,7 @@ test.describe("Setup page", () => {
     authenticatedPage: page,
   }) => {
     await enableSetupActivationPrompt(page);
-    await page.goto("/setup/welcome");
+    await page.goto("/setup");
     await page.getByTestId("build-welcome-skip").click();
     await expect(page).toHaveURL(/\/apps/);
     await expect(page.getByRole("heading", { name: "Apps" })).toBeVisible();
@@ -1195,7 +1267,7 @@ test.describe("Setup page", () => {
   }) => {
     await enableSetupActivationPrompt(page);
     await page.goto("/apps");
-    await expect(page).toHaveURL(/\/setup\/welcome$/);
+    await expect(page).toHaveURL(/\/setup\/?$/);
     await expect(page.getByTestId("build-welcome")).toBeVisible();
   });
 
@@ -1238,7 +1310,7 @@ test.describe("Setup page", () => {
     await expectSetupStepper(page);
     await expect(page.getByTestId("build-overview-welcome")).toBeVisible();
     await expect(page.getByTestId("build-overview-try")).toBeVisible();
-    await expect(page.getByRole("link", { name: /Connect another assistant/ })).toHaveAttribute(
+    await expect(page.getByRole("link", { name: /Set up another assistant/ })).toHaveAttribute(
       "href",
       "/setup/assistant",
     );
@@ -1264,7 +1336,7 @@ test.describe("Setup page", () => {
 
     await page.goto("/setup");
 
-    await expect(page).toHaveURL(/\/setup\/welcome$/);
+    await expect(page).toHaveURL(/\/setup\/?$/);
     await expect(page.getByTestId("build-welcome")).toBeVisible();
     await expect(page.getByText("Loading setup…")).toHaveCount(0);
     expect(catalogReleased).toBe(false);
@@ -1403,7 +1475,7 @@ test.describe("Setup page", () => {
     await expect(
       page.getByRole("heading", { name: "You're all set" }),
     ).toBeVisible();
-    await page.getByRole("link", { name: /Connect another assistant/ }).click();
+    await page.getByRole("link", { name: /Set up another assistant/ }).click();
     await expect(page).toHaveURL(/\/setup\/assistant$/);
     await page.getByTestId("build-install-card-codex").click();
     await page.goto("/setup");

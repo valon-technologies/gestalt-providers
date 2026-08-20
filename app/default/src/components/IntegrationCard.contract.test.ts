@@ -25,7 +25,9 @@ describe("IntegrationCard navigation contract", () => {
     expect(SOURCE).toContain("policy.allowConnect");
     expect(SOURCE).toContain('actions = "manage"');
     expect(SOURCE).toContain("policy.density === \"compact\"");
-    expect(SOURCE).toContain('compact ? "Connect" : "Add"');
+    expect(SOURCE).toContain("connectActionLabel = connectLabel ?? connectAppActionLabel(label)");
+    expect(SOURCE).toContain("connectAppActionLabel(label)");
+    expect(SOURCE).toContain("signInAgainActionAriaLabel(label)");
     expect(SOURCE).toContain(
       'useCardClickActivate && !showAddButton ? "link"',
     );

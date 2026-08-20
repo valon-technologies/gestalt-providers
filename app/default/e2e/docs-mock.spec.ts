@@ -100,14 +100,14 @@ test.describe("Docs page", () => {
       "universal key for your tools",
     );
     await expect(
-      page.getByRole("heading", { name: "Connect Apps", exact: true }),
+      page.getByRole("heading", { name: "Connect apps", exact: true }),
     ).toBeVisible();
     const connectPermalink = page.getByRole("link", {
-      name: "# Link to Connect Apps",
+      name: "# Link to Connect apps",
     });
     await expect(connectPermalink).toHaveAttribute("href", "#connect-apps");
     await page
-      .getByRole("heading", { name: "Connect Apps", exact: true })
+      .getByRole("heading", { name: "Connect apps", exact: true })
       .hover();
     await expect(connectPermalink).toBeVisible();
     await connectPermalink.click();
@@ -160,7 +160,7 @@ test.describe("Docs page", () => {
     ).toBeVisible();
     await expect(page.getByTestId("docs-journey-previous")).toHaveCount(0);
     await expect(page.getByTestId("docs-journey-next")).toContainText(
-      "Connect Apps",
+      "Connect apps",
     );
     await expect(page.locator("article")).toContainText(
       "same capabilities as the browser",
@@ -205,10 +205,10 @@ test.describe("Docs page", () => {
     );
     await expect(page.getByText("gestalt apps list", { exact: true })).toBeVisible();
 
-    await leftNav.getByRole("link", { name: "Connect Apps" }).click();
+    await leftNav.getByRole("link", { name: "Connect apps" }).click();
     await expect(page).toHaveURL(/\/docs\/connect/);
     await expect(
-      page.getByRole("heading", { name: "Connect Apps in the browser" }),
+      page.getByRole("heading", { name: "Connect apps in the browser" }),
     ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Connect from the terminal" }),

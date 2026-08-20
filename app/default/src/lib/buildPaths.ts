@@ -182,6 +182,11 @@ Ready for a new attempt when you are.`,
   },
 ];
 
+/** Address-bar path for a Setup step. Welcome is the journey index. */
+export function connectStepHref(stepId: BuildStepId): string {
+  return stepId === "welcome" ? SETUP_PATH : `${SETUP_PATH}/${stepId}`;
+}
+
 /** Tenant-neutral product noun for Setup copy (deployments may override later). */
 export const SETUP_PRODUCT_NAME = "Gestalt";
 
@@ -190,9 +195,9 @@ export const BUILD_STEPS: BuildStep[] = [
     id: "welcome",
     title: "Welcome",
     description:
-      "Connect the assistant you already use to this workspace so it can use your company’s apps, with your permission.",
+      "Set up the assistant you already use so it can use your company’s apps, with your permission.",
     ctaLabel: "Choose your assistant",
-    to: `${SETUP_PATH}/welcome`,
+    to: connectStepHref("welcome"),
     isComplete: (snapshot) => snapshot.welcomeSeen,
   },
   {
@@ -200,7 +205,7 @@ export const BUILD_STEPS: BuildStep[] = [
     title: "Choose your assistant",
     description: ASSISTANT_PICKER_DESCRIPTION,
     ctaLabel: "Continue",
-    to: `${SETUP_PATH}/assistant`,
+    to: connectStepHref("assistant"),
     isComplete: (snapshot) => isBuildInstallAgentId(snapshot.installAgentId),
   },
   {
@@ -208,7 +213,7 @@ export const BUILD_STEPS: BuildStep[] = [
     title: "Create a token",
     description: TOKEN_STEP_DESCRIPTION,
     ctaLabel: "Continue",
-    to: `${SETUP_PATH}/token`,
+    to: connectStepHref("token"),
     isComplete: (snapshot) => buildMcpCredentialReady(snapshot),
   },
   {
@@ -216,7 +221,7 @@ export const BUILD_STEPS: BuildStep[] = [
     title: `Add ${SETUP_PRODUCT_NAME}`,
     description: `Add ${SETUP_PRODUCT_NAME} so your assistant can reach this workspace.`,
     ctaLabel: "Continue",
-    to: `${SETUP_PATH}/install`,
+    to: connectStepHref("install"),
     isComplete: (snapshot) =>
       mcpInstalledForAgent(snapshot.mcpInstalledAgents, snapshot.installAgentId),
   },
@@ -226,7 +231,7 @@ export const BUILD_STEPS: BuildStep[] = [
     description:
       "Pick the apps your assistant can use. Connect at least one to continue.",
     ctaLabel: "Continue",
-    to: `${SETUP_PATH}/apps`,
+    to: connectStepHref("apps"),
     isComplete: (snapshot) => setupAppsStepComplete(snapshot),
   },
   {
@@ -235,7 +240,7 @@ export const BUILD_STEPS: BuildStep[] = [
     description:
       "Paste a test prompt in your assistant and see it use this workspace.",
     ctaLabel: "Browse apps",
-    to: `${SETUP_PATH}/try`,
+    to: connectStepHref("try"),
     isComplete: (snapshot) => snapshot.trySeen,
   },
 ];
@@ -332,7 +337,7 @@ export function connectedAppIds(integrations: Integration[]): Set<string> {
 }
 
 /**
- * Setup Connect apps — only catalog rows that connect this workspace to an
+ * Connect apps — only catalog rows that connect this workspace to an
  * external data source (OAuth / API key). Native / mount-only products stay
  * in the store, not on this step.
  */

@@ -1,7 +1,10 @@
 import type { AuthType, ConnectionParamDef, Integration } from "@/lib/api";
 import {
-  ADD_ACCOUNT_LABEL,
-} from "@/features/app-workspace/connection-surface-copy";
+  connectAppActionLabel,
+  SIGN_IN_AGAIN_LABEL,
+  SIGN_IN_WITH_OAUTH_LABEL,
+} from "@/lib/accountCopy";
+import { getIntegrationLabel } from "@/lib/integrationSearch";
 import {
   normalizeIntegrationStatus,
   type ConnectionContext,
@@ -56,45 +59,52 @@ function buildAuthActionLabel(
   kind: ConnectionAuthKind,
   authType: AuthType,
   showConnectionNames: boolean,
+  appLabel: string,
 ): string {
   const dualAuth =
     connection.authTypes.includes("oauth") &&
     connection.authTypes.includes("manual");
   const name = connection.label;
+  const connectApp = connectAppActionLabel(appLabel);
 
   if (kind === "add_instance") {
-    return showConnectionNames ? `Add ${name} account` : ADD_ACCOUNT_LABEL;
+    return showConnectionNames
+      ? `Connect another ${name} account`
+      : connectApp;
   }
 
   if (kind === "reconnect") {
     if (authType === "manual" && dualAuth) {
       return showConnectionNames
-        ? `Reconnect ${name} with API token`
-        : "Reconnect with API token";
+        ? `Sign in again to ${name} with API token`
+        : "Sign in again with API token";
     }
-    return showConnectionNames ? `Reconnect ${name}` : "Reconnect";
+    return showConnectionNames
+      ? `Sign in again with ${name}`
+      : SIGN_IN_AGAIN_LABEL;
   }
 
   if (kind === "select_instance") {
-    return showConnectionNames ? `Select ${name} connection` : "Select connection";
+    return showConnectionNames ? `Choose ${name} account` : "Choose account";
   }
 
   if (authType === "manual") {
     if (dualAuth) {
       return showConnectionNames ? `Use API token for ${name}` : "Use API token";
     }
-    return showConnectionNames ? `Connect with ${name}` : "Connect";
+    return showConnectionNames ? `Connect ${name} account` : connectApp;
   }
 
   return showConnectionNames
-    ? `Connect with ${name}`
+    ? `Sign in with ${name}`
     : dualAuth
-      ? "Connect with OAuth"
-      : "Connect";
+      ? SIGN_IN_WITH_OAUTH_LABEL
+      : connectApp;
 }
 
 export function buildAuthActions(
   connections: NormalizedConnection[],
+  appLabel: string,
 ): ConnectionAuthAction[] {
   const actionableConnections = connections.filter(
     (connection) =>
@@ -120,6 +130,7 @@ export function buildAuthActions(
             kind,
             authType,
             showConnectionNames,
+            appLabel,
           ),
           variant:
             demoteOtherMethods
@@ -165,7 +176,10 @@ export function connectEntryPlan(
   context: ConnectionContext = "current_user",
 ): ConnectEntryPlan {
   const status = normalizeIntegrationStatus(integration, context);
-  const actions = buildAuthActions(status.connections);
+  const actions = buildAuthActions(
+    status.connections,
+    getIntegrationLabel(integration),
+  );
   if (actions.length !== 1) return { kind: "chooser" };
   const start = authActionStart(actions[0]!, status.connections);
   if (start.kind === "oauth") {
@@ -184,6 +198,7 @@ export function seedPendingAuthAction(
   }
   const actions = buildAuthActions(
     normalizeIntegrationStatus(integration, context).connections,
+    getIntegrationLabel(integration),
   );
   return actions[0];
 }

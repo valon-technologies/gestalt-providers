@@ -1,4 +1,14 @@
 import {
+  ACCOUNT_NAME_FALLBACK,
+  APP_CONNECTED_LABEL,
+  CONNECTION_NAV_LABEL,
+  CONNECTION_SURFACE_TITLE,
+  MANAGE_CONNECTION_LABEL,
+  OTHER_SIGN_IN_METHODS_LABEL,
+  connectAppActionLabel,
+  connectAppDialogTitle,
+} from "@/lib/accountCopy";
+import {
   connectionNeedsReconnect,
   integrationNeedsReconnect,
   normalizeIntegrationStatus,
@@ -13,31 +23,291 @@ import type { AccountIdentity, IdentityFact, Integration } from "@/lib/api";
  * User-facing vocabulary for the app-workspace Connection surface.
  *
  * Domain model (one meaning each):
- * - **Connection** — the surface (nav / page) for managing linked accounts.
- * - **Account** — a linked provider identity (OAuth/API instance) in the list.
- * - **Account label** — the name the operator chooses before sign-in; shown on
+ * - **Connection** - the surface (nav / page) for connecting this app.
+ * - **Connect / Disconnect** - the verbs for wiring or revoking a login.
+ * - **Connected / Not connected** - app-level status.
+ * - **Account** - a named provider identity (OAuth/API instance) in the list.
+ * - **Account label** - the name the operator chooses before sign-in; shown on
  *   the account card so multiple sign-ins are distinguishable.
- * - **Account identity** — provider-recognized facts (email, workspace, …) for
- *   recognizing which provider account is linked; SCIM-style primary + others.
- * - **In use** — the preferred account this workspace acts through (one at a time).
- * - **Not in use** — linked but not the preferred account.
- * - **Available** — linked while the workspace still needs an active choice.
+ * - **Account identity** - provider-recognized facts (email, workspace, …) for
+ *   recognizing which provider account is connected; SCIM-style primary + others.
+ * - **In use** - the preferred account this method acts through (one per method).
+ * - **Not in use** - connected but not the preferred account for that method.
+ * - **Available** - connected while the workspace still needs an active choice.
  *
- * Credential *absence* (`not_required`) is never Overview/catalog chrome —
- * silence or "Ready". Actionable auth states own Connect / Connection copy.
+ * Credential *absence* (`not_required`) is never Overview/catalog chrome:
+ * silence or "Ready". Actionable auth states own Connect {app} / Connection copy.
+ * Setup is the assistant journey, not this surface.
  */
-export const CONNECTION_SURFACE_TITLE = "Connection" as const;
+export { CONNECTION_SURFACE_TITLE };
 
-export const CONNECTION_SURFACE_NAV_LABEL = "Connection" as const;
+export const CONNECTION_SURFACE_NAV_LABEL = CONNECTION_NAV_LABEL;
 
 /**
- * Happy-path credential state — Overview Status, catalog checkmark, and the
- * catalog “already linked” browse section. Pair with “Not connected”.
+ * Happy-path credential state. Overview Status, catalog checkmark, and the
+ * catalog “already connected” browse section. Pair with “Not connected”.
  */
-export const CONNECTION_CONNECTED_LABEL = "Connected" as const;
+export const CONNECTION_CONNECTED_LABEL = APP_CONNECTED_LABEL;
 
-/** Primary CTA to link another provider identity. */
-export const ADD_ACCOUNT_LABEL = "Add account" as const;
+/** Preferred-account badge. Scoped to a method when more than one method is in use. */
+export const IN_USE_LABEL = "In use" as const;
+
+/** Disclosure for unused connectable methods once something is already linked. */
+export const OTHER_CONNECTION_METHODS_LABEL = OTHER_SIGN_IN_METHODS_LABEL;
+
+export type ConnectionMethodKind =
+  | "mcp"
+  | "oauth"
+  | "api_key"
+  | "pat"
+  | "manual"
+  | "shared";
+
+function methodSearchBlob(connection: NormalizedConnection): string {
+  return `${connection.key} ${connection.label}`
+    .toLowerCase()
+    .replace(/[_-]+/g, " ");
+}
+
+/** How this connection signs in. Independent of whether another method is connected. */
+export function connectionMethodKind(
+  connection: NormalizedConnection,
+): ConnectionMethodKind {
+  if (connection.isMCPPassthrough) return "shared";
+  const blob = methodSearchBlob(connection);
+  if (/\bmcp\b/.test(blob)) return "mcp";
+  if (/\bpat\b/.test(blob) || blob.includes("personal access token")) {
+    return "pat";
+  }
+  if (blob.includes("api key") || blob.includes("apikey")) return "api_key";
+  if (connection.authTypes.includes("oauth")) return "oauth";
+  return "manual";
+}
+
+export function connectionMethodTitle(
+  connection: NormalizedConnection,
+): string {
+  return humanizeConnectionName(connection.label);
+}
+
+/** Short name for badges and CTAs (OAuth, MCP, API key). */
+export function connectionMethodShortName(
+  connection: NormalizedConnection,
+): string {
+  return humanizeConnectionName(connection.label);
+}
+
+/**
+ * Why this method exists. First-time connect only. Never credential-state chrome
+ * like "User credentials missing".
+ */
+export function connectionMethodPurpose(
+  connection: NormalizedConnection,
+): string | null {
+  if (connection.isMCPPassthrough) return "Uses a shared login";
+  if (connection.isNoAuth || !connection.isSubjectOwned) return null;
+  if (connection.instances.length > 0 || connection.connected) return null;
+  switch (connectionMethodKind(connection)) {
+    case "mcp":
+      return "Sign in so assistants can use this app's hosted tools.";
+    case "oauth":
+      return "Sign in for API access from this workspace.";
+    case "api_key":
+      return "Internal integration secret for API calls from this workspace.";
+    case "pat":
+      return "Your user token for API calls. Rotate it before it expires.";
+    case "manual":
+      return "Enter a token so this workspace can call the API.";
+    case "shared":
+      return "Uses a shared login";
+  }
+}
+
+export function subjectOwnedMethods(
+  connections: NormalizedConnection[],
+): NormalizedConnection[] {
+  return connections.filter(
+    (connection) => connection.isSubjectOwned && !connection.isMCPPassthrough,
+  );
+}
+
+export function connectionHasInUseAccount(
+  connection: NormalizedConnection,
+): boolean {
+  if (connection.instances.some((instance) => instance.preferred)) return true;
+  return connectionNeedsReconnect(connection) && connection.instances.length === 1;
+}
+
+/** Scope "In use for OAuth" only when two methods each have an active account. */
+export function shouldScopeInUseBadge(
+  connections: NormalizedConnection[],
+): boolean {
+  return connections.filter(connectionHasInUseAccount).length >= 2;
+}
+
+export function isInUseRelationship(label: string): boolean {
+  return label === IN_USE_LABEL || label.startsWith(`${IN_USE_LABEL} for `);
+}
+
+function preferredInstanceForConnection(
+  connection: NormalizedConnection,
+): NormalizedConnection["instances"][number] | undefined {
+  const preferred = connection.instances.find((instance) => instance.preferred);
+  if (preferred) return preferred;
+  if (
+    connectionNeedsReconnect(connection) &&
+    connection.instances.length === 1
+  ) {
+    return connection.instances[0];
+  }
+  return undefined;
+}
+
+function preferredAccountDisplay(connection: NormalizedConnection): string | null {
+  const instance = preferredInstanceForConnection(connection);
+  if (!instance) return null;
+  const identity = accountIdentityLines(instance.identity).primary?.value?.trim();
+  if (identity) return identity;
+  return humanizeConnectionName(instance.name, DEFAULT_ACCOUNT_LABEL);
+}
+
+function joinEnglishList(items: string[]): string {
+  if (items.length === 0) return "";
+  if (items.length === 1) return items[0]!;
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
+/** Which linked account REST vs MCP currently acts through. Null when nothing is in use. */
+export function connectionEffectiveUseSummary(
+  status: NormalizedIntegrationStatus,
+): string | null {
+  const parts: string[] = [];
+  for (const connection of subjectOwnedMethods(status.connections)) {
+    const account = preferredAccountDisplay(connection);
+    if (!account) continue;
+    const title = connectionMethodTitle(connection);
+    if (connectionMethodKind(connection) === "mcp") {
+      parts.push(`${title} "${account}"`);
+    } else {
+      parts.push(`${title} "${account}" for API access`);
+    }
+  }
+  if (parts.length === 0) return null;
+  return `This workspace uses ${joinEnglishList(parts)}.`;
+}
+
+export type ConnectionDialogCopy = {
+  title: string;
+  description: string;
+};
+
+/**
+ * Dialog chrome: the job is connecting this app. Methods are
+ * separate sign-ins, not one picker. Page title stays Connection.
+ */
+export function connectionDialogCopy(
+  status: NormalizedIntegrationStatus,
+  displayName: string,
+): ConnectionDialogCopy {
+  const title = connectAppDialogTitle(displayName);
+  const summary = connectionEffectiveUseSummary(status);
+  const methods = subjectOwnedMethods(status.connections);
+  const mode = connectionSurfaceMode(status);
+
+  if (mode === "none" || mode === "shared") {
+    return {
+      title,
+      description: connectionSurfaceCopy(mode).description,
+    };
+  }
+
+  if (integrationNeedsReconnect(status)) {
+    return {
+      title,
+      description: [
+        summary,
+        "The account in use needs a new sign-in before this workspace can use this app.",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    };
+  }
+
+  if (status.status === "needs_instance_selection") {
+    return {
+      title,
+      description: [
+        summary,
+        "More than one account is connected. Choose which one this workspace should use.",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    };
+  }
+
+  if (mode === "connect") {
+    return {
+      title,
+      description:
+        methods.length > 1
+          ? "Pick how this workspace should sign in. Methods are separate. Each one can have its own account."
+          : "Connect so this workspace can use the app.",
+    };
+  }
+
+  if (methods.length > 1) {
+    return {
+      title,
+      description: [
+        summary,
+        "Methods are separate. Each one can have its own account in use.",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    };
+  }
+
+  return {
+    title,
+    description: summary ?? "Accounts connected to this app.",
+  };
+}
+
+function isUnusedConnectableMethod(connection: NormalizedConnection): boolean {
+  return (
+    connection.isSubjectOwned &&
+    !connection.isMCPPassthrough &&
+    connection.instances.length === 0 &&
+    !connectionNeedsReconnect(connection) &&
+    (connection.canConnect || connection.connectable)
+  );
+}
+
+/**
+ * Linked methods stay visible. Unused connectable methods collapse once
+ * something is already linked. Recovery (reconnect) keeps every method visible.
+ */
+export function partitionConnectionMethods(
+  connections: NormalizedConnection[],
+): {
+  primary: NormalizedConnection[];
+  other: NormalizedConnection[];
+} {
+  if (connections.some(connectionNeedsReconnect)) {
+    return { primary: connections, other: [] };
+  }
+  const other = connections.filter(isUnusedConnectableMethod);
+  const primary = connections.filter((connection) => !isUnusedConnectableMethod(connection));
+  const hasLinked = connections.some(
+    (connection) =>
+      connection.instances.length > 0 || connection.isMCPPassthrough,
+  );
+  if (!hasLinked || primary.length === 0 || other.length === 0) {
+    return { primary: connections, other: [] };
+  }
+  return { primary, other };
+}
 
 export type ConnectionSurfaceMode = "connect" | "manage" | "shared" | "none";
 
@@ -98,22 +368,22 @@ export function connectionSurfaceCopy(
       return {
         title: CONNECTION_SURFACE_TITLE,
         description:
-          "This app does not require a linked account. Open it when you are ready to work.",
+          "This app does not require a connection. Open it when you are ready to work.",
         trustNote: null,
       };
     case "connect":
       return {
         title: CONNECTION_SURFACE_TITLE,
         description:
-          "Link an account so this workspace can use the app. Disconnect later to revoke access.",
+          "Connect so this workspace can use the app. Disconnect later to revoke access.",
         trustNote:
-          "Linking lets this workspace use the app on your behalf.",
+          "Connecting lets this workspace use the app on your behalf.",
       };
     case "manage":
       return {
         title: CONNECTION_SURFACE_TITLE,
         description:
-          "Accounts linked to this app. Only one is in use at a time. Switch below, disconnect to revoke access, or add another account.",
+          "Accounts connected to this app. Only one is in use at a time. Switch below, disconnect to revoke access, or connect another account.",
         trustNote:
           "This workspace acts through the account marked In use.",
       };
@@ -121,7 +391,7 @@ export function connectionSurfaceCopy(
       return {
         title: CONNECTION_SURFACE_TITLE,
         description:
-          "This app uses a shared connection. There is nothing to link for this identity.",
+          "This app uses a shared login. There is nothing to connect for this identity.",
         trustNote: null,
       };
   }
@@ -138,7 +408,7 @@ export function connectionSurfaceCopyForStatus(
     return {
       title: CONNECTION_SURFACE_TITLE,
       description:
-        "The account in use needs a new sign-in before this workspace can use this app. Reconnect it, switch to another account, or add one.",
+        "The account in use needs a new sign-in before this workspace can use this app. Sign in again, switch to another account, or add one.",
       trustNote:
         "This workspace will act through the account in use once access is restored.",
     };
@@ -147,12 +417,30 @@ export function connectionSurfaceCopyForStatus(
     return {
       title: CONNECTION_SURFACE_TITLE,
       description:
-        "More than one account is linked. Choose which one this workspace should use, or disconnect any account you no longer want.",
+        "More than one account is connected. Choose which one this workspace should use, or disconnect any account you no longer want.",
       trustNote:
         "This app can act on your behalf here once you choose an account.",
     };
   }
-  return connectionSurfaceCopy(connectionSurfaceMode(status));
+  const copy = connectionSurfaceCopy(connectionSurfaceMode(status));
+  if (
+    connectionSurfaceMode(status) === "manage" &&
+    subjectOwnedMethods(status.connections).length > 1
+  ) {
+    const summary = connectionEffectiveUseSummary(status);
+    return {
+      ...copy,
+      description: [
+        summary,
+        "Each method can have its own active account. Switch below, disconnect to revoke access, or add another account.",
+      ]
+        .filter(Boolean)
+        .join(" "),
+      trustNote:
+        "This workspace acts through the account marked In use for that method.",
+    };
+  }
+  return copy;
 }
 
 export function connectionSurfaceCopyForIntegration(
@@ -179,12 +467,15 @@ export type AddAccountFormCopy = {
   cancelLabel: string;
 };
 
-export function addAccountFormCopy(args?: {
+export function addAccountFormCopy(args: {
+  appDisplayName: string;
   connectionKeyLabel?: string | null;
 }): AddAccountFormCopy {
-  const key = args?.connectionKeyLabel?.trim();
+  const key = args.connectionKeyLabel?.trim();
   return {
-    title: key ? `Add ${key} account` : "Add account",
+    title: key
+      ? `Connect another ${key} account`
+      : connectAppActionLabel(args.appDisplayName),
     description:
       "You’ll authenticate with the provider on the next step.",
     label: "Account label",
@@ -199,6 +490,7 @@ export function addAccountFormCopy(args?: {
 /**
  * Per-account relationship to the workspace.
  * Only the preferred account is “In use”; others stay linked as “Not in use”.
+ * When two methods each have an active account, scope the badge to that method.
  */
 export function accountRelationshipLabel(args: {
   preferred?: boolean;
@@ -206,8 +498,14 @@ export function accountRelationshipLabel(args: {
   connectionKeyLabel?: string | null;
   /** Sole linked account on a connection that needs reconnect, even if preferred was stripped. */
   soleLinkedAccount?: boolean;
+  /** Method short name when more than one method has an account in use. */
+  methodScope?: string | null;
 }): string {
-  if (args.preferred || args.soleLinkedAccount) return "In use";
+  if (args.preferred || args.soleLinkedAccount) {
+    const scope = args.methodScope?.trim();
+    if (scope) return `${IN_USE_LABEL} for ${scope}`;
+    return IN_USE_LABEL;
+  }
   if (args.needsInstanceSelection) return "Available";
   if (args.connectionKeyLabel) return args.connectionKeyLabel;
   return "Not in use";
@@ -244,8 +542,8 @@ export function disconnectConfirmCopy(args: {
       heading: `Remove ${args.displayName}?`,
       body:
         context === "managed_subject"
-          ? `This will remove this identity's access to ${args.displayName}. It can be reconnected later.`
-          : `This will remove ${args.displayName} from this workspace. You can reconnect at any time.`,
+          ? `This will remove this identity's access to ${args.displayName}. You can add it again later.`
+          : `This will remove ${args.displayName} from this workspace. You can add it again at any time.`,
     };
   }
   const account = args.accountLabel?.trim();
@@ -254,7 +552,7 @@ export function disconnectConfirmCopy(args: {
       heading: `Disconnect ${account}?`,
       body:
         context === "managed_subject"
-          ? `This disconnects ${account} from ${args.displayName} for this identity. It can be reconnected later.`
+          ? `This disconnects ${account} from ${args.displayName} for this identity. You can add it again later.`
           : `This disconnects ${account} from ${args.displayName} in this workspace. You can sign in again anytime.`,
     };
   }
@@ -262,8 +560,8 @@ export function disconnectConfirmCopy(args: {
     heading: `Disconnect ${args.displayName}?`,
     body:
       context === "managed_subject"
-        ? `This will remove this identity's connection to ${args.displayName}. It can be reconnected later.`
-        : `This will remove your connection to ${args.displayName}. You can reconnect at any time.`,
+        ? `This will remove this identity's access to ${args.displayName}. You can add it again later.`
+        : `This will remove your access to ${args.displayName}. You can add it again at any time.`,
   };
 }
 
@@ -273,7 +571,7 @@ export function disconnectConfirmCopy(args: {
  */
 export function humanizeConnectionName(
   name: string,
-  fallback = "Connection",
+  fallback: string = ACCOUNT_NAME_FALLBACK,
 ): string {
   const trimmed = name.trim();
   if (!trimmed || /^default$/i.test(trimmed)) return fallback;
@@ -281,11 +579,11 @@ export function humanizeConnectionName(
 }
 
 /** Fallback label when an instance/account slug is `default`. */
-export const DEFAULT_ACCOUNT_LABEL = "Account" as const;
+export const DEFAULT_ACCOUNT_LABEL = ACCOUNT_NAME_FALLBACK;
 
 /**
- * Instance-scoped disconnect always names the account. The generic "Account"
- * fallback is still an account, not an invitation to describe the whole app.
+ * Instance-scoped disconnect always names the account. The generic
+ * Account fallback is still an account, not the whole app.
  */
 export function disconnectConfirmAccountLabel(args: {
   identityPrimary?: string | null;
@@ -300,10 +598,10 @@ export function disconnectConfirmAccountLabel(args: {
 
 /** Overview blurb when the app has a credential/connection surface. */
 export const CONNECTION_ACCESS_BLURB =
-  "Manage linked accounts and which one this workspace uses." as const;
+  "Manage connected accounts and which one this workspace uses." as const;
 
-/** Overview secondary CTA when already connected (no Connect/Reconnect). */
-export const MANAGE_CONNECTION_LABEL = "Manage connection" as const;
+/** Overview secondary CTA when already connected (no Connect {app} / Sign in again). */
+export { MANAGE_CONNECTION_LABEL };
 
 /** Per-account primary action when multiple instances need an active choice. */
 export const USE_ACCOUNT_LABEL = "Use this account" as const;
@@ -325,8 +623,8 @@ export function accountInitials(label: string): string {
 }
 
 /**
- * Overview attention notice — status recovery belongs in Alert + Connection
- * link, not a status Badge. First-time connect stays on the Connect CTA.
+ * Overview attention notice. Status recovery belongs in Alert + Connection
+ * link, not a status Badge. First-time connect stays on the Connect {app} CTA.
  */
 export type OverviewConnectionAttention = {
   title: string;
@@ -337,7 +635,7 @@ export type OverviewConnectionAttention = {
 export function overviewConnectionAttention(
   status: NormalizedIntegrationStatus,
 ): OverviewConnectionAttention | null {
-  // Connect CTA owns first-time connect; do not duplicate as an Alert.
+  // Connect {app} CTA owns first-time connecting; do not duplicate as an Alert.
   const reconnecting = integrationNeedsReconnect(status);
   if (status.status === "needs_user_connection" && !reconnecting) return null;
   if (status.tone !== "warning" && status.tone !== "danger") return null;
@@ -347,21 +645,21 @@ export function overviewConnectionAttention(
       return {
         title: status.summaryLabel,
         description:
-          "More than one account is available. Pick which one this workspace should use. Until then this app is not connected.",
+          "More than one account is available. Pick which one this workspace should use. Until then this app has no account in use.",
         actionLabel: "Choose an account",
       };
     case "needs_admin_configuration":
       return {
         title: status.summaryLabel,
         description:
-          "An admin needs to finish setup before you can use this app.",
+          "An admin needs to finish configuring this app before you can use it.",
         actionLabel: "View Connection",
       };
     case "degraded":
       return {
         title: status.summaryLabel,
         description:
-          "This connection needs a fix before the app works reliably.",
+          "This app needs a fix before it works reliably.",
         actionLabel: "Fix on Connection",
       };
     case "unavailable":
@@ -374,20 +672,20 @@ export function overviewConnectionAttention(
       if (reconnecting) {
         return {
           title: status.summaryLabel,
-          description: "Reconnect to restore access for this app.",
-          actionLabel: "Reconnect on Connection",
+          description: "Sign in again to restore access for this app.",
+          actionLabel: "Sign in again on Connection",
         };
       }
       return {
         title: status.summaryLabel,
-        description: "Review this app’s connection to continue.",
+        description: "Review this app’s accounts to continue.",
         actionLabel: "Open Connection",
       };
   }
 }
 
 /**
- * Connection-panel attention — recovery copy in Alert, never a status Badge.
+ * Connection-panel attention. Recovery copy in Alert, never a status Badge.
  * Already on Connection, so no outbound link label.
  */
 export type ConnectionPanelAttention = {
@@ -416,36 +714,36 @@ export function connectionPanelAttention(
       return {
         title: connection.summaryLabel,
         description:
-          "More than one account is available. Pick which one this workspace should use. Until then this app is not connected.",
+          "More than one account is available. Pick which one this workspace should use. Until then this app has no account in use.",
       };
     case "needs_admin_configuration":
       return {
         title: connection.summaryLabel,
         description:
-          "An admin needs to finish setup before you can use this connection.",
+          "An admin needs to finish configuring this app before you can use it.",
       };
     case "degraded":
       return {
         title: connection.summaryLabel,
         description:
-          "This connection needs a fix before the app works reliably.",
+          "This app needs a fix before it works reliably.",
       };
     case "unavailable":
       return {
         title: connection.summaryLabel,
-        description: "This connection is unavailable right now.",
+        description: "This app is unavailable right now.",
       };
     default:
       if (connectionNeedsReconnect(connection)) {
         return {
           title: connection.summaryLabel,
           description:
-            "This app no longer accepts the saved sign-in for this account. Reconnect to restore access.",
+            "This app no longer accepts the saved sign-in for this account. Sign in again to restore access.",
         };
       }
       return {
         title: connection.summaryLabel,
-        description: "Review this connection to continue.",
+        description: "Review this app’s accounts to continue.",
       };
   }
 }

@@ -16,9 +16,18 @@ import {
   addAccountFormCopy,
   disconnectConfirmCopy,
   disconnectConfirmAccountLabel,
-  ADD_ACCOUNT_LABEL,
   USE_ACCOUNT_LABEL,
   DEFAULT_ACCOUNT_LABEL,
+  IN_USE_LABEL,
+  OTHER_CONNECTION_METHODS_LABEL,
+  connectionMethodKind,
+  connectionMethodTitle,
+  connectionMethodPurpose,
+  connectionDialogCopy,
+  connectionEffectiveUseSummary,
+  partitionConnectionMethods,
+  shouldScopeInUseBadge,
+  isInUseRelationship,
 } from "./connection-surface-copy";
 
 function stub(partial: Partial<Integration> & Pick<Integration, "name">): Integration {
@@ -96,11 +105,11 @@ describe("connection surface copy", () => {
       }),
     );
     expect(connectionSurfaceMode(status)).toBe("shared");
-    expect(connectionSurfaceCopy("shared").description).toMatch(/shared connection/i);
+     expect(connectionSurfaceCopy("shared").description).toMatch(/shared login/i);
   });
 
   test("humanize default machine names", () => {
-    expect(humanizeConnectionName("default")).toBe("Connection");
+    expect(humanizeConnectionName("default")).toBe("Account");
     expect(humanizeConnectionName("default", DEFAULT_ACCOUNT_LABEL)).toBe(
       "Account",
     );
@@ -134,11 +143,11 @@ describe("connection surface copy", () => {
     const notice = overviewConnectionAttention(status);
     expect(notice?.title).toBe("Choose an account");
     expect(notice?.actionLabel).toBe("Choose an account");
-    expect(notice?.description).toMatch(/not connected/i);
+    expect(notice?.description).toMatch(/no account in use/i);
 
     const panelNotice = connectionPanelAttention(status.connections[0]!);
     expect(panelNotice?.title).toBe("Choose an account");
-    expect(panelNotice?.description).toMatch(/not connected/i);
+    expect(panelNotice?.description).toMatch(/no account in use/i);
 
     const surface = connectionSurfaceCopyForStatus(status);
     expect(surface.trustNote).toMatch(/once you choose/i);
@@ -253,15 +262,15 @@ describe("connection surface copy", () => {
       }),
     );
     expect(connectionSurfaceMode(status)).toBe("manage");
-    expect(status.summaryLabel).toBe("Needs reconnect");
+    expect(status.summaryLabel).toBe("Needs sign-in");
     const surface = connectionSurfaceCopyForStatus(status);
     expect(surface.description).toMatch(/needs a new sign-in/);
     expect(surface.trustNote).toMatch(/once access is restored/);
     const notice = overviewConnectionAttention(status);
-    expect(notice?.title).toBe("Needs reconnect");
-    expect(notice?.actionLabel).toBe("Reconnect on Connection");
+    expect(notice?.title).toBe("Needs sign-in");
+    expect(notice?.actionLabel).toBe("Sign in again on Connection");
     const panelNotice = connectionPanelAttention(status.connections[0]!);
-    expect(panelNotice?.title).toBe("Needs reconnect");
+    expect(panelNotice?.title).toBe("Needs sign-in");
     expect(panelNotice?.description).toMatch(/saved sign-in/);
     expect(
       accountRelationshipLabel({
@@ -302,13 +311,18 @@ describe("connection surface copy", () => {
       needsInstanceSelection: false,
     })).toBe("In use");
 
-    const form = addAccountFormCopy();
-    expect(form.title).toBe("Add account");
+    const form = addAccountFormCopy({ appDisplayName: "GitHub" });
+    expect(form.title).toBe("Connect GitHub");
     expect(form.label).toBe("Account label");
     expect(form.description).toMatch(/authenticate/i);
     expect(form.fieldDescription).toMatch(/tell this account apart/i);
     expect(form.placeholder).toMatch(/work, personal/);
-    expect(ADD_ACCOUNT_LABEL).toBe("Add account");
+    expect(
+      addAccountFormCopy({
+        appDisplayName: "GitHub",
+        connectionKeyLabel: "OAuth",
+      }).title,
+    ).toBe("Connect another OAuth account");
   });
 
   test("account initials and use-account label", () => {
@@ -316,5 +330,182 @@ describe("connection surface copy", () => {
     expect(accountInitials("Primary")).toBe("PR");
     expect(accountInitials("work email")).toBe("WE");
     expect(USE_ACCOUNT_LABEL).toBe("Use this account");
+  });
+
+  test("method titles and purpose copy replace credential chrome", () => {
+    const status = normalizeIntegrationStatus(
+      stub({
+        name: "notion",
+        connections: [
+          {
+            name: "ApiKey",
+            displayName: "API key",
+            authTypes: ["manual"],
+            credentialState: "missing",
+            status: "needs_user_connection",
+            actions: ["connect"],
+          },
+          {
+            name: "MCP",
+            displayName: "MCP",
+            authTypes: ["oauth"],
+            credentialState: "missing",
+            status: "needs_user_connection",
+            actions: ["connect"],
+          },
+          {
+            name: "OAuth",
+            displayName: "OAuth",
+            authTypes: ["oauth"],
+            credentialState: "missing",
+            status: "needs_user_connection",
+            actions: ["connect"],
+          },
+          {
+            name: "PAT",
+            displayName: "Personal access token",
+            authTypes: ["manual"],
+            credentialState: "missing",
+            status: "needs_user_connection",
+            actions: ["connect"],
+          },
+        ],
+      }),
+    );
+    const byKey = Object.fromEntries(
+      status.connections.map((connection) => [connection.key, connection]),
+    );
+    expect(connectionMethodKind(byKey.ApiKey!)).toBe("api_key");
+    expect(connectionMethodKind(byKey.MCP!)).toBe("mcp");
+    expect(connectionMethodKind(byKey.OAuth!)).toBe("oauth");
+    expect(connectionMethodKind(byKey.PAT!)).toBe("pat");
+    expect(connectionMethodTitle(byKey.MCP!)).toBe("MCP");
+    expect(connectionMethodTitle(byKey.OAuth!)).toBe("OAuth");
+    expect(connectionMethodPurpose(byKey.ApiKey!)).toMatch(/Internal integration secret/);
+    expect(connectionMethodPurpose(byKey.MCP!)).toMatch(/assistants/);
+    expect(connectionMethodPurpose(byKey.OAuth!)).toMatch(/API access/);
+    expect(connectionMethodPurpose(byKey.PAT!)).toMatch(/user token/);
+    expect(connectionMethodPurpose(byKey.ApiKey!)).not.toMatch(/credentials missing/i);
+
+    const dialog = connectionDialogCopy(status, "Notion");
+    expect(dialog.title).toBe("Connect Notion");
+    expect(dialog.description).toMatch(/Methods are separate/);
+    expect(dialog.description).not.toMatch(/User credentials missing/);
+  });
+
+  test("multi-method manage names the in-use accounts and scopes In use", () => {
+    const status = normalizeIntegrationStatus(
+      stub({
+        name: "notion",
+        status: "ready",
+        credentialState: "connected",
+        connections: [
+          {
+            name: "ApiKey",
+            displayName: "API key",
+            authTypes: ["manual"],
+            credentialState: "missing",
+            status: "needs_user_connection",
+            actions: ["connect"],
+          },
+          {
+            name: "MCP",
+            displayName: "MCP",
+            authTypes: ["oauth"],
+            credentialState: "connected",
+            status: "ready",
+            actions: ["disconnect", "add_instance"],
+            instances: [{ name: "default", preferred: true }],
+          },
+          {
+            name: "OAuth",
+            displayName: "OAuth",
+            authTypes: ["oauth"],
+            credentialState: "connected",
+            status: "ready",
+            actions: ["disconnect", "add_instance"],
+            instances: [
+              { name: "default", preferred: true },
+              { name: "work", preferred: false },
+            ],
+          },
+          {
+            name: "PAT",
+            displayName: "Personal access token",
+            authTypes: ["manual"],
+            credentialState: "missing",
+            status: "needs_user_connection",
+            actions: ["connect"],
+          },
+        ],
+      }),
+    );
+    expect(shouldScopeInUseBadge(status.connections)).toBe(true);
+    expect(
+      accountRelationshipLabel({
+        preferred: true,
+        needsInstanceSelection: false,
+        methodScope: "OAuth",
+      }),
+    ).toBe("In use for OAuth");
+    expect(isInUseRelationship("In use for OAuth")).toBe(true);
+    expect(isInUseRelationship(IN_USE_LABEL)).toBe(true);
+
+    const summary = connectionEffectiveUseSummary(status);
+    expect(summary).toMatch(/OAuth "Account" for API access/);
+    expect(summary).toMatch(/MCP "Account"/);
+
+    const surface = connectionSurfaceCopyForStatus(status);
+    expect(surface.title).toBe(CONNECTION_SURFACE_TITLE);
+    expect(surface.description).toMatch(/Each method can have its own/);
+    expect(surface.trustNote).toMatch(/for that method/);
+
+    const dialog = connectionDialogCopy(status, "Notion");
+    expect(dialog.title).toBe("Connect Notion");
+    expect(dialog.description).toMatch(/Methods are separate/);
+
+    const partitioned = partitionConnectionMethods(status.connections);
+    expect(partitioned.primary.map((c) => c.key)).toEqual(["MCP", "OAuth"]);
+    expect(partitioned.other.map((c) => c.key)).toEqual(["ApiKey", "PAT"]);
+    expect(OTHER_CONNECTION_METHODS_LABEL).toBe("Other sign-in methods");
+  });
+
+  test("reconnect keeps unused methods visible instead of collapsing them", () => {
+    const status = normalizeIntegrationStatus(
+      stub({
+        name: "notion",
+        connections: [
+          {
+            name: "OAuth",
+            displayName: "OAuth",
+            authTypes: ["oauth"],
+            credentialState: "invalid",
+            healthState: "unhealthy",
+            status: "needs_user_connection",
+            actions: ["reconnect", "disconnect"],
+            instances: [{ name: "default", preferred: true }],
+          },
+          {
+            name: "ApiKey",
+            displayName: "API key",
+            authTypes: ["manual"],
+            credentialState: "missing",
+            status: "needs_user_connection",
+            actions: ["connect"],
+          },
+        ],
+      }),
+    );
+    const partitioned = partitionConnectionMethods(status.connections);
+    expect(partitioned.other).toEqual([]);
+    expect(partitioned.primary.map((c) => c.key)).toEqual(["OAuth", "ApiKey"]);
+    expect(shouldScopeInUseBadge(status.connections)).toBe(false);
+    expect(
+      accountRelationshipLabel({
+        preferred: true,
+        needsInstanceSelection: false,
+        soleLinkedAccount: true,
+      }),
+    ).toBe("In use");
   });
 });

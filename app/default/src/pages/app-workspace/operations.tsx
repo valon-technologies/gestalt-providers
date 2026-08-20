@@ -17,6 +17,7 @@ import {
   operationResourceSectionId,
   type OperationResourceGroup,
 } from "@/lib/operationGroups";
+import { CONNECTION_NAV_LABEL } from "@/lib/accountCopy";
 import { userFacingError } from "@/lib/user-facing-error";
 import { cn } from "@/lib/cn";
 import { useScrollSpy } from "@/hooks/use-scroll-spy";
@@ -618,7 +619,7 @@ export default function AppWorkspaceOperationsPage() {
             If you expected a catalog, check{" "}
             <UiLink asChild>
               <Link to="/apps/$app/connection" params={{ app }}>
-                Connection
+                {CONNECTION_NAV_LABEL}
               </Link>
             </UiLink>{" "}
             or read{" "}

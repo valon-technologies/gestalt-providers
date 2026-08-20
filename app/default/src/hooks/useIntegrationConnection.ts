@@ -12,6 +12,7 @@ import {
 } from "@/lib/api";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import type { Integration } from "@/lib/api";
+import { confirmAppConnectedFallback, connectAppFailedCopy, appDisconnectedCopy } from "@/lib/accountCopy";
 import { rememberConnectionReturnPath, sanitizeAuthReturnPath } from "@/lib/authReturn";
 import {
   appIsConnectedCopy,
@@ -129,7 +130,7 @@ export function useIntegrationConnection({
       setError(
         userFacingError(
           err,
-          `Couldn't confirm ${label} is connected. Try again.`,
+          confirmAppConnectedFallback(label),
           "connect",
         ),
       );
@@ -206,7 +207,7 @@ export function useIntegrationConnection({
       );
       if (result.status === "selection_required") {
         if (!result.pendingToken) {
-          throw new Error("Connection setup is incomplete. Try again.");
+          throw new Error("Sign-in is incomplete. Try again.");
         }
         rememberConnectionReturnPath(oauthReturnPath);
         onFlowComplete?.();
@@ -224,7 +225,7 @@ export function useIntegrationConnection({
       return true;
     } catch (err) {
       setError(
-        userFacingError(err, `Couldn't connect ${label}. Try again.`, "connect"),
+        userFacingError(err, connectAppFailedCopy(label), "connect"),
       );
       return false;
     } finally {
@@ -252,7 +253,7 @@ export function useIntegrationConnection({
       // Domain: missing credential is already the desired end state — reconcile.
       if (isAPIErrorStatus(err, 404)) {
         await commitDisconnect(instance, connection);
-        toast.success(`${label} is no longer connected.`);
+        toast.success(appDisconnectedCopy(label));
       } else {
         setError(
           userFacingError(

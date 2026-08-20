@@ -130,9 +130,10 @@ describe("alternative auth methods are OR at the app level", () => {
     expect(catalogInstallState(integration)).toBe("connected");
   });
 
-  test("Linear stays Not connected when no method is linked", () => {
+  test("Linear stays Not connected when no method is connected", () => {
     const integration = stub({
       name: "linear",
+      displayName: "Linear",
       status: "needs_user_connection",
       credentialState: "missing",
       connections: [
@@ -158,7 +159,7 @@ describe("alternative auth methods are OR at the app level", () => {
 
     expect(status.connected).toBe(false);
     expect(status.summaryLabel).toBe("Not connected");
-    expect(primaryConnectLabel(integration)).toBe("Connect");
+    expect(primaryConnectLabel(integration)).toBe("Connect Linear");
     expect(catalogInstallState(integration)).toBe("not_connected");
   });
 });

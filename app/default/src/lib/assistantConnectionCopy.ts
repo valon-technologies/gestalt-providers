@@ -1,9 +1,11 @@
+import { FINISH_SETUP_LABEL } from "./setupJourneyCopy";
+
 /** Canonical copy for Gestalt MCP vs native plugins vs assistant skills. */
 
 export const MCP_DOCS_TITLE = "MCP setup";
 
 export const WELCOME_ASSISTANT_EXAMPLES =
-  "Ask in plain English in Claude Code, Cursor, or Codex";
+  "Ask in plain English in ChatGPT, Claude Code, Cursor, or Codex";
 
 export const ASSISTANT_PICKER_DESCRIPTION =
   "Pick the assistant you already use. You can add more later.";
@@ -11,12 +13,22 @@ export const ASSISTANT_PICKER_DESCRIPTION =
 export const TOKEN_STEP_DESCRIPTION =
   "Your assistant uses this token to reach Gestalt. Setup fills it into the install commands for you.";
 
-export const SETUP_RESUME_BANNER_TITLE = "Finish setup";
+export const SETUP_RESUME_BANNER_TITLE = FINISH_SETUP_LABEL;
 
 export const SETUP_RESUME_BANNER_BODY = "Pick up where you left off.";
 
 export const CLAUDE_CONNECTOR_SETTINGS_HREF =
   "https://claude.ai/settings/connectors";
+
+export const CLAUDE_BLOCKED_TITLE = "Custom MCP connectors are disabled";
+
+export const CLAUDE_BLOCKED_BODY =
+  "Your administrator disabled custom MCP connectors in Claude on Enterprise. Gestalt cannot change that. Claude Code is the closest option that works with Gestalt MCP.";
+
+export const CLAUDE_BLOCKED_CHOOSE_CLAUDE_CODE = "Choose Claude Code";
+
+export const CLAUDE_BLOCKED_NEXT_TITLE =
+  "Claude cannot finish setup here. Pick another assistant.";
 
 export const CHATGPT_INSTALL_DEMO_LABEL =
   "Watch how to add Gestalt as a custom MCP in ChatGPT";
@@ -58,12 +70,15 @@ export const CLAUDE_INSTALL_HEADERS_NOTE =
 export const ASSISTANT_OVERLAP_TITLE = "One path per app";
 
 export const ASSISTANT_OVERLAP_SHORT =
-  "Use Gestalt MCP for workspace apps your company connected here. Skip other connectors to the same app (for example Notion). Turn those on only when you need something Gestalt does not expose.";
+  "Use Gestalt MCP for workspace apps your company linked here. Skip other connectors to the same app (for example Notion). Turn those on only when you need something Gestalt does not expose.";
 
 export const ASSISTANT_OVERLAP_CODEX =
-  "Use Gestalt MCP for workspace apps your company connected here. Skip Codex native plugins and assistant skills that connect to the same app (for example Notion). Turn those on only when you need something Gestalt does not expose.";
+  "Use Gestalt MCP for workspace apps your company linked here. Skip Codex native plugins and assistant skills that link to the same app (for example Notion). Turn those on only when you need something Gestalt does not expose.";
 
-export const CONNECT_ANOTHER_ASSISTANT_LABEL = "Connect another assistant";
+export const ASSISTANT_OVERLAP_CHATGPT =
+  "Use Gestalt MCP for workspace apps your company linked here. Skip other ChatGPT plugins and MCP servers for the same app (for example Notion). Turn those on only when you need something Gestalt does not expose.";
+
+export const SETUP_ANOTHER_ASSISTANT_LABEL = "Set up another assistant";
 
 export const CODEX_INSTALL_PREAMBLE =
   "Codex reads MCP servers from your local Codex config. Paste the commands below into Terminal (not the Codex chat). They save your API token in the shell session, then register this workspace as an MCP server named gestalt.";
@@ -96,7 +111,9 @@ export const SETUP_TOKEN_CREATE_DIFFERENT = "Create a different token";
 
 export const SETUP_TOKEN_NEXT_DISABLED_TITLE = "Create a token before continuing";
 
-/** Codex names native plugins. Other assistants keep the generic overlap body. */
+/** Codex and ChatGPT name their own plugins. Other assistants keep the generic body. */
 export function assistantOverlapBody(agentId: string): string {
-  return agentId === "codex" ? ASSISTANT_OVERLAP_CODEX : ASSISTANT_OVERLAP_SHORT;
+  if (agentId === "codex") return ASSISTANT_OVERLAP_CODEX;
+  if (agentId === "chatgpt") return ASSISTANT_OVERLAP_CHATGPT;
+  return ASSISTANT_OVERLAP_SHORT;
 }

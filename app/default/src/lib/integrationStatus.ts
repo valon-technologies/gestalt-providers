@@ -13,6 +13,13 @@ import type {
   IntegrationStatus,
   OwnerKind,
 } from "./api";
+import {
+  APP_NOT_CONNECTED_LABEL,
+  APP_CONNECTED_LABEL,
+  IDENTITY_CONNECTION_REQUIRED_LABEL,
+  IDENTITY_CONNECTED_LABEL,
+  NEEDS_SIGN_IN_LABEL,
+} from "./accountCopy";
 
 export type ConnectionContext = "current_user" | "managed_subject";
 export type StatusTone = "success" | "warning" | "danger" | "neutral";
@@ -70,7 +77,7 @@ export type NormalizedIntegrationStatus = {
 
 /** Rollup and instance chrome when a saved login no longer works.
  *  Presentation predicate only: action enablement is `canReconnect`. */
-export const NEEDS_RECONNECT_LABEL = "Needs reconnect" as const;
+export const NEEDS_RECONNECT_LABEL = NEEDS_SIGN_IN_LABEL;
 
 export function connectionNeedsReconnect(
   connection: NormalizedConnection,
@@ -371,13 +378,17 @@ function normalizeConnection(
       isNoAuth,
     );
   const actions = validActions(raw.actions);
-  const inferredActions = ensureReconnectAction(
-    actions.length
-      ? actions
-      : inferConnectionActions(raw, authTypes, status, isNoAuth),
+  const inferredActions = ensureSelectInstanceAction(
+    ensureReconnectAction(
+      actions.length
+        ? actions
+        : inferConnectionActions(raw, authTypes, status, isNoAuth),
+      authTypes,
+      credentialState,
+      healthState,
+      raw.instances?.length ?? 0,
+    ),
     authTypes,
-    credentialState,
-    healthState,
     raw.instances?.length ?? 0,
   );
   const disconnectable =
@@ -418,7 +429,7 @@ function normalizeConnection(
     credentialState === "invalid" ||
     credentialState === "unknown";
   const detailLines = compact([
-    isMCPPassthrough ? "Uses a shared connection" : undefined,
+    isMCPPassthrough ? "Uses a shared login" : undefined,
     shouldShowCredentialDetail ? credentialLabel : undefined,
     shouldShowCredentialDetail && !isNoAuth ? ownerLabel : undefined,
     healthLabel,
@@ -665,9 +676,24 @@ function ensureReconnectAction(
 }
 
 /**
+ * Switching the preferred account is a product action, not an optional
+ * server hint. If more than one account is connected, expose select_instance
+ * even when the payload listed other actions and omitted it.
+ */
+function ensureSelectInstanceAction(
+  actions: IntegrationAction[],
+  authTypes: AuthType[],
+  instanceCount: number,
+): IntegrationAction[] {
+  if (authTypes.length === 0 || instanceCount < 2) return actions;
+  if (actions.includes("select_instance")) return actions;
+  return [...actions, "select_instance"];
+}
+
+/**
  * Alternative auth methods (OAuth vs API key vs PAT) are OR, not AND.
  * Once any connection is product-connected, unused methods stay as add-account
- * options — they must not roll the app back to "Not connected".
+ * options. They must not roll the app back to "Not connected".
  */
 function connectionsForAppRollup(
   connections: NormalizedConnection[],
@@ -774,7 +800,7 @@ function integrationSummaryLabel(
     return "Deployment configured";
   }
   if (credentialState === "connected" && status === "ready") {
-    return context === "managed_subject" ? "Identity connected" : "Connected";
+    return context === "managed_subject" ? IDENTITY_CONNECTED_LABEL : APP_CONNECTED_LABEL;
   }
   return statusDisplayLabel(status, context);
 }
@@ -795,7 +821,7 @@ function connectionSummaryLabel(
     return NEEDS_RECONNECT_LABEL;
   }
   if (credentialState === "connected" && status === "ready") {
-    return context === "managed_subject" ? "Identity connected" : "Connected";
+    return context === "managed_subject" ? IDENTITY_CONNECTED_LABEL : APP_CONNECTED_LABEL;
   }
   return statusDisplayLabel(status, context);
 }
@@ -811,12 +837,12 @@ function statusDisplayLabel(
       return "Needs fix";
     case "needs_user_connection":
       return context === "managed_subject"
-        ? "Identity connection required"
-        : "Not connected";
+        ? IDENTITY_CONNECTION_REQUIRED_LABEL
+        : APP_NOT_CONNECTED_LABEL;
     case "needs_instance_selection":
       return "Choose an account";
     case "needs_admin_configuration":
-      return "Ask an admin to finish setup";
+      return "Ask an admin to finish configuration";
     case "unavailable":
       return "Unavailable";
     case "unknown":
@@ -838,8 +864,8 @@ function credentialDisplayLabel(
   switch (state) {
     case "connected":
       return isManagedSubjectOwned
-        ? "Identity credentials connected"
-        : "User credentials connected";
+        ? "Identity credentials linked"
+        : "User credentials linked";
     case "configured":
       return isManagedSubjectOwned
         ? "Identity credentials configured"

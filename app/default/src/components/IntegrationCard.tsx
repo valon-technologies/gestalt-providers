@@ -44,7 +44,12 @@ import {
 } from "@/lib/row-link";
 import { useIntegrationConnection } from "@/hooks/useIntegrationConnection";
 import { cn } from "@/lib/cn";
-import { CONNECTION_CONNECTED_LABEL } from "@/features/app-workspace/connection-surface-copy";
+import { CONNECTION_CONNECTED_LABEL, MANAGE_CONNECTION_LABEL } from "@/features/app-workspace/connection-surface-copy";
+import {
+  SIGN_IN_AGAIN_LABEL,
+  connectAppActionLabel,
+  signInAgainActionAriaLabel,
+} from "@/lib/accountCopy";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { SearchHighlight } from "@/components/ui/search-highlight";
@@ -163,7 +168,6 @@ export default function IntegrationCard({
     onFlowComplete: () => setSettingsOpen(false),
   });
 
-  const connectActionLabel = compact ? "Connect" : "Add";
   const description = catalogCardDescription(integration);
   const normalizedStatus = normalizeIntegrationStatus(
     integration,
@@ -174,6 +178,11 @@ export default function IntegrationCard({
   const isAppAdmin = canManageApp(integration);
   const mountedPath = appOpenPath(integration);
   const connectLabel = primaryConnectLabel(integration, connectionContext);
+  const connectActionLabel = connectLabel ?? connectAppActionLabel(label);
+  const connectActionAriaLabel =
+    connectLabel === SIGN_IN_AGAIN_LABEL
+      ? signInAgainActionAriaLabel(label)
+      : connectAppActionLabel(label);
   const settingsAvailable =
     policy.allowOverflow &&
     !compact &&
@@ -521,7 +530,7 @@ export default function IntegrationCard({
                   </Tooltip>
                   <DropdownMenuContent align="end" className="w-44">
                     <DropdownMenuItem onClick={() => openConnectionModal()}>
-                      Manage connection
+                      {MANAGE_CONNECTION_LABEL}
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={openRemoveApp}
@@ -543,7 +552,7 @@ export default function IntegrationCard({
                         variant="ghost"
                         size="icon-sm"
                         loading={connection.loading}
-                        aria-label={`${connectActionLabel} ${label}`}
+                        aria-label={connectActionAriaLabel}
                         onClick={() => void beginConnect()}
                       >
                         <PlusIcon />

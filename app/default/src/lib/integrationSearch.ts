@@ -32,6 +32,15 @@ function getSearchableFields(integration: Integration): string[] {
   ];
 }
 
+/** True when every query token appears in the app name or description. */
+export function integrationMatchesQuery(
+  integration: Integration,
+  rawQuery: string,
+): boolean {
+  if (!rawQuery.trim()) return true;
+  return matchesSearchQuery(getSearchableFields(integration).join(" "), rawQuery);
+}
+
 /** Catalog filter tokens — delegates to vendored list-search normalization. */
 export function tokenizeQuery(rawQuery: string): string[] {
   return searchTokensFromQuery(rawQuery);
@@ -52,6 +61,6 @@ export function filterIntegrations(
   }
 
   return integrations.filter((integration) =>
-    matchesSearchQuery(getSearchableFields(integration).join(" "), query),
+    integrationMatchesQuery(integration, query),
   );
 }

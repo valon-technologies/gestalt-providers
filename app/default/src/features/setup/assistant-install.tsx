@@ -329,6 +329,7 @@ function CursorMcpConfigBlock({
   apiToken: string;
 }) {
   return (
+    <div className={SETUP_TYPESET_CHROME_CLASS}>
     <CodeBlock
       variant="outline"
       code={gestaltMcpClientConfigJson({
@@ -340,6 +341,7 @@ function CursorMcpConfigBlock({
       secrets={[apiToken]}
       {...INSTALL_SECRET_REVEAL}
     />
+    </div>
   );
 }
 
@@ -455,7 +457,10 @@ function OtherInstallRecipe({ mcpUrl, apiToken }: HostInstallRecipeProps) {
     token: apiToken,
   });
   return (
-    <div className="space-y-4" data-testid="build-install-other-recipe">
+    <div
+      className={`${SETUP_TYPESET_CHROME_CLASS} space-y-4`}
+      data-testid="build-install-other-recipe"
+    >
       <div className="space-y-2">
         <span className="block text-sm font-medium text-foreground">URL</span>
         <div className={SETUP_TYPESET_CHROME_CLASS}>

@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useDeferredValue, useEffect, useId, useState, type ReactNode } from "react";
 import { Clock, RotateCcw } from "lucide-react";
 import {
   Link,
@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-router";
 import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
+import PluginSearchBar from "@/components/PluginSearchBar";
 import SeeMoreAppsTrigger from "@/components/SeeMoreAppsTrigger";
 import { InvokeOperationReference } from "@/components/InvokeOperationReference";
 import {
@@ -130,6 +131,7 @@ import {
   isBuildComplete,
   isBuildStepId,
   isLegacySetupConnectStepId,
+  connectStepHref,
   resolveCatalogApp,
   resolveExemplarOpenPath,
   SETUP_PRODUCT_NAME,
@@ -145,7 +147,7 @@ import {
   type CatalogLoadState,
 } from "@/lib/buildPaths";
 import {
-  CONNECT_ANOTHER_ASSISTANT_LABEL,
+  SETUP_ANOTHER_ASSISTANT_LABEL,
   SETUP_TOKEN_CREATE_DIFFERENT,
   SETUP_TOKEN_CREATE_ITEM_TITLE,
   SETUP_TOKEN_CREATED_ITEM_TITLE,
@@ -154,6 +156,14 @@ import {
   SETUP_TOKEN_NEXT_DISABLED_TITLE,
   WELCOME_ASSISTANT_EXAMPLES,
 } from "@/lib/assistantConnectionCopy";
+import {
+  AFTER_SETUP_ARIA_LABEL,
+  SETUP_JOURNEY_LABEL,
+  SETUP_STEPS_ARIA_LABEL,
+  SETUP_STEP_NAV_ARIA_LABEL,
+  LOADING_SETUP_LABEL,
+  SWITCH_ASSISTANTS_NAV_HINT,
+} from "@/lib/setupJourneyCopy";
 import {
   assistantHostById,
   isBuildInstallAgentId,
@@ -169,11 +179,7 @@ import {
 } from "@/lib/user-facing-error";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import {
-  catalogBucketIdFor,
-  catalogBucketsPresentIn,
-  CATALOG_BUCKETS,
-} from "@/lib/catalogBuckets";
-import {
+  presentSetupConnectApps,
   SETUP_APPS_CATEGORY_ALL,
   SETUP_APPS_GRID_CLASS,
   SETUP_APPS_PAGE_SIZE,
@@ -193,9 +199,27 @@ function buildSnapshot(
   );
 }
 
-/** `/setup` → overview when complete, else first incomplete step. */
+function goToSetupStep(
+  navigate: ReturnType<typeof useNavigate>,
+  stepId: BuildStepId,
+) {
+  if (stepId === "welcome") {
+    void navigate({ to: SETUP_PATH });
+    return;
+  }
+  void navigate({ to: "/setup/$stepId", params: { stepId } });
+}
+
+function SetupStepRedirect({ stepId }: { stepId: BuildStepId }) {
+  if (stepId === "welcome") {
+    return <Navigate to={SETUP_PATH} replace />;
+  }
+  return <Navigate to="/setup/$stepId" params={{ stepId }} replace />;
+}
+
+/** `/setup` → overview when complete, welcome in place, else first incomplete step. */
 export function BuildIndexRedirect() {
-  useDocumentTitle("Setup");
+  useDocumentTitle(SETUP_JOURNEY_LABEL);
   const session = useBuildSession();
   const integrationsQuery = useIntegrationsQuery();
   const tokensQuery = useTokensQuery();
@@ -212,7 +236,7 @@ export function BuildIndexRedirect() {
         <div className="mx-auto flex min-h-[50vh] w-full max-w-4xl items-center justify-center">
           <p className="flex items-center gap-2 text-sm text-faint">
             <SpinnerIcon className="size-3.5 animate-spin" aria-hidden />
-            Loading setup…
+            {LOADING_SETUP_LABEL}
           </p>
         </div>
       </Container>
@@ -253,6 +277,10 @@ export function BuildIndexRedirect() {
     isStepDone(step, snapshot, tokensReady, catalogSettled),
   );
 
+  if (stepId === "welcome") {
+    return <BuildStepPage />;
+  }
+
   return <Navigate to="/setup/$stepId" params={{ stepId }} replace />;
 }
 
@@ -268,7 +296,7 @@ function SetupStepperList({
   isStepReachable?: (id: BuildStepId) => boolean;
 }) {
   return (
-    <StepperList aria-label="Setup steps" data-testid={listTestId}>
+    <StepperList aria-label={SETUP_STEPS_ARIA_LABEL} data-testid={listTestId}>
       {BUILD_STEPS.map((step) => (
         <StepperItem
           key={step.id}
@@ -336,7 +364,7 @@ function SetupOverview({ snapshot }: { snapshot: BuildWorkspaceSnapshot }) {
       value={lastStepId}
       onValueChange={(next) => {
         if (!isBuildStepId(next)) return;
-        void navigate({ to: "/setup/$stepId", params: { stepId: next } });
+        goToSetupStep(navigate, next);
       }}
       titleForStep={(step) => buildStepTitle(step, snapshot.installAgentId)}
       itemTestId={(id) => `build-overview-${id}`}
@@ -349,14 +377,14 @@ function SetupOverview({ snapshot }: { snapshot: BuildWorkspaceSnapshot }) {
           <PageHeaderContent size="md">
             <PageHeaderTitle>You&apos;re all set</PageHeaderTitle>
             <PageHeaderDescription>
-              Your assistant is connected and your workspace apps are ready to
+              Your assistant is set up and your workspace apps are ready to
               use.
             </PageHeaderDescription>
           </PageHeaderContent>
         </PageHeader>
 
-        <StepPager variant="ghost" aria-label="After setup">
-          <StepPagerPrevious asChild title={CONNECT_ANOTHER_ASSISTANT_LABEL}>
+        <StepPager variant="ghost" aria-label={AFTER_SETUP_ARIA_LABEL}>
+          <StepPagerPrevious asChild title={SETUP_ANOTHER_ASSISTANT_LABEL}>
             <Link to="/setup/$stepId" params={{ stepId: "assistant" }} />
           </StepPagerPrevious>
           <StepPagerNext asChild title="Browse apps">
@@ -380,15 +408,22 @@ export default function BuildStepPage() {
   const legacyConnect = Boolean(
     rawStepId && isLegacySetupConnectStepId(rawStepId),
   );
-  const stepId =
-    !legacyConnect && rawStepId && isBuildStepId(rawStepId) ? rawStepId : null;
+  const stepId: BuildStepId | null = legacyConnect
+    ? null
+    : !rawStepId
+      ? "welcome"
+      : isBuildStepId(rawStepId)
+        ? rawStepId
+        : null;
   const currentStep = stepId
     ? BUILD_STEPS.find((s) => s.id === stepId)!
     : null;
   const stepTitle = currentStep
     ? buildStepTitle(currentStep, session.installAgentId)
-    : "Setup";
-  useDocumentTitle(currentStep ? `${stepTitle} · Setup` : "Setup");
+    : SETUP_JOURNEY_LABEL;
+  useDocumentTitle(
+    currentStep ? `${stepTitle} · ${SETUP_JOURNEY_LABEL}` : SETUP_JOURNEY_LABEL,
+  );
 
   if (legacyConnect) {
     return (
@@ -397,7 +432,7 @@ export default function BuildStepPage() {
   }
 
   if (!stepId || !currentStep) {
-    return <Navigate to="/setup" replace />;
+    return <Navigate to={SETUP_PATH} replace />;
   }
 
   const tokensReady = !tokensQuery.isPending;
@@ -444,16 +479,14 @@ export default function BuildStepPage() {
   ) {
     const dest = firstIncompleteStepId(snapshot);
     if (dest !== stepId) {
-      return (
-        <Navigate to="/setup/$stepId" params={{ stepId: dest }} replace />
-      );
+      return <SetupStepRedirect stepId={dest} />;
     }
   }
 
   const activeExemplar = getExemplar(session.activeExemplarId);
 
   function goToStep(id: BuildStepId) {
-    void navigate({ to: "/setup/$stepId", params: { stepId: id } });
+    goToSetupStep(navigate, id);
   }
 
   const stepIsDone = (step: BuildStep) =>
@@ -840,7 +873,7 @@ function WelcomeStorytelling({
             </PageHeaderTitle>
             <PageHeaderDescription>
               Generic AI doesn&apos;t know how your company runs.{" "}
-              {SETUP_PRODUCT_NAME} connects the assistant you already use to the
+              {SETUP_PRODUCT_NAME} lets the assistant you already use reach the
               company apps your teams rely on, with your permission.
             </PageHeaderDescription>
           </PageHeaderContent>
@@ -851,7 +884,7 @@ function WelcomeStorytelling({
         <li>{WELCOME_ASSISTANT_EXAMPLES}</li>
         <li>Answers from real company systems, not generic web results</li>
         <li>You choose which apps to connect</li>
-        <li>Switch assistants anytime from Setup in the top nav</li>
+        <li>{SWITCH_ASSISTANTS_NAV_HINT}</li>
       </ul>
 
       <p
@@ -1132,7 +1165,7 @@ function BuildStepPager({
   return (
     <StepPager
       variant="ghost"
-      aria-label="Setup step navigation"
+      aria-label={SETUP_STEP_NAV_ARIA_LABEL}
       data-testid="build-step-pager"
       className="mt-8"
     >
@@ -1334,7 +1367,7 @@ function InvokeStepActions({
         mountedPath: open.kind === "mount" ? open.href : undefined,
       })
     : null;
-  const tryReturnPath = `${SETUP_PATH}/try`;
+  const tryReturnPath = connectStepHref("try");
   const invokeApp = resolveCatalogApp(
     integrations,
     exemplar.invokeAppId,
@@ -1516,17 +1549,28 @@ function ConnectStepActions({
   const invalidateIntegrations = useInvalidateIntegrations();
   const [visibleMoreCount, setVisibleMoreCount] = useState(SETUP_APPS_PAGE_SIZE);
   const [categoryFilter, setCategoryFilter] = useState(SETUP_APPS_CATEGORY_ALL);
+  const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
   const suggestedLabelId = useId();
   const moreLabelId = useId();
-  const returnPath = `${SETUP_PATH}/apps`;
+  const returnPath = connectStepHref("apps");
 
   async function refreshIntegrations() {
     await invalidateIntegrations();
   }
 
+  function resetMorePage() {
+    setVisibleMoreCount(SETUP_APPS_PAGE_SIZE);
+  }
+
   function selectCategory(next: string) {
     setCategoryFilter(next || SETUP_APPS_CATEGORY_ALL);
-    setVisibleMoreCount(SETUP_APPS_PAGE_SIZE);
+    resetMorePage();
+  }
+
+  function onQueryChange(next: string) {
+    setQuery(next);
+    resetMorePage();
   }
 
   const catalogNotice = catalogError ? (
@@ -1572,33 +1616,37 @@ function ConnectStepActions({
     .sort((a, b) =>
       getIntegrationLabel(a).localeCompare(getIntegrationLabel(b)),
     );
-  const categoryChips = catalogBucketsPresentIn(more);
-  const effectiveCategory =
-    categoryFilter === SETUP_APPS_CATEGORY_ALL ||
-    categoryChips.some((bucket) => bucket.id === categoryFilter)
-      ? categoryFilter
-      : SETUP_APPS_CATEGORY_ALL;
-  const activeCategory =
-    effectiveCategory === SETUP_APPS_CATEGORY_ALL
-      ? null
-      : (CATALOG_BUCKETS.find((bucket) => bucket.id === effectiveCategory) ??
-        null);
-  const filteredMore =
-    effectiveCategory === SETUP_APPS_CATEGORY_ALL
-      ? more
-      : more.filter(
-          (integration) => catalogBucketIdFor(integration) === effectiveCategory,
-        );
-  const visibleMore = filteredMore.slice(0, visibleMoreCount);
-  const remainingMore = filteredMore.slice(visibleMoreCount);
-  const missingFromCatalog = suggested.filter((item) => !item.integration);
-  const moreSectionTitle = activeCategory?.label ?? "More apps";
+  const {
+    visibleSuggested,
+    categoryChips,
+    effectiveCategory,
+    filteredMore,
+    visibleMore,
+    remainingMore,
+    moreSectionTitle,
+    hasSearchQuery,
+  } = presentSetupConnectApps({
+    suggested,
+    more,
+    query: deferredQuery,
+    category: categoryFilter,
+    visibleCount: visibleMoreCount,
+    labelFor: companionAppLabel,
+  });
+  const missingFromCatalog = visibleSuggested.filter((item) => !item.integration);
+  const showSuggested = visibleSuggested.length > 0;
+  const showSearchEmpty =
+    hasSearchQuery && !showSuggested && filteredMore.length === 0;
+  const showMoreSection =
+    more.length > 0 &&
+    !showSearchEmpty &&
+    !(hasSearchQuery && filteredMore.length === 0 && showSuggested);
 
   function renderConnectCard(appId: string, integration: Integration | undefined) {
     if (!integration) {
       return (
         <div key={appId} className="h-full" data-testid={`build-connect-app-${appId}`}>
-          <SetupAppNotInWorkspaceNotice appId={appId} />
+          <SetupAppNotInWorkspaceNotice appId={appId} query={deferredQuery} />
         </div>
       );
     }
@@ -1609,6 +1657,7 @@ function ConnectStepActions({
           integration={integration}
           returnPath={returnPath}
           connectionStatusKnown={overlayKnown}
+          highlightQuery={deferredQuery}
           onConnected={() => void refreshIntegrations()}
           onDisconnected={() => void refreshIntegrations()}
           actions="connect"
@@ -1625,8 +1674,10 @@ function ConnectStepActions({
       {catalogNotice}
       {overlayNotice}
       <SetupOverlapCallout agentId={installAgentId} />
-      <div className="flex flex-col gap-10">
-        {suggested.length > 0 ? (
+      <div className="flex flex-col gap-6">
+        <PluginSearchBar query={query} onQueryChange={onQueryChange} />
+        <div className="flex flex-col gap-10">
+        {showSuggested ? (
           <section
             className="space-y-3"
             aria-labelledby={suggestedLabelId}
@@ -1636,14 +1687,33 @@ function ConnectStepActions({
               Suggested
             </Eyebrow>
             <div className={SETUP_APPS_GRID_CLASS}>
-              {suggested.map(({ appId, integration }) =>
+              {visibleSuggested.map(({ appId, integration }) =>
                 renderConnectCard(appId, integration),
               )}
             </div>
           </section>
         ) : null}
 
-        {more.length > 0 ? (
+        {showSearchEmpty ? (
+          <div className="space-y-3" data-testid="build-apps-search-empty">
+            <p className="text-sm font-medium text-foreground">
+              No apps match "{query.trim()}"
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Try a different search, or clear it.
+            </p>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => onQueryChange("")}
+            >
+              Clear search
+            </Button>
+          </div>
+        ) : null}
+
+        {showMoreSection ? (
           <section
             className="space-y-3"
             aria-labelledby={moreLabelId}
@@ -1722,6 +1792,7 @@ function ConnectStepActions({
             continue.
           </p>
         ) : null}
+        </div>
       </div>
     </div>
   );

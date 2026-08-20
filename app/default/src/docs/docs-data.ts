@@ -1,4 +1,5 @@
 import { ASSISTANT_OVERLAP_TITLE } from "@/lib/assistantConnectionCopy";
+import { SETUP_JOURNEY_LABEL } from "@/lib/setupJourneyCopy";
 import { DOCS_PATH } from "@/lib/constants";
 import { SETTINGS_TOKENS_PATH } from "@/lib/managed-identity-paths";
 
@@ -65,7 +66,7 @@ export const DOCS_NAV_GROUPS: ReadonlyArray<{
   id: DocsNavGroupId;
   label: string;
 }> = [
-  { id: "setup", label: "Setup" },
+  { id: "setup", label: SETUP_JOURNEY_LABEL },
   { id: "assistants", label: "Assistants" },
   { id: "terminal", label: "Terminal" },
   { id: "administer", label: "Administer" },
@@ -80,7 +81,7 @@ export const docsNavItems: DocsNavItem[] = [
     group: "setup",
     audience: "user",
     subsections: [
-      { id: "connect-apps", label: "Connect Apps" },
+      { id: "connect-apps", label: "Connect apps" },
       { id: "create-token", label: "Create an API token" },
       { id: "next-steps", label: "Next steps" },
     ],
@@ -128,11 +129,11 @@ export const docsNavItems: DocsNavItem[] = [
   {
     id: "connect",
     href: DOCS_CONNECT_PATH,
-    label: "Connect Apps",
+    label: "Connect apps",
     group: "terminal",
     audience: "user",
     subsections: [
-      { id: "connect-browser", label: "Connect Apps in the browser" },
+      { id: "connect-browser", label: "Connect apps in the browser" },
       { id: "connect-cli", label: "Connect from the terminal" },
     ],
   },
