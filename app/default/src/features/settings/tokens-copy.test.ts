@@ -27,9 +27,10 @@ describe("settings tokens copy", () => {
 
   it("uses settings-native one-time secret copy (not Build tutorial framing)", () => {
     expect(SETTINGS_TOKEN_PLAINTEXT_DESCRIPTION).toMatch(/won't show the full value again/i);
-    expect(SETTINGS_TOKEN_PLAINTEXT_DESCRIPTION).toMatch(/Open MCP Clients/i);
+    expect(SETTINGS_TOKEN_PLAINTEXT_DESCRIPTION).not.toMatch(/Open MCP Clients/i);
     expect(SETTINGS_TOKEN_PLAINTEXT_DESCRIPTION).not.toMatch(/this example/i);
     expect(SETTINGS_TOKEN_CREATED_DESCRIPTION).toMatch(/open MCP Clients/i);
+    expect(SETTINGS_TOKEN_CREATED_DESCRIPTION).not.toMatch(/Copy the secret/i);
     expect(SETTINGS_TOKEN_CREATE_CONTINUE).toBe("Open MCP Clients");
     expect(SETTINGS_TOKEN_CREATE_DONE).toBe("Back to tokens");
   });

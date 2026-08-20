@@ -1,8 +1,9 @@
 import { describe, expect, test } from "vitest";
 import {
+  ASSISTANT_DOCS_LANDING_HASH_ALIASES,
   ASSISTANT_HOSTS,
   ASSISTANT_HOSTS_IN_PICKER,
-  MCP_CLIENT_TABS,
+  assistantDestinationHash,
   assistantHostById,
   assistantDocsLandingHash,
   isBuildInstallAgentId,
@@ -89,16 +90,18 @@ describe("assistant host catalog", () => {
     );
   });
 
-  test("exposes one docs tab per offered MCP hash", () => {
-    expect(MCP_CLIENT_TABS.map((tab) => tab.id)).toEqual([
-      "mcp-claude-code",
-      "mcp-chatgpt",
-      "mcp-codex",
-      "mcp-cursor",
-      "mcp-other",
-    ]);
-    expect(new Set(MCP_CLIENT_TABS.map((tab) => tab.id)).size).toBe(
-      MCP_CLIENT_TABS.length,
+  test("derives dest hashes and leftover mcp aliases from the host catalog", () => {
+    expect(assistantDestinationHash("chatgpt")).toBe("dest-chatgpt");
+    expect(assistantDestinationHash("cursor-agent")).toBe("dest-cursor-agent");
+    expect(ASSISTANT_DOCS_LANDING_HASH_ALIASES).toEqual({
+      "mcp-claude": "dest-claude",
+      "mcp-chatgpt": "dest-chatgpt",
+      "mcp-claude-code": "dest-claude-code",
+      "mcp-codex": "dest-codex",
+      "mcp-cursor": "dest-cursor",
+    });
+    expect(ASSISTANT_DOCS_LANDING_HASH_ALIASES["mcp-cursor"]).toBe(
+      "dest-cursor",
     );
   });
 });

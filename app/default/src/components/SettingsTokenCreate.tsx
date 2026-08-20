@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import TokenCreateForm from "@/components/TokenCreateForm";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import {
   PageHeader,
   PageHeaderContent,
@@ -22,7 +22,6 @@ import {
   SETTINGS_TOKEN_PLAINTEXT_DESCRIPTION,
 } from "@/features/settings/tokens-copy";
 import { useDocumentTitle } from "@/hooks/use-document-title";
-import { cn } from "@/lib/cn";
 import { SETTINGS_TOKENS_PATH } from "@/lib/managed-identity-paths";
 
 /**
@@ -65,15 +64,15 @@ export default function SettingsTokenCreate() {
         onRevealChange={setRevealed}
         plaintextResultActions={
           <div className="flex w-full flex-row flex-nowrap items-center justify-end gap-3">
-            <Link
-              to={SETTINGS_TOKENS_PATH}
-              className={cn(
-                buttonVariants({ variant: "ghost" }),
-                "shrink-0 text-muted-foreground",
-              )}
+            <Button
+              variant="ghost"
+              asChild
+              className="shrink-0 text-muted-foreground"
             >
-              {SETTINGS_TOKEN_CREATE_DONE}
-            </Link>
+              <Link to={SETTINGS_TOKENS_PATH}>
+                {SETTINGS_TOKEN_CREATE_DONE}
+              </Link>
+            </Button>
             <Button asChild className="w-fit">
               <Link to={DOCS_MCP_PATH}>{SETTINGS_TOKEN_CREATE_CONTINUE}</Link>
             </Button>
@@ -81,15 +80,15 @@ export default function SettingsTokenCreate() {
         }
         submitAccessory={
           revealed ? null : (
-            <Link
-              to={SETTINGS_TOKENS_PATH}
-              className={cn(
-                buttonVariants({ variant: "ghost" }),
-                "shrink-0 text-muted-foreground",
-              )}
+            <Button
+              variant="ghost"
+              asChild
+              className="shrink-0 text-muted-foreground"
             >
-              {SETTINGS_TOKEN_CREATE_CANCEL}
-            </Link>
+              <Link to={SETTINGS_TOKENS_PATH}>
+                {SETTINGS_TOKEN_CREATE_CANCEL}
+              </Link>
+            </Button>
           )
         }
       />

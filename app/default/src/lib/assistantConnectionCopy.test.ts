@@ -38,7 +38,7 @@ describe("setup operator copy", () => {
     );
     expect(CHATGPT_INSTALL_URL).toMatch(/MCP server URL/);
     expect(CHATGPT_INSTALL_TOKEN).toBe(
-      "Paste this token in **Bearer token env var**.",
+      "Paste this token in **Bearer token env var** (the secret, not a variable name).",
     );
     expect(CHATGPT_INSTALL_SAVE).toBe("Choose **Save**.");
     expect(CHATGPT_INSTALL_OPEN.split("**").length % 2).toBe(1);

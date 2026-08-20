@@ -33,7 +33,7 @@ export const CHATGPT_INSTALL_NAME_TYPE =
 export const CHATGPT_INSTALL_URL = "Paste this MCP server URL.";
 
 export const CHATGPT_INSTALL_TOKEN =
-  "Paste this token in **Bearer token env var**.";
+  "Paste this token in **Bearer token env var** (the secret, not a variable name).";
 
 export const CHATGPT_INSTALL_SAVE = "Choose **Save**.";
 
@@ -74,7 +74,7 @@ export const CODEX_INSTALL_POSTAMBLE =
 export const CURSOR_AGENT_INSTALL_PREAMBLE =
   "Cursor Agent reads MCP servers from .cursor/mcp.json in your project. Paste this config, then start Agent from that folder.";
 
-export const MCP_SETUP_DOCS_LINK_LABEL = "MCP setup docs";
+export const MCP_SETUP_DOCS_LINK_LABEL = "MCP Clients";
 
 export const SETUP_TOKEN_CREATE_ITEM_TITLE = "Create a token";
 

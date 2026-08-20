@@ -228,6 +228,7 @@
     &:where(:is(h1, h2, h3, h4) > a[data-heading-permalink]) {
       color: inherit;
       background-image: none;
+      transition: none;
     }
     &:where(:is(h1, h2, h3, h4) > a[data-heading-permalink]:hover) {
       color: inherit;

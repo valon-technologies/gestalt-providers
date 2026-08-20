@@ -1,7 +1,7 @@
 /**
  * Canonical Gestalt MCP client config (URL + Authorization header).
  * Setup recipes and docs share this shape so Other, Cursor paste, and
- * MCP setup docs cannot drift.
+ * MCP Clients cannot drift.
  */
 
 export function gestaltMcpBearerValue(token: string): string {

@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { ASSISTANT_HOST_ICON } from "@/components/assistant-host-icon";
 import { CursorIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
@@ -68,6 +69,7 @@ export function AssistantDestinationSwitcher({
       value={activeId}
       onValueChange={setActiveTabId}
       hashAliases={ASSISTANT_DOCS_LANDING_HASH_ALIASES}
+      unmatchedLabel={activeId === "dest-claude" ? "Claude" : undefined}
     >
       {activeId === "dest-claude-code" ? (
         <ClaudeCodeDestination mcpUrl={mcpUrl} />
@@ -156,16 +158,16 @@ function ChatGptDestination({ mcpUrl }: { mcpUrl: string }) {
     <>
       <ol>
         <DestinationTokenStep />
-      </ol>
-      {demo ? (
-        <DestinationMedia
-          videoSrc={demo.src}
-          posterSrc={demo.poster}
-          caption={CHATGPT_INSTALL_DEMO_LABEL}
-        />
-      ) : null}
-      <p>{CHATGPT_INSTALL_PREAMBLE}</p>
-      <ol>
+        <li>
+          {demo ? (
+            <DestinationMedia
+              videoSrc={demo.src}
+              posterSrc={demo.poster}
+              caption={CHATGPT_INSTALL_DEMO_LABEL}
+            />
+          ) : null}
+          <p>{CHATGPT_INSTALL_PREAMBLE}</p>
+        </li>
         <li>
           <RecipeEmphasis text={CHATGPT_INSTALL_OPEN} />
         </li>
@@ -194,7 +196,7 @@ function ChatGptDestination({ mcpUrl }: { mcpUrl: string }) {
               chrome="inset"
               language="plaintext"
               code={DOCS_TOKEN_PLACEHOLDER}
-              copyLabel="Copy token placeholder"
+              copyLabel="Copy example token"
             />
           </div>
         </li>
@@ -277,12 +279,12 @@ function ClaudeDestination({ mcpUrl }: { mcpUrl: string }) {
         code={mcpUrl}
         copyLabel="Copy MCP URL"
       />
-      <p>Request headers value (replace the placeholder with your token):</p>
+      <p>Request headers value (replace the example token with your secret):</p>
       <CodeBlock
         chrome="inset"
         language="plaintext"
         code={`Bearer ${DOCS_TOKEN_PLACEHOLDER}`}
-        copyLabel="Copy Bearer prefix"
+        copyLabel="Copy Authorization value"
       />
     </>
   );
@@ -293,14 +295,17 @@ function CursorDestination({ mcpUrl }: { mcpUrl: string }) {
 
   return (
     <>
-      <p>
-        Create a token in{" "}
-        <DocsLink to={DOCS_SETTINGS_TOKENS_HREF}>
-          Settings → API tokens
-        </DocsLink>
-        {" "}first. Then click Add in Cursor. If Cursor shows the placeholder,
-        paste the secret you copied.
-      </p>
+      <ol>
+        <DestinationTokenStep />
+        <li>
+          Then go here: click Add in Cursor. If Cursor shows the example
+          token, paste the secret you copied.
+        </li>
+        <li>
+          Place the token here: Cursor opens the install form. Confirm Gestalt
+          is listed, then restart Cursor if tools do not appear.
+        </li>
+      </ol>
       <p className="not-typeset">
         <Button asChild>
           <a href={href} data-testid="docs-add-to-cursor">
@@ -355,6 +360,7 @@ function DestinationMedia({
   posterSrc: string;
   caption: string;
 }) {
+  const captionId = useId();
   return (
     <figure className="not-typeset">
       <video
@@ -365,11 +371,14 @@ function DestinationMedia({
         loop
         preload="metadata"
         poster={appPath(posterSrc)}
-        aria-label={caption}
+        aria-labelledby={captionId}
       >
         <source src={appPath(videoSrc)} type="video/mp4" />
       </video>
-      <figcaption className="mt-2 text-center text-sm text-muted-foreground">
+      <figcaption
+        id={captionId}
+        className="mt-2 text-center text-sm text-muted-foreground"
+      >
         {caption}
       </figcaption>
     </figure>

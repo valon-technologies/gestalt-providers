@@ -36,6 +36,7 @@ import {
 } from "@/lib/assistantHosts";
 import { SETUP_PATH } from "@/lib/constants";
 import { gestaltMcpClientConfigJson } from "@/lib/gestaltMcpClientConfig";
+import { DOCS_TOKEN_PLACEHOLDER } from "./assistant-destinations";
 import { resolveGestaltPublicOrigin } from "@/lib/gestaltPublicOrigin";
 import { DocsAudienceCallout } from "./DocsAudienceCallout";
 import { AssistantDestinationSwitcher } from "./AssistantDestinationSwitcher";
@@ -78,7 +79,7 @@ const GESTALT_INSTALL_METHODS = [
 
 function cloudEnvironmentVariables(origin: string) {
   return `GESTALT_URL=${origin}
-GESTALT_API_KEY=gst_api_your_token_here`;
+GESTALT_API_KEY=${DOCS_TOKEN_PLACEHOLDER}`;
 }
 
 function WorkspaceUrlBlock({ origin }: { origin: string }) {
@@ -331,7 +332,7 @@ export function CliDocsPage() {
             {
               id: "auth-token",
               label: "GESTALT_API_KEY",
-              code: "export GESTALT_API_KEY=gst_api_your_token_here",
+              code: `export GESTALT_API_KEY=${DOCS_TOKEN_PLACEHOLDER}`,
               description:
                 "Uses an API token directly for scripts, MCP clients, and other non-interactive flows.",
             },
@@ -622,10 +623,6 @@ export function McpDocsPage() {
         </p>
 
         <Subheading id="mcp-connect" />
-        <p>
-          Pick Claude Code, ChatGPT, Codex, Cursor, or Cursor Agent. Create a
-          token, then follow that product's steps.
-        </p>
         <AssistantDestinationSwitcher origin={origin} />
 
         <Subheading id="mcp-overlap" />
@@ -658,7 +655,7 @@ export function McpDocsPage() {
         <CodeBlock
           chrome="inset"
           language="shellscript"
-          code="export GESTALT_API_KEY=gst_api_your_token_here"
+          code={`export GESTALT_API_KEY=${DOCS_TOKEN_PLACEHOLDER}`}
         />
         <p>
           If you add it to <Code>~/.zshrc</Code>, run{" "}
@@ -1044,7 +1041,7 @@ function McpOtherClients({ origin }: { origin: string }) {
         language="json"
         code={gestaltMcpClientConfigJson({
           url: `${origin}/mcp`,
-          token: "gst_api_your_token_here",
+          token: DOCS_TOKEN_PLACEHOLDER,
         })}
       />
     </>

@@ -1,24 +1,28 @@
 /**
  * Where a personal API token is saved in each offered assistant.
  *
- * Visible tabs are the named products Setup offers (not Others). Hash ids stay
- * `dest-*` so they do not collide with leftover `mcp-*` recipe hashes.
+ * Visible tabs are Setup's offered named products (not Others). Tab ids are
+ * `dest-${host.id}` so they do not collide with leftover `mcp-*` hashes.
  *
  * `dest-claude` is hash-only: Claude.ai leftover links. It is not a tab.
  * ChatGPT and Codex are separate products.
  */
-export const assistantDestinationTabs = [
-  { id: "dest-claude-code", hostId: "claude-code", label: "Claude Code" },
-  { id: "dest-chatgpt", hostId: "chatgpt", label: "ChatGPT" },
-  { id: "dest-codex", hostId: "codex", label: "Codex" },
-  { id: "dest-cursor", hostId: "cursor", label: "Cursor" },
-  { id: "dest-cursor-agent", hostId: "cursor-agent", label: "Cursor Agent" },
-] as const;
+import {
+  ASSISTANT_HOSTS_OFFERED,
+  assistantDestinationHash,
+  type AssistantHost,
+  type AssistantHostId,
+} from "@/lib/assistantHosts";
 
-export const assistantDestinationLegacyIds = ["dest-claude"] as const;
+export type AssistantDestinationTabHostId = Exclude<
+  AssistantHostId,
+  "claude" | "other"
+>;
 
 export type AssistantDestinationTabId =
-  (typeof assistantDestinationTabs)[number]["id"];
+  `dest-${AssistantDestinationTabHostId}`;
+
+export const assistantDestinationLegacyIds = ["dest-claude"] as const;
 
 export type AssistantDestinationLegacyId =
   (typeof assistantDestinationLegacyIds)[number];
@@ -26,6 +30,20 @@ export type AssistantDestinationLegacyId =
 export type AssistantDestinationId =
   | AssistantDestinationTabId
   | AssistantDestinationLegacyId;
+
+function isDestinationTabHost(
+  host: AssistantHost,
+): host is AssistantHost & { id: AssistantDestinationTabHostId } {
+  return host.id !== "other" && host.id !== "claude";
+}
+
+export const assistantDestinationTabs = ASSISTANT_HOSTS_OFFERED.filter(
+  isDestinationTabHost,
+).map((host) => ({
+  id: assistantDestinationHash(host.id),
+  hostId: host.id,
+  label: host.label,
+}));
 
 export const assistantDestinationTabIds = assistantDestinationTabs.map(
   (tab) => tab.id,

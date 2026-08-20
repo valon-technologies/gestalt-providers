@@ -6,11 +6,13 @@ import {
   DOCS_AUTHORIZATION_PATH,
   DOCS_NAV_GROUPS,
   DOCS_SETTINGS_TOKENS_HREF,
+  docsJourneyTrackItems,
   docsJourneyTracks,
   docsNavItems,
   getActiveDocsNavItem,
   getDocsJourneyEdges,
   docsSubsectionLabel,
+  type DocsJourneyTrackId,
 } from "./docs-data";
 import { ASSISTANT_OVERLAP_TITLE } from "@/lib/assistantConnectionCopy";
 
@@ -91,6 +93,20 @@ describe("docs IA invariants", () => {
       next: null,
     });
     expect(docsNavItems.every((item) => !("next" in item))).toBe(true);
+
+    for (const trackId of Object.keys(docsJourneyTracks) as DocsJourneyTrackId[]) {
+      const items = docsJourneyTrackItems(trackId);
+      for (const [index, item] of items.entries()) {
+        const previous = index === 0 ? null : items[index - 1];
+        const next = index === items.length - 1 ? null : items[index + 1];
+        expect(getDocsJourneyEdges(item)).toEqual({
+          previous: previous
+            ? { href: previous.href, label: previous.label }
+            : null,
+          next: next ? { href: next.href, label: next.label } : null,
+        });
+      }
+    }
   });
 
   it("resolves /docs and /docs/getting-started to Getting Started", () => {

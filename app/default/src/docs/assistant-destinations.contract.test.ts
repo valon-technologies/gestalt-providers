@@ -14,6 +14,7 @@ import {
 import {
   ASSISTANT_DOCS_LANDING_HASH_ALIASES,
   ASSISTANT_HOSTS_OFFERED,
+  assistantDestinationHash,
   assistantDocsLandingHash,
   assistantHostById,
 } from "@/lib/assistantHosts";
@@ -23,6 +24,18 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 
 describe("assistant destination switcher", () => {
   it("lists offered named products, with ChatGPT and Codex as siblings", () => {
+    const offeredNamed = ASSISTANT_HOSTS_OFFERED.filter(
+      (host) => host.id !== "other",
+    );
+    expect(assistantDestinationTabs.map((tab) => tab.hostId)).toEqual(
+      offeredNamed.map((host) => host.id),
+    );
+    expect(assistantDestinationTabs.map((tab) => tab.label)).toEqual(
+      offeredNamed.map((host) => host.label),
+    );
+    expect(assistantDestinationTabs.map((tab) => tab.id)).toEqual(
+      offeredNamed.map((host) => assistantDestinationHash(host.id)),
+    );
     expect(assistantDestinationTabs.map((tab) => tab.hostId)).toEqual([
       "claude-code",
       "chatgpt",
@@ -124,6 +137,30 @@ describe("assistant destination switcher", () => {
         ASSISTANT_DOCS_LANDING_HASH_ALIASES,
       ),
     ).toBe("dest-codex");
+    expect(
+      resolveHashTabId(
+        "",
+        assistantDestinationIds,
+        defaultAssistantDestinationId,
+        ASSISTANT_DOCS_LANDING_HASH_ALIASES,
+      ),
+    ).toBe(defaultAssistantDestinationId);
+    expect(
+      resolveHashTabId(
+        "dest-claude",
+        assistantDestinationIds,
+        defaultAssistantDestinationId,
+        ASSISTANT_DOCS_LANDING_HASH_ALIASES,
+      ),
+    ).toBe("dest-claude");
+    expect(
+      resolveHashTabId(
+        "mcp-other",
+        assistantDestinationIds,
+        defaultAssistantDestinationId,
+        ASSISTANT_DOCS_LANDING_HASH_ALIASES,
+      ),
+    ).toBe(defaultAssistantDestinationId);
   });
 
   it("ships leftover Claude video and the ChatGPT install demo", () => {
@@ -175,7 +212,7 @@ describe("assistant destination switcher", () => {
     );
     expect(cursorDest).toContain('data-testid="docs-add-to-cursor"');
     expect(cursorDest).toContain("Add in Cursor");
+    expect(cursorDest).toContain("DestinationTokenStep");
     expect(cursorDest).not.toContain(".cursor/mcp.json");
-    expect(cursorDest).not.toContain("DestinationTokenStep");
   });
 });

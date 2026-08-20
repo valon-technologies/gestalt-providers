@@ -29,7 +29,18 @@ describe("gestalt MCP client config", () => {
     expect(href.startsWith("cursor://anysphere.cursor-deeplink/mcp/install?")).toBe(
       true,
     );
-    expect(href).toContain("name=gestalt");
-    expect(href).toContain("config=");
+    const parsed = new URL(href);
+    expect(parsed.searchParams.get("name")).toBe("gestalt");
+    const config = JSON.parse(
+      atob(parsed.searchParams.get("config") ?? ""),
+    ) as unknown;
+    expect(config).toEqual(
+      JSON.parse(
+        gestaltMcpClientConfigJson({
+          url: "https://example.test/mcp",
+          token: "gst_api_secret",
+        }),
+      ).mcpServers.gestalt,
+    );
   });
 });

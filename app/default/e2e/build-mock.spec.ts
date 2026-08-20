@@ -341,7 +341,7 @@ test.describe("Setup page", () => {
       "Add in Cursor",
     );
     await expect(page.getByText(".cursor/mcp.json")).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "MCP setup docs" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "MCP Clients" })).toBeVisible();
     await expect(page.getByTestId("setup-overlap-callout")).toHaveCount(0);
 
     await page.goto("/setup/token");
