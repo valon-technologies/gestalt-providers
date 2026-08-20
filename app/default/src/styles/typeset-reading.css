@@ -223,21 +223,26 @@
       outline-offset: 0;
       border-radius: 0.125em;
     }
-    /* Heading permalinks (shadcn heading-anchor): inherit heading ink, no
-       body-link gold or draw-underline. Hover uses currentColor. */
+    /* Heading permalinks: Registry Link default paint. Typeset only places
+       the `#`, drops heading weight/size so it doesn't match the title, and
+       reveals it on heading hover (touch keeps it visible). */
     &:where(:is(h1, h2, h3, h4) > a[data-heading-permalink]) {
-      color: inherit;
-      background-image: none;
-      transition: none;
+      margin-inline-start: 0.35em;
+      font-size: 0.85em;
+      font-weight: 400;
+      transition: opacity var(--motion-move, 200ms)
+        var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1));
     }
-    &:where(:is(h1, h2, h3, h4) > a[data-heading-permalink]:hover) {
-      color: inherit;
-      background-image: linear-gradient(currentColor, currentColor);
-      background-position: 0% calc(100% - 0.02em);
-      background-size: 100% 1.5px;
-    }
-    &:where(:is(h1, h2, h3, h4) > a[data-heading-permalink]:active) {
-      color: inherit;
+    @media (hover: hover) {
+      &:where(:is(h1, h2, h3, h4) > a[data-heading-permalink]) {
+        opacity: 0;
+      }
+      &:where(:is(h1, h2, h3, h4):hover > a[data-heading-permalink]),
+      &:where(:is(h1, h2, h3, h4):focus-within > a[data-heading-permalink]),
+      &:where(:is(h1, h2, h3, h4) > a[data-heading-permalink]:focus-visible) {
+        opacity: 1;
+        transition-duration: var(--transition-duration-hover-in, 0ms);
+      }
     }
     @media (prefers-reduced-motion: reduce) {
       &:where(a) {

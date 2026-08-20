@@ -54,13 +54,35 @@ test("typeset-reading stays tenant-neutral (no org brand filename/comments)", ()
   expect(TYPESET).not.toMatch(/Melange|Season Serif/i);
 });
 
-test("typeset heading permalinks inherit heading ink", () => {
+test("typeset heading permalinks reveal on heading hover", () => {
   expect(TYPESET).toContain("a[data-heading-permalink]");
   expect(TYPESET).toMatch(
     /:is\(h1, h2, h3, h4\) > a\[data-heading-permalink\]/,
   );
+  expect(TYPESET).toContain("@media (hover: hover)");
   expect(TYPESET).toMatch(
-    /a\[data-heading-permalink\]\) \{\s*color: inherit;\s*background-image: none;\s*transition: none;/s,
+    /:is\(h1, h2, h3, h4\):hover > a\[data-heading-permalink\]/,
+  );
+  expect(TYPESET).toMatch(
+    /:is\(h1, h2, h3, h4\):focus-within > a\[data-heading-permalink\]/,
+  );
+  expect(TYPESET).toMatch(
+    /a\[data-heading-permalink\]:focus-visible/,
+  );
+  expect(TYPESET).toMatch(
+    /@media \(hover: hover\)[\s\S]*a\[data-heading-permalink\][^}]*opacity:\s*0/,
+  );
+  expect(TYPESET).toMatch(
+    /a\[data-heading-permalink\][^}]*font-size:\s*0\.85em/,
+  );
+  expect(TYPESET).toMatch(
+    /a\[data-heading-permalink\][^}]*font-weight:\s*400/,
+  );
+  expect(TYPESET).not.toMatch(
+    /a\[data-heading-permalink\][^{]*\{[^}]*color:\s*var\(--typeset-muted\)/,
+  );
+  expect(TYPESET).not.toMatch(
+    /a\[data-heading-permalink\][^{]*\{[^}]*background-image:\s*none/,
   );
 });
 
