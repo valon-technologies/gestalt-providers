@@ -229,7 +229,7 @@ describe("docs IA invariants", () => {
     expect(content).toContain("docsSubsectionLabel");
     expect(content).toContain("data-heading-permalink");
     expect(content).toContain("href={`#${id}`}");
-    expect(content).toContain("aria-label={`Link to ${title}`}");
+    expect(content).toContain("aria-label={`# Link to ${title}`}");
     expect(content).toContain("aria-labelledby={titleId}");
     expect(content).toContain("from \"@/components/ui/link\"");
     expect(content).toMatch(

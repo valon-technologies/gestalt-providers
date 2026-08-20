@@ -1080,7 +1080,7 @@ function Subheading({ id }: { id: string }) {
       <Link
         href={`#${id}`}
         data-heading-permalink
-        aria-label={`Link to ${title}`}
+        aria-label={`# Link to ${title}`}
       >
         #
       </Link>

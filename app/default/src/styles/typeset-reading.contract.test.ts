@@ -64,6 +64,15 @@ test("typeset heading permalinks reveal on heading hover", () => {
     /:is\(h1, h2, h3, h4\):hover > a\[data-heading-permalink\]/,
   );
   expect(TYPESET).toMatch(
+    /:is\(h1, h2, h3, h4\):focus-within > a\[data-heading-permalink\]/,
+  );
+  expect(TYPESET).toMatch(
+    /a\[data-heading-permalink\]:focus-visible/,
+  );
+  expect(TYPESET).toMatch(
+    /@media \(hover: hover\)[\s\S]*a\[data-heading-permalink\][^}]*opacity:\s*0/,
+  );
+  expect(TYPESET).toMatch(
     /a\[data-heading-permalink\][^}]*font-size:\s*0\.85em/,
   );
   expect(TYPESET).toMatch(

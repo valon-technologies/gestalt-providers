@@ -103,7 +103,7 @@ test.describe("Docs page", () => {
       page.getByRole("heading", { name: "Connect Apps", exact: true }),
     ).toBeVisible();
     const connectPermalink = page.getByRole("link", {
-      name: "Link to Connect Apps",
+      name: "# Link to Connect Apps",
     });
     await expect(connectPermalink).toHaveAttribute("href", "#connect-apps");
     await page
