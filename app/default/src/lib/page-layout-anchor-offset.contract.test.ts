@@ -29,6 +29,10 @@ const SETUP = readFileSync(
   join(HERE, "../pages/build.tsx"),
   "utf8",
 );
+const SETTINGS_LAYOUT = readFileSync(
+  join(HERE, "../components/SettingsLayout.tsx"),
+  "utf8",
+);
 const CONTENT_TOP = readFileSync(
   join(HERE, "page-layout-content-top.ts"),
   "utf8",
@@ -81,11 +85,13 @@ describe("page-layout anchor offset ownership", () => {
     expect(SETUP).toContain('<Container as="main">');
   });
 
-  test("docs and setup share the same reading column measure", () => {
+  test("docs, setup, and Settings create share the same reading column measure", () => {
     expect(CONTENT_TOP).toContain("max-w-[65ch]");
     expect(DOCS_SHELL).toContain("PAGE_LAYOUT_READING_COLUMN_CLASS");
     expect(SETUP).toContain("PAGE_LAYOUT_READING_COLUMN_CLASS");
+    expect(SETTINGS_LAYOUT).toContain("PAGE_LAYOUT_READING_COLUMN_CLASS");
     expect(SETUP).not.toContain("max-w-5xl");
     expect(DOCS_SHELL).not.toContain('max-w-[65ch]"');
+    expect(SETTINGS_LAYOUT).not.toContain('max-w-[65ch]"');
   });
 });

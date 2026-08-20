@@ -13,22 +13,16 @@ import { CopyableCode } from "@/components/ui/copyable-code";
 import { Label } from "@/components/ui/label";
 import { Link as UiLink } from "@/components/ui/link";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { ASSISTANT_HOST_ICON } from "@/components/assistant-host-icon";
+import { CursorIcon } from "@/components/icons";
 import {
-  ChatGptIcon,
-  ClaudeCodeIcon,
-  ClaudeIcon,
-  CodexIcon,
-  CursorIcon,
-  MoreHorizontalIcon,
-} from "@/components/icons";
-import {
-  CHATGPT_INSTALL_AUTH_NOTE,
-  CHATGPT_INSTALL_CREATE_APP,
-  CHATGPT_INSTALL_DEVELOPER_MODE,
-  CHATGPT_INSTALL_ENABLE,
+  CHATGPT_INSTALL_DEMO_LABEL,
+  CHATGPT_INSTALL_NAME_TYPE,
+  CHATGPT_INSTALL_OPEN,
+  CHATGPT_INSTALL_PREAMBLE,
+  CHATGPT_INSTALL_SAVE,
   CHATGPT_INSTALL_TOKEN,
   CHATGPT_INSTALL_URL,
-  CHATGPT_PLUGINS_HREF,
   CLAUDE_CONNECTOR_SETTINGS_HREF,
   CLAUDE_INSTALL_ADD_CONNECTOR,
   CLAUDE_INSTALL_ENABLE,
@@ -47,6 +41,7 @@ import {
   assistantDocsLandingHash,
   assistantHostById,
   type AssistantHost,
+  type AssistantInstallDemo,
   type BuildInstallAgentId,
 } from "@/lib/assistantHosts";
 import {
@@ -59,43 +54,32 @@ import { cn } from "@/lib/cn";
 import { DOCS_PATH } from "@/lib/constants";
 import { SETUP_PRODUCT_NAME } from "@/lib/buildPaths";
 import {
+  cursorMcpInstallHref,
   gestaltMcpBearerValue,
   gestaltMcpClientConfigJson,
 } from "@/lib/gestaltMcpClientConfig";
 import { resolveGestaltPublicOrigin } from "@/lib/gestaltPublicOrigin";
-
-function cursorMcpInstallHref(mcpUrl: string, apiToken: string): string {
-  const config = {
-    url: mcpUrl,
-    headers: {
-      Authorization: gestaltMcpBearerValue(apiToken),
-    },
-  };
-  const json = JSON.stringify(config);
-  const base64 = btoa(json);
-  return `cursor://anysphere.cursor-deeplink/mcp/install?name=${encodeURIComponent("gestalt")}&config=${encodeURIComponent(base64)}`;
-}
+import { appPath } from "@/lib/mount";
+import { RecipeEmphasis } from "@/lib/recipe-emphasis";
 
 function hostIcon(host: AssistantHost): ReactNode {
-  const iconClass = "size-12 shrink-0 text-foreground";
-  switch (host.iconKey) {
-    case "claude":
-      return <ClaudeIcon className="size-12 shrink-0" />;
-    case "claude-code":
-      return <ClaudeCodeIcon className="size-12 shrink-0" />;
-    case "chatgpt":
-      return <ChatGptIcon className="size-12 shrink-0" />;
-    case "cursor":
-      return <CursorIcon className={iconClass} />;
-    case "codex":
-      return <CodexIcon className="size-12 shrink-0" />;
-    case "other":
-      return (
-        <span className="flex size-12 shrink-0 items-center justify-center">
-          <MoreHorizontalIcon className="size-6 text-muted-foreground" />
-        </span>
-      );
+  const Icon = ASSISTANT_HOST_ICON[host.iconKey];
+  if (host.iconKey === "other") {
+    return (
+      <span className="flex size-12 shrink-0 items-center justify-center">
+        <Icon className="size-6 text-muted-foreground" />
+      </span>
+    );
   }
+  return (
+    <Icon
+      className={
+        host.iconKey === "cursor"
+          ? "size-12 shrink-0 text-foreground"
+          : "size-12 shrink-0"
+      }
+    />
+  );
 }
 
 export function AssistantPickerStepActions({
@@ -233,45 +217,88 @@ function ClaudeConnectorRecipe({
   );
 }
 
+function SetupInstallDemo({
+  demo,
+  label,
+  testId,
+}: {
+  demo: AssistantInstallDemo;
+  label: string;
+  testId: string;
+}) {
+  const captionId = `${testId}-caption`;
+  return (
+    <figure className="space-y-2" data-testid={testId}>
+      <div className="overflow-hidden rounded-lg border border-border bg-background">
+        <video
+          className="block h-auto w-full bg-background"
+          controls
+          playsInline
+          preload="metadata"
+          poster={appPath(demo.poster)}
+          aria-labelledby={captionId}
+        >
+          <source src={appPath(demo.src)} type="video/mp4" />
+        </video>
+      </div>
+      <figcaption
+        id={captionId}
+        className="text-sm text-muted-foreground text-pretty"
+      >
+        {label}
+      </figcaption>
+    </figure>
+  );
+}
+
 function ChatGptConnectorRecipe({
   mcpUrl,
   tokenValue,
+  installDemo,
 }: {
   mcpUrl: string;
   tokenValue: string;
+  installDemo?: AssistantInstallDemo;
 }) {
   return (
     <div className="space-y-4">
+      {installDemo ? (
+        <SetupInstallDemo
+          demo={installDemo}
+          label={CHATGPT_INSTALL_DEMO_LABEL}
+          testId="build-install-chatgpt-demo"
+        />
+      ) : null}
+      <p className="text-sm text-muted-foreground text-pretty">
+        {CHATGPT_INSTALL_PREAMBLE}
+      </p>
       <RecipeSteps testId="build-install-chatgpt-recipe">
-        <li>{CHATGPT_INSTALL_DEVELOPER_MODE}</li>
         <li>
-          {CHATGPT_INSTALL_CREATE_APP}{" "}
-          <UiLink
-            href={CHATGPT_PLUGINS_HREF}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm"
-          >
-            Open Plugins
-          </UiLink>
+          <RecipeEmphasis text={CHATGPT_INSTALL_OPEN} />
+        </li>
+        <li>
+          <RecipeEmphasis text={CHATGPT_INSTALL_NAME_TYPE} />
         </li>
         <li className="space-y-2">
-          <span className="block">{CHATGPT_INSTALL_URL}</span>
+          <span className="block">
+            <RecipeEmphasis text={CHATGPT_INSTALL_URL} />
+          </span>
           <div>
             <CopyableCode value={mcpUrl} tooltip="Copy connection URL" />
           </div>
         </li>
         <li className="space-y-2">
-          <span className="block">{CHATGPT_INSTALL_TOKEN}</span>
+          <span className="block">
+            <RecipeEmphasis text={CHATGPT_INSTALL_TOKEN} />
+          </span>
           <div>
             <CopyableCode value={tokenValue} tooltip="Copy token" />
           </div>
         </li>
-        <li>{CHATGPT_INSTALL_ENABLE}</li>
+        <li>
+          <RecipeEmphasis text={CHATGPT_INSTALL_SAVE} />
+        </li>
       </RecipeSteps>
-      <p className="text-sm text-muted-foreground text-pretty">
-        {CHATGPT_INSTALL_AUTH_NOTE}
-      </p>
     </div>
   );
 }
@@ -317,6 +344,7 @@ function CursorInstallRecipe({
           data-testid="build-add-to-cursor"
           onClick={() => onMarkMcpInstalled()}
         >
+          <CursorIcon />
           Add in Cursor
         </a>
       </Button>
@@ -334,7 +362,13 @@ function ClaudeInstallRecipe({ mcpUrl, apiToken }: HostInstallRecipeProps) {
 }
 
 function ChatGptInstallRecipe({ mcpUrl, apiToken }: HostInstallRecipeProps) {
-  return <ChatGptConnectorRecipe mcpUrl={mcpUrl} tokenValue={apiToken} />;
+  return (
+    <ChatGptConnectorRecipe
+      mcpUrl={mcpUrl}
+      tokenValue={apiToken}
+      installDemo={assistantHostById("chatgpt")?.installDemo}
+    />
+  );
 }
 
 function ClaudeCodeInstallRecipe({

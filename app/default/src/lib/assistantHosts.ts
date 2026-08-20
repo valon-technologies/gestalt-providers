@@ -1,11 +1,13 @@
 /**
  * Canonical catalog of Setup host products (the app the human already uses).
  *
- * `offered` hosts appear in Choose your assistant and in MCP docs. Claude
- * (web / desktop) and ChatGPT stay in this catalog so an in-progress Setup
- * session can still finish their install recipe. They are not offered.
+ * `offered` hosts appear in Setup's Choose your assistant. Docs MCP Clients
+ * uses the same named products (minus Others) for destination tabs. Claude
+ * (web / desktop) stays in this catalog so an in-progress Setup session can
+ * still finish its install recipe. It is not offered.
  *
  * `claude` is Claude on the web / desktop. `claude-code` is the terminal.
+ * `chatgpt` is the ChatGPT app (custom MCP). `codex` is Codex Desktop.
  * `cursor` is the Cursor app. `cursor-agent` is Cursor Agent (same
  * `.cursor/mcp.json` as Cursor, no one-click IDE button).
  * Session storage v1 used `claude` for Claude Code; readers migrate that.
@@ -33,6 +35,12 @@ export type AssistantHostIconKey =
 /** Setup AgentConsole composition skin — not an AgentConsole prop. */
 export type AssistantHostConsoleSkin = "claude" | "codex" | "cursor";
 
+/** Optional walkthrough video for a host install recipe. Paths are app-absolute. */
+export type AssistantInstallDemo = {
+  src: string;
+  poster: string;
+};
+
 export type McpDocsHash =
   | "mcp-claude"
   | "mcp-chatgpt"
@@ -55,6 +63,7 @@ export type AssistantHost = {
    * recipe for in-progress sessions only.
    */
   offered: boolean;
+  installDemo?: AssistantInstallDemo;
 };
 
 export const ASSISTANT_HOST_PICKER_GRID_CLASS =
@@ -92,10 +101,14 @@ export const ASSISTANT_HOSTS: readonly AssistantHost[] = [
     docsTabLabel: "ChatGPT",
     testId: "build-install-card-chatgpt",
     installDescription:
-      "Add Gestalt as a developer-mode app in ChatGPT.",
+      "Add Gestalt as a custom MCP in the ChatGPT app. You will paste a URL and a token.",
     iconKey: "chatgpt",
     consoleSkin: "codex",
-    offered: false,
+    offered: true,
+    installDemo: {
+      src: "/setup/chatgpt-install.mp4",
+      poster: "/setup/chatgpt-install.jpg",
+    },
   },
   {
     id: "codex",
@@ -170,30 +183,50 @@ export function assistantHostById(
 /**
  * URL hash for "open docs for this host".
  *
- * `docsHash` still names the config-file recipe tab (`mcp-codex`, …).
- * Claude and ChatGPT no longer have recipe tabs; their walkthroughs live
- * under `dest-*`. Setup and other deep links must use this landing hash,
- * not `docsHash`, or `#mcp-chatgpt` falls through to Claude.
+ * Offered named products land on Choose your assistant (`dest-*`).
+ * Claude on the web keeps leftover `dest-claude` (not a tab). Others still
+ * uses the config-file heading `mcp-other`. Do not derive aliases from
+ * `docsHash` here: Cursor and Cursor Agent share `mcp-cursor`, and that
+ * leftover hash must stay Cursor.
  */
 export function assistantDocsLandingHash(
   host: AssistantHost | undefined,
 ): string {
   if (!host) return "mcp-other";
-  if (host.id === "claude") return "dest-claude";
-  if (host.id === "chatgpt") return "dest-chatgpt";
-  return host.docsHash;
+  switch (host.id) {
+    case "claude":
+      return "dest-claude";
+    case "chatgpt":
+      return "dest-chatgpt";
+    case "claude-code":
+      return "dest-claude-code";
+    case "codex":
+      return "dest-codex";
+    case "cursor":
+      return "dest-cursor";
+    case "cursor-agent":
+      return "dest-cursor-agent";
+    default:
+      return host.docsHash;
+  }
 }
 
-/** Old recipe hashes that now select a dest-* walkthrough. */
+/** Leftover `mcp-*` hashes that now select a dest walkthrough. */
 export const ASSISTANT_DOCS_LANDING_HASH_ALIASES: Readonly<
   Record<string, string>
-> = Object.fromEntries(
-  ASSISTANT_HOSTS.flatMap((host) => {
-    const landing = assistantDocsLandingHash(host);
-    return landing === host.docsHash ? [] : [[host.docsHash, landing]];
-  }),
-);
+> = {
+  "mcp-claude": "dest-claude",
+  "mcp-chatgpt": "dest-chatgpt",
+  "mcp-claude-code": "dest-claude-code",
+  "mcp-codex": "dest-codex",
+  "mcp-cursor": "dest-cursor",
+};
 
+/**
+ * Unique MCP config-file hashes for offered hosts. Dest tabs now own the
+ * named-product recipes (`dest-*`). `mcp-other` is a docs heading; the rest
+ * alias onto dest tabs.
+ */
 export const MCP_CLIENT_TABS: ReadonlyArray<{
   id: McpDocsHash;
   label: string;

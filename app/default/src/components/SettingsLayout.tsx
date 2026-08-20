@@ -28,6 +28,7 @@ import {
   SETTINGS_TOKENS_NEW_PATH,
   SETTINGS_TOKENS_PATH,
 } from "@/lib/managed-identity-paths";
+import { PAGE_LAYOUT_READING_COLUMN_CLASS } from "@/lib/page-layout-content-top";
 
 function SettingsBreadcrumb({ pathname }: { pathname: string }) {
   const isCreateToken = pathname === SETTINGS_TOKENS_NEW_PATH;
@@ -74,15 +75,14 @@ export default function SettingsLayout() {
 
   return (
     // PageLayout renders the <main>, so the Container stays a plain wrapper.
-    // List owns one API-tokens page header; nested create uses breadcrumbs so
-    // the content column can own the task h1.
+    // The list owns the page header and stays full width for the table.
+    // Create is a single-column task: breadcrumbs, title, form, and callout
+    // share the reading column. The content column owns the task h1.
     <Container>
       <PageLayout
         tracks="compact"
         header={
-          nested ? (
-            <SettingsBreadcrumb pathname={pathname} />
-          ) : (
+          nested ? undefined : (
             <PageHeader>
               <PageHeaderContent size="lg">
                 <PageHeaderTitle>{SETTINGS_TOKENS_LIST_TITLE}</PageHeaderTitle>
@@ -101,7 +101,16 @@ export default function SettingsLayout() {
           )
         }
       >
-        <Outlet />
+        {nested ? (
+          <div className={PAGE_LAYOUT_READING_COLUMN_CLASS}>
+            <div className="space-y-8">
+              <SettingsBreadcrumb pathname={pathname} />
+              <Outlet />
+            </div>
+          </div>
+        ) : (
+          <Outlet />
+        )}
       </PageLayout>
     </Container>
   );

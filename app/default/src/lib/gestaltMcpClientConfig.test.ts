@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  cursorMcpInstallHref,
   gestaltMcpBearerValue,
   gestaltMcpClientConfigJson,
 } from "./gestaltMcpClientConfig";
@@ -18,5 +19,17 @@ describe("gestalt MCP client config", () => {
     expect(json).toContain(
       '"Authorization": "Bearer gst_api_secret"',
     );
+  });
+
+  test("builds the Cursor one-click install deeplink", () => {
+    const href = cursorMcpInstallHref(
+      "https://example.test/mcp",
+      "gst_api_secret",
+    );
+    expect(href.startsWith("cursor://anysphere.cursor-deeplink/mcp/install?")).toBe(
+      true,
+    );
+    expect(href).toContain("name=gestalt");
+    expect(href).toContain("config=");
   });
 });

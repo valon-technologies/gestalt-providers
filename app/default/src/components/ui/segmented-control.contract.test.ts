@@ -80,6 +80,14 @@ describe("SegmentedControl track variants contract", () => {
     expect(SOURCE).toContain("focus({ preventScroll: true })");
   });
 
+  test("unmatched value does not paint the first segment as selected", () => {
+    expect(SOURCE).toContain("hasMatchedValue");
+    expect(SOURCE).toContain(
+      "const matchedIndex = options.findIndex((option) => option.value === value);",
+    );
+    expect(SOURCE).not.toContain("Math.max(\n    0,\n    options.findIndex");
+  });
+
   test("optional panelId wires aria-controls on every radio", () => {
     expect(SOURCE).toContain("panelId?: string");
     expect(SOURCE).toContain("aria-controls={panelId}");

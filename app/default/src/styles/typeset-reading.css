@@ -223,6 +223,21 @@
       outline-offset: 0;
       border-radius: 0.125em;
     }
+    /* Heading permalinks (shadcn heading-anchor): inherit heading ink, no
+       body-link gold or draw-underline. Hover uses currentColor. */
+    &:where(:is(h1, h2, h3, h4) > a[data-heading-permalink]) {
+      color: inherit;
+      background-image: none;
+    }
+    &:where(:is(h1, h2, h3, h4) > a[data-heading-permalink]:hover) {
+      color: inherit;
+      background-image: linear-gradient(currentColor, currentColor);
+      background-position: 0% calc(100% - 0.02em);
+      background-size: 100% 1.5px;
+    }
+    &:where(:is(h1, h2, h3, h4) > a[data-heading-permalink]:active) {
+      color: inherit;
+    }
     @media (prefers-reduced-motion: reduce) {
       &:where(a) {
         transition: none;

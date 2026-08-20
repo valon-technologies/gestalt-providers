@@ -25,16 +25,21 @@ describe("assistant host catalog", () => {
     }
   });
 
-  test("picker and MCP docs omit Claude desktop and ChatGPT", () => {
+  test("picker and MCP docs omit Claude desktop", () => {
     expect(ASSISTANT_HOSTS_IN_PICKER.map((host) => host.id)).toEqual([
       "claude-code",
+      "chatgpt",
       "codex",
       "cursor",
       "cursor-agent",
       "other",
     ]);
     expect(assistantHostById("claude")?.offered).toBe(false);
-    expect(assistantHostById("chatgpt")?.offered).toBe(false);
+    expect(assistantHostById("chatgpt")?.offered).toBe(true);
+    expect(assistantHostById("chatgpt")?.installDemo).toEqual({
+      src: "/setup/chatgpt-install.mp4",
+      poster: "/setup/chatgpt-install.jpg",
+    });
   });
 
   test("lists sibling hosts in picker order", () => {
@@ -67,10 +72,16 @@ describe("assistant host catalog", () => {
       "dest-chatgpt",
     );
     expect(assistantDocsLandingHash(assistantHostById("cursor"))).toBe(
-      "mcp-cursor",
+      "dest-cursor",
+    );
+    expect(assistantDocsLandingHash(assistantHostById("cursor-agent"))).toBe(
+      "dest-cursor-agent",
     );
     expect(assistantDocsLandingHash(assistantHostById("codex"))).toBe(
-      "mcp-codex",
+      "dest-codex",
+    );
+    expect(assistantDocsLandingHash(assistantHostById("claude-code"))).toBe(
+      "dest-claude-code",
     );
     expect(assistantDocsLandingHash(undefined)).toBe("mcp-other");
     expect(assistantHostById("other")?.installDescription).toContain(
@@ -81,6 +92,7 @@ describe("assistant host catalog", () => {
   test("exposes one docs tab per offered MCP hash", () => {
     expect(MCP_CLIENT_TABS.map((tab) => tab.id)).toEqual([
       "mcp-claude-code",
+      "mcp-chatgpt",
       "mcp-codex",
       "mcp-cursor",
       "mcp-other",

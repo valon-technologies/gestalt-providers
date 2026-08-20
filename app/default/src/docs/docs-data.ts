@@ -102,11 +102,13 @@ export const docsNavItems: DocsNavItem[] = [
     label: "MCP Clients",
     group: "assistants",
     audience: "user",
-    // MCP destination tabs and client recipes stay hash-backed (no TOC ids).
+    // MCP destination tabs stay hash-backed (no TOC ids). Other clients is
+    // a heading because it is not a dest tab.
     subsections: [
       { id: "mcp-connect", label: "Choose your assistant" },
       { id: "mcp-overlap", label: ASSISTANT_OVERLAP_TITLE },
       { id: "mcp-env", label: "Store the token on your computer" },
+      { id: "mcp-other", label: "Other clients" },
       { id: "mcp-cloud", label: "Configure cloud environments" },
       { id: "mcp-verify", label: "Verify your tools" },
     ],

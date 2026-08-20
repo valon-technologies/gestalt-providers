@@ -18,7 +18,24 @@ export const SETUP_RESUME_BANNER_BODY = "Pick up where you left off.";
 export const CLAUDE_CONNECTOR_SETTINGS_HREF =
   "https://claude.ai/settings/connectors";
 
-export const CHATGPT_PLUGINS_HREF = "https://chatgpt.com/plugins";
+export const CHATGPT_INSTALL_DEMO_LABEL =
+  "Watch how to add Gestalt as a custom MCP in ChatGPT";
+
+export const CHATGPT_INSTALL_PREAMBLE =
+  "Follow the video in the ChatGPT app. Paste the values below when ChatGPT asks.";
+
+export const CHATGPT_INSTALL_OPEN =
+  "In ChatGPT, open **Settings**, then **Plugins**. Choose **Add**, then **Add MCP server**.";
+
+export const CHATGPT_INSTALL_NAME_TYPE =
+  "Name the server **Gestalt**. Set type to **Streamable HTTP**, not STDIO.";
+
+export const CHATGPT_INSTALL_URL = "Paste this MCP server URL.";
+
+export const CHATGPT_INSTALL_TOKEN =
+  "Paste this token in **Bearer token env var**.";
+
+export const CHATGPT_INSTALL_SAVE = "Choose **Save**.";
 
 export const CLAUDE_INSTALL_OPEN =
   "Open Claude on the web or in the Claude desktop app.";
@@ -37,24 +54,6 @@ export const CLAUDE_INSTALL_ENABLE =
 
 export const CLAUDE_INSTALL_HEADERS_NOTE =
   "If you do not see Request headers, that setting may still be rolling out. Go back and choose Claude Code instead.";
-
-export const CHATGPT_INSTALL_DEVELOPER_MODE =
-  "In ChatGPT, open Settings, then Security and login, and turn on Developer mode. This needs a paid plan. A workspace admin may need to allow it.";
-
-export const CHATGPT_INSTALL_CREATE_APP =
-  "Open Settings, then Plugins, or go to chatgpt.com/plugins. Create a developer-mode app.";
-
-export const CHATGPT_INSTALL_URL =
-  "Name it Gestalt and paste this MCP server URL.";
-
-export const CHATGPT_INSTALL_TOKEN =
-  "If ChatGPT asks how to authenticate, choose Token or API key (not OAuth) and copy the token below.";
-
-export const CHATGPT_INSTALL_ENABLE =
-  "Start a new chat. In the composer, open +, then Developer mode, and select Gestalt.";
-
-export const CHATGPT_INSTALL_AUTH_NOTE =
-  "Gestalt signs requests with this token. If ChatGPT only offers OAuth, go back and choose Claude or another assistant that accepts a token in the Authorization header.";
 
 export const ASSISTANT_OVERLAP_TITLE = "One path per app";
 

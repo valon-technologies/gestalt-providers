@@ -72,8 +72,13 @@ export function DocsOptionSwitcher<V extends string>({
   const activeLabel =
     options.find((option) => option.value === value)?.label ?? label;
   const hashIds = [
-    ...options.map((option) => option.value),
-    ...Object.keys(hashAliases ?? {}),
+    ...new Set([
+      ...options.map((option) => option.value),
+      ...Object.keys(hashAliases ?? {}),
+      // Alias targets (e.g. dest-chatgpt) must scroll this switcher after
+      // the URL is rewritten off the leftover mcp-* hash.
+      ...Object.values(hashAliases ?? {}),
+    ]),
   ].join(" ");
 
   return (

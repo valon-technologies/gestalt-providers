@@ -1,4 +1,5 @@
 import { test, expect, mockAuthInfo, mockAuthSession } from "./fixtures";
+import { GESTALT_PUBLIC_ORIGIN_PLACEHOLDER } from "../src/lib/gestaltPublicOrigin";
 
 const hasBackend = !!process.env.GESTALT_BASE_URL;
 
@@ -45,9 +46,9 @@ test.describe("Docs page", () => {
   }) => {
     const page = authenticatedPage;
     const pageErrors = trackPageErrors(page);
-    const expectedOrigin =
-      process.env.PLAYWRIGHT_BASE_URL ||
-      `http://localhost:${process.env.API_PORT || 8080}`;
+    // Mock e2e is localhost. Docs show the public-origin placeholder, not the
+    // Playwright base URL, so people never paste 127.0.0.1 into an assistant.
+    const expectedOrigin = GESTALT_PUBLIC_ORIGIN_PLACEHOLDER;
     const leftNav = page.getByRole("navigation", { name: "Documentation" });
     await mockAuthInfo(page, {
       provider: "test-sso",
@@ -203,7 +204,7 @@ test.describe("Docs page", () => {
       page.getByRole("heading", { name: "Connect from the terminal" }),
     ).toBeVisible();
     await expect(
-      page.locator("article").getByRole("link", { name: "Apps" }).first(),
+      page.locator("article p").getByRole("link", { name: "Apps", exact: true }),
     ).toHaveAttribute("href", "/apps");
     await expect(
       page.locator("article p").getByRole("link", { name: "Gestalt CLI" }),
@@ -318,15 +319,73 @@ test.describe("Docs page", () => {
     const mcpDestSwitch = page.getByRole("radiogroup", {
       name: "Choose your assistant",
     });
-    await expect(mcpDestSwitch.getByRole("radio", { name: "Claude" })).toBeChecked();
-    await expect(mcpDestSwitch.getByRole("radio", { name: "ChatGPT" })).toBeVisible();
+    await expect(
+      mcpDestSwitch.getByRole("radio", { name: "Claude Code" }),
+    ).toBeChecked();
+    await expect(
+      mcpDestSwitch.getByRole("radio", { name: "ChatGPT", exact: true }),
+    ).toBeVisible();
+    await expect(
+      mcpDestSwitch.getByRole("radio", { name: "Codex", exact: true }),
+    ).toBeVisible();
+    await expect(
+      mcpDestSwitch.getByRole("radio", { name: "Cursor", exact: true }),
+    ).toBeVisible();
+    await expect(
+      mcpDestSwitch.getByRole("radio", { name: "Cursor Agent", exact: true }),
+    ).toBeVisible();
+    await expect(page.locator("article video")).toHaveCount(0);
+    await expect(
+      page
+        .getByRole("heading", { name: "Choose your assistant" })
+        .getByRole("link"),
+    ).toHaveAttribute("href", "#mcp-connect");
+    await expect(page.locator("article")).toContainText(
+      "claude mcp add --transport http",
+    );
+    await mcpDestSwitch.getByRole("radio", { name: "ChatGPT", exact: true }).click();
+    await expect(page).toHaveURL(/\/docs\/mcp#dest-chatgpt$/);
+    await expect(page.locator("article")).toContainText("Streamable HTTP");
     await expect(page.locator("article video")).toBeVisible();
+    await mcpDestSwitch.getByRole("radio", { name: "Codex", exact: true }).click();
+    await expect(page).toHaveURL(/\/docs\/mcp#dest-codex$/);
+    await expect(page.locator("article")).toContainText("Codex Desktop");
+    await expect(page.locator("article video")).toHaveCount(0);
+    await expect(page.locator("article")).toContainText(
+      `codex mcp add gestalt --url "${expectedOrigin}/mcp" --bearer-token-env-var GESTALT_API_KEY`,
+    );
+    await expect(page.locator("article")).toContainText(
+      "Cloud agents do not use local",
+    );
     await page.goto("/docs/mcp#mcp-chatgpt");
     await expect(page).toHaveURL(/\/docs\/mcp#dest-chatgpt$/);
     await expect(
-      mcpDestSwitch.getByRole("radio", { name: "ChatGPT" }),
+      mcpDestSwitch.getByRole("radio", { name: "ChatGPT", exact: true }),
     ).toBeChecked();
-    await expect(page.locator("article")).toContainText("Developer mode");
+    await expect(page.locator("article")).toContainText("Streamable HTTP");
+    await expect(page.locator("article video")).toBeVisible();
+    await mcpDestSwitch.getByRole("radio", { name: "Cursor Agent", exact: true }).click();
+    await expect(page).toHaveURL(/\/docs\/mcp#dest-cursor-agent$/);
+    await expect(page.locator("article")).toContainText(
+      "Cursor Agent reads MCP servers",
+    );
+    await page.goto("/docs/mcp#mcp-cursor");
+    await expect(page).toHaveURL(/\/docs\/mcp#dest-cursor$/);
+    await expect(
+      mcpDestSwitch.getByRole("radio", { name: "Cursor", exact: true }),
+    ).toBeChecked();
+    await expect(page.getByTestId("docs-add-to-cursor")).toHaveAttribute(
+      "href",
+      /cursor:\/\/anysphere\.cursor-deeplink\/mcp\/install/,
+    );
+    await expect(page.getByTestId("docs-add-to-cursor")).toContainText(
+      "Add in Cursor",
+    );
+    const destPanel = mcpDestSwitch
+      .locator("xpath=ancestor::*[@data-docs-option-switcher][1]")
+      .locator(":scope > div")
+      .last();
+    await expect(destPanel).not.toContainText(".cursor/mcp.json");
     await expect(
       page.getByRole("heading", { name: "Store the token on your computer" }),
     ).toBeVisible();
@@ -337,38 +396,18 @@ test.describe("Docs page", () => {
       `export GESTALT_URL=${expectedOrigin}`,
     );
     await expect(
-      page.getByText("claude mcp add --transport http").first(),
-    ).toBeVisible();
-    await expect(
       page.getByRole("link", { name: "Settings → API tokens" }),
     ).toHaveAttribute("href", "/settings/tokens");
     await expect(
-      page.locator("article p").getByRole("link", { name: "API Tokens" }),
+      page.locator("article p").getByRole("link", { name: "API Tokens", exact: true }),
     ).toHaveAttribute("href", "/docs/tokens");
-    const mcpSwitch = page.getByRole("radiogroup", {
-      name: "MCP client configuration",
-    });
-    const mcpPanel = mcpSwitch
-      .locator("xpath=ancestor::*[@data-docs-option-switcher][1]")
-      .locator(":scope > div")
-      .last();
     await expect(
-      mcpSwitch.getByRole("radio", { name: "Claude Code" }),
+      page.getByRole("radiogroup", { name: "MCP client configuration" }),
+    ).toHaveCount(0);
+    await page.goto("/docs/mcp#mcp-other");
+    await expect(
+      page.getByRole("heading", { name: "Other clients" }),
     ).toBeVisible();
-    await expect(mcpSwitch.getByRole("radio", { name: "Codex" })).toBeVisible();
-    await expect(mcpSwitch.getByRole("radio", { name: "Cursor" })).toBeVisible();
-    await mcpSwitch.getByRole("radio", { name: "Codex" }).click();
-    await expect(page).toHaveURL(/\/docs\/mcp#mcp-codex$/);
-    await expect(mcpPanel).toContainText(
-      'codex mcp add gestalt --url "$GESTALT_URL/mcp" --bearer-token-env-var GESTALT_API_KEY',
-    );
-    await expect(mcpPanel).toContainText("Codex Desktop");
-    await expect(mcpPanel).toContainText("Cloud agents do not use local");
-    await page.goto("/docs/mcp#mcp-cursor");
-    await expect(mcpSwitch.getByRole("radio", { name: "Cursor" })).toBeChecked();
-    await expect(mcpPanel).toContainText(".cursor/mcp.json");
-    await mcpSwitch.getByRole("radio", { name: "Other clients" }).click();
-    await expect(page).toHaveURL(/\/docs\/mcp#mcp-other$/);
     await expect(
       page
         .getByTestId("docs-info-table")

@@ -44,7 +44,7 @@ export default function SettingsTokenCreate() {
       aria-label={SETTINGS_TOKEN_CREATE_TITLE}
     >
       <PageHeader>
-        <PageHeaderContent size="md">
+        <PageHeaderContent size="lg">
           <PageHeaderTitle>
             {revealed ? SETTINGS_TOKEN_CREATED_TITLE : SETTINGS_TOKEN_CREATE_TITLE}
           </PageHeaderTitle>

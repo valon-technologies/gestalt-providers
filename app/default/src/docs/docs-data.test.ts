@@ -105,13 +105,14 @@ describe("docs IA invariants", () => {
   it("keeps TOC subsections as real heading ids only", () => {
     const mcp = docsNavItems.find((item) => item.id === "mcp");
     const invoke = docsNavItems.find((item) => item.id === "invoke");
-    // MCP destination tabs and client recipes stay hash-backed (no TOC ids).
-    // Connect, env, cloud, and verify are real headings. Invoke option
-    // switchers still omit matching DOM ids.
+    // Destination tabs stay hash-backed (no TOC ids). Other clients is a
+    // heading because it is not a dest tab. Invoke option switchers still
+    // omit matching DOM ids.
     expect(mcp?.subsections.map((s) => s.id)).toEqual([
       "mcp-connect",
       "mcp-overlap",
       "mcp-env",
+      "mcp-other",
       "mcp-cloud",
       "mcp-verify",
     ]);
@@ -210,6 +211,8 @@ describe("docs IA invariants", () => {
       "utf8",
     );
     expect(content).toContain("docsSubsectionLabel");
+    expect(content).toContain("data-heading-permalink");
+    expect(content).toContain("href={`#${id}`}");
     expect(content).not.toMatch(/<Subheading[^>]*title=/);
     for (const item of docsNavItems) {
       for (const subsection of item.subsections) {
