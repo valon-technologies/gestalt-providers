@@ -102,6 +102,9 @@ describe("Alert", () => {
       "group-has-[[data-slot=alert-title]]/alert:mt-1.5",
     );
     expect(SOURCE).toContain(
+      "min-w-0 wrap-break-word font-medium tracking-tight",
+    );
+    expect(SOURCE).not.toContain(
       "min-w-0 wrap-break-word font-semibold tracking-tight",
     );
     expect(SOURCE).not.toContain("font-semibold leading-none tracking-tight");

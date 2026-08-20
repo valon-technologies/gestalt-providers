@@ -455,7 +455,6 @@ function CodeBlockShell({
   return (
     <TooltipProvider delayDuration={0}>
       <CodeFenceShell
-        data-slot="code-block"
         data-sensitive={sensitive ? "true" : undefined}
         data-revealed={sensitive ? (revealed ? "true" : "false") : undefined}
         variant={variant}

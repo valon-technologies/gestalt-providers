@@ -206,7 +206,7 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
             data-animate-size=""
             data-testid="workflow-runs-cli-help"
           >
-            <CollapsibleTrigger className="rounded-t-xl px-4 py-3 data-[state=closed]:rounded-xl">
+            <CollapsibleTrigger className="rounded-t-lg px-4 py-3 data-[state=closed]:rounded-lg">
               <span className="inline-flex min-w-0 items-center gap-2">
                 <Lightbulb
                   className="size-4 shrink-0 text-muted-foreground"
@@ -216,7 +216,7 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
               </span>
               <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform duration-overshoot ease-out-back motion-reduce:transition-none" aria-hidden />
             </CollapsibleTrigger>
-            <CollapsibleContent className="space-y-2 rounded-b-xl border-t border-border px-4 py-3">
+            <CollapsibleContent className="space-y-2 rounded-b-lg border-t border-border px-4 py-3">
               <p className="text-sm text-foreground text-pretty">
                 List this app&apos;s workflow runs with the Gestalt CLI.
               </p>

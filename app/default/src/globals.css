@@ -264,6 +264,11 @@
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) + 4px);
   --radius-xl: calc(var(--radius) + 8px);
+  /* Nested rounded surface inside a padded canvas panel (CodeFence in Card /
+     Alert / Callout). One rung below the host — still rounded, not square.
+     Do not subtract panel padding: p-4 is larger than `--radius-lg`, so
+     concentric math collapses to 0. Host variants publish `--radius-in-panel`. */
+  --radius-nested: var(--radius-sm);
 
   --shadow-md: var(--elevation-shadow-md);
   --shadow-lg: var(--elevation-shadow-lg);

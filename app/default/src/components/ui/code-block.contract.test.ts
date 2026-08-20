@@ -13,7 +13,7 @@ describe("CodeBlock chrome contract", () => {
     expect(SOURCE).toContain("copyLabel?: string");
     expect(SOURCE).toContain('if (inset)');
     expect(SOURCE).toContain('data-slot="code-block-inset"');
-    expect(SOURCE).toContain('data-slot="code-block"');
+    expect(SOURCE).not.toMatch(/data-slot="code-block"(?!-)/);
     expect(SOURCE).toContain("CodeBlockInsetCopy");
     expect(SOURCE).toContain("[&_pre]:pe-10");
   });

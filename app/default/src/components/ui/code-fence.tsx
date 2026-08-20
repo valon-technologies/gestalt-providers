@@ -12,25 +12,33 @@ import { cn } from "@/lib/cn";
 // only the shared chrome paint (shell / header / pre body), so the two
 // presenters cannot drift by copy-pasting Tailwind strings.
 
-const codeFenceShellVariants = cva("overflow-hidden rounded-md", {
-  variants: {
-    variant: {
-      /** Hairline frame, transparent fill — default for page / outline-card placement. */
-      outline: "border border-border bg-transparent",
-      /** Filled muted band — when a second outline frame is not enough contrast. */
-      solid: "bg-muted",
-      /**
-       * Mid quiet L-step (`bg-muted-strong`) — darker solid fill on an
-       * already-muted parent (Alert wash, solid Card). Same warmth as `solid`
-       * / muted; only lightness drops.
-       */
-      "solid-dark": "bg-muted-strong",
+// Nested canvas radius: Card / Alert / Callout (and DescriptionList outline,
+// which composes cardVariants) publish `--radius-in-panel` on their variant
+// classes. The fence consumes it. Standalone fences fall back to `--radius-lg`.
+// Call sites do not pass a radius prop. Controls stay `rounded-md`; floating
+// overlays stay `rounded-xl`.
+const codeFenceShellVariants = cva(
+  "overflow-hidden rounded-[var(--radius-in-panel,_var(--radius-lg))]",
+  {
+    variants: {
+      variant: {
+        /** Hairline frame, transparent fill — default for page / outline-card placement. */
+        outline: "border border-border bg-transparent",
+        /** Filled muted band — when a second outline frame is not enough contrast. */
+        solid: "bg-muted",
+        /**
+         * Mid quiet L-step (`bg-muted-strong`) — darker solid fill on an
+         * already-muted parent (Alert wash, solid Card). Same warmth as `solid`
+         * / muted; only lightness drops.
+         */
+        "solid-dark": "bg-muted-strong",
+      },
+    },
+    defaultVariants: {
+      variant: "outline",
     },
   },
-  defaultVariants: {
-    variant: "outline",
-  },
-});
+);
 
 /** Default outline shell — one-off fences that skip CodeBlock composition. */
 export const codeFenceShellClass = codeFenceShellVariants();
@@ -84,9 +92,9 @@ export type CodeFenceShellProps = React.ComponentProps<"div"> &
 function CodeFenceShell({ className, variant, ...props }: CodeFenceShellProps) {
   return (
     <div
-      data-slot="code-fence"
       className={cn(codeFenceShellVariants({ variant }), className)}
       {...props}
+      data-slot="code-fence"
     />
   );
 }

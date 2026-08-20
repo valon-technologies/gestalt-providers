@@ -65,7 +65,7 @@ import {
 
 /** Flush navigable rows — Card radius on first/last Item (application-lists.md). */
 const navigableRowClassName = cn(
-  "relative rounded-none px-4 first:rounded-t-xl last:rounded-b-xl",
+  "relative rounded-none px-4 first:rounded-t-lg last:rounded-b-lg",
   // Item base paints `[a]:hover:bg-accent/50`; kill it so list wash owns hover.
   "hover:bg-transparent [a]:hover:bg-transparent",
   listItemInteraction({ pointer: "css" }),
@@ -73,7 +73,7 @@ const navigableRowClassName = cn(
 
 /** Nested run rows inside a definition section card. */
 const nestedRunRowClassName = cn(
-  "relative isolate z-0 rounded-none px-4 first:rounded-t-xl last:rounded-b-xl",
+  "relative isolate z-0 rounded-none px-4 first:rounded-t-lg last:rounded-b-lg",
   "hover:bg-transparent [a]:hover:bg-transparent",
   listItemInteraction({ pointer: "css" }),
 );

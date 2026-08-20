@@ -22,6 +22,8 @@ describe("WorkflowGroupedDefinitionRunsList stacking", () => {
       'className="space-y-2 border-b border-border pb-6 pl-[calc(var(--size-control-sm)+0.25rem)]"',
     );
     expect(SOURCE).toContain("relative isolate z-0 rounded-none");
+    expect(SOURCE).toContain("first:rounded-t-lg last:rounded-b-lg");
+    expect(SOURCE).not.toContain("first:rounded-t-xl last:rounded-b-xl");
     expect(SOURCE).toContain('className="relative z-[2] shrink-0"');
   });
 });
