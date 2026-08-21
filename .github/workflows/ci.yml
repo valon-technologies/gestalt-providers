@@ -65,13 +65,9 @@ jobs:
         env:
           GOBIN: ${{ runner.temp }}/bin
         run: |
-          set -euo pipefail
-          mkdir -p "$GOBIN"
-          echo "$GOBIN" >> "$GITHUB_PATH"
-          GESTALT_REF="$(cat "$GESTALT_REF_FILE")"
-          toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
-          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "$GESTALT_REF"
-          (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
+          .github/scripts/install_gestaltd.sh \
+            --ref-file "$GESTALT_REF_FILE" \
+            --add-to-path
       - name: Validate provider registry files
         run: python3 .github/scripts/generate_provider_index.py --check
       - name: Validate provider registry CLI contract
@@ -229,13 +225,9 @@ jobs:
         env:
           GOBIN: ${{ runner.temp }}/bin
         run: |
-          set -euo pipefail
-          mkdir -p "$GOBIN"
-          echo "$GOBIN" >> "$GITHUB_PATH"
-          GESTALT_REF="$(cat "$GESTALT_REF_FILE")"
-          toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
-          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "$GESTALT_REF"
-          (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
+          .github/scripts/install_gestaltd.sh \
+            --ref-file "$GESTALT_REF_FILE" \
+            --add-to-path
       - uses: actions/upload-artifact@v4
         with:
           name: gestaltd
