@@ -310,6 +310,46 @@ class CompareRefsInput(gestalt.Model):
     head: str = gestalt.field(description="Head ref, branch, or SHA")
 
 
+class ListMatchingRefsInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    ref: str = gestalt.field(
+        description="Git ref prefix, for example heads/release or tags/v",
+    )
+    per_page: int = gestalt.field(
+        description="Results per page, from 1 through 100",
+        default=100,
+        required=False,
+    )
+    page: int = gestalt.field(
+        description="Page number, starting at 1",
+        default=0,
+        required=False,
+    )
+
+
+class ListTagsInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    per_page: int = gestalt.field(
+        description="Results per page, from 1 through 100",
+        default=100,
+        required=False,
+    )
+    page: int = gestalt.field(
+        description="Page number, starting at 1",
+        default=0,
+        required=False,
+    )
+
+
+class CreateRefInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    ref: str = gestalt.field(description="Fully qualified ref, for example refs/heads/release/v2.1")
+    sha: str = gestalt.field(description="Commit SHA to point the ref at")
+
+
 class CommitFilesInput(gestalt.Model):
     owner: str = gestalt.field(description="Repository owner")
     repo: str = gestalt.field(description="Repository name")
@@ -1404,6 +1444,76 @@ def bot_list_commits(input: ListCommitsInput, req: gestalt.Request) -> Operation
 def bot_compare_refs(input: CompareRefsInput, req: gestalt.Request) -> OperationResult:
     return _run_bot(lambda: compare_refs_summary((compare_refs(
 _to_request(GitHubCompareRefsRequest, input), **_bot_call(req)))))
+@app.operation(
+    id=BOT_LIST_MATCHING_REFS_OPERATION,
+    method="GET",
+    description="List git refs matching a prefix using a GitHub App installation token",
+    tags=["repo", "code", "history"],
+)
+def bot_list_matching_refs(
+    input: ListMatchingRefsInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        results = list_matching_refs(
+            GitHubListMatchingRefsRequest(
+                owner=input.owner,
+                repo=input.repo,
+                ref=input.ref,
+                per_page=input.per_page,
+                page=input.page,
+            ),
+            subject=req.subject,
+            authorization=_request_authorization(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    if not isinstance(results, list):
+        return _server_error("GitHub matching refs response was not a list")
+    return matching_refs_list_summary(results)
+@app.operation(
+    id=BOT_LIST_TAGS_OPERATION,
+    method="GET",
+    description="List repository tags using a GitHub App installation token",
+    tags=["repo", "code", "history"],
+)
+def bot_list_tags(input: ListTagsInput, req: gestalt.Request) -> OperationResult:
+    try:
+        results = list_tags(
+            GitHubListTagsRequest(
+                owner=input.owner,
+                repo=input.repo,
+                per_page=input.per_page,
+                page=input.page,
+            ),
+            subject=req.subject,
+            authorization=_request_authorization(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    if not isinstance(results, list):
+        return _server_error("GitHub tags response was not a list")
+    return tags_list_summary(results)
+@app.operation(
+    id=BOT_CREATE_REF_OPERATION,
+    method="POST",
+    description="Create a git ref using a GitHub App installation token",
+    tags=["repo", "code", "history"],
+)
+def bot_create_ref(input: CreateRefInput, req: gestalt.Request) -> OperationResult:
+    return _run_bot(lambda: create_ref_summary((create_ref(
+_to_request(GitHubCreateRefRequest, input), **_bot_call(req)))))
 @app.operation(
     id=BOT_COMMIT_FILES_OPERATION,
     method="POST",

@@ -139,6 +139,73 @@ operations:
     type: string
     description: Head ref, branch, or SHA
     required: true
+- id: bot.listMatchingRefs
+  method: GET
+  description: List git refs matching a prefix using a GitHub App installation token
+  tags: [repo, code, history]
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: ref
+    type: string
+    description: Git ref prefix, for example heads/release or tags/v
+    required: true
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 100
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
+- id: bot.listTags
+  method: GET
+  description: List repository tags using a GitHub App installation token
+  tags: [repo, code, history]
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 100
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
+- id: bot.createRef
+  method: POST
+  description: Create a git ref using a GitHub App installation token
+  tags: [repo, code, history]
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: ref
+    type: string
+    description: Fully qualified ref, for example refs/heads/release/v2.1
+    required: true
+  - name: sha
+    type: string
+    description: Commit SHA to point the ref at
+    required: true
 - id: bot.commitFiles
   method: POST
   description: Create a Git commit on a branch using a GitHub App installation token

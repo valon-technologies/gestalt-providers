@@ -104,6 +104,31 @@ class GitHubCompareRefsRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class GitHubListMatchingRefsRequest:
+    owner: str
+    repo: str
+    ref: str
+    per_page: int = 100
+    page: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubListTagsRequest:
+    owner: str
+    repo: str
+    per_page: int = 100
+    page: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubCreateRefRequest:
+    owner: str
+    repo: str
+    ref: str
+    sha: str
+
+
+@dataclass(frozen=True, slots=True)
 class GitHubRepositoryRequest:
     owner: str
     repo: str
@@ -1882,6 +1907,98 @@ def compare_refs(
     )
 
 
+def list_matching_refs(
+    request: GitHubListMatchingRefsRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> list[JsonObject]:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    ref = require_text(request.ref, "ref").lstrip("/")
+    params = pagination_params(per_page=request.per_page, page=request.page)
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"contents": "read"}
+    )
+    data = github.github_json_value(
+        "GET",
+        path_with_query(
+            repo_path(owner, repo, "git", "matching-refs", ref, safe_last="/.:"),
+            params,
+        ),
+        token,
+    )
+    return require_json_object_list(data, "matching refs response")
+
+
+def list_tags(
+    request: GitHubListTagsRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> list[JsonObject]:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    params = pagination_params(per_page=request.per_page, page=request.page)
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"contents": "read"}
+    )
+    data = github.github_json_value(
+        "GET",
+        path_with_query(repo_path(owner, repo, "tags"), params),
+        token,
+    )
+    return require_json_object_list(data, "tags response")
+
+
+def create_ref(
+    request: GitHubCreateRefRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    ref = require_text(request.ref, "ref")
+    sha = require_text(request.sha, "sha")
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"contents": "write"}
+    )
+    return github.github_json(
+        "POST",
+        repo_path(owner, repo, "git", "refs"),
+        token,
+        {"ref": ref, "sha": sha},
+    )
+
+
 def get_file_text_at_ref(
     request: GitHubFileContentRequest,
     *,
@@ -3133,6 +3250,58 @@ def commit_list_summary(response: Sequence[Mapping[str, Any]]) -> dict[str, Any]
             if isinstance(item, dict)
         ],
     }
+
+
+def matching_ref_summary(ref: Mapping[str, Any]) -> dict[str, Any]:
+    return _compact_dict(
+        {
+            "ref": str_field(ref, "ref"),
+            "sha": nested_str(ref, "object", "sha"),
+            "type": nested_str(ref, "object", "type"),
+            "url": str_field(ref, "url"),
+        }
+    )
+
+
+def matching_refs_list_summary(response: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    return {
+        "refs": [
+            matching_ref_summary(item)
+            for item in response
+            if isinstance(item, dict)
+        ],
+    }
+
+
+def tag_summary(tag: Mapping[str, Any]) -> dict[str, Any]:
+    commit = map_field(tag, "commit")
+    return _compact_dict(
+        {
+            "name": str_field(tag, "name"),
+            "sha": nested_str(commit, "sha"),
+            "url": str_field(tag, "url"),
+        }
+    )
+
+
+def tags_list_summary(response: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    return {
+        "tags": [
+            tag_summary(item)
+            for item in response
+            if isinstance(item, dict)
+        ],
+    }
+
+
+def create_ref_summary(response: Mapping[str, Any]) -> dict[str, Any]:
+    return _compact_dict(
+        {
+            "ref": str_field(response, "ref"),
+            "sha": nested_str(response, "object", "sha"),
+            "url": str_field(response, "url"),
+        }
+    )
 
 
 def compare_refs_summary(response: Mapping[str, Any]) -> dict[str, Any]:
