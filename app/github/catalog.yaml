@@ -77,6 +77,27 @@ operations:
     type: integer
     description: Maximum UTF-8 bytes to return
     default: 80000
+- id: bot.listDirectoryContents
+  method: GET
+  description: List directory entries at a repository path using a GitHub App installation token
+  tags: [repo, code, content]
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: path
+    type: string
+    description: Repository-relative directory path
+    required: true
+  - name: ref
+    type: string
+    description: Git ref, branch, or SHA. Defaults to the repository default branch.
+    default: ''
 - id: bot.listCommits
   method: GET
   description: List commits on a repository using a GitHub App installation token

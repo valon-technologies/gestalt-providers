@@ -83,6 +83,14 @@ class GitHubFileContentRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class GitHubListDirectoryContentsRequest:
+    owner: str
+    repo: str
+    path: str
+    ref: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class GitHubListCommitsRequest:
     owner: str
     repo: str
@@ -1999,6 +2007,46 @@ def create_ref(
     )
 
 
+def list_directory_contents(
+    request: GitHubListDirectoryContentsRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> list[JsonObject]:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    path = normalize_file_content_path(request.path)
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"contents": "read"}
+    )
+    ref = request.ref.strip() or github.repository_default_branch(token, owner, repo)
+    data = github.github_json_value(
+        "GET",
+        path_with_query(
+            repo_path(owner, repo, "contents", path, safe_last="/"),
+            {"ref": ref},
+        ),
+        token,
+    )
+    if isinstance(data, dict):
+        entry_type = str_field(data, "type")
+        if entry_type == "file":
+            raise ValueError(f"{path}: path is a file, not a directory")
+        if entry_type == "dir":
+            return [data]
+        raise ValueError(f"{path}: unexpected GitHub contents response type")
+    return require_json_object_list(data, "directory contents response")
+
+
 def get_file_text_at_ref(
     request: GitHubFileContentRequest,
     *,
@@ -3302,6 +3350,27 @@ def create_ref_summary(response: Mapping[str, Any]) -> dict[str, Any]:
             "url": str_field(response, "url"),
         }
     )
+
+
+def directory_entry_summary(entry: Mapping[str, Any]) -> dict[str, Any]:
+    return _compact_dict(
+        {
+            "name": str_field(entry, "name"),
+            "path": str_field(entry, "path"),
+            "type": str_field(entry, "type"),
+            "sha": str_field(entry, "sha"),
+        }
+    )
+
+
+def directory_contents_list_summary(response: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    return {
+        "entries": [
+            directory_entry_summary(item)
+            for item in response
+            if isinstance(item, dict)
+        ],
+    }
 
 
 def compare_refs_summary(response: Mapping[str, Any]) -> dict[str, Any]:

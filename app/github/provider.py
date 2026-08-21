@@ -30,6 +30,10 @@ from internals.constants import (
     BOT_LIST_COMMITS_OPERATION,
     BOT_LIST_ISSUES_OPERATION,
     BOT_COMPARE_REFS_OPERATION,
+    BOT_CREATE_REF_OPERATION,
+    BOT_LIST_DIRECTORY_CONTENTS_OPERATION,
+    BOT_LIST_MATCHING_REFS_OPERATION,
+    BOT_LIST_TAGS_OPERATION,
     BOT_GET_PULL_REQUEST_OPERATION,
     BOT_GET_PULL_REQUEST_MERGEABILITY_OPERATION,
     BOT_GET_REPOSITORY_OPERATION,
@@ -81,8 +85,12 @@ from internals.operations import (
     GitHubCreatePullRequestRequest,
     GitHubCreatePullRequestReviewRequest,
     GitHubFileContentRequest,
+    GitHubListDirectoryContentsRequest,
     GitHubListCommitsRequest,
     GitHubCompareRefsRequest,
+    GitHubCreateRefRequest,
+    GitHubListMatchingRefsRequest,
+    GitHubListTagsRequest,
     GitHubFileChange,
     GitHubGetIssueRequest,
     GitHubListIssuesRequest,
@@ -135,8 +143,16 @@ from internals.operations import (
     list_commits,
     list_issues,
     compare_refs,
+    create_ref,
+    list_directory_contents,
+    list_matching_refs,
+    list_tags,
     commit_list_summary,
     compare_refs_summary,
+    create_ref_summary,
+    directory_contents_list_summary,
+    matching_refs_list_summary,
+    tags_list_summary,
     get_pull_request,
     get_repository,
     get_workflow_run,
@@ -259,6 +275,17 @@ class GetContentInput(gestalt.Model):
     max_bytes: int = gestalt.field(
         description="Maximum UTF-8 bytes to return",
         default=80000,
+        required=False,
+    )
+
+
+class ListDirectoryContentsInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    path: str = gestalt.field(description="Repository-relative directory path")
+    ref: str = gestalt.field(
+        description="Git ref, branch, or SHA. Defaults to the repository default branch.",
+        default="",
         required=False,
     )
 
@@ -1401,6 +1428,37 @@ _to_request(GitHubCodeSearchRequest, input), **_bot_call(req)))))
 def bot_get_content(input: GetContentInput, req: gestalt.Request) -> OperationResult:
     return _run_bot(lambda: {"path": input.path, "ref": input.ref, "content": (get_file_text_at_ref(
 _to_request(GitHubFileContentRequest, input), **_bot_call(req)))})
+@app.operation(
+    id=BOT_LIST_DIRECTORY_CONTENTS_OPERATION,
+    method="GET",
+    description="List directory entries at a repository path using a GitHub App installation token",
+    tags=["repo", "code", "content"],
+)
+def bot_list_directory_contents(
+    input: ListDirectoryContentsInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        results = list_directory_contents(
+            GitHubListDirectoryContentsRequest(
+                owner=input.owner,
+                repo=input.repo,
+                path=input.path,
+                ref=input.ref,
+            ),
+            subject=req.subject,
+            authorization=_request_authorization(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    if not isinstance(results, list):
+        return _server_error("GitHub directory contents response was not a list")
+    return directory_contents_list_summary(results)
 @app.operation(
     id=BOT_LIST_COMMITS_OPERATION,
     method="GET",
