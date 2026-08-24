@@ -8,6 +8,7 @@ import {
 import { normalizeIntegrationStatus } from "@/lib/integrationStatus";
 import { resolveMountedAppHref } from "@/lib/mount";
 import IntegrationConnectionPanel from "@/components/IntegrationConnectionPanel";
+import AppAccessSettings from "@/features/app-workspace/app-access-settings";
 import { Button } from "@/components/ui/button";
 import {
   PageHeader,
@@ -162,6 +163,7 @@ export default function AppWorkspaceConnectionPage() {
           setRemoveAppConfirm(false);
         }}
       />
+      <AppAccessSettings appName={app} connected={status.connected} />
       {connectionFlow.pendingSelection ? (
         <form
           ref={connectionFlow.pendingSelectionFormRef}

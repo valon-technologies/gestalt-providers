@@ -302,6 +302,24 @@ export interface IntegrationOperation {
   transport?: string;
 }
 
+export interface AppAccessOperation {
+  id: string;
+  title?: string;
+  description?: string;
+  method?: string;
+  tags?: string[];
+  readOnly: boolean;
+  enabled: boolean;
+  default: boolean;
+}
+
+export interface AppAccessProfile {
+  app: string;
+  operations: AppAccessOperation[];
+  enabledOperations: string[];
+  defaultsInitialized: boolean;
+}
+
 export interface AccessPermission {
   plugin: string;
   operations?: string[];
@@ -1544,6 +1562,27 @@ export async function getIntegrationOperations(
 ): Promise<IntegrationOperation[]> {
   return fetchAPI<IntegrationOperation[]>(
     `/api/v1/apps/${encodeURIComponent(integration)}/operations`,
+  );
+}
+
+export async function getAppAccess(
+  integration: string,
+): Promise<AppAccessProfile> {
+  return fetchAPI<AppAccessProfile>(
+    `/api/v1/apps/${encodeURIComponent(integration)}/access`,
+  );
+}
+
+export async function updateAppAccess(
+  integration: string,
+  enabledOperations: string[],
+): Promise<AppAccessProfile> {
+  return fetchAPI<AppAccessProfile>(
+    `/api/v1/apps/${encodeURIComponent(integration)}/access`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ enabledOperations }),
+    },
   );
 }
 

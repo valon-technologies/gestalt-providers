@@ -10,6 +10,7 @@ export const queryKeys = {
     connections: () => ["integrations", "connections"] as const,
     operations: (appName: string) =>
       ["integrations", appName, "operations"] as const,
+    access: (appName: string) => ["integrations", appName, "access"] as const,
   },
   tokens: {
     root: ["tokens"] as const,

@@ -76,6 +76,24 @@ export async function mockIntegrations(
     }
   });
 
+  await page.route("**/api/v1/apps/*/access", (route: Route, request) => {
+    if (request.method() === "GET") {
+      const url = new URL(request.url());
+      const parts = url.pathname.split("/");
+      const app = parts[parts.length - 2] || "";
+      route.fulfill({
+        json: {
+          app,
+          operations: [],
+          enabledOperations: [],
+          defaultsInitialized: false,
+        },
+      });
+    } else {
+      route.fallback();
+    }
+  });
+
   await page.route("**/api/v1/apps/*", (route: Route, request) => {
     if (request.method() === "DELETE") {
       const url = new URL(request.url());

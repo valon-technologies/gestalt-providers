@@ -13,6 +13,18 @@ run:
 spec:
   defaultConnection: default
   mcp: true
+  access:
+    defaultOperations:
+      - conversations.list
+      - users.conversations
+      - users.list
+      - conversations.open
+      - conversations.history
+      - search.messages
+      - users.info
+      - users.lookupByEmail
+      - files.info
+      - conversations.replies
   securitySchemes:
     slack:
       type: hmac

@@ -7,11 +7,13 @@ import {
 } from "@tanstack/react-query";
 import {
   getAppConnections,
+  getAppAccess,
   getAppsDirectory,
   getIntegrationOperations,
   isAPIErrorStatus,
   isAPITimeoutError,
   type AppConnectionStatus,
+  type AppAccessProfile,
   type AppsDirectory,
   type Integration,
   type IntegrationOperation,
@@ -169,6 +171,21 @@ export function useIntegrationOperationsQuery(
   return useQuery({
     queryKey: queryKeys.integrations.operations(appName),
     queryFn: () => getIntegrationOperations(appName),
+    enabled: Boolean(appName) && (options?.enabled ?? true),
+    ...options,
+  });
+}
+
+export function useAppAccessQuery(
+  appName: string,
+  options?: Omit<
+    UseQueryOptions<AppAccessProfile, Error>,
+    "queryKey" | "queryFn"
+  > & { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: queryKeys.integrations.access(appName),
+    queryFn: () => getAppAccess(appName),
     enabled: Boolean(appName) && (options?.enabled ?? true),
     ...options,
   });

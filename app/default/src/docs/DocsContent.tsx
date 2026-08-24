@@ -453,8 +453,10 @@ export function AuthorizationDocsPage() {
       <DocsPageBody>
         <p>
           For app admins and Gestalt admins: grant users and service accounts
-          access to app operations from the Gestalt CLI. End users cannot
-          self-serve grants. Ask your workspace admin.
+          workspace-level access to app operations from the Gestalt CLI. Once
+          connected, end users can choose the operations they want enabled from
+          the app's Connection page. Ask your workspace admin if an operation
+          is unavailable.
         </p>
         <p>
           Most teams grant access at the app level. App admins can manage
