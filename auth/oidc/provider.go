@@ -426,7 +426,7 @@ func (p *Provider) tokenExchange(ctx context.Context, req *gestalt.TokenRequest)
 	if err != nil {
 		return nil, err
 	}
-	issued, err := p.grants.issueNamed(ctx, p.grantOwnerForIssue(ctx, introspectResp.Subject), issuedScope, clientID, grantCategoryAPIToken, ttl, req.Name)
+	issued, err := p.grants.issueNamed(ctx, introspectResp.Subject, issuedScope, clientID, grantCategoryAPIToken, ttl, req.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -492,11 +492,11 @@ func (p *Provider) ListGrants(ctx context.Context, _ *gestalt.ListGrantsRequest)
 	if err != nil {
 		return nil, err
 	}
-	subject, err := p.callerSubject(ctx)
+	subjects, err := p.callerSubjects(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return &gestalt.ListGrantsResponse{GrantIDs: grants.listGrantIDs(ctx, subject)}, nil
+	return &gestalt.ListGrantsResponse{GrantIDs: grants.listGrantIDs(ctx, subjects)}, nil
 }
 
 func (p *Provider) GetGrant(ctx context.Context, req *gestalt.GetGrantRequest) (*gestalt.GetGrantResponse, error) {
@@ -507,11 +507,11 @@ func (p *Provider) GetGrant(ctx context.Context, req *gestalt.GetGrantRequest) (
 	if err != nil {
 		return nil, err
 	}
-	subject, err := p.callerSubject(ctx)
+	subjects, err := p.callerSubjects(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return grants.getGrant(ctx, strings.TrimSpace(req.GrantID), subject)
+	return grants.getGrant(ctx, strings.TrimSpace(req.GrantID), subjects)
 }
 
 func (p *Provider) RevokeGrant(ctx context.Context, req *gestalt.RevokeGrantRequest) (*gestalt.RevokeGrantResponse, error) {
@@ -522,11 +522,11 @@ func (p *Provider) RevokeGrant(ctx context.Context, req *gestalt.RevokeGrantRequ
 	if err != nil {
 		return nil, err
 	}
-	subject, err := p.callerSubject(ctx)
+	subjects, err := p.callerSubjects(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := grants.revokeGrant(ctx, strings.TrimSpace(req.GrantID), subject); err != nil {
+	if err := grants.revokeGrant(ctx, strings.TrimSpace(req.GrantID), subjects); err != nil {
 		return nil, err
 	}
 	return &gestalt.RevokeGrantResponse{}, nil
@@ -539,44 +539,54 @@ func (p *Provider) grantStore() (*grantStore, error) {
 	return p.grants, nil
 }
 
-// grantOwnerForIssue picks the subject List/Get/Revoke will use for a new
-// API-token grant. A host-verified caller (Settings) owns grants by the
-// canonical subject. Token-only callers (CLI) have no canonical caller, so
-// the grant stays under the subject_token's stored subject.
-func (p *Provider) grantOwnerForIssue(ctx context.Context, tokenSubject string) string {
-	if caller, err := p.callerSubject(ctx); err == nil && caller != "" {
-		return caller
-	}
-	return strings.TrimSpace(tokenSubject)
-}
-
 func (p *Provider) callerSubject(ctx context.Context) (string, error) {
-	// Token create arrives on the raw gRPC context. List/Get/Revoke are
-	// wrapped by the SDK. Reconstruct the host-verified caller here so both
-	// paths own grants as the same person.
-	ctx = gestalt.AuthCallContextFromIncoming(ctx)
-	if subject := strings.TrimSpace(gestalt.TrustedCallerSubjectFromContext(ctx)); subject != "" {
-		return subject, nil
-	}
 	call := gestalt.IdentityCallContextFromContext(ctx)
-	if subject := strings.TrimSpace(call.CallerSubjectID); subject != "" {
-		return subject, nil
-	}
 	if call.Introspection != nil && call.Introspection.Active && strings.TrimSpace(call.Introspection.Subject) != "" {
 		return strings.TrimSpace(call.Introspection.Subject), nil
 	}
 	token := strings.TrimSpace(call.CallerBearerToken)
 	if token == "" {
-		return "", fmt.Errorf("oidc auth: caller bearer token is required")
+		token = strings.TrimSpace(gestalt.CallerBearerTokenFromIncomingContext(ctx))
 	}
-	resp, err := p.Introspect(ctx, &gestalt.IntrospectRequest{Token: token})
+	if token != "" {
+		resp, err := p.Introspect(ctx, &gestalt.IntrospectRequest{Token: token})
+		if err != nil {
+			return "", err
+		}
+		if resp == nil || !resp.Active || strings.TrimSpace(resp.Subject) == "" {
+			return "", fmt.Errorf("oidc auth: caller token is inactive")
+		}
+		return strings.TrimSpace(resp.Subject), nil
+	}
+	ctx = gestalt.AuthCallContextFromIncoming(ctx)
+	call = gestalt.IdentityCallContextFromContext(ctx)
+	if subject := strings.TrimSpace(gestalt.TrustedCallerSubjectFromContext(ctx)); subject != "" {
+		return subject, nil
+	}
+	if subject := strings.TrimSpace(call.CallerSubjectID); subject != "" {
+		return subject, nil
+	}
+	return "", fmt.Errorf("oidc auth: caller bearer token is required")
+}
+
+func (p *Provider) callerSubjects(ctx context.Context) ([]string, error) {
+	primary, err := p.callerSubject(ctx)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	if resp == nil || !resp.Active || strings.TrimSpace(resp.Subject) == "" {
-		return "", fmt.Errorf("oidc auth: caller token is inactive")
+	seen := map[string]bool{primary: true}
+	subjects := []string{primary}
+	add := func(subject string) {
+		subject = strings.TrimSpace(subject)
+		if subject != "" && !seen[subject] {
+			seen[subject] = true
+			subjects = append(subjects, subject)
+		}
 	}
-	return strings.TrimSpace(resp.Subject), nil
+	add(gestalt.TrustedCallerSubjectFromContext(ctx))
+	call := gestalt.IdentityCallContextFromContext(gestalt.AuthCallContextFromIncoming(ctx))
+	add(call.CallerSubjectID)
+	return subjects, nil
 }
 
 func (p *Provider) oauthConfig(callbackURL, requestScope string) *oauth2.Config {
