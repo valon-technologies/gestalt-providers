@@ -16,7 +16,6 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"github.com/valon-technologies/gestalt/sdk/go/migrations"
-	"google.golang.org/grpc/metadata"
 )
 
 func TestAuthorizePKCEDoesNotExposeVerifier(t *testing.T) {
@@ -151,7 +150,9 @@ func TestTokenPKCEUsesStoredVerifier(t *testing.T) {
 		t.Fatalf("Introspect() client_id = %q, want %q", introspectResp.ClientID, defaultOAuthClientID)
 	}
 
-	userInfoCtx := gestalt.WithIdentityCallContext(context.Background(), gestalt.IdentityCallContext{
+	userInfoCtx := gestalt.WithTrustedCallerSubject(context.Background(), "user:11111111-1111-1111-1111-111111111111")
+	userInfoCtx = gestalt.WithIdentityCallContext(userInfoCtx, gestalt.IdentityCallContext{
+		CallerSubjectID:   "user:11111111-1111-1111-1111-111111111111",
 		CallerBearerToken: tokenResp.AccessToken,
 	})
 	userInfoResp, err := p.UserInfo(userInfoCtx, &gestalt.UserInfoRequest{})
@@ -662,7 +663,7 @@ func TestGrantStorePersistsAcrossRestart(t *testing.T) {
 	if resp.Subject != subject {
 		t.Fatalf("introspect subject = %q, want %q", resp.Subject, subject)
 	}
-	ids := restarted.grants.listGrantIDs(ctx, subject)
+	ids := restarted.grants.listGrantIDs(ctx, []string{subject})
 	if len(ids) != 1 || ids[0] != grantID {
 		t.Fatalf("listGrantIDs() = %v, want [%q]", ids, grantID)
 	}
@@ -797,7 +798,7 @@ func TestTokenExchangeAttenuatesScope(t *testing.T) {
 			if err != nil {
 				t.Fatalf("issue() error = %v", err)
 			}
-			beforeIDs := p.grants.listGrantIDs(ctx, subject)
+			beforeIDs := p.grants.listGrantIDs(ctx, []string{subject})
 
 			tokenResp, err := p.Token(ctx, &gestalt.TokenRequest{
 				GrantType:        grantTypeTokenExchange,
@@ -812,7 +813,7 @@ func TestTokenExchangeAttenuatesScope(t *testing.T) {
 				if !strings.Contains(err.Error(), tt.wantErrSubstr) {
 					t.Fatalf("Token() error = %v, want substring %q", err, tt.wantErrSubstr)
 				}
-				afterIDs := p.grants.listGrantIDs(ctx, subject)
+				afterIDs := p.grants.listGrantIDs(ctx, []string{subject})
 				if len(afterIDs) != len(beforeIDs) {
 					t.Fatalf("grant count = %d, want %d after rejected exchange", len(afterIDs), len(beforeIDs))
 				}
@@ -838,130 +839,61 @@ func TestTokenExchangeAttenuatesScope(t *testing.T) {
 	}
 }
 
-func TestTokenExchangeGrantOwner(t *testing.T) {
+func TestTokenExchangeKeepsIntrospectedSubject(t *testing.T) {
 	emailSubject := "user:owner@example.com"
 	canonicalSubject := "user:11111111-1111-1111-1111-111111111111"
-	otherSubject := "user:22222222-2222-2222-2222-222222222222"
-
-	tests := []struct {
-		name        string
-		exchangeCtx func(context.Context) context.Context
-		listCtx     func(context.Context) context.Context
-		wantOwner   string
-		wantHidden  []string
-	}{
-		{
-			name: "incoming trusted-caller metadata",
-			exchangeCtx: func(ctx context.Context) context.Context {
-				md := metadata.Pairs(gestalt.TrustedCallerSubjectMetadataKey, canonicalSubject)
-				return metadata.NewIncomingContext(ctx, md)
-			},
-			listCtx: func(ctx context.Context) context.Context {
-				return gestalt.WithTrustedCallerSubject(ctx, canonicalSubject)
-			},
-			wantOwner:  canonicalSubject,
-			wantHidden: []string{emailSubject},
-		},
-		{
-			name: "host trusted caller subject",
-			exchangeCtx: func(ctx context.Context) context.Context {
-				return gestalt.WithTrustedCallerSubject(ctx, canonicalSubject)
-			},
-			listCtx: func(ctx context.Context) context.Context {
-				return gestalt.WithTrustedCallerSubject(ctx, canonicalSubject)
-			},
-			wantOwner:  canonicalSubject,
-			wantHidden: []string{emailSubject},
-		},
-		{
-			name: "identity call caller subject",
-			exchangeCtx: func(ctx context.Context) context.Context {
-				return gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
-					CallerSubjectID: canonicalSubject,
-				})
-			},
-			listCtx: func(ctx context.Context) context.Context {
-				return gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
-					CallerSubjectID: canonicalSubject,
-				})
-			},
-			wantOwner:  canonicalSubject,
-			wantHidden: []string{emailSubject},
-		},
-		{
-			name: "trusted caller wins over conflicting call context",
-			exchangeCtx: func(ctx context.Context) context.Context {
-				ctx = gestalt.WithTrustedCallerSubject(ctx, canonicalSubject)
-				return gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
-					CallerSubjectID: otherSubject,
-				})
-			},
-			listCtx: func(ctx context.Context) context.Context {
-				return gestalt.WithTrustedCallerSubject(ctx, canonicalSubject)
-			},
-			wantOwner:  canonicalSubject,
-			wantHidden: []string{emailSubject, otherSubject},
-		},
-		{
-			name: "token-only caller keeps introspect subject",
-			exchangeCtx: func(ctx context.Context) context.Context {
-				return ctx
-			},
-			listCtx: func(ctx context.Context) context.Context {
-				return gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
-					CallerSubjectID: emailSubject,
-				})
-			},
-			wantOwner:  emailSubject,
-			wantHidden: []string{canonicalSubject},
-		},
+	p := New()
+	attachGrantStore(t, p)
+	ctx := context.Background()
+	session, err := p.grants.issue(ctx, emailSubject, "openid", defaultOAuthClientID, grantCategorySession, time.Hour)
+	if err != nil {
+		t.Fatalf("issue(session) error = %v", err)
+	}
+	exchangeCtx := gestalt.WithTrustedCallerSubject(ctx, canonicalSubject)
+	tokenResp, err := p.Token(exchangeCtx, &gestalt.TokenRequest{
+		GrantType:        grantTypeTokenExchange,
+		SubjectToken:     session.accessToken,
+		SubjectTokenType: subjectTokenTypeAccessToken,
+	})
+	if err != nil {
+		t.Fatalf("Token() error = %v", err)
+	}
+	legacy, err := p.grants.issue(ctx, canonicalSubject, "openid", defaultOAuthClientID, grantCategoryAPIToken, time.Hour)
+	if err != nil {
+		t.Fatalf("issue(legacy API token) error = %v", err)
+	}
+	if ids := p.grants.listGrantIDs(ctx, []string{canonicalSubject}); len(ids) != 1 || ids[0] != legacy.grantID {
+		t.Fatalf("listGrantIDs(%q) = %v, want [%q]", canonicalSubject, ids, legacy.grantID)
+	}
+	ids := p.grants.listGrantIDs(ctx, []string{emailSubject})
+	if len(ids) != 1 || ids[0] != tokenResp.GrantID {
+		t.Fatalf("listGrantIDs(%q) = %v, want [%q]", emailSubject, ids, tokenResp.GrantID)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			p := New()
-			attachGrantStore(t, p)
-			ctx := context.Background()
-
-			session, err := p.grants.issue(ctx, emailSubject, "openid", defaultOAuthClientID, grantCategorySession, time.Hour)
-			if err != nil {
-				t.Fatalf("issue(session) error = %v", err)
-			}
-
-			tokenResp, err := p.Token(tt.exchangeCtx(ctx), &gestalt.TokenRequest{
-				GrantType:        grantTypeTokenExchange,
-				SubjectToken:     session.accessToken,
-				SubjectTokenType: subjectTokenTypeAccessToken,
-			})
-			if err != nil {
-				t.Fatalf("Token() error = %v", err)
-			}
-			if tokenResp == nil || strings.TrimSpace(tokenResp.GrantID) == "" {
-				t.Fatal("Token() missing grant id")
-			}
-
-			for _, hidden := range tt.wantHidden {
-				if ids := p.grants.listGrantIDs(ctx, hidden); len(ids) != 0 {
-					t.Fatalf("listGrantIDs(%q) = %v, want none", hidden, ids)
-				}
-			}
-			ownerIDs := p.grants.listGrantIDs(ctx, tt.wantOwner)
-			if len(ownerIDs) != 1 || ownerIDs[0] != tokenResp.GrantID {
-				t.Fatalf("listGrantIDs(owner) = %v, want [%q]", ownerIDs, tokenResp.GrantID)
-			}
-
-			listCtx := tt.listCtx(ctx)
-			listResp, err := p.ListGrants(listCtx, &gestalt.ListGrantsRequest{})
-			if err != nil {
-				t.Fatalf("ListGrants() error = %v", err)
-			}
-			if len(listResp.GrantIDs) != 1 || listResp.GrantIDs[0] != tokenResp.GrantID {
-				t.Fatalf("ListGrants() = %v, want [%q]", listResp.GrantIDs, tokenResp.GrantID)
-			}
-			if _, err := p.GetGrant(listCtx, &gestalt.GetGrantRequest{GrantID: tokenResp.GrantID}); err != nil {
-				t.Fatalf("GetGrant() error = %v", err)
-			}
-		})
+	listCtx := gestalt.WithTrustedCallerSubject(ctx, canonicalSubject)
+	listCtx = gestalt.WithIdentityCallContext(listCtx, gestalt.IdentityCallContext{
+		CallerSubjectID:   canonicalSubject,
+		CallerBearerToken: session.accessToken,
+	})
+	listResp, err := p.ListGrants(listCtx, &gestalt.ListGrantsRequest{})
+	if err != nil {
+		t.Fatalf("ListGrants() error = %v", err)
+	}
+	if len(listResp.GrantIDs) != 2 {
+		t.Fatalf("ListGrants() = %v, want both current and legacy grants", listResp.GrantIDs)
+	}
+	if _, err := p.GetGrant(listCtx, &gestalt.GetGrantRequest{GrantID: legacy.grantID}); err != nil {
+		t.Fatalf("GetGrant(legacy) error = %v", err)
+	}
+	if _, err := p.RevokeGrant(listCtx, &gestalt.RevokeGrantRequest{GrantID: legacy.grantID}); err != nil {
+		t.Fatalf("RevokeGrant(legacy) error = %v", err)
+	}
+	legacyInfo, err := p.Introspect(ctx, &gestalt.IntrospectRequest{Token: legacy.accessToken})
+	if err != nil {
+		t.Fatalf("Introspect(legacy) error = %v", err)
+	}
+	if legacyInfo.Active {
+		t.Fatal("Introspect(legacy) expected inactive after revoke")
 	}
 }
 
@@ -1145,7 +1077,7 @@ func TestIssueFailsWhenTokenHashAddFails(t *testing.T) {
 	if issued != nil {
 		t.Fatalf("issue() = %#v, want nil on failure", issued)
 	}
-	ids := store.listGrantIDs(ctx, "user:fail@example.com")
+	ids := store.listGrantIDs(ctx, []string{"user:fail@example.com"})
 	if len(ids) != 0 {
 		t.Fatalf("listGrantIDs() = %v, want no grants after aborted issue", ids)
 	}
@@ -1168,7 +1100,7 @@ func TestIssueFailsWhenTransactionCommitFails(t *testing.T) {
 	if issued != nil {
 		t.Fatalf("issue() = %#v, want nil on failure", issued)
 	}
-	ids := store.listGrantIDs(ctx, "user:fail@example.com")
+	ids := store.listGrantIDs(ctx, []string{"user:fail@example.com"})
 	if len(ids) != 0 {
 		t.Fatalf("listGrantIDs() = %v, want no grants after failed commit", ids)
 	}
