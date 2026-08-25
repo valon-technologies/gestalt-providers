@@ -208,11 +208,7 @@ func (s *grantStore) evictExpiredPendingOAuth(ctx context.Context) error {
 }
 
 func (s *grantStore) issue(ctx context.Context, subject, scope, clientID, category string, ttl time.Duration) (*issuedGrant, error) {
-	return s.issueNamed(ctx, subject, scope, clientID, category, ttl, "")
-}
-
-func (s *grantStore) issueNamed(ctx context.Context, subject, scope, clientID, category string, ttl time.Duration, name string) (*issuedGrant, error) {
-	return s.issueNamedWithOwner(ctx, subject, "", scope, clientID, category, ttl, name)
+	return s.issueNamedWithOwner(ctx, subject, "", scope, clientID, category, ttl, "")
 }
 
 func (s *grantStore) issueNamedWithOwner(ctx context.Context, subject, ownerSubject, scope, clientID, category string, ttl time.Duration, name string) (*issuedGrant, error) {

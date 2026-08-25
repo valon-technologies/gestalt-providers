@@ -744,6 +744,53 @@ func TestGrantStorePersistsOnlyTokenHashes(t *testing.T) {
 	}
 }
 
+func TestGrantOwnerMigrationUpgradesExistingDatabase(t *testing.T) {
+	ctx := context.Background()
+	db := oidcfake.NewIndexedDB()
+	revisions := oidcMigrations()
+	if _, err := migrations.Run(ctx, db, migrations.RunOptions{Revisions: revisions[:1]}); err != nil {
+		t.Fatalf("initial migrations.Run() error = %v", err)
+	}
+
+	legacy := gestalt.Record{
+		"id":         "legacy-grant",
+		"subject":    "user:legacy@example.com",
+		"category":   grantCategoryAPIToken,
+		"scope":      "openid",
+		"client_id":  defaultOAuthClientID,
+		"created_at": time.Unix(1_700_000_000, 0),
+		"expires_at": time.Unix(1_800_000_000, 0),
+		"revoked":    false,
+	}
+	if err := db.ObjectStore(grantStoreName).Put(ctx, legacy); err != nil {
+		t.Fatalf("put legacy grant: %v", err)
+	}
+
+	if _, err := migrations.Run(ctx, db, migrations.RunOptions{Revisions: revisions}); err != nil {
+		t.Fatalf("upgrade migrations.Run() error = %v", err)
+	}
+	got, err := db.ObjectStore(grantStoreName).Get(ctx, "legacy-grant")
+	if err != nil {
+		t.Fatalf("get legacy grant after upgrade: %v", err)
+	}
+	if recordString(got, "subject") != recordString(legacy, "subject") {
+		t.Fatalf("legacy grant subject after upgrade = %q, want %q", recordString(got, "subject"), recordString(legacy, "subject"))
+	}
+
+	ownerStore := db.ObjectStore(grantOwnerStoreName)
+	owner := gestalt.Record{"id": "legacy-grant", "owner_subject": "user:canonical-legacy"}
+	if err := ownerStore.Add(ctx, owner); err != nil {
+		t.Fatalf("add owner after upgrade: %v", err)
+	}
+	owners, err := ownerStore.Index(grantIndexByOwnerSubject).GetAll(ctx, "user:canonical-legacy")
+	if err != nil {
+		t.Fatalf("list owners after upgrade: %v", err)
+	}
+	if len(owners) != 1 || recordString(owners[0], "id") != "legacy-grant" {
+		t.Fatalf("owners after upgrade = %v, want legacy-grant", owners)
+	}
+}
+
 func TestTokenExchangeAttenuatesScope(t *testing.T) {
 	p := New()
 	attachGrantStore(t, p)
@@ -967,6 +1014,24 @@ func TestTokenExchangeIndexesManagementOwnerSeparately(t *testing.T) {
 	}
 	if _, err := p.GetGrant(canonicalCtx, &gestalt.GetGrantRequest{GrantID: tokenResp.GrantID}); err != nil {
 		t.Fatalf("GetGrant() error = %v", err)
+	}
+	otherCtx := gestalt.WithTrustedCallerSubject(ctx, "user:22222222-2222-2222-2222-222222222222")
+	otherListResp, err := p.ListGrants(otherCtx, &gestalt.ListGrantsRequest{})
+	if err != nil {
+		t.Fatalf("ListGrants(other) error = %v", err)
+	}
+	if len(otherListResp.GrantIDs) != 0 {
+		t.Fatalf("ListGrants(other) = %v, want no grants", otherListResp.GrantIDs)
+	}
+	if _, err := p.GetGrant(otherCtx, &gestalt.GetGrantRequest{GrantID: tokenResp.GrantID}); err == nil {
+		t.Fatal("GetGrant(other) error = nil, want not found")
+	} else if code, ok := gestalt.StatusCodeOf(err); !ok || code != gestalt.CodeNotFound {
+		t.Fatalf("GetGrant(other) error = %v, want not_found status", err)
+	}
+	if _, err := p.RevokeGrant(otherCtx, &gestalt.RevokeGrantRequest{GrantID: tokenResp.GrantID}); err == nil {
+		t.Fatal("RevokeGrant(other) error = nil, want not found")
+	} else if code, ok := gestalt.StatusCodeOf(err); !ok || code != gestalt.CodeNotFound {
+		t.Fatalf("RevokeGrant(other) error = %v, want not_found status", err)
 	}
 	if _, err := p.RevokeGrant(canonicalCtx, &gestalt.RevokeGrantRequest{GrantID: tokenResp.GrantID}); err != nil {
 		t.Fatalf("RevokeGrant() error = %v", err)
