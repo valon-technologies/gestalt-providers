@@ -797,24 +797,60 @@ func TestGrantOwnerMigrationUpgradesExistingDatabase(t *testing.T) {
 	if _, err := p.GetGrant(legacyCtx, &gestalt.GetGrantRequest{GrantID: "legacy-grant"}); err != nil {
 		t.Fatalf("GetGrant(legacy) after upgrade: %v", err)
 	}
-
-	ownerStore := db.ObjectStore(grantOwnerStoreName)
-	owner := gestalt.Record{"id": "legacy-grant", "owner_subject": "user:canonical-legacy"}
-	if err := ownerStore.Add(ctx, owner); err != nil {
-		t.Fatalf("add owner after upgrade: %v", err)
+	if _, err := p.RevokeGrant(legacyCtx, &gestalt.RevokeGrantRequest{GrantID: "legacy-grant"}); err != nil {
+		t.Fatalf("RevokeGrant(legacy) after upgrade: %v", err)
 	}
-	canonicalCtx := gestalt.WithTrustedCallerSubject(ctx, "user:canonical-legacy")
+	legacyList, err = p.ListGrants(legacyCtx, &gestalt.ListGrantsRequest{})
+	if err != nil {
+		t.Fatalf("ListGrants(legacy) after revoke: %v", err)
+	}
+	if len(legacyList.GrantIDs) != 0 {
+		t.Fatalf("ListGrants(legacy) after revoke = %v, want no grants", legacyList.GrantIDs)
+	}
+
+	newEmailSubject := "user:new@example.com"
+	canonicalSubject := "user:canonical-legacy"
+	session, err := p.grants.issue(ctx, newEmailSubject, "openid", defaultOAuthClientID, grantCategorySession, time.Hour)
+	if err != nil {
+		t.Fatalf("issue session after upgrade: %v", err)
+	}
+	tokenResp, err := p.Token(gestalt.WithTrustedCallerSubject(ctx, canonicalSubject), &gestalt.TokenRequest{
+		GrantType:        grantTypeTokenExchange,
+		SubjectToken:     session.accessToken,
+		SubjectTokenType: subjectTokenTypeAccessToken,
+	})
+	if err != nil {
+		t.Fatalf("Token() after upgrade: %v", err)
+	}
+	providerAliasCtx := gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
+		CallerSubjectID: newEmailSubject,
+	})
+	providerAliasList, err := p.ListGrants(providerAliasCtx, &gestalt.ListGrantsRequest{})
+	if err != nil {
+		t.Fatalf("ListGrants(provider alias) after upgrade: %v", err)
+	}
+	if len(providerAliasList.GrantIDs) != 0 {
+		t.Fatalf("ListGrants(provider alias) after upgrade = %v, want no grants", providerAliasList.GrantIDs)
+	}
+	if _, err := p.GetGrant(providerAliasCtx, &gestalt.GetGrantRequest{GrantID: tokenResp.GrantID}); err == nil {
+		t.Fatal("GetGrant(provider alias) after upgrade error = nil, want not found")
+	}
+	if _, err := p.RevokeGrant(providerAliasCtx, &gestalt.RevokeGrantRequest{GrantID: tokenResp.GrantID}); err == nil {
+		t.Fatal("RevokeGrant(provider alias) after upgrade error = nil, want not found")
+	}
+
+	canonicalCtx := gestalt.WithTrustedCallerSubject(ctx, canonicalSubject)
 	canonicalList, err := p.ListGrants(canonicalCtx, &gestalt.ListGrantsRequest{})
 	if err != nil {
 		t.Fatalf("ListGrants(canonical) after upgrade: %v", err)
 	}
-	if len(canonicalList.GrantIDs) != 1 || canonicalList.GrantIDs[0] != "legacy-grant" {
-		t.Fatalf("ListGrants(canonical) after upgrade = %v, want legacy-grant", canonicalList.GrantIDs)
+	if len(canonicalList.GrantIDs) != 1 || canonicalList.GrantIDs[0] != tokenResp.GrantID {
+		t.Fatalf("ListGrants(canonical) after upgrade = %v, want %q", canonicalList.GrantIDs, tokenResp.GrantID)
 	}
-	if _, err := p.GetGrant(canonicalCtx, &gestalt.GetGrantRequest{GrantID: "legacy-grant"}); err != nil {
+	if _, err := p.GetGrant(canonicalCtx, &gestalt.GetGrantRequest{GrantID: tokenResp.GrantID}); err != nil {
 		t.Fatalf("GetGrant(canonical) after upgrade: %v", err)
 	}
-	if _, err := p.RevokeGrant(canonicalCtx, &gestalt.RevokeGrantRequest{GrantID: "legacy-grant"}); err != nil {
+	if _, err := p.RevokeGrant(canonicalCtx, &gestalt.RevokeGrantRequest{GrantID: tokenResp.GrantID}); err != nil {
 		t.Fatalf("RevokeGrant(canonical) after upgrade: %v", err)
 	}
 	canonicalList, err = p.ListGrants(canonicalCtx, &gestalt.ListGrantsRequest{})
@@ -964,8 +1000,8 @@ func TestTokenExchangeKeepsIntrospectedSubject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listGrantIDs(%q) error = %v", emailSubject, err)
 	}
-	if len(ids) != 1 || ids[0] != tokenResp.GrantID {
-		t.Fatalf("listGrantIDs(%q) = %v, want [%q]", emailSubject, ids, tokenResp.GrantID)
+	if len(ids) != 0 {
+		t.Fatalf("listGrantIDs(%q) = %v, want no owner-projected grants", emailSubject, ids)
 	}
 
 	listCtx := gestalt.WithTrustedCallerSubject(ctx, canonicalSubject)
@@ -1067,6 +1103,26 @@ func TestTokenExchangeIndexesManagementOwnerSeparately(t *testing.T) {
 		t.Fatal("RevokeGrant(other) error = nil, want not found")
 	} else if code, ok := gestalt.StatusCodeOf(err); !ok || code != gestalt.CodeNotFound {
 		t.Fatalf("RevokeGrant(other) error = %v, want not_found status", err)
+	}
+	providerAliasCtx := gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
+		CallerSubjectID: emailSubject,
+	})
+	providerAliasList, err := p.ListGrants(providerAliasCtx, &gestalt.ListGrantsRequest{})
+	if err != nil {
+		t.Fatalf("ListGrants(provider alias) error = %v", err)
+	}
+	if len(providerAliasList.GrantIDs) != 0 {
+		t.Fatalf("ListGrants(provider alias) = %v, want no grants", providerAliasList.GrantIDs)
+	}
+	if _, err := p.GetGrant(providerAliasCtx, &gestalt.GetGrantRequest{GrantID: tokenResp.GrantID}); err == nil {
+		t.Fatal("GetGrant(provider alias) error = nil, want not found")
+	} else if code, ok := gestalt.StatusCodeOf(err); !ok || code != gestalt.CodeNotFound {
+		t.Fatalf("GetGrant(provider alias) error = %v, want not_found status", err)
+	}
+	if _, err := p.RevokeGrant(providerAliasCtx, &gestalt.RevokeGrantRequest{GrantID: tokenResp.GrantID}); err == nil {
+		t.Fatal("RevokeGrant(provider alias) error = nil, want not found")
+	} else if code, ok := gestalt.StatusCodeOf(err); !ok || code != gestalt.CodeNotFound {
+		t.Fatalf("RevokeGrant(provider alias) error = %v, want not_found status", err)
 	}
 	if _, err := p.RevokeGrant(canonicalCtx, &gestalt.RevokeGrantRequest{GrantID: tokenResp.GrantID}); err != nil {
 		t.Fatalf("RevokeGrant() error = %v", err)

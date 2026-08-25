@@ -337,7 +337,13 @@ func (s *grantStore) listGrantIDs(ctx context.Context, subjects []string) ([]str
 			if err != nil {
 				return nil, fmt.Errorf("oidc auth: get owned grant %q: %w", grantID, err)
 			}
-			ids = appendListableGrantID(ids, seen, record, now)
+			owned, err := s.grantOwnedBy(ctx, record, subjects)
+			if err != nil {
+				return nil, err
+			}
+			if owned {
+				ids = appendListableGrantID(ids, seen, record, now)
+			}
 		}
 
 		records, err := s.grants.Index(grantIndexBySubject).GetAll(ctx, subject)
@@ -348,7 +354,13 @@ func (s *grantStore) listGrantIDs(ctx context.Context, subjects []string) ([]str
 			return nil, fmt.Errorf("oidc auth: list grants for subject %q: %w", subject, err)
 		}
 		for _, record := range records {
-			ids = appendListableGrantID(ids, seen, record, now)
+			owned, err := s.grantOwnedBy(ctx, record, subjects)
+			if err != nil {
+				return nil, err
+			}
+			if owned {
+				ids = appendListableGrantID(ids, seen, record, now)
+			}
 		}
 	}
 	sort.Strings(ids)
@@ -433,13 +445,10 @@ func (s *grantStore) grantOwnedBy(ctx context.Context, grantRecord gestalt.Recor
 		return false, err
 	}
 	if hasOwner {
-		if subjectMatches(recordString(ownerRecord, "owner_subject"), subjects) {
-			return true, nil
-		}
-		// The provider-native subject remains a verified management alias for
-		// callers authenticated with that identity, including token-only CLI
-		// callers that do not have a canonical host subject.
-		return subjectMatches(recordString(grantRecord, "subject"), subjects), nil
+		// Once the owner projection exists, it is the sole management identity.
+		// Provider-native subjects remain valid for legacy grants below, but they
+		// must not bypass an explicit canonical owner.
+		return subjectMatches(recordString(ownerRecord, "owner_subject"), subjects), nil
 	}
 	// Grants created before the owner projection existed retain their
 	// provider-native subject. The caller alias set is verified upstream, so
