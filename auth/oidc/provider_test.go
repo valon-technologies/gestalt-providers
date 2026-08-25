@@ -483,6 +483,9 @@ func TestTokenExchangeRejectsInactiveSubjectToken(t *testing.T) {
 	if !strings.Contains(err.Error(), "inactive") {
 		t.Fatalf("Token() error = %v, want inactive subject_token", err)
 	}
+	if code, ok := gestalt.StatusCodeOf(err); !ok || code != gestalt.CodeUnauthenticated {
+		t.Fatalf("Token() status = %v (ok=%t), want unauthenticated", code, ok)
+	}
 }
 
 func TestTokenExchangeRequiresVerifiedManagementOwner(t *testing.T) {

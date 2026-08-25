@@ -412,7 +412,7 @@ func (p *Provider) tokenExchange(ctx context.Context, req *gestalt.TokenRequest)
 		return nil, err
 	}
 	if introspectResp == nil || !introspectResp.Active || strings.TrimSpace(introspectResp.Subject) == "" {
-		return nil, fmt.Errorf("oidc auth: subject_token is inactive")
+		return nil, gestalt.Unauthenticated("oidc auth: subject_token is inactive")
 	}
 	clientID := strings.TrimSpace(req.ClientID)
 	if clientID == "" {
