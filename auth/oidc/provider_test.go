@@ -1119,6 +1119,13 @@ func TestTokenExchangeIndexesManagementOwnerSeparately(t *testing.T) {
 	if got := recordString(ownerRecord, "owner_subject"); got != canonicalSubject {
 		t.Fatalf("grant owner = %q, want canonical subject %q", got, canonicalSubject)
 	}
+	grantRecord, err = db.ObjectStore(grantStoreName).Get(ctx, tokenResp.GrantID)
+	if err != nil {
+		t.Fatalf("Get(grant after owner check) error = %v", err)
+	}
+	if got := recordString(grantRecord, "ownership_mode"); got != grantOwnershipCanonical {
+		t.Fatalf("grant ownership mode = %q, want %q", got, grantOwnershipCanonical)
+	}
 
 	canonicalCtx := gestalt.WithTrustedCallerSubject(ctx, canonicalSubject)
 	listResp, err := p.ListGrants(canonicalCtx, &gestalt.ListGrantsRequest{})
@@ -1178,6 +1185,73 @@ func TestTokenExchangeIndexesManagementOwnerSeparately(t *testing.T) {
 	}
 	if introspectResp.Active {
 		t.Fatal("Introspect() expected revoked token to be inactive")
+	}
+}
+
+func TestOwnerBackedGrantFailsClosedWhenProjectionIsMissing(t *testing.T) {
+	ctx := context.Background()
+	p := New()
+	db := attachGrantStoreWithDB(t, p)
+	providerSubject := "user:owner@example.com"
+	canonicalSubject := "user:11111111-1111-1111-1111-111111111111"
+	issued, err := p.grants.issueNamedWithOwner(
+		ctx,
+		providerSubject,
+		canonicalSubject,
+		"openid",
+		defaultOAuthClientID,
+		grantCategoryAPIToken,
+		time.Hour,
+		"owned-token",
+	)
+	if err != nil {
+		t.Fatalf("issueNamedWithOwner() error = %v", err)
+	}
+	if err := db.ObjectStore(grantOwnerStoreName).Delete(ctx, issued.grantID); err != nil {
+		t.Fatalf("delete owner projection: %v", err)
+	}
+
+	canonicalCtx := gestalt.WithTrustedCallerSubject(ctx, canonicalSubject)
+	canonicalList, err := p.ListGrants(canonicalCtx, &gestalt.ListGrantsRequest{})
+	if err != nil {
+		t.Fatalf("ListGrants(canonical) error = %v", err)
+	}
+	if len(canonicalList.GrantIDs) != 0 {
+		t.Fatalf("ListGrants(canonical) = %v, want no grants", canonicalList.GrantIDs)
+	}
+	providerAliasCtx := gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{CallerSubjectID: providerSubject})
+	if _, err := p.ListGrants(providerAliasCtx, &gestalt.ListGrantsRequest{}); err == nil {
+		t.Fatal("ListGrants(provider alias) error = nil, want missing projection error")
+	} else if !strings.Contains(err.Error(), "owner projection missing") {
+		t.Fatalf("ListGrants(provider alias) error = %v, want missing projection error", err)
+	}
+	for name, call := range map[string]func(context.Context) error{
+		"canonical get": func(ctx context.Context) error {
+			_, err := p.GetGrant(ctx, &gestalt.GetGrantRequest{GrantID: issued.grantID})
+			return err
+		},
+		"provider alias get": func(ctx context.Context) error {
+			_, err := p.GetGrant(ctx, &gestalt.GetGrantRequest{GrantID: issued.grantID})
+			return err
+		},
+		"canonical revoke": func(ctx context.Context) error {
+			_, err := p.RevokeGrant(ctx, &gestalt.RevokeGrantRequest{GrantID: issued.grantID})
+			return err
+		},
+		"provider alias revoke": func(ctx context.Context) error {
+			_, err := p.RevokeGrant(ctx, &gestalt.RevokeGrantRequest{GrantID: issued.grantID})
+			return err
+		},
+	} {
+		callCtx := canonicalCtx
+		if strings.Contains(name, "provider alias") {
+			callCtx = providerAliasCtx
+		}
+		if err := call(callCtx); err == nil {
+			t.Errorf("%s error = nil, want missing projection error", name)
+		} else if !strings.Contains(err.Error(), "owner projection missing") {
+			t.Errorf("%s error = %v, want missing projection error", name, err)
+		}
 	}
 }
 
