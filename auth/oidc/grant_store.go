@@ -18,18 +18,19 @@ import (
 )
 
 const (
-	grantStoreName           = "authentication_grants"
-	grantOwnerStoreName      = "authentication_grant_owners"
-	tokenHashStoreName       = "authentication_token_hashes"
-	pendingOAuthStoreName    = "authentication_pending_oauth"
-	grantIndexBySubject      = "by_subject"
-	grantIndexByOwnerSubject = "by_owner_subject"
-	tokenIndexByGrantID      = "by_grant_id"
-	grantCategorySession     = "session"
-	grantCategoryAPIToken    = "api_token"
-	grantOwnershipLegacy     = "legacy_provider_subject"
-	grantOwnershipCanonical  = "canonical_owner"
-	grantOwnershipUnmanaged  = "unmanaged"
+	grantStoreName              = "authentication_grants"
+	grantOwnerStoreName         = "authentication_grant_owners"
+	grantOwnershipModeStoreName = "authentication_grant_ownership_modes"
+	tokenHashStoreName          = "authentication_token_hashes"
+	pendingOAuthStoreName       = "authentication_pending_oauth"
+	grantIndexBySubject         = "by_subject"
+	grantIndexByOwnerSubject    = "by_owner_subject"
+	tokenIndexByGrantID         = "by_grant_id"
+	grantCategorySession        = "session"
+	grantCategoryAPIToken       = "api_token"
+	grantOwnershipLegacy        = "legacy_provider_subject"
+	grantOwnershipCanonical     = "canonical_owner"
+	grantOwnershipUnmanaged     = "unmanaged"
 )
 
 const defaultOAuthClientID = "gestaltd"
@@ -38,6 +39,7 @@ type grantStore struct {
 	db      indexeddb.Database
 	grants  indexeddb.ObjectStore
 	owners  indexeddb.ObjectStore
+	modes   indexeddb.ObjectStore
 	tokens  indexeddb.ObjectStore
 	pending indexeddb.ObjectStore
 	now     func() time.Time
@@ -60,6 +62,7 @@ func openGrantStore(ctx context.Context, db indexeddb.Database, now func() time.
 		db:      db,
 		grants:  db.ObjectStore(grantStoreName),
 		owners:  db.ObjectStore(grantOwnerStoreName),
+		modes:   db.ObjectStore(grantOwnershipModeStoreName),
 		tokens:  db.ObjectStore(tokenHashStoreName),
 		pending: db.ObjectStore(pendingOAuthStoreName),
 		now:     now,
@@ -81,8 +84,6 @@ func grantStoreSchema() gestalt.ObjectStoreOptions {
 			{Name: "revoked", Type: gestalt.TypeBool, NotNull: true},
 			{Name: "category", Type: gestalt.TypeString, NotNull: true},
 			{Name: "name", Type: gestalt.TypeString},
-			// Optional for rows written before ownership modes were introduced.
-			{Name: "ownership_mode", Type: gestalt.TypeString},
 		},
 	}
 }
@@ -95,6 +96,15 @@ func grantOwnerStoreSchema() gestalt.ObjectStoreOptions {
 		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
 			{Name: "owner_subject", Type: gestalt.TypeString, NotNull: true},
+		},
+	}
+}
+
+func grantOwnershipModeStoreSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
+			{Name: "mode", Type: gestalt.TypeString, NotNull: true},
 		},
 	}
 }
@@ -239,7 +249,7 @@ func (s *grantStore) issueNamedWithOwner(ctx context.Context, subject, ownerSubj
 	} else if category == grantCategorySession {
 		ownershipMode = grantOwnershipUnmanaged
 	}
-	transactionStores := []string{grantStoreName, tokenHashStoreName}
+	transactionStores := []string{grantStoreName, tokenHashStoreName, grantOwnershipModeStoreName}
 	if ownerSubject != "" {
 		transactionStores = append(transactionStores, grantOwnerStoreName)
 	}
@@ -256,16 +266,15 @@ func (s *grantStore) issueNamedWithOwner(ctx context.Context, subject, ownerSubj
 	grantStore := tx.ObjectStore(grantStoreName)
 	tokenStore := tx.ObjectStore(tokenHashStoreName)
 	if err := grantStore.Add(ctx, gestalt.Record{
-		"id":             grantID,
-		"subject":        subject,
-		"scope":          scope,
-		"client_id":      clientID,
-		"created_at":     now,
-		"expires_at":     expiresAt,
-		"revoked":        false,
-		"category":       category,
-		"name":           grantName,
-		"ownership_mode": ownershipMode,
+		"id":         grantID,
+		"subject":    subject,
+		"scope":      scope,
+		"client_id":  clientID,
+		"created_at": now,
+		"expires_at": expiresAt,
+		"revoked":    false,
+		"category":   category,
+		"name":       grantName,
 	}); err != nil {
 		_ = tx.Abort(ctx)
 		return nil, fmt.Errorf("oidc auth: persist grant: %w", err)
@@ -280,6 +289,14 @@ func (s *grantStore) issueNamedWithOwner(ctx context.Context, subject, ownerSubj
 	}); err != nil {
 		_ = tx.Abort(ctx)
 		return nil, fmt.Errorf("oidc auth: persist token hash: %w", err)
+	}
+	modeStore := tx.ObjectStore(grantOwnershipModeStoreName)
+	if err := modeStore.Add(ctx, gestalt.Record{
+		"id":   grantID,
+		"mode": ownershipMode,
+	}); err != nil {
+		_ = tx.Abort(ctx)
+		return nil, fmt.Errorf("oidc auth: persist grant ownership mode: %w", err)
 	}
 	if ownerSubject != "" {
 		ownerStore := tx.ObjectStore(grantOwnerStoreName)
@@ -452,12 +469,15 @@ func (s *grantStore) revokeGrant(ctx context.Context, grantID string, subjects [
 
 func (s *grantStore) grantOwnedBy(ctx context.Context, grantRecord gestalt.Record, subjects []string) (bool, error) {
 	grantID := recordString(grantRecord, "id")
-	ownershipMode := strings.TrimSpace(recordString(grantRecord, "ownership_mode"))
+	ownershipMode, hasMode, err := s.grantOwnershipMode(ctx, grantID)
+	if err != nil {
+		return false, err
+	}
 	ownerRecord, hasOwner, err := s.grantOwnerRecord(ctx, grantID)
 	if err != nil {
 		return false, err
 	}
-	if ownershipMode == grantOwnershipCanonical || (ownershipMode == "" && hasOwner) {
+	if ownershipMode == grantOwnershipCanonical || (!hasMode && hasOwner) {
 		// Once the owner projection exists, it is the sole management identity.
 		// Provider-native subjects remain valid for legacy grants below, but they
 		// must not bypass an explicit canonical owner.
@@ -466,16 +486,30 @@ func (s *grantStore) grantOwnedBy(ctx context.Context, grantRecord gestalt.Recor
 		}
 		return subjectMatches(recordString(ownerRecord, "owner_subject"), subjects), nil
 	}
-	if ownershipMode == grantOwnershipUnmanaged {
+	if ownershipMode == grantOwnershipUnmanaged || (!hasMode && recordString(grantRecord, "category") == grantCategorySession) {
 		return false, nil
 	}
-	if ownershipMode != "" && ownershipMode != grantOwnershipLegacy {
+	if ownershipMode != grantOwnershipLegacy && ownershipMode != "" {
 		return false, fmt.Errorf("oidc auth: unknown grant ownership mode %q for grant %q", ownershipMode, grantID)
 	}
+	if hasOwner {
+		return false, fmt.Errorf("oidc auth: owner projection missing for canonical grant %q", grantID)
+	}
 	// Grants created before the owner projection existed retain their
-	// provider-native subject. Rows without an ownership mode predate this
-	// marker and are treated the same as explicitly legacy rows.
+	// provider-native subject. Session grants are intentionally unmanaged; any
+	// other ownerless grant is a legacy management grant.
 	return subjectMatches(recordString(grantRecord, "subject"), subjects), nil
+}
+
+func (s *grantStore) grantOwnershipMode(ctx context.Context, grantID string) (string, bool, error) {
+	modeRecord, err := s.modes.Get(ctx, grantID)
+	if errors.Is(err, gestalt.ErrNotFound) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("oidc auth: get grant ownership mode %q: %w", grantID, err)
+	}
+	return strings.TrimSpace(recordString(modeRecord, "mode")), true, nil
 }
 
 func (s *grantStore) grantOwnerRecord(ctx context.Context, grantID string) (gestalt.Record, bool, error) {

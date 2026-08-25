@@ -1122,14 +1122,13 @@ func TestTokenExchangeIndexesManagementOwnerSeparately(t *testing.T) {
 	if got := recordString(ownerRecord, "owner_subject"); got != canonicalSubject {
 		t.Fatalf("grant owner = %q, want canonical subject %q", got, canonicalSubject)
 	}
-	grantRecord, err = db.ObjectStore(grantStoreName).Get(ctx, tokenResp.GrantID)
+	modeRecord, err := db.ObjectStore(grantOwnershipModeStoreName).Get(ctx, tokenResp.GrantID)
 	if err != nil {
-		t.Fatalf("Get(grant after owner check) error = %v", err)
+		t.Fatalf("Get(grant ownership mode) error = %v", err)
 	}
-	if got := recordString(grantRecord, "ownership_mode"); got != grantOwnershipCanonical {
+	if got := recordString(modeRecord, "mode"); got != grantOwnershipCanonical {
 		t.Fatalf("grant ownership mode = %q, want %q", got, grantOwnershipCanonical)
 	}
-
 	canonicalCtx := gestalt.WithTrustedCallerSubject(ctx, canonicalSubject)
 	listResp, err := p.ListGrants(canonicalCtx, &gestalt.ListGrantsRequest{})
 	if err != nil {

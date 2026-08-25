@@ -26,6 +26,7 @@ func oidcMigrations() []migrations.Revision {
 			Schema: &migrations.SchemaDeclaration{
 				Stores: []migrations.StoreDeclaration{
 					migrationStore(grantOwnerStoreName, grantOwnerStoreSchema()),
+					migrationStore(grantOwnershipModeStoreName, grantOwnershipModeStoreSchema()),
 				},
 			},
 		},
