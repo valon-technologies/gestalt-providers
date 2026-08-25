@@ -29,9 +29,10 @@ describe("settings tokens copy", () => {
     expect(SETTINGS_TOKEN_PLAINTEXT_DESCRIPTION).toMatch(/won't show the full value again/i);
     expect(SETTINGS_TOKEN_PLAINTEXT_DESCRIPTION).not.toMatch(/Open MCP Clients/i);
     expect(SETTINGS_TOKEN_PLAINTEXT_DESCRIPTION).not.toMatch(/this example/i);
-    expect(SETTINGS_TOKEN_CREATED_DESCRIPTION).toMatch(/open MCP Clients/i);
-    expect(SETTINGS_TOKEN_CREATED_DESCRIPTION).not.toMatch(/Copy the secret/i);
-    expect(SETTINGS_TOKEN_CREATE_CONTINUE).toBe("Open MCP Clients");
+    expect(SETTINGS_TOKEN_CREATED_DESCRIPTION).toBe(
+      "Your token is ready. Return to your tokens or choose your assistant in MCP Clients.",
+    );
+    expect(SETTINGS_TOKEN_CREATE_CONTINUE).toBe("MCP Clients");
     expect(SETTINGS_TOKEN_CREATE_DONE).toBe("Back to tokens");
   });
 });

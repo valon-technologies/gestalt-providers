@@ -27,8 +27,8 @@ import { SETTINGS_TOKENS_PATH } from "@/lib/managed-identity-paths";
 /**
  * Settings create-token task page.
  *
- * Owns task chrome (title / cancel / continue to MCP Clients / back to the
- * token list) and surface copy. The shared TokenCreateForm owns minting +
+ * Owns task chrome (title / cancel / link to MCP Clients / back to the token
+ * list) and surface copy. The shared TokenCreateForm owns minting +
  * one-time secret revelation; navigation and settings-native wording stay
  * here so Build can reuse the form without settings chrome.
  */
@@ -65,15 +65,18 @@ export default function SettingsTokenCreate() {
         plaintextResultActions={
           <div className="flex w-full flex-row flex-nowrap items-center justify-end gap-3">
             <Button
-              variant="ghost"
               asChild
-              className="shrink-0 text-muted-foreground"
+              className="w-fit"
             >
               <Link to={SETTINGS_TOKENS_PATH}>
                 {SETTINGS_TOKEN_CREATE_DONE}
               </Link>
             </Button>
-            <Button asChild className="w-fit">
+            <Button
+              variant="ghost"
+              asChild
+              className="shrink-0 text-muted-foreground"
+            >
               <Link to={DOCS_MCP_PATH}>{SETTINGS_TOKEN_CREATE_CONTINUE}</Link>
             </Button>
           </div>

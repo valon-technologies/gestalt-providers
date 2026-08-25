@@ -160,12 +160,14 @@ test.describe("Token Management", () => {
       page.getByText(/Copy this token now\. We won't show the full value again/),
     ).toBeVisible();
     await expect(
-      page.getByText("Next, open MCP Clients and pick your assistant."),
+      page.getByText(
+        "Your token is ready. Return to your tokens or choose your assistant in MCP Clients.",
+      ),
     ).toBeVisible();
     await expect(page.getByRole("heading", { name: "Token created" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Cancel" })).toHaveCount(0);
     await expect(
-      page.getByRole("link", { name: "Open MCP Clients" }),
+      page.getByRole("link", { name: "MCP Clients" }),
     ).toHaveAttribute("href", "/docs/mcp");
 
     await page.getByRole("link", { name: "Back to tokens" }).click();

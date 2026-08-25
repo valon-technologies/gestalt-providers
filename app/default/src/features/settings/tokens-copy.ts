@@ -4,6 +4,8 @@
  * into TokenCreateForm from the Build page when needed.
  */
 
+import { MCP_SETUP_DOCS_LINK_LABEL } from "@/lib/assistantConnectionCopy";
+
 export const SETTINGS_TOKENS_LIST_TITLE = "API tokens";
 
 export const SETTINGS_TOKENS_LIST_DESCRIPTION =
@@ -41,7 +43,7 @@ export const SETTINGS_TOKEN_CREATE_DESCRIPTION =
 export const SETTINGS_TOKEN_CREATED_TITLE = "Token created";
 
 export const SETTINGS_TOKEN_CREATED_DESCRIPTION =
-  "Next, open MCP Clients and pick your assistant.";
+  "Your token is ready. Return to your tokens or choose your assistant in MCP Clients.";
 
 /** One-time secret alert after mint — settings-native, not Build tutorial. */
 export const SETTINGS_TOKEN_PLAINTEXT_DESCRIPTION =
@@ -49,7 +51,7 @@ export const SETTINGS_TOKEN_PLAINTEXT_DESCRIPTION =
 
 export const SETTINGS_TOKEN_CREATE_CANCEL = "Cancel";
 
-export const SETTINGS_TOKEN_CREATE_CONTINUE = "Open MCP Clients";
+export const SETTINGS_TOKEN_CREATE_CONTINUE = MCP_SETUP_DOCS_LINK_LABEL;
 
 export const SETTINGS_TOKEN_CREATE_DONE = "Back to tokens";
 
