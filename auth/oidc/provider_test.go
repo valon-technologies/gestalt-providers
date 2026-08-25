@@ -777,17 +777,52 @@ func TestGrantOwnerMigrationUpgradesExistingDatabase(t *testing.T) {
 		t.Fatalf("legacy grant subject after upgrade = %q, want %q", recordString(got, "subject"), recordString(legacy, "subject"))
 	}
 
+	p := New()
+	p.now = func() time.Time { return time.Unix(1_700_000_000, 0) }
+	store, err := openGrantStore(ctx, db, p.now)
+	if err != nil {
+		t.Fatalf("openGrantStore after upgrade: %v", err)
+	}
+	p.grants = store
+	legacyCtx := gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
+		CallerSubjectID: "user:legacy@example.com",
+	})
+	legacyList, err := p.ListGrants(legacyCtx, &gestalt.ListGrantsRequest{})
+	if err != nil {
+		t.Fatalf("ListGrants(legacy) after upgrade: %v", err)
+	}
+	if len(legacyList.GrantIDs) != 1 || legacyList.GrantIDs[0] != "legacy-grant" {
+		t.Fatalf("ListGrants(legacy) after upgrade = %v, want legacy-grant", legacyList.GrantIDs)
+	}
+	if _, err := p.GetGrant(legacyCtx, &gestalt.GetGrantRequest{GrantID: "legacy-grant"}); err != nil {
+		t.Fatalf("GetGrant(legacy) after upgrade: %v", err)
+	}
+
 	ownerStore := db.ObjectStore(grantOwnerStoreName)
 	owner := gestalt.Record{"id": "legacy-grant", "owner_subject": "user:canonical-legacy"}
 	if err := ownerStore.Add(ctx, owner); err != nil {
 		t.Fatalf("add owner after upgrade: %v", err)
 	}
-	owners, err := ownerStore.Index(grantIndexByOwnerSubject).GetAll(ctx, "user:canonical-legacy")
+	canonicalCtx := gestalt.WithTrustedCallerSubject(ctx, "user:canonical-legacy")
+	canonicalList, err := p.ListGrants(canonicalCtx, &gestalt.ListGrantsRequest{})
 	if err != nil {
-		t.Fatalf("list owners after upgrade: %v", err)
+		t.Fatalf("ListGrants(canonical) after upgrade: %v", err)
 	}
-	if len(owners) != 1 || recordString(owners[0], "id") != "legacy-grant" {
-		t.Fatalf("owners after upgrade = %v, want legacy-grant", owners)
+	if len(canonicalList.GrantIDs) != 1 || canonicalList.GrantIDs[0] != "legacy-grant" {
+		t.Fatalf("ListGrants(canonical) after upgrade = %v, want legacy-grant", canonicalList.GrantIDs)
+	}
+	if _, err := p.GetGrant(canonicalCtx, &gestalt.GetGrantRequest{GrantID: "legacy-grant"}); err != nil {
+		t.Fatalf("GetGrant(canonical) after upgrade: %v", err)
+	}
+	if _, err := p.RevokeGrant(canonicalCtx, &gestalt.RevokeGrantRequest{GrantID: "legacy-grant"}); err != nil {
+		t.Fatalf("RevokeGrant(canonical) after upgrade: %v", err)
+	}
+	canonicalList, err = p.ListGrants(canonicalCtx, &gestalt.ListGrantsRequest{})
+	if err != nil {
+		t.Fatalf("ListGrants(canonical) after revoke: %v", err)
+	}
+	if len(canonicalList.GrantIDs) != 0 {
+		t.Fatalf("ListGrants(canonical) after revoke = %v, want no grants", canonicalList.GrantIDs)
 	}
 }
 
