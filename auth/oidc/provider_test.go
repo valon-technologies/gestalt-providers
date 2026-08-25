@@ -483,6 +483,53 @@ func TestTokenExchangeRejectsInactiveSubjectToken(t *testing.T) {
 	if !strings.Contains(err.Error(), "inactive") {
 		t.Fatalf("Token() error = %v, want inactive subject_token", err)
 	}
+	if code, ok := gestalt.StatusCodeOf(err); !ok || code != gestalt.CodeUnauthenticated {
+		t.Fatalf("Token() status = %v (ok=%t), want unauthenticated", code, ok)
+	}
+}
+
+func TestTokenExchangeRequiresVerifiedManagementOwner(t *testing.T) {
+	ctx := context.Background()
+	p := New()
+	db := attachGrantStoreWithDB(t, p)
+	session, err := p.grants.issue(ctx, "user:owner@example.com", "openid", defaultOAuthClientID, grantCategorySession, time.Hour)
+	if err != nil {
+		t.Fatalf("issue(session) error = %v", err)
+	}
+	grantRecordsBefore, err := db.ObjectStore(grantStoreName).GetAll(ctx, nil)
+	if err != nil {
+		t.Fatalf("list grants before exchange: %v", err)
+	}
+	tokenRecordsBefore, err := db.ObjectStore(tokenHashStoreName).GetAll(ctx, nil)
+	if err != nil {
+		t.Fatalf("list token hashes before exchange: %v", err)
+	}
+
+	_, err = p.Token(ctx, &gestalt.TokenRequest{
+		GrantType:        grantTypeTokenExchange,
+		SubjectToken:     session.accessToken,
+		SubjectTokenType: subjectTokenTypeAccessToken,
+	})
+	if err == nil {
+		t.Fatal("Token() error = nil, want verified owner requirement")
+	}
+	if !strings.Contains(err.Error(), "verified caller subject is required") {
+		t.Fatalf("Token() error = %v, want verified owner error", err)
+	}
+	grantRecordsAfter, err := db.ObjectStore(grantStoreName).GetAll(ctx, nil)
+	if err != nil {
+		t.Fatalf("list grants after exchange: %v", err)
+	}
+	if len(grantRecordsAfter) != len(grantRecordsBefore) {
+		t.Fatalf("grant count after rejected exchange = %d, want %d", len(grantRecordsAfter), len(grantRecordsBefore))
+	}
+	tokenRecordsAfter, err := db.ObjectStore(tokenHashStoreName).GetAll(ctx, nil)
+	if err != nil {
+		t.Fatalf("list token hashes after exchange: %v", err)
+	}
+	if len(tokenRecordsAfter) != len(tokenRecordsBefore) {
+		t.Fatalf("token hash count after rejected exchange = %d, want %d", len(tokenRecordsAfter), len(tokenRecordsBefore))
+	}
 }
 
 func TestPendingOAuthCorrelatesByState(t *testing.T) {
@@ -663,7 +710,10 @@ func TestGrantStorePersistsAcrossRestart(t *testing.T) {
 	if resp.Subject != subject {
 		t.Fatalf("introspect subject = %q, want %q", resp.Subject, subject)
 	}
-	ids := restarted.grants.listGrantIDs(ctx, []string{subject})
+	ids, err := restarted.grants.listGrantIDs(ctx, []string{subject})
+	if err != nil {
+		t.Fatalf("listGrantIDs() error = %v", err)
+	}
 	if len(ids) != 1 || ids[0] != grantID {
 		t.Fatalf("listGrantIDs() = %v, want [%q]", ids, grantID)
 	}
@@ -741,6 +791,124 @@ func TestGrantStorePersistsOnlyTokenHashes(t *testing.T) {
 	}
 }
 
+func TestGrantOwnerMigrationUpgradesExistingDatabase(t *testing.T) {
+	ctx := context.Background()
+	db := oidcfake.NewIndexedDB()
+	revisions := oidcMigrations()
+	if _, err := migrations.Run(ctx, db, migrations.RunOptions{Revisions: revisions[:1]}); err != nil {
+		t.Fatalf("initial migrations.Run() error = %v", err)
+	}
+
+	legacy := gestalt.Record{
+		"id":         "legacy-grant",
+		"subject":    "user:legacy@example.com",
+		"category":   grantCategoryAPIToken,
+		"scope":      "openid",
+		"client_id":  defaultOAuthClientID,
+		"created_at": time.Unix(1_700_000_000, 0),
+		"expires_at": time.Unix(1_800_000_000, 0),
+		"revoked":    false,
+	}
+	if err := db.ObjectStore(grantStoreName).Put(ctx, legacy); err != nil {
+		t.Fatalf("put legacy grant: %v", err)
+	}
+
+	if _, err := migrations.Run(ctx, db, migrations.RunOptions{Revisions: revisions}); err != nil {
+		t.Fatalf("upgrade migrations.Run() error = %v", err)
+	}
+	got, err := db.ObjectStore(grantStoreName).Get(ctx, "legacy-grant")
+	if err != nil {
+		t.Fatalf("get legacy grant after upgrade: %v", err)
+	}
+	if recordString(got, "subject") != recordString(legacy, "subject") {
+		t.Fatalf("legacy grant subject after upgrade = %q, want %q", recordString(got, "subject"), recordString(legacy, "subject"))
+	}
+
+	p := New()
+	p.now = func() time.Time { return time.Unix(1_700_000_000, 0) }
+	store, err := openGrantStore(ctx, db, p.now)
+	if err != nil {
+		t.Fatalf("openGrantStore after upgrade: %v", err)
+	}
+	p.grants = store
+	legacyCtx := gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
+		CallerSubjectID: "user:legacy@example.com",
+	})
+	legacyList, err := p.ListGrants(legacyCtx, &gestalt.ListGrantsRequest{})
+	if err != nil {
+		t.Fatalf("ListGrants(legacy) after upgrade: %v", err)
+	}
+	if len(legacyList.GrantIDs) != 1 || legacyList.GrantIDs[0] != "legacy-grant" {
+		t.Fatalf("ListGrants(legacy) after upgrade = %v, want legacy-grant", legacyList.GrantIDs)
+	}
+	if _, err := p.GetGrant(legacyCtx, &gestalt.GetGrantRequest{GrantID: "legacy-grant"}); err != nil {
+		t.Fatalf("GetGrant(legacy) after upgrade: %v", err)
+	}
+	if _, err := p.RevokeGrant(legacyCtx, &gestalt.RevokeGrantRequest{GrantID: "legacy-grant"}); err != nil {
+		t.Fatalf("RevokeGrant(legacy) after upgrade: %v", err)
+	}
+	legacyList, err = p.ListGrants(legacyCtx, &gestalt.ListGrantsRequest{})
+	if err != nil {
+		t.Fatalf("ListGrants(legacy) after revoke: %v", err)
+	}
+	if len(legacyList.GrantIDs) != 0 {
+		t.Fatalf("ListGrants(legacy) after revoke = %v, want no grants", legacyList.GrantIDs)
+	}
+
+	newEmailSubject := "user:new@example.com"
+	canonicalSubject := "user:canonical-legacy"
+	session, err := p.grants.issue(ctx, newEmailSubject, "openid", defaultOAuthClientID, grantCategorySession, time.Hour)
+	if err != nil {
+		t.Fatalf("issue session after upgrade: %v", err)
+	}
+	tokenResp, err := p.Token(gestalt.WithTrustedCallerSubject(ctx, canonicalSubject), &gestalt.TokenRequest{
+		GrantType:        grantTypeTokenExchange,
+		SubjectToken:     session.accessToken,
+		SubjectTokenType: subjectTokenTypeAccessToken,
+	})
+	if err != nil {
+		t.Fatalf("Token() after upgrade: %v", err)
+	}
+	providerAliasCtx := gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
+		CallerSubjectID: newEmailSubject,
+	})
+	providerAliasList, err := p.ListGrants(providerAliasCtx, &gestalt.ListGrantsRequest{})
+	if err != nil {
+		t.Fatalf("ListGrants(provider alias) after upgrade: %v", err)
+	}
+	if len(providerAliasList.GrantIDs) != 0 {
+		t.Fatalf("ListGrants(provider alias) after upgrade = %v, want no grants", providerAliasList.GrantIDs)
+	}
+	if _, err := p.GetGrant(providerAliasCtx, &gestalt.GetGrantRequest{GrantID: tokenResp.GrantID}); err == nil {
+		t.Fatal("GetGrant(provider alias) after upgrade error = nil, want not found")
+	}
+	if _, err := p.RevokeGrant(providerAliasCtx, &gestalt.RevokeGrantRequest{GrantID: tokenResp.GrantID}); err == nil {
+		t.Fatal("RevokeGrant(provider alias) after upgrade error = nil, want not found")
+	}
+
+	canonicalCtx := gestalt.WithTrustedCallerSubject(ctx, canonicalSubject)
+	canonicalList, err := p.ListGrants(canonicalCtx, &gestalt.ListGrantsRequest{})
+	if err != nil {
+		t.Fatalf("ListGrants(canonical) after upgrade: %v", err)
+	}
+	if len(canonicalList.GrantIDs) != 1 || canonicalList.GrantIDs[0] != tokenResp.GrantID {
+		t.Fatalf("ListGrants(canonical) after upgrade = %v, want %q", canonicalList.GrantIDs, tokenResp.GrantID)
+	}
+	if _, err := p.GetGrant(canonicalCtx, &gestalt.GetGrantRequest{GrantID: tokenResp.GrantID}); err != nil {
+		t.Fatalf("GetGrant(canonical) after upgrade: %v", err)
+	}
+	if _, err := p.RevokeGrant(canonicalCtx, &gestalt.RevokeGrantRequest{GrantID: tokenResp.GrantID}); err != nil {
+		t.Fatalf("RevokeGrant(canonical) after upgrade: %v", err)
+	}
+	canonicalList, err = p.ListGrants(canonicalCtx, &gestalt.ListGrantsRequest{})
+	if err != nil {
+		t.Fatalf("ListGrants(canonical) after revoke: %v", err)
+	}
+	if len(canonicalList.GrantIDs) != 0 {
+		t.Fatalf("ListGrants(canonical) after revoke = %v, want no grants", canonicalList.GrantIDs)
+	}
+}
+
 func TestTokenExchangeAttenuatesScope(t *testing.T) {
 	p := New()
 	attachGrantStore(t, p)
@@ -798,9 +966,13 @@ func TestTokenExchangeAttenuatesScope(t *testing.T) {
 			if err != nil {
 				t.Fatalf("issue() error = %v", err)
 			}
-			beforeIDs := p.grants.listGrantIDs(ctx, []string{subject})
+			beforeIDs, err := p.grants.listGrantIDs(ctx, []string{subject})
+			if err != nil {
+				t.Fatalf("listGrantIDs(before) error = %v", err)
+			}
 
-			tokenResp, err := p.Token(ctx, &gestalt.TokenRequest{
+			exchangeCtx := gestalt.WithTrustedCallerSubject(ctx, subject)
+			tokenResp, err := p.Token(exchangeCtx, &gestalt.TokenRequest{
 				GrantType:        grantTypeTokenExchange,
 				SubjectToken:     issued.accessToken,
 				SubjectTokenType: subjectTokenTypeAccessToken,
@@ -813,7 +985,10 @@ func TestTokenExchangeAttenuatesScope(t *testing.T) {
 				if !strings.Contains(err.Error(), tt.wantErrSubstr) {
 					t.Fatalf("Token() error = %v, want substring %q", err, tt.wantErrSubstr)
 				}
-				afterIDs := p.grants.listGrantIDs(ctx, []string{subject})
+				afterIDs, err := p.grants.listGrantIDs(ctx, []string{subject})
+				if err != nil {
+					t.Fatalf("listGrantIDs(after) error = %v", err)
+				}
 				if len(afterIDs) != len(beforeIDs) {
 					t.Fatalf("grant count = %d, want %d after rejected exchange", len(afterIDs), len(beforeIDs))
 				}
@@ -862,12 +1037,19 @@ func TestTokenExchangeKeepsIntrospectedSubject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("issue(legacy API token) error = %v", err)
 	}
-	if ids := p.grants.listGrantIDs(ctx, []string{canonicalSubject}); len(ids) != 1 || ids[0] != legacy.grantID {
-		t.Fatalf("listGrantIDs(%q) = %v, want [%q]", canonicalSubject, ids, legacy.grantID)
+	ids, err := p.grants.listGrantIDs(ctx, []string{canonicalSubject})
+	if err != nil {
+		t.Fatalf("listGrantIDs(%q) error = %v", canonicalSubject, err)
 	}
-	ids := p.grants.listGrantIDs(ctx, []string{emailSubject})
-	if len(ids) != 1 || ids[0] != tokenResp.GrantID {
-		t.Fatalf("listGrantIDs(%q) = %v, want [%q]", emailSubject, ids, tokenResp.GrantID)
+	if len(ids) != 2 || !containsString(ids, legacy.grantID) || !containsString(ids, tokenResp.GrantID) {
+		t.Fatalf("listGrantIDs(%q) = %v, want both grants", canonicalSubject, ids)
+	}
+	ids, err = p.grants.listGrantIDs(ctx, []string{emailSubject})
+	if err != nil {
+		t.Fatalf("listGrantIDs(%q) error = %v", emailSubject, err)
+	}
+	if len(ids) != 0 {
+		t.Fatalf("listGrantIDs(%q) = %v, want no owner-projected grants", emailSubject, ids)
 	}
 
 	listCtx := gestalt.WithTrustedCallerSubject(ctx, canonicalSubject)
@@ -894,6 +1076,219 @@ func TestTokenExchangeKeepsIntrospectedSubject(t *testing.T) {
 	}
 	if legacyInfo.Active {
 		t.Fatal("Introspect(legacy) expected inactive after revoke")
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestTokenExchangeIndexesManagementOwnerSeparately(t *testing.T) {
+	ctx := context.Background()
+	emailSubject := "user:owner@example.com"
+	canonicalSubject := "user:11111111-1111-1111-1111-111111111111"
+	p := New()
+	db := attachGrantStoreWithDB(t, p)
+
+	session, err := p.grants.issue(ctx, emailSubject, "openid", defaultOAuthClientID, grantCategorySession, time.Hour)
+	if err != nil {
+		t.Fatalf("issue(session) error = %v", err)
+	}
+	tokenResp, err := p.Token(gestalt.WithTrustedCallerSubject(ctx, canonicalSubject), &gestalt.TokenRequest{
+		GrantType:        grantTypeTokenExchange,
+		SubjectToken:     session.accessToken,
+		SubjectTokenType: subjectTokenTypeAccessToken,
+	})
+	if err != nil {
+		t.Fatalf("Token() error = %v", err)
+	}
+
+	grantRecord, err := db.ObjectStore(grantStoreName).Get(ctx, tokenResp.GrantID)
+	if err != nil {
+		t.Fatalf("Get(grant) error = %v", err)
+	}
+	if got := recordString(grantRecord, "subject"); got != emailSubject {
+		t.Fatalf("grant subject = %q, want provider subject %q", got, emailSubject)
+	}
+	ownerRecord, err := db.ObjectStore(grantOwnerStoreName).Get(ctx, tokenResp.GrantID)
+	if err != nil {
+		t.Fatalf("Get(grant owner) error = %v", err)
+	}
+	if got := recordString(ownerRecord, "owner_subject"); got != canonicalSubject {
+		t.Fatalf("grant owner = %q, want canonical subject %q", got, canonicalSubject)
+	}
+	modeRecord, err := db.ObjectStore(grantOwnershipModeStoreName).Get(ctx, tokenResp.GrantID)
+	if err != nil {
+		t.Fatalf("Get(grant ownership mode) error = %v", err)
+	}
+	if got := recordString(modeRecord, "mode"); got != grantOwnershipCanonical {
+		t.Fatalf("grant ownership mode = %q, want %q", got, grantOwnershipCanonical)
+	}
+	canonicalCtx := gestalt.WithTrustedCallerSubject(ctx, canonicalSubject)
+	listResp, err := p.ListGrants(canonicalCtx, &gestalt.ListGrantsRequest{})
+	if err != nil {
+		t.Fatalf("ListGrants() error = %v", err)
+	}
+	if len(listResp.GrantIDs) != 1 || listResp.GrantIDs[0] != tokenResp.GrantID {
+		t.Fatalf("ListGrants() = %v, want [%q]", listResp.GrantIDs, tokenResp.GrantID)
+	}
+	if _, err := p.GetGrant(canonicalCtx, &gestalt.GetGrantRequest{GrantID: tokenResp.GrantID}); err != nil {
+		t.Fatalf("GetGrant() error = %v", err)
+	}
+	otherCtx := gestalt.WithTrustedCallerSubject(ctx, "user:22222222-2222-2222-2222-222222222222")
+	otherListResp, err := p.ListGrants(otherCtx, &gestalt.ListGrantsRequest{})
+	if err != nil {
+		t.Fatalf("ListGrants(other) error = %v", err)
+	}
+	if len(otherListResp.GrantIDs) != 0 {
+		t.Fatalf("ListGrants(other) = %v, want no grants", otherListResp.GrantIDs)
+	}
+	if _, err := p.GetGrant(otherCtx, &gestalt.GetGrantRequest{GrantID: tokenResp.GrantID}); err == nil {
+		t.Fatal("GetGrant(other) error = nil, want not found")
+	} else if code, ok := gestalt.StatusCodeOf(err); !ok || code != gestalt.CodeNotFound {
+		t.Fatalf("GetGrant(other) error = %v, want not_found status", err)
+	}
+	if _, err := p.RevokeGrant(otherCtx, &gestalt.RevokeGrantRequest{GrantID: tokenResp.GrantID}); err == nil {
+		t.Fatal("RevokeGrant(other) error = nil, want not found")
+	} else if code, ok := gestalt.StatusCodeOf(err); !ok || code != gestalt.CodeNotFound {
+		t.Fatalf("RevokeGrant(other) error = %v, want not_found status", err)
+	}
+	providerAliasCtx := gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
+		CallerSubjectID: emailSubject,
+	})
+	providerAliasList, err := p.ListGrants(providerAliasCtx, &gestalt.ListGrantsRequest{})
+	if err != nil {
+		t.Fatalf("ListGrants(provider alias) error = %v", err)
+	}
+	if len(providerAliasList.GrantIDs) != 0 {
+		t.Fatalf("ListGrants(provider alias) = %v, want no grants", providerAliasList.GrantIDs)
+	}
+	if _, err := p.GetGrant(providerAliasCtx, &gestalt.GetGrantRequest{GrantID: tokenResp.GrantID}); err == nil {
+		t.Fatal("GetGrant(provider alias) error = nil, want not found")
+	} else if code, ok := gestalt.StatusCodeOf(err); !ok || code != gestalt.CodeNotFound {
+		t.Fatalf("GetGrant(provider alias) error = %v, want not_found status", err)
+	}
+	if _, err := p.RevokeGrant(providerAliasCtx, &gestalt.RevokeGrantRequest{GrantID: tokenResp.GrantID}); err == nil {
+		t.Fatal("RevokeGrant(provider alias) error = nil, want not found")
+	} else if code, ok := gestalt.StatusCodeOf(err); !ok || code != gestalt.CodeNotFound {
+		t.Fatalf("RevokeGrant(provider alias) error = %v, want not_found status", err)
+	}
+	if _, err := p.RevokeGrant(canonicalCtx, &gestalt.RevokeGrantRequest{GrantID: tokenResp.GrantID}); err != nil {
+		t.Fatalf("RevokeGrant() error = %v", err)
+	}
+	introspectResp, err := p.Introspect(ctx, &gestalt.IntrospectRequest{Token: tokenResp.AccessToken})
+	if err != nil {
+		t.Fatalf("Introspect() error = %v", err)
+	}
+	if introspectResp.Active {
+		t.Fatal("Introspect() expected revoked token to be inactive")
+	}
+}
+
+func TestOwnerBackedGrantFailsClosedWhenProjectionIsMissing(t *testing.T) {
+	ctx := context.Background()
+	p := New()
+	db := attachGrantStoreWithDB(t, p)
+	providerSubject := "user:owner@example.com"
+	canonicalSubject := "user:11111111-1111-1111-1111-111111111111"
+	issued, err := p.grants.issueNamedWithOwner(
+		ctx,
+		providerSubject,
+		canonicalSubject,
+		"openid",
+		defaultOAuthClientID,
+		grantCategoryAPIToken,
+		time.Hour,
+		"owned-token",
+	)
+	if err != nil {
+		t.Fatalf("issueNamedWithOwner() error = %v", err)
+	}
+	if err := db.ObjectStore(grantOwnerStoreName).Delete(ctx, issued.grantID); err != nil {
+		t.Fatalf("delete owner projection: %v", err)
+	}
+
+	canonicalCtx := gestalt.WithTrustedCallerSubject(ctx, canonicalSubject)
+	canonicalList, err := p.ListGrants(canonicalCtx, &gestalt.ListGrantsRequest{})
+	if err != nil {
+		t.Fatalf("ListGrants(canonical) error = %v", err)
+	}
+	if len(canonicalList.GrantIDs) != 0 {
+		t.Fatalf("ListGrants(canonical) = %v, want no grants", canonicalList.GrantIDs)
+	}
+	providerAliasCtx := gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{CallerSubjectID: providerSubject})
+	if _, err := p.ListGrants(providerAliasCtx, &gestalt.ListGrantsRequest{}); err == nil {
+		t.Fatal("ListGrants(provider alias) error = nil, want missing projection error")
+	} else if !strings.Contains(err.Error(), "owner projection missing") {
+		t.Fatalf("ListGrants(provider alias) error = %v, want missing projection error", err)
+	}
+	for name, call := range map[string]func(context.Context) error{
+		"canonical get": func(ctx context.Context) error {
+			_, err := p.GetGrant(ctx, &gestalt.GetGrantRequest{GrantID: issued.grantID})
+			return err
+		},
+		"provider alias get": func(ctx context.Context) error {
+			_, err := p.GetGrant(ctx, &gestalt.GetGrantRequest{GrantID: issued.grantID})
+			return err
+		},
+		"canonical revoke": func(ctx context.Context) error {
+			_, err := p.RevokeGrant(ctx, &gestalt.RevokeGrantRequest{GrantID: issued.grantID})
+			return err
+		},
+		"provider alias revoke": func(ctx context.Context) error {
+			_, err := p.RevokeGrant(ctx, &gestalt.RevokeGrantRequest{GrantID: issued.grantID})
+			return err
+		},
+	} {
+		callCtx := canonicalCtx
+		if strings.Contains(name, "provider alias") {
+			callCtx = providerAliasCtx
+		}
+		if err := call(callCtx); err == nil {
+			t.Errorf("%s error = nil, want missing projection error", name)
+		} else if !strings.Contains(err.Error(), "owner projection missing") {
+			t.Errorf("%s error = %v, want missing projection error", name, err)
+		}
+	}
+}
+
+func TestLegacyEmailGrantUsesVerifiedCallerAlias(t *testing.T) {
+	ctx := context.Background()
+	emailSubject := "user:owner@example.com"
+	canonicalSubject := "user:11111111-1111-1111-1111-111111111111"
+	p := New()
+	attachGrantStore(t, p)
+
+	session, err := p.grants.issue(ctx, emailSubject, "openid", defaultOAuthClientID, grantCategorySession, time.Hour)
+	if err != nil {
+		t.Fatalf("issue(session) error = %v", err)
+	}
+	legacy, err := p.grants.issue(ctx, emailSubject, "openid", defaultOAuthClientID, grantCategoryAPIToken, time.Hour)
+	if err != nil {
+		t.Fatalf("issue(legacy API token) error = %v", err)
+	}
+	callCtx := gestalt.WithTrustedCallerSubject(ctx, canonicalSubject)
+	callCtx = gestalt.WithIdentityCallContext(callCtx, gestalt.IdentityCallContext{
+		CallerBearerToken: session.accessToken,
+	})
+
+	listResp, err := p.ListGrants(callCtx, &gestalt.ListGrantsRequest{})
+	if err != nil {
+		t.Fatalf("ListGrants() error = %v", err)
+	}
+	if len(listResp.GrantIDs) != 1 || listResp.GrantIDs[0] != legacy.grantID {
+		t.Fatalf("ListGrants() = %v, want [%q]", listResp.GrantIDs, legacy.grantID)
+	}
+	if _, err := p.GetGrant(callCtx, &gestalt.GetGrantRequest{GrantID: legacy.grantID}); err != nil {
+		t.Fatalf("GetGrant() error = %v", err)
+	}
+	if _, err := p.RevokeGrant(callCtx, &gestalt.RevokeGrantRequest{GrantID: legacy.grantID}); err != nil {
+		t.Fatalf("RevokeGrant() error = %v", err)
 	}
 }
 
@@ -924,7 +1319,8 @@ func TestTokenExchangeExpiresIn(t *testing.T) {
 			if err != nil {
 				t.Fatalf("issue() error = %v", err)
 			}
-			tokenResp, err := p.Token(ctx, &gestalt.TokenRequest{
+			exchangeCtx := gestalt.WithTrustedCallerSubject(ctx, subject)
+			tokenResp, err := p.Token(exchangeCtx, &gestalt.TokenRequest{
 				GrantType:        grantTypeTokenExchange,
 				SubjectToken:     issued.accessToken,
 				SubjectTokenType: subjectTokenTypeAccessToken,
@@ -960,7 +1356,8 @@ func TestTokenExchangeStoresGrantName(t *testing.T) {
 		t.Fatalf("issue(session) error = %v", err)
 	}
 
-	tokenResp, err := p.Token(ctx, &gestalt.TokenRequest{
+	exchangeCtx := gestalt.WithTrustedCallerSubject(ctx, subject)
+	tokenResp, err := p.Token(exchangeCtx, &gestalt.TokenRequest{
 		GrantType:        grantTypeTokenExchange,
 		SubjectToken:     session.accessToken,
 		SubjectTokenType: subjectTokenTypeAccessToken,
@@ -983,7 +1380,7 @@ func TestTokenExchangeStoresGrantName(t *testing.T) {
 		t.Fatalf("GetGrant() name = %q, want Workspace assistant", grant.Name)
 	}
 
-	unnamed, err := p.Token(ctx, &gestalt.TokenRequest{
+	unnamed, err := p.Token(exchangeCtx, &gestalt.TokenRequest{
 		GrantType:        grantTypeTokenExchange,
 		SubjectToken:     session.accessToken,
 		SubjectTokenType: subjectTokenTypeAccessToken,
@@ -1077,9 +1474,57 @@ func TestIssueFailsWhenTokenHashAddFails(t *testing.T) {
 	if issued != nil {
 		t.Fatalf("issue() = %#v, want nil on failure", issued)
 	}
-	ids := store.listGrantIDs(ctx, []string{"user:fail@example.com"})
+	ids, err := store.listGrantIDs(ctx, []string{"user:fail@example.com"})
+	if err != nil {
+		t.Fatalf("listGrantIDs() error = %v", err)
+	}
 	if len(ids) != 0 {
 		t.Fatalf("listGrantIDs() = %v, want no grants after aborted issue", ids)
+	}
+}
+
+func TestIssueFailsWhenGrantOwnerAddFails(t *testing.T) {
+	ctx := context.Background()
+	db := oidcfake.NewIndexedDB()
+	db.TransactionAddHook = func(storeName string, _ gestalt.Record) error {
+		if storeName == grantOwnerStoreName {
+			return errors.New("grant owner add failed")
+		}
+		return nil
+	}
+	store, err := openGrantStore(ctx, db, time.Now)
+	if err != nil {
+		t.Fatalf("openGrantStore() error = %v", err)
+	}
+	issued, err := store.issueNamedWithOwner(
+		ctx,
+		"user:owner@example.com",
+		"user:11111111-1111-1111-1111-111111111111",
+		"openid",
+		defaultOAuthClientID,
+		grantCategoryAPIToken,
+		time.Hour,
+		"named-token",
+	)
+	if err == nil {
+		t.Fatal("issueNamedWithOwner() error = nil, want owner add failure")
+	}
+	if issued != nil {
+		t.Fatalf("issueNamedWithOwner() = %#v, want nil on failure", issued)
+	}
+	grantRecords, err := db.ObjectStore(grantStoreName).GetAll(ctx, nil)
+	if err != nil {
+		t.Fatalf("list grants after aborted issue: %v", err)
+	}
+	if len(grantRecords) != 0 {
+		t.Fatalf("grant records after aborted issue = %v, want none", grantRecords)
+	}
+	tokenRecords, err := db.ObjectStore(tokenHashStoreName).GetAll(ctx, nil)
+	if err != nil {
+		t.Fatalf("list token hashes after aborted issue: %v", err)
+	}
+	if len(tokenRecords) != 0 {
+		t.Fatalf("token records after aborted issue = %v, want none", tokenRecords)
 	}
 }
 
@@ -1100,7 +1545,10 @@ func TestIssueFailsWhenTransactionCommitFails(t *testing.T) {
 	if issued != nil {
 		t.Fatalf("issue() = %#v, want nil on failure", issued)
 	}
-	ids := store.listGrantIDs(ctx, []string{"user:fail@example.com"})
+	ids, err := store.listGrantIDs(ctx, []string{"user:fail@example.com"})
+	if err != nil {
+		t.Fatalf("listGrantIDs() error = %v", err)
+	}
 	if len(ids) != 0 {
 		t.Fatalf("listGrantIDs() = %v, want no grants after failed commit", ids)
 	}

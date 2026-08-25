@@ -412,7 +412,7 @@ func (p *Provider) tokenExchange(ctx context.Context, req *gestalt.TokenRequest)
 		return nil, err
 	}
 	if introspectResp == nil || !introspectResp.Active || strings.TrimSpace(introspectResp.Subject) == "" {
-		return nil, fmt.Errorf("oidc auth: subject_token is inactive")
+		return nil, gestalt.Unauthenticated("oidc auth: subject_token is inactive")
 	}
 	clientID := strings.TrimSpace(req.ClientID)
 	if clientID == "" {
@@ -426,7 +426,20 @@ func (p *Provider) tokenExchange(ctx context.Context, req *gestalt.TokenRequest)
 	if err != nil {
 		return nil, err
 	}
-	issued, err := p.grants.issueNamed(ctx, introspectResp.Subject, issuedScope, clientID, grantCategoryAPIToken, ttl, req.Name)
+	ownerSubject := p.callerOwnerSubject(ctx)
+	if ownerSubject == "" {
+		return nil, fmt.Errorf("oidc auth: verified caller subject is required for API token exchange")
+	}
+	issued, err := p.grants.issueNamedWithOwner(
+		ctx,
+		introspectResp.Subject,
+		ownerSubject,
+		issuedScope,
+		clientID,
+		grantCategoryAPIToken,
+		ttl,
+		req.Name,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -496,7 +509,11 @@ func (p *Provider) ListGrants(ctx context.Context, _ *gestalt.ListGrantsRequest)
 	if err != nil {
 		return nil, err
 	}
-	return &gestalt.ListGrantsResponse{GrantIDs: grants.listGrantIDs(ctx, subjects)}, nil
+	grantIDs, err := grants.listGrantIDs(ctx, subjects)
+	if err != nil {
+		return nil, err
+	}
+	return &gestalt.ListGrantsResponse{GrantIDs: grantIDs}, nil
 }
 
 func (p *Provider) GetGrant(ctx context.Context, req *gestalt.GetGrantRequest) (*gestalt.GetGrantResponse, error) {
@@ -537,6 +554,21 @@ func (p *Provider) grantStore() (*grantStore, error) {
 		return nil, fmt.Errorf("oidc auth: provider is not configured")
 	}
 	return p.grants, nil
+}
+
+// callerOwnerSubject is the stable, host-verified identity used for grant
+// management. It is deliberately separate from the provider-native token
+// subject, which must remain intact for introspection and UserInfo claims.
+func (p *Provider) callerOwnerSubject(ctx context.Context) string {
+	if subject := strings.TrimSpace(gestalt.TrustedCallerSubjectFromContext(ctx)); subject != "" {
+		return subject
+	}
+	call := gestalt.IdentityCallContextFromContext(ctx)
+	if subject := strings.TrimSpace(call.CallerSubjectID); subject != "" {
+		return subject
+	}
+	call = gestalt.IdentityCallContextFromContext(gestalt.AuthCallContextFromIncoming(ctx))
+	return strings.TrimSpace(call.CallerSubjectID)
 }
 
 func (p *Provider) callerSubject(ctx context.Context) (string, error) {
