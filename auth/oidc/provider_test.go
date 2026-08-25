@@ -485,6 +485,50 @@ func TestTokenExchangeRejectsInactiveSubjectToken(t *testing.T) {
 	}
 }
 
+func TestTokenExchangeRequiresVerifiedManagementOwner(t *testing.T) {
+	ctx := context.Background()
+	p := New()
+	db := attachGrantStoreWithDB(t, p)
+	session, err := p.grants.issue(ctx, "user:owner@example.com", "openid", defaultOAuthClientID, grantCategorySession, time.Hour)
+	if err != nil {
+		t.Fatalf("issue(session) error = %v", err)
+	}
+	grantRecordsBefore, err := db.ObjectStore(grantStoreName).GetAll(ctx, nil)
+	if err != nil {
+		t.Fatalf("list grants before exchange: %v", err)
+	}
+	tokenRecordsBefore, err := db.ObjectStore(tokenHashStoreName).GetAll(ctx, nil)
+	if err != nil {
+		t.Fatalf("list token hashes before exchange: %v", err)
+	}
+
+	_, err = p.Token(ctx, &gestalt.TokenRequest{
+		GrantType:        grantTypeTokenExchange,
+		SubjectToken:     session.accessToken,
+		SubjectTokenType: subjectTokenTypeAccessToken,
+	})
+	if err == nil {
+		t.Fatal("Token() error = nil, want verified owner requirement")
+	}
+	if !strings.Contains(err.Error(), "verified caller subject is required") {
+		t.Fatalf("Token() error = %v, want verified owner error", err)
+	}
+	grantRecordsAfter, err := db.ObjectStore(grantStoreName).GetAll(ctx, nil)
+	if err != nil {
+		t.Fatalf("list grants after exchange: %v", err)
+	}
+	if len(grantRecordsAfter) != len(grantRecordsBefore) {
+		t.Fatalf("grant count after rejected exchange = %d, want %d", len(grantRecordsAfter), len(grantRecordsBefore))
+	}
+	tokenRecordsAfter, err := db.ObjectStore(tokenHashStoreName).GetAll(ctx, nil)
+	if err != nil {
+		t.Fatalf("list token hashes after exchange: %v", err)
+	}
+	if len(tokenRecordsAfter) != len(tokenRecordsBefore) {
+		t.Fatalf("token hash count after rejected exchange = %d, want %d", len(tokenRecordsAfter), len(tokenRecordsBefore))
+	}
+}
+
 func TestPendingOAuthCorrelatesByState(t *testing.T) {
 	p := New()
 	attachGrantStore(t, p)
@@ -924,7 +968,8 @@ func TestTokenExchangeAttenuatesScope(t *testing.T) {
 				t.Fatalf("listGrantIDs(before) error = %v", err)
 			}
 
-			tokenResp, err := p.Token(ctx, &gestalt.TokenRequest{
+			exchangeCtx := gestalt.WithTrustedCallerSubject(ctx, subject)
+			tokenResp, err := p.Token(exchangeCtx, &gestalt.TokenRequest{
 				GrantType:        grantTypeTokenExchange,
 				SubjectToken:     issued.accessToken,
 				SubjectTokenType: subjectTokenTypeAccessToken,
@@ -1198,7 +1243,8 @@ func TestTokenExchangeExpiresIn(t *testing.T) {
 			if err != nil {
 				t.Fatalf("issue() error = %v", err)
 			}
-			tokenResp, err := p.Token(ctx, &gestalt.TokenRequest{
+			exchangeCtx := gestalt.WithTrustedCallerSubject(ctx, subject)
+			tokenResp, err := p.Token(exchangeCtx, &gestalt.TokenRequest{
 				GrantType:        grantTypeTokenExchange,
 				SubjectToken:     issued.accessToken,
 				SubjectTokenType: subjectTokenTypeAccessToken,
@@ -1234,7 +1280,8 @@ func TestTokenExchangeStoresGrantName(t *testing.T) {
 		t.Fatalf("issue(session) error = %v", err)
 	}
 
-	tokenResp, err := p.Token(ctx, &gestalt.TokenRequest{
+	exchangeCtx := gestalt.WithTrustedCallerSubject(ctx, subject)
+	tokenResp, err := p.Token(exchangeCtx, &gestalt.TokenRequest{
 		GrantType:        grantTypeTokenExchange,
 		SubjectToken:     session.accessToken,
 		SubjectTokenType: subjectTokenTypeAccessToken,
@@ -1257,7 +1304,7 @@ func TestTokenExchangeStoresGrantName(t *testing.T) {
 		t.Fatalf("GetGrant() name = %q, want Workspace assistant", grant.Name)
 	}
 
-	unnamed, err := p.Token(ctx, &gestalt.TokenRequest{
+	unnamed, err := p.Token(exchangeCtx, &gestalt.TokenRequest{
 		GrantType:        grantTypeTokenExchange,
 		SubjectToken:     session.accessToken,
 		SubjectTokenType: subjectTokenTypeAccessToken,

@@ -426,10 +426,14 @@ func (p *Provider) tokenExchange(ctx context.Context, req *gestalt.TokenRequest)
 	if err != nil {
 		return nil, err
 	}
+	ownerSubject := p.callerOwnerSubject(ctx)
+	if ownerSubject == "" {
+		return nil, fmt.Errorf("oidc auth: verified caller subject is required for API token exchange")
+	}
 	issued, err := p.grants.issueNamedWithOwner(
 		ctx,
 		introspectResp.Subject,
-		p.callerOwnerSubject(ctx),
+		ownerSubject,
 		issuedScope,
 		clientID,
 		grantCategoryAPIToken,
