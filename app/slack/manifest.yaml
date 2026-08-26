@@ -18,7 +18,6 @@ spec:
       - conversations.list
       - users.conversations
       - users.list
-      - conversations.open
       - conversations.history
       - search.messages
       - users.info
