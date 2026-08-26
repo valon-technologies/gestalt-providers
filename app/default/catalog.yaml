@@ -1,5 +1,0 @@
-name: home
-operations:
-  - id: static
-    method: GET
-    transport: app

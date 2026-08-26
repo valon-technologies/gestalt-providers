@@ -467,27 +467,6 @@
         "entryKind": "app",
         "section": "app"
       },
-      "description": "Default Gestalt UI bundle served at /.",
-      "displayName": "Home",
-      "docs": [],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/default/assets/icon.svg",
-      "kind": "app",
-      "latestInstallableVersion": null,
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/default/manifest.yaml",
-      "manifestVersion": "0.0.1-alpha.2",
-      "name": "default",
-      "package": "github.com/valon-technologies/gestalt-providers/app/default",
-      "packagePath": "app/default",
-      "readmeUrl": null,
-      "registryPath": "/providers/app/default/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/default",
-      "versions": []
-    },
-    {
-      "configTarget": {
-        "entryKind": "app",
-        "section": "app"
-      },
       "description": "Read, search, and edit Excalidraw+ scenes via the official hosted MCP server.",
       "displayName": "Excalidraw+",
       "docs": [
