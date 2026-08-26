@@ -1189,6 +1189,32 @@ class SlackProviderTests(unittest.TestCase):
             ["array"],
         )
 
+    def test_manifest_default_operations_are_read_only(self) -> None:
+        manifest = yaml.safe_load((PLUGIN_DIR / "manifest.yaml").read_text())
+        rest_ops = {
+            operation["name"]: operation
+            for operation in manifest["spec"]["surfaces"]["rest"]["operations"]
+        }
+        default_operations = manifest["spec"]["access"]["defaultOperations"]
+        expected_operations = {
+            "conversations.list",
+            "users.conversations",
+            "users.list",
+            "conversations.history",
+            "search.messages",
+            "users.info",
+            "users.lookupByEmail",
+            "files.info",
+            "conversations.replies",
+        }
+
+        self.assertEqual(set(default_operations), expected_operations)
+        self.assertEqual(len(default_operations), len(expected_operations))
+        self.assertNotIn("conversations.open", default_operations)
+        self.assertTrue(
+            all(rest_ops[name]["method"] == "GET" for name in default_operations)
+        )
+
     def test_manifest_models_bot_connection_as_user_owned_bearer(self) -> None:
         manifest = yaml.safe_load((PLUGIN_DIR / "manifest.yaml").read_text())
         rest_ops = {
