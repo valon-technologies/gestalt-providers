@@ -295,12 +295,10 @@ def validate_catalog(repo_root: pathlib.Path, index: dict[str, Any], catalog: di
     ]
     if not generic_versions:
         raise SystemExit("provider index does not include a generic artifact target")
-    app_default = provider_by_package.get(SOURCE_PREFIX + "app/default")
-    if not app_default:
-        raise SystemExit("catalog missing app/default")
-    app_default_target = app_default.get("configTarget") or {}
-    if app_default_target.get("entryKind") != "app" or app_default_target.get("section") != "app":
-        raise SystemExit("catalog app/default configTarget must target apps")
+    if SOURCE_PREFIX + "app/default" in provider_by_package:
+        raise SystemExit(
+            "catalog must not include app/default; the default homepage is maintained outside this provider repository"
+        )
     validate_icon_assets(repo_root, catalog)
     validate_provider_docs(repo_root, catalog)
 

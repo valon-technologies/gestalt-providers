@@ -72,4 +72,8 @@ vulture-ignore-names = [
   "bot_list_org_members",
   "bot_list_repo_contributors",
   "bot_get_user",
+  "bot_list_directory_contents",
+  "bot_list_matching_refs",
+  "bot_list_tags",
+  "bot_create_ref",
 ]

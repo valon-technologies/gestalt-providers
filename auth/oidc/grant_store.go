@@ -18,13 +18,19 @@ import (
 )
 
 const (
-	grantStoreName        = "authentication_grants"
-	tokenHashStoreName    = "authentication_token_hashes"
-	pendingOAuthStoreName = "authentication_pending_oauth"
-	grantIndexBySubject   = "by_subject"
-	tokenIndexByGrantID   = "by_grant_id"
-	grantCategorySession  = "session"
-	grantCategoryAPIToken = "api_token"
+	grantStoreName              = "authentication_grants"
+	grantOwnerStoreName         = "authentication_grant_owners"
+	grantOwnershipModeStoreName = "authentication_grant_ownership_modes"
+	tokenHashStoreName          = "authentication_token_hashes"
+	pendingOAuthStoreName       = "authentication_pending_oauth"
+	grantIndexBySubject         = "by_subject"
+	grantIndexByOwnerSubject    = "by_owner_subject"
+	tokenIndexByGrantID         = "by_grant_id"
+	grantCategorySession        = "session"
+	grantCategoryAPIToken       = "api_token"
+	grantOwnershipLegacy        = "legacy_provider_subject"
+	grantOwnershipCanonical     = "canonical_owner"
+	grantOwnershipUnmanaged     = "unmanaged"
 )
 
 const defaultOAuthClientID = "gestaltd"
@@ -32,6 +38,8 @@ const defaultOAuthClientID = "gestaltd"
 type grantStore struct {
 	db      indexeddb.Database
 	grants  indexeddb.ObjectStore
+	owners  indexeddb.ObjectStore
+	modes   indexeddb.ObjectStore
 	tokens  indexeddb.ObjectStore
 	pending indexeddb.ObjectStore
 	now     func() time.Time
@@ -53,6 +61,8 @@ func openGrantStore(ctx context.Context, db indexeddb.Database, now func() time.
 	return &grantStore{
 		db:      db,
 		grants:  db.ObjectStore(grantStoreName),
+		owners:  db.ObjectStore(grantOwnerStoreName),
+		modes:   db.ObjectStore(grantOwnershipModeStoreName),
 		tokens:  db.ObjectStore(tokenHashStoreName),
 		pending: db.ObjectStore(pendingOAuthStoreName),
 		now:     now,
@@ -73,6 +83,28 @@ func grantStoreSchema() gestalt.ObjectStoreOptions {
 			{Name: "expires_at", Type: gestalt.TypeTime, NotNull: true},
 			{Name: "revoked", Type: gestalt.TypeBool, NotNull: true},
 			{Name: "category", Type: gestalt.TypeString, NotNull: true},
+			{Name: "name", Type: gestalt.TypeString},
+		},
+	}
+}
+
+func grantOwnerStoreSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
+		Indexes: []gestalt.IndexSchema{
+			{Name: grantIndexByOwnerSubject, KeyPath: []string{"owner_subject"}},
+		},
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
+			{Name: "owner_subject", Type: gestalt.TypeString, NotNull: true},
+		},
+	}
+}
+
+func grantOwnershipModeStoreSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
+			{Name: "mode", Type: gestalt.TypeString, NotNull: true},
 		},
 	}
 }
@@ -191,6 +223,10 @@ func (s *grantStore) evictExpiredPendingOAuth(ctx context.Context) error {
 }
 
 func (s *grantStore) issue(ctx context.Context, subject, scope, clientID, category string, ttl time.Duration) (*issuedGrant, error) {
+	return s.issueNamedWithOwner(ctx, subject, "", scope, clientID, category, ttl, "")
+}
+
+func (s *grantStore) issueNamedWithOwner(ctx context.Context, subject, ownerSubject, scope, clientID, category string, ttl time.Duration, name string) (*issuedGrant, error) {
 	if strings.TrimSpace(clientID) == "" {
 		clientID = defaultOAuthClientID
 	}
@@ -205,10 +241,22 @@ func (s *grantStore) issue(ctx context.Context, subject, scope, clientID, catego
 	grantID := "grant-" + uuid.NewString()
 	accessToken := generateOpaqueToken()
 	tokenHash := hashToken(accessToken)
+	grantName := strings.TrimSpace(name)
+	ownerSubject = strings.TrimSpace(ownerSubject)
+	ownershipMode := grantOwnershipLegacy
+	if ownerSubject != "" {
+		ownershipMode = grantOwnershipCanonical
+	} else if category == grantCategorySession {
+		ownershipMode = grantOwnershipUnmanaged
+	}
+	transactionStores := []string{grantStoreName, tokenHashStoreName, grantOwnershipModeStoreName}
+	if ownerSubject != "" {
+		transactionStores = append(transactionStores, grantOwnerStoreName)
+	}
 
 	tx, err := s.db.Transaction(
 		ctx,
-		[]string{grantStoreName, tokenHashStoreName},
+		transactionStores,
 		indexeddb.TransactionReadwrite,
 		indexeddb.TransactionOptions{},
 	)
@@ -226,6 +274,7 @@ func (s *grantStore) issue(ctx context.Context, subject, scope, clientID, catego
 		"expires_at": expiresAt,
 		"revoked":    false,
 		"category":   category,
+		"name":       grantName,
 	}); err != nil {
 		_ = tx.Abort(ctx)
 		return nil, fmt.Errorf("oidc auth: persist grant: %w", err)
@@ -240,6 +289,24 @@ func (s *grantStore) issue(ctx context.Context, subject, scope, clientID, catego
 	}); err != nil {
 		_ = tx.Abort(ctx)
 		return nil, fmt.Errorf("oidc auth: persist token hash: %w", err)
+	}
+	modeStore := tx.ObjectStore(grantOwnershipModeStoreName)
+	if err := modeStore.Add(ctx, gestalt.Record{
+		"id":   grantID,
+		"mode": ownershipMode,
+	}); err != nil {
+		_ = tx.Abort(ctx)
+		return nil, fmt.Errorf("oidc auth: persist grant ownership mode: %w", err)
+	}
+	if ownerSubject != "" {
+		ownerStore := tx.ObjectStore(grantOwnerStoreName)
+		if err := ownerStore.Add(ctx, gestalt.Record{
+			"id":            grantID,
+			"owner_subject": ownerSubject,
+		}); err != nil {
+			_ = tx.Abort(ctx)
+			return nil, fmt.Errorf("oidc auth: persist grant owner: %w", err)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("oidc auth: commit grant transaction: %w", err)
@@ -274,32 +341,75 @@ func (s *grantStore) introspect(ctx context.Context, token string) gestalt.Intro
 	}
 }
 
-func (s *grantStore) listGrantIDs(ctx context.Context, subject string) []string {
-	records, err := s.grants.Index(grantIndexBySubject).GetAll(ctx, subject)
-	if errors.Is(err, gestalt.ErrNotFound) {
-		return nil
-	}
-	if err != nil {
-		return nil
-	}
+func (s *grantStore) listGrantIDs(ctx context.Context, subjects []string) ([]string, error) {
 	now := s.currentTime()
-	ids := make([]string, 0, len(records))
-	for _, record := range records {
-		if recordString(record, "category") != grantCategoryAPIToken {
+	ids := make([]string, 0)
+	seen := map[string]bool{}
+	for _, subject := range subjects {
+		subject = strings.TrimSpace(subject)
+		if subject == "" {
 			continue
 		}
-		if recordBool(record, "revoked") || !recordTime(record, "expires_at").After(now) {
+		ownerRecords, err := s.owners.Index(grantIndexByOwnerSubject).GetAll(ctx, subject)
+		if err != nil && !errors.Is(err, gestalt.ErrNotFound) {
+			return nil, fmt.Errorf("oidc auth: list grant owners for subject %q: %w", subject, err)
+		}
+		for _, ownerRecord := range ownerRecords {
+			grantID := recordString(ownerRecord, "id")
+			if grantID == "" {
+				continue
+			}
+			record, err := s.grants.Get(ctx, grantID)
+			if errors.Is(err, gestalt.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return nil, fmt.Errorf("oidc auth: get owned grant %q: %w", grantID, err)
+			}
+			owned, err := s.grantOwnedBy(ctx, record, subjects)
+			if err != nil {
+				return nil, err
+			}
+			if owned {
+				ids = appendListableGrantID(ids, seen, record, now)
+			}
+		}
+
+		records, err := s.grants.Index(grantIndexBySubject).GetAll(ctx, subject)
+		if errors.Is(err, gestalt.ErrNotFound) {
 			continue
 		}
-		if id := recordString(record, "id"); id != "" {
-			ids = append(ids, id)
+		if err != nil {
+			return nil, fmt.Errorf("oidc auth: list grants for subject %q: %w", subject, err)
+		}
+		for _, record := range records {
+			owned, err := s.grantOwnedBy(ctx, record, subjects)
+			if err != nil {
+				return nil, err
+			}
+			if owned {
+				ids = appendListableGrantID(ids, seen, record, now)
+			}
 		}
 	}
 	sort.Strings(ids)
+	return ids, nil
+}
+
+func appendListableGrantID(ids []string, seen map[string]bool, record gestalt.Record, now time.Time) []string {
+	if recordString(record, "category") != grantCategoryAPIToken ||
+		recordBool(record, "revoked") ||
+		!recordTime(record, "expires_at").After(now) {
+		return ids
+	}
+	if id := recordString(record, "id"); id != "" && !seen[id] {
+		seen[id] = true
+		return append(ids, id)
+	}
 	return ids
 }
 
-func (s *grantStore) getGrant(ctx context.Context, grantID, subject string) (*gestalt.GetGrantResponse, error) {
+func (s *grantStore) getGrant(ctx context.Context, grantID string, subjects []string) (*gestalt.GetGrantResponse, error) {
 	record, err := s.grants.Get(ctx, grantID)
 	if err != nil {
 		if errors.Is(err, gestalt.ErrNotFound) {
@@ -307,7 +417,11 @@ func (s *grantStore) getGrant(ctx context.Context, grantID, subject string) (*ge
 		}
 		return nil, fmt.Errorf("oidc auth: get grant %q: %w", grantID, err)
 	}
-	if recordString(record, "subject") != subject || recordBool(record, "revoked") {
+	owned, err := s.grantOwnedBy(ctx, record, subjects)
+	if err != nil {
+		return nil, err
+	}
+	if !owned || recordBool(record, "revoked") {
 		return nil, grantNotFound(grantID)
 	}
 	if recordString(record, "category") != grantCategoryAPIToken {
@@ -319,7 +433,7 @@ func (s *grantStore) getGrant(ctx context.Context, grantID, subject string) (*ge
 	return grantResponseFromRecord(record), nil
 }
 
-func (s *grantStore) revokeGrant(ctx context.Context, grantID, subject string) error {
+func (s *grantStore) revokeGrant(ctx context.Context, grantID string, subjects []string) error {
 	record, err := s.grants.Get(ctx, grantID)
 	if err != nil {
 		if errors.Is(err, gestalt.ErrNotFound) {
@@ -327,7 +441,11 @@ func (s *grantStore) revokeGrant(ctx context.Context, grantID, subject string) e
 		}
 		return fmt.Errorf("oidc auth: get grant %q: %w", grantID, err)
 	}
-	if recordString(record, "subject") != subject {
+	owned, err := s.grantOwnedBy(ctx, record, subjects)
+	if err != nil {
+		return err
+	}
+	if !owned {
 		return grantNotFound(grantID)
 	}
 	if recordString(record, "category") != grantCategoryAPIToken {
@@ -349,6 +467,72 @@ func (s *grantStore) revokeGrant(ctx context.Context, grantID, subject string) e
 	return nil
 }
 
+func (s *grantStore) grantOwnedBy(ctx context.Context, grantRecord gestalt.Record, subjects []string) (bool, error) {
+	grantID := recordString(grantRecord, "id")
+	ownershipMode, hasMode, err := s.grantOwnershipMode(ctx, grantID)
+	if err != nil {
+		return false, err
+	}
+	ownerRecord, hasOwner, err := s.grantOwnerRecord(ctx, grantID)
+	if err != nil {
+		return false, err
+	}
+	if ownershipMode == grantOwnershipCanonical || (!hasMode && hasOwner) {
+		// Once the owner projection exists, it is the sole management identity.
+		// Provider-native subjects remain valid for legacy grants below, but they
+		// must not bypass an explicit canonical owner.
+		if !hasOwner {
+			return false, fmt.Errorf("oidc auth: owner projection missing for canonical grant %q", grantID)
+		}
+		return subjectMatches(recordString(ownerRecord, "owner_subject"), subjects), nil
+	}
+	if ownershipMode == grantOwnershipUnmanaged || (!hasMode && recordString(grantRecord, "category") == grantCategorySession) {
+		return false, nil
+	}
+	if ownershipMode != grantOwnershipLegacy && ownershipMode != "" {
+		return false, fmt.Errorf("oidc auth: unknown grant ownership mode %q for grant %q", ownershipMode, grantID)
+	}
+	if hasOwner {
+		return false, fmt.Errorf("oidc auth: owner projection missing for canonical grant %q", grantID)
+	}
+	// Grants created before the owner projection existed retain their
+	// provider-native subject. Session grants are intentionally unmanaged; any
+	// other ownerless grant is a legacy management grant.
+	return subjectMatches(recordString(grantRecord, "subject"), subjects), nil
+}
+
+func (s *grantStore) grantOwnershipMode(ctx context.Context, grantID string) (string, bool, error) {
+	modeRecord, err := s.modes.Get(ctx, grantID)
+	if errors.Is(err, gestalt.ErrNotFound) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("oidc auth: get grant ownership mode %q: %w", grantID, err)
+	}
+	return strings.TrimSpace(recordString(modeRecord, "mode")), true, nil
+}
+
+func (s *grantStore) grantOwnerRecord(ctx context.Context, grantID string) (gestalt.Record, bool, error) {
+	ownerRecord, err := s.owners.Get(ctx, grantID)
+	if errors.Is(err, gestalt.ErrNotFound) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("oidc auth: get grant owner %q: %w", grantID, err)
+	}
+	return ownerRecord, true, nil
+}
+
+func subjectMatches(subject string, allowed []string) bool {
+	subject = strings.TrimSpace(subject)
+	for _, candidate := range allowed {
+		if subject == strings.TrimSpace(candidate) {
+			return true
+		}
+	}
+	return false
+}
+
 func grantNotFound(grantID string) error {
 	return gestalt.NotFound(fmt.Sprintf("grant %q not found", grantID))
 }
@@ -357,6 +541,7 @@ func grantResponseFromRecord(record gestalt.Record) *gestalt.GetGrantResponse {
 	resp := &gestalt.GetGrantResponse{
 		CreatedAt: recordTime(record, "created_at").Unix(),
 		ExpiresAt: recordTime(record, "expires_at").Unix(),
+		Name:      strings.TrimSpace(recordString(record, "name")),
 	}
 	if scope := strings.TrimSpace(recordString(record, "scope")); scope != "" {
 		for _, part := range strings.Fields(scope) {

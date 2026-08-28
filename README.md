@@ -11,6 +11,9 @@ Official provider packages for [Gestalt](https://github.com/valon-technologies/g
 Each provider is independently versioned, tested, and released as a
 cross-platform artifact that `gestaltd` resolves at runtime.
 
+Product consoles and homepages that consume these providers are maintained
+separately from this repository. This repository does not publish product UI.
+
 ## Documentation
 
 - [Getting Started](https://gestaltd.ai/getting-started): run Gestalt in five minutes
@@ -37,7 +40,7 @@ python3 .github/scripts/generate_provider_index.py
 ### Repository Layout
 
 ```
-app/<name>/       Integration app packages (Go, Python)
+app/<name>/       Integration app packages, including frontend-only bundles
 agent/<name>/         Agent providers (Python, Go)
 runtime/<name>/       Hosted runtime backend packages (Go)
 auth/<name>/          Authentication providers (Go)
@@ -48,7 +51,6 @@ indexeddb/<name>/     IndexedDB providers (Go, Rust)
 workflow/<name>/      Workflow providers (Go)
 cache/<name>/         Cache providers (Go)
 secrets/<name>/       Secrets providers (Go)
-app/<name>/           Apps (including frontend-only static bundles)
 ```
 
 Every provider requires a
