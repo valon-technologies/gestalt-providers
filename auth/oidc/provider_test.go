@@ -843,11 +843,13 @@ func TestTokenExchangeGrantOwner(t *testing.T) {
 	otherSubject := "user:22222222-2222-2222-2222-222222222222"
 
 	tests := []struct {
-		name        string
-		exchangeCtx func(context.Context) context.Context
-		listCtx     func(context.Context) context.Context
-		wantOwner   string
-		wantHidden  []string
+		name         string
+		grantSubject string
+		exchangeCtx  func(context.Context) context.Context
+		listCtx      func(context.Context) context.Context
+		wantOwner    string
+		wantHidden   []string
+		wantErr      string
 	}{
 		{
 			name: "host trusted caller subject",
@@ -902,6 +904,29 @@ func TestTokenExchangeGrantOwner(t *testing.T) {
 			wantOwner:  emailSubject,
 			wantHidden: []string{canonicalSubject},
 		},
+		{
+			name:         "grant subject overrides caller",
+			grantSubject: "service_account:ingress-verify-probe",
+			exchangeCtx: func(ctx context.Context) context.Context {
+				return gestalt.WithTrustedCallerSubject(ctx, canonicalSubject)
+			},
+			listCtx: func(ctx context.Context) context.Context {
+				return gestalt.WithTrustedCallerSubject(ctx, "service_account:ingress-verify-probe")
+			},
+			wantOwner:  "service_account:ingress-verify-probe",
+			wantHidden: []string{emailSubject, canonicalSubject},
+		},
+		{
+			name:         "grant subject without trusted caller is rejected",
+			grantSubject: "service_account:ingress-verify-probe",
+			exchangeCtx: func(ctx context.Context) context.Context {
+				return ctx
+			},
+			listCtx: func(ctx context.Context) context.Context {
+				return ctx
+			},
+			wantErr: "grant_subject requires a trusted caller subject",
+		},
 	}
 
 	for _, tt := range tests {
@@ -919,7 +944,14 @@ func TestTokenExchangeGrantOwner(t *testing.T) {
 				GrantType:        grantTypeTokenExchange,
 				SubjectToken:     session.accessToken,
 				SubjectTokenType: subjectTokenTypeAccessToken,
+				GrantSubject:     tt.grantSubject,
 			})
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("Token() error = %v, want containing %q", err, tt.wantErr)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("Token() error = %v", err)
 			}

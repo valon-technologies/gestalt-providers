@@ -426,7 +426,11 @@ func (p *Provider) tokenExchange(ctx context.Context, req *gestalt.TokenRequest)
 	if err != nil {
 		return nil, err
 	}
-	issued, err := p.grants.issue(ctx, p.grantOwnerForIssue(ctx, introspectResp.Subject, req.GrantSubject), issuedScope, clientID, grantCategoryAPIToken, ttl)
+	owner, err := p.grantOwnerForIssue(ctx, introspectResp.Subject, req.GrantSubject)
+	if err != nil {
+		return nil, err
+	}
+	issued, err := p.grants.issue(ctx, owner, issuedScope, clientID, grantCategoryAPIToken, ttl)
 	if err != nil {
 		return nil, err
 	}
@@ -545,14 +549,17 @@ func (p *Provider) grantStore() (*grantStore, error) {
 // grants by the canonical subject when grantSubject is empty. Token-only
 // callers (CLI) have no canonical caller, so the grant stays under the
 // subject_token's stored subject.
-func (p *Provider) grantOwnerForIssue(ctx context.Context, tokenSubject string, grantSubject string) string {
+func (p *Provider) grantOwnerForIssue(ctx context.Context, tokenSubject string, grantSubject string) (string, error) {
 	if subject := strings.TrimSpace(grantSubject); subject != "" {
-		return subject
+		if caller := strings.TrimSpace(gestalt.TrustedCallerSubjectFromContext(ctx)); caller != "" {
+			return subject, nil
+		}
+		return "", fmt.Errorf("oidc auth: grant_subject requires a trusted caller subject")
 	}
 	if caller, err := p.callerSubject(ctx); err == nil && caller != "" {
-		return caller
+		return caller, nil
 	}
-	return strings.TrimSpace(tokenSubject)
+	return strings.TrimSpace(tokenSubject), nil
 }
 
 func (p *Provider) callerSubject(ctx context.Context) (string, error) {
