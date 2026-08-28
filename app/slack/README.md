@@ -129,13 +129,15 @@ those as workflow steps that call `conversations.getThreadContext`,
 `events.addReaction`, `events.setAssistantStatus`, `events.setSuggestedPrompts`,
 or other Slack operations when the workflow needs that Slack-visible work.
 
-Slack should send Events API requests to `POST /api/v1/slack/event` and Slack
-interactivity requests to `POST /api/v1/slack/interactions`. Both routes are
-declared in `manifest.yaml` under `spec.http`, validate Slack HMAC signatures
-with `SLACK_SIGNING_SECRET`, and by default resolve the Slack team/user through
-the app-scoped `app/slack/user#linked` authorization relationship. Matching
-bot-selected agent routes with `runAs.subject` can instead resolve to the
-configured service account before linked-user lookup.
+Slack should send Events API requests to
+`POST /api/v1/slack/webhooks/event` and interactivity requests to
+`POST /api/v1/slack/webhooks/interactions`. The legacy `/event` and
+`/interactions` routes remain available for migration rollback. All four routes
+are declared in `manifest.yaml` under `spec.http`, validate Slack HMAC
+signatures with `SLACK_SIGNING_SECRET`, and by default resolve the Slack
+team/user through the app-scoped `app/slack/user#linked` authorization
+relationship. Matching bot-selected agent routes with `runAs.subject` can
+instead resolve to the configured service account before linked-user lookup.
 
 `events.handle`, `events.reply`, `events.setStatus`, `events.deleteStatus`,
 `events.addReaction`, `events.removeReaction`, the native assistant helpers,

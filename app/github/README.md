@@ -1,9 +1,11 @@
 # GitHub App Provider
 
 The GitHub app provider connects GitHub App webhooks and generic GitHub bot
-operations to Gestalt. Webhooks are accepted at `/github/event`, filtered, and
-delivered as canonical workflow events. The provider does not run built-in
-agent behavior from webhook delivery.
+operations to Gestalt. Webhooks are accepted at
+`POST /api/v1/github/webhooks/event`, filtered, and delivered as canonical
+workflow events. The legacy `POST /api/v1/github/event` route remains available
+for migration rollback. The provider does not run built-in agent behavior from
+webhook delivery.
 
 ## Configuration
 

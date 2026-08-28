@@ -395,6 +395,7 @@ class GitHubProviderTests(unittest.TestCase):
 
         spec = manifest["spec"]
         webhook = spec["http"]["event"]
+        webhook_alias = spec["http"]["webhook_event"]
         security = spec["securitySchemes"]["github_app"]
         default_connection = spec["connections"]["default"]
 
@@ -416,6 +417,13 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(webhook["security"], "github_app")
         self.assertEqual(webhook["target"], provider_module.GITHUB_EVENT_OPERATION)
         self.assertNotIn("ack", webhook)
+        self.assertEqual(webhook_alias["path"], "/webhooks/event")
+        self.assertEqual(webhook_alias["method"], "POST")
+        self.assertEqual(webhook_alias["credentialMode"], "none")
+        self.assertEqual(webhook_alias["security"], "github_app")
+        self.assertEqual(
+            webhook_alias["target"], provider_module.GITHUB_EVENT_OPERATION
+        )
         self.assertEqual(security["type"], "hmac")
         self.assertEqual(security["secret"]["env"], "GITHUB_WEBHOOK_SECRET")
         self.assertEqual(security["signatureHeader"], "X-Hub-Signature-256")

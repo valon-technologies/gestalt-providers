@@ -1160,8 +1160,22 @@ class SlackProviderTests(unittest.TestCase):
         self.assertNotIn("files.upload", rest_ops)
         self.assertNotIn("files.getUploadURLExternal", rest_ops)
         self.assertNotIn("files.completeUploadExternal", rest_ops)
+        self.assertEqual(http_routes["event"]["path"], "/event")
+        self.assertEqual(http_routes["event"]["security"], "slack")
+        self.assertEqual(http_routes["event"]["target"], "events.handle")
+        self.assertEqual(http_routes["webhook_event"]["path"], "/webhooks/event")
+        self.assertEqual(http_routes["webhook_event"]["security"], "slack")
+        self.assertEqual(http_routes["webhook_event"]["target"], "events.handle")
         self.assertEqual(http_routes["interactions"]["path"], "/interactions")
+        self.assertEqual(http_routes["interactions"]["security"], "slack")
         self.assertEqual(http_routes["interactions"]["target"], "interactions.handle")
+        self.assertEqual(
+            http_routes["webhook_interactions"]["path"], "/webhooks/interactions"
+        )
+        self.assertEqual(http_routes["webhook_interactions"]["security"], "slack")
+        self.assertEqual(
+            http_routes["webhook_interactions"]["target"], "interactions.handle"
+        )
 
         self.assertEqual(
             _manifest_parameter_types(
