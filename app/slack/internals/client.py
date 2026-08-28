@@ -83,7 +83,10 @@ def upload_bytes_to_slack_url(
     url: str, body: bytes, content_type: str = ""
 ) -> None:
     if not is_slack_file_upload_url(url):
-        raise SlackClientError("slack file upload URL must be a Slack HTTPS upload URL")
+        raise SlackAPIError(
+            HTTPStatus.BAD_REQUEST,
+            {"error": "slack file upload URL must be a Slack HTTPS upload URL"},
+        )
     request = urllib.request.Request(
         url=url,
         data=body,
@@ -109,7 +112,10 @@ def upload_bytes_to_slack_url(
 
 def get_bytes(url: str, token: str, max_bytes: int) -> tuple[bytes, bool]:
     if not is_slack_file_download_url(url):
-        raise SlackClientError("slack file download URL must be a Slack HTTPS file URL")
+        raise SlackAPIError(
+            HTTPStatus.BAD_REQUEST,
+            {"error": "slack file download URL must be a Slack HTTPS file URL"},
+        )
     request = urllib.request.Request(
         url=url,
         method="GET",
