@@ -426,7 +426,7 @@ func (p *Provider) tokenExchange(ctx context.Context, req *gestalt.TokenRequest)
 	if err != nil {
 		return nil, err
 	}
-	issued, err := p.grants.issue(ctx, p.grantOwnerForIssue(ctx, introspectResp.Subject), issuedScope, clientID, grantCategoryAPIToken, ttl)
+	issued, err := p.grants.issue(ctx, p.grantOwnerForIssue(ctx, introspectResp.Subject, req.GrantSubject), issuedScope, clientID, grantCategoryAPIToken, ttl)
 	if err != nil {
 		return nil, err
 	}
@@ -540,10 +540,15 @@ func (p *Provider) grantStore() (*grantStore, error) {
 }
 
 // grantOwnerForIssue picks the subject List/Get/Revoke will use for a new
-// API-token grant. A host-verified caller (Settings) owns grants by the
-// canonical subject. Token-only callers (CLI) have no canonical caller, so
-// the grant stays under the subject_token's stored subject.
-func (p *Provider) grantOwnerForIssue(ctx context.Context, tokenSubject string) string {
+// API-token grant. When grantSubject is set, the host has authorized minting
+// on behalf of that canonical subject. A host-verified caller (Settings) owns
+// grants by the canonical subject when grantSubject is empty. Token-only
+// callers (CLI) have no canonical caller, so the grant stays under the
+// subject_token's stored subject.
+func (p *Provider) grantOwnerForIssue(ctx context.Context, tokenSubject string, grantSubject string) string {
+	if subject := strings.TrimSpace(grantSubject); subject != "" {
+		return subject
+	}
 	if caller, err := p.callerSubject(ctx); err == nil && caller != "" {
 		return caller
 	}
