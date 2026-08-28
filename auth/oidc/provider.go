@@ -426,6 +426,32 @@ func (p *Provider) tokenExchange(ctx context.Context, req *gestalt.TokenRequest)
 	if err != nil {
 		return nil, err
 	}
+	grantSubject := strings.TrimSpace(req.GrantSubject)
+	if grantSubject != "" {
+		if p.callerOwnerSubject(ctx) == "" {
+			return nil, fmt.Errorf("oidc auth: grant_subject requires a trusted caller subject")
+		}
+		issued, err := p.grants.issueNamedWithOwner(
+			ctx,
+			grantSubject,
+			grantSubject,
+			issuedScope,
+			clientID,
+			grantCategoryAPIToken,
+			ttl,
+			req.Name,
+		)
+		if err != nil {
+			return nil, err
+		}
+		return &gestalt.TokenResponse{
+			AccessToken: issued.accessToken,
+			TokenType:   "Bearer",
+			ExpiresIn:   issued.expiresIn,
+			Scope:       issuedScope,
+			GrantID:     issued.grantID,
+		}, nil
+	}
 	ownerSubject := p.callerOwnerSubject(ctx)
 	if ownerSubject == "" {
 		return nil, fmt.Errorf("oidc auth: verified caller subject is required for API token exchange")

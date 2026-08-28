@@ -532,6 +532,80 @@ func TestTokenExchangeRequiresVerifiedManagementOwner(t *testing.T) {
 	}
 }
 
+func TestTokenExchangeGrantSubjectUsesCanonicalSubject(t *testing.T) {
+	emailSubject := "user:owner@example.com"
+	canonicalSubject := "user:11111111-1111-1111-1111-111111111111"
+	grantSubject := "service_account:ingress-verify-probe"
+	p := New()
+	attachGrantStore(t, p)
+	ctx := context.Background()
+	session, err := p.grants.issue(ctx, emailSubject, "openid", defaultOAuthClientID, grantCategorySession, time.Hour)
+	if err != nil {
+		t.Fatalf("issue(session) error = %v", err)
+	}
+	exchangeCtx := gestalt.WithTrustedCallerSubject(ctx, canonicalSubject)
+	tokenResp, err := p.Token(exchangeCtx, &gestalt.TokenRequest{
+		GrantType:        grantTypeTokenExchange,
+		SubjectToken:     session.accessToken,
+		SubjectTokenType: subjectTokenTypeAccessToken,
+		GrantSubject:     grantSubject,
+	})
+	if err != nil {
+		t.Fatalf("Token() error = %v", err)
+	}
+	introspectResp, err := p.Introspect(ctx, &gestalt.IntrospectRequest{Token: tokenResp.AccessToken})
+	if err != nil {
+		t.Fatalf("Introspect() error = %v", err)
+	}
+	if introspectResp.Subject != grantSubject {
+		t.Fatalf("Introspect() subject = %q, want %q", introspectResp.Subject, grantSubject)
+	}
+	ids, err := p.grants.listGrantIDs(ctx, []string{grantSubject})
+	if err != nil {
+		t.Fatalf("listGrantIDs(%q) error = %v", grantSubject, err)
+	}
+	if len(ids) != 1 || ids[0] != tokenResp.GrantID {
+		t.Fatalf("listGrantIDs(%q) = %v, want [%q]", grantSubject, ids, tokenResp.GrantID)
+	}
+	ids, err = p.grants.listGrantIDs(ctx, []string{emailSubject, canonicalSubject})
+	if err != nil {
+		t.Fatalf("listGrantIDs(hidden) error = %v", err)
+	}
+	if len(ids) != 0 {
+		t.Fatalf("listGrantIDs(hidden) = %v, want none", ids)
+	}
+	listCtx := gestalt.WithTrustedCallerSubject(ctx, grantSubject)
+	listResp, err := p.ListGrants(listCtx, &gestalt.ListGrantsRequest{})
+	if err != nil {
+		t.Fatalf("ListGrants() error = %v", err)
+	}
+	if len(listResp.GrantIDs) != 1 || listResp.GrantIDs[0] != tokenResp.GrantID {
+		t.Fatalf("ListGrants() = %v, want [%q]", listResp.GrantIDs, tokenResp.GrantID)
+	}
+}
+
+func TestTokenExchangeGrantSubjectRequiresTrustedCaller(t *testing.T) {
+	ctx := context.Background()
+	p := New()
+	attachGrantStore(t, p)
+	session, err := p.grants.issue(ctx, "user:owner@example.com", "openid", defaultOAuthClientID, grantCategorySession, time.Hour)
+	if err != nil {
+		t.Fatalf("issue(session) error = %v", err)
+	}
+	_, err = p.Token(ctx, &gestalt.TokenRequest{
+		GrantType:        grantTypeTokenExchange,
+		SubjectToken:     session.accessToken,
+		SubjectTokenType: subjectTokenTypeAccessToken,
+		GrantSubject:     "service_account:ingress-verify-probe",
+	})
+	if err == nil {
+		t.Fatal("Token() error = nil, want trusted caller requirement")
+	}
+	if !strings.Contains(err.Error(), "grant_subject requires a trusted caller subject") {
+		t.Fatalf("Token() error = %v, want grant_subject trusted caller error", err)
+	}
+}
+
 func TestPendingOAuthCorrelatesByState(t *testing.T) {
 	p := New()
 	attachGrantStore(t, p)
