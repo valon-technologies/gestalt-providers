@@ -9,6 +9,7 @@ from .client import (
     SlackAPIError,
     SlackClientError,
     get_bytes,
+    is_slack_file_download_url,
     slack_get,
     slack_post,
     slack_post_form,
@@ -471,6 +472,11 @@ def get_file(
             raise SlackAPIError(
                 HTTPStatus.BAD_REQUEST,
                 {"error": "file does not include a private download URL"},
+            )
+        if not is_slack_file_download_url(url_private):
+            raise SlackAPIError(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "slack file url_private is not a Slack HTTPS file URL"},
             )
         result["content"] = _download_file_content(
             token,
