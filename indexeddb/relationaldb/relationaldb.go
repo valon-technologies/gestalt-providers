@@ -304,19 +304,23 @@ func (s *Store) getMetaForContext(ctx context.Context, name string) (*storeMeta,
 func (s *Store) ensureGenericTables(ctx context.Context) error {
 	statements := []string{
 		createGenericRecordsTableSQL(s.dialect, s.genericRecordsTable()),
-		createGenericIndexEntriesTableSQL(s.dialect, s.genericIndexTable()),
-		createGenericIndexEntriesTableSQL(s.dialect, s.genericUniqueIndexTable()),
+		createGenericIndexEntriesTableSQL(s.dialect, s.genericIndexTable(), true),
+		createGenericIndexEntriesTableSQL(s.dialect, s.genericUniqueIndexTable(), false),
 	}
 	for _, stmt := range statements {
 		if _, err := s.exec(ctx, stmt); err != nil {
 			return fmt.Errorf("relationaldb: create generic storage table: %w", err)
 		}
 	}
+	if err := s.ensureGenericMySQLIdentityColumns(ctx); err != nil {
+		return err
+	}
 
 	indexStatements := []string{
 		createGenericRecordsLookupIndexSQL(s.dialect, s.genericRecordsTable()),
 		createGenericRecordsStoreIndexSQL(s.dialect, s.genericRecordsTable()),
 		createGenericIndexLookupIndexSQL(s.dialect, s.genericIndexTable(), false),
+		createGenericIndexEntryIdentityIndexSQL(s.dialect, s.genericIndexTable()),
 		createGenericIndexRecordIndexSQL(s.dialect, s.genericIndexTable()),
 		createGenericIndexScanIndexSQL(s.dialect, s.genericIndexTable()),
 		createGenericIndexLookupIndexSQL(s.dialect, s.genericUniqueIndexTable(), true),
@@ -324,12 +328,75 @@ func (s *Store) ensureGenericTables(ctx context.Context) error {
 		createGenericIndexScanIndexSQL(s.dialect, s.genericUniqueIndexTable()),
 	}
 	for _, stmt := range indexStatements {
-		if _, err := s.exec(ctx, stmt); err != nil && !isDuplicateErr(err) {
+		if stmt == "" {
+			continue
+		}
+		if _, err := s.exec(ctx, stmt); err != nil && !isIndexAlreadyExistsErr(err) {
 			return fmt.Errorf("relationaldb: create generic storage index: %w", err)
 		}
 	}
 	if err := s.ensureGenericMySQLLongBlobColumns(ctx); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (s *Store) ensureGenericMySQLIdentityColumns(ctx context.Context) error {
+	if s.dialect != dialectMySQL {
+		return nil
+	}
+	schema := strings.TrimSpace(s.schemaName)
+	if schema == "" {
+		if err := s.scanOne(ctx, "SELECT DATABASE()", nil, &schema); err != nil {
+			return fmt.Errorf("relationaldb: inspect mysql database: %w", err)
+		}
+	}
+	table := s.tablePrefix + genericIndexTableName
+	rows, err := s.query(ctx,
+		"SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE, EXTRA FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME IN (?, ?)",
+		schema, table, "store_name_bin", "index_name_bin",
+	)
+	if err != nil {
+		return fmt.Errorf("relationaldb: inspect mysql identity columns: %w", err)
+	}
+	defer rows.Close()
+
+	existing := map[string]struct{}{}
+	for rows.Next() {
+		var name, dataType, nullable, extra string
+		var maxLength sql.NullInt64
+		if err := rows.Scan(&name, &dataType, &maxLength, &nullable, &extra); err != nil {
+			return fmt.Errorf("relationaldb: scan mysql identity column: %w", err)
+		}
+		if !strings.EqualFold(dataType, "varbinary") || !maxLength.Valid || maxLength.Int64 != mysqlMaxIndexedNameBytes || !strings.EqualFold(nullable, "NO") || !strings.Contains(strings.ToLower(extra), "virtual generated") {
+			return fmt.Errorf("relationaldb: mysql identity column has incompatible definition: %s.%s", s.genericIndexTable(), name)
+		}
+		existing[name] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("relationaldb: inspect mysql identity columns: %w", err)
+	}
+
+	definitions := []struct {
+		name   string
+		source string
+	}{
+		{name: "store_name_bin", source: "store_name"},
+		{name: "index_name_bin", source: "index_name"},
+	}
+	clauses := make([]string, 0, len(definitions))
+	for _, definition := range definitions {
+		if _, ok := existing[definition.name]; ok {
+			continue
+		}
+		clauses = append(clauses, "ADD COLUMN "+mysqlGeneratedBinaryNameColumnSQL(definition.name, definition.source))
+	}
+	if len(clauses) == 0 {
+		return nil
+	}
+	stmt := "ALTER TABLE " + quoteTableName(s.dialect, s.genericIndexTable()) + " " + strings.Join(clauses, ", ") + ", ALGORITHM=INSTANT"
+	if _, err := s.exec(ctx, stmt); err != nil {
+		return fmt.Errorf("relationaldb: add mysql identity columns: %w", err)
 	}
 	return nil
 }
@@ -970,6 +1037,14 @@ func isDuplicateErr(err error) bool {
 
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "unique") || strings.Contains(msg, "duplicate") || strings.Contains(msg, "constraint")
+}
+
+func isIndexAlreadyExistsErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	var myErr *mysql.MySQLError
+	return errors.As(err, &myErr) && myErr.Number == 1061
 }
 
 // ---- Schema persistence ----

@@ -975,7 +975,7 @@ func TestCreateGenericRecordsTableSQLMySQLUsesLongBlobPayloads(t *testing.T) {
 }
 
 func TestCreateGenericIndexEntriesTableSQLMySQLUsesLongBlobPayloads(t *testing.T) {
-	got := createGenericIndexEntriesTableSQL(dialectMySQL, "_gestalt_index_entries")
+	got := createGenericIndexEntriesTableSQL(dialectMySQL, "_gestalt_index_entries", true)
 	if !strings.Contains(got, "`index_key_bytes` LONGBLOB NOT NULL") {
 		t.Fatalf("createGenericIndexEntriesTableSQL(mysql) missing longblob index key bytes: %s", got)
 	}
@@ -984,6 +984,83 @@ func TestCreateGenericIndexEntriesTableSQLMySQLUsesLongBlobPayloads(t *testing.T
 	}
 	if !strings.Contains(got, "`pk_bytes` LONGBLOB NOT NULL") {
 		t.Fatalf("createGenericIndexEntriesTableSQL(mysql) missing longblob primary key bytes: %s", got)
+	}
+	for _, want := range []string{
+		"`store_name_bin` VARBINARY(1020) GENERATED ALWAYS AS (CAST(`store_name` AS BINARY)) VIRTUAL NOT NULL",
+		"`index_name_bin` VARBINARY(1020) GENERATED ALWAYS AS (CAST(`index_name` AS BINARY)) VIRTUAL NOT NULL",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("createGenericIndexEntriesTableSQL(mysql) missing case-sensitive identity column %q: %s", want, got)
+		}
+	}
+}
+
+func TestCreateGenericIndexEntryIdentityIndexSQLMySQLUsesCaseSensitiveUniqueNonNullColumns(t *testing.T) {
+	got := createGenericIndexEntryIdentityIndexSQL(dialectMySQL, "_gestalt_index_entries")
+	want := "CREATE UNIQUE INDEX `idx__gestalt_index_entries_identity` ON `_gestalt_index_entries` (`store_name_bin`, `index_name_bin`, `index_key_hash`, `pk_hash`)"
+	if got != want {
+		t.Fatalf("createGenericIndexEntryIdentityIndexSQL(mysql) = %q, want %q", got, want)
+	}
+}
+
+func TestCreateGenericIndexEntryIdentityIndexSQLOnlyAppliesToMySQL(t *testing.T) {
+	for _, d := range []dialect{dialectSQLite, dialectPostgres, dialectSQLServer} {
+		if got := createGenericIndexEntryIdentityIndexSQL(d, "_gestalt_index_entries"); got != "" {
+			t.Fatalf("createGenericIndexEntryIdentityIndexSQL(%v) = %q, want empty", d, got)
+		}
+	}
+}
+
+func TestIsIndexAlreadyExistsErrOnlyMatchesMySQLDuplicateIndexName(t *testing.T) {
+	if !isIndexAlreadyExistsErr(&mysqlcfg.MySQLError{Number: 1061}) {
+		t.Fatal("expected MySQL duplicate index name error to match")
+	}
+	if isIndexAlreadyExistsErr(&mysqlcfg.MySQLError{Number: 1062}) {
+		t.Fatal("MySQL duplicate row data must not be treated as an existing index")
+	}
+}
+
+func TestEnsureGenericMySQLIdentityColumnsAddsMissingColumnsInstantly(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery("SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE, EXTRA FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME IN (?, ?)").
+		WithArgs("gestaltd", "_gestalt_index_entries", "store_name_bin", "index_name_bin").
+		WillReturnRows(sqlmock.NewRows([]string{"COLUMN_NAME", "DATA_TYPE", "CHARACTER_MAXIMUM_LENGTH", "IS_NULLABLE", "EXTRA"}))
+	mock.ExpectExec("ALTER TABLE `gestaltd`.`_gestalt_index_entries` ADD COLUMN `store_name_bin` VARBINARY(1020) GENERATED ALWAYS AS (CAST(`store_name` AS BINARY)) VIRTUAL NOT NULL, ADD COLUMN `index_name_bin` VARBINARY(1020) GENERATED ALWAYS AS (CAST(`index_name` AS BINARY)) VIRTUAL NOT NULL, ALGORITHM=INSTANT").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	s := &Store{db: db, dialect: dialectMySQL, schemaName: "gestaltd"}
+	if err := s.ensureGenericMySQLIdentityColumns(context.Background()); err != nil {
+		t.Fatalf("ensureGenericMySQLIdentityColumns: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestEnsureGenericMySQLIdentityColumnsAcceptsExistingCompatibleColumns(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery("SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE, EXTRA FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME IN (?, ?)").
+		WithArgs("gestaltd", "_gestalt_index_entries", "store_name_bin", "index_name_bin").
+		WillReturnRows(sqlmock.NewRows([]string{"COLUMN_NAME", "DATA_TYPE", "CHARACTER_MAXIMUM_LENGTH", "IS_NULLABLE", "EXTRA"}).
+			AddRow("store_name_bin", "varbinary", 1020, "NO", "VIRTUAL GENERATED").
+			AddRow("index_name_bin", "varbinary", 1020, "NO", "VIRTUAL GENERATED"))
+
+	s := &Store{db: db, dialect: dialectMySQL, schemaName: "gestaltd"}
+	if err := s.ensureGenericMySQLIdentityColumns(context.Background()); err != nil {
+		t.Fatalf("ensureGenericMySQLIdentityColumns: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
 	}
 }
 

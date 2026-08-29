@@ -207,7 +207,18 @@ func createGenericRecordsTableSQL(d dialect, table string) string {
 		quoteTableName(d, table), strings.Join(defs, ", "))
 }
 
-func createGenericIndexEntriesTableSQL(d dialect, table string) string {
+const mysqlMaxIndexedNameBytes = 255 * 4
+
+func mysqlGeneratedBinaryNameColumnSQL(name, source string) string {
+	return fmt.Sprintf(
+		"%s VARBINARY(%d) GENERATED ALWAYS AS (CAST(%s AS BINARY)) VIRTUAL NOT NULL",
+		quoteIdent(dialectMySQL, name),
+		mysqlMaxIndexedNameBytes,
+		quoteIdent(dialectMySQL, source),
+	)
+}
+
+func createGenericIndexEntriesTableSQL(d dialect, table string, includeIdentityColumns bool) string {
 	defs := []string{
 		quoteIdent(d, "store_name") + " " + sqlType(d, 0, true) + " NOT NULL",
 		quoteIdent(d, "index_name") + " " + sqlType(d, 0, true) + " NOT NULL",
@@ -216,6 +227,12 @@ func createGenericIndexEntriesTableSQL(d dialect, table string) string {
 		quoteIdent(d, "index_key_ord") + " " + sqlType(d, 5, false) + " NOT NULL",
 		quoteIdent(d, "pk_hash") + " " + sqlType(d, 5, true) + " NOT NULL",
 		quoteIdent(d, "pk_bytes") + " " + sqlType(d, 5, false) + " NOT NULL",
+	}
+	if d == dialectMySQL && includeIdentityColumns {
+		defs = append(defs,
+			mysqlGeneratedBinaryNameColumnSQL("store_name_bin", "store_name"),
+			mysqlGeneratedBinaryNameColumnSQL("index_name_bin", "index_name"),
+		)
 	}
 	if d == dialectSQLServer {
 		return fmt.Sprintf("IF OBJECT_ID(N'%s', N'U') IS NULL CREATE TABLE %s (%s)",
@@ -238,6 +255,14 @@ func createGenericRecordsStoreIndexSQL(d dialect, table string) string {
 func createGenericIndexLookupIndexSQL(d dialect, table string, unique bool) string {
 	indexName := portableIndexName(table, "lookup")
 	return createColumnsIndexSQL(d, table, indexName, []string{"store_name", "index_name", "index_key_hash"}, unique)
+}
+
+func createGenericIndexEntryIdentityIndexSQL(d dialect, table string) string {
+	if d != dialectMySQL {
+		return ""
+	}
+	indexName := portableIndexName(table, "identity")
+	return createColumnsIndexSQL(d, table, indexName, []string{"store_name_bin", "index_name_bin", "index_key_hash", "pk_hash"}, true)
 }
 
 func createGenericIndexRecordIndexSQL(d dialect, table string) string {
