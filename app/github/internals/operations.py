@@ -6,7 +6,7 @@ import datetime as dt
 import re
 import urllib.parse
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from http import HTTPStatus
 from typing import Any
 
@@ -430,6 +430,15 @@ class GitHubWorkflowRunRequest:
     owner: str
     repo: str
     run_id: int
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubDispatchWorkflowRequest:
+    owner: str
+    repo: str
+    workflow_id: str
+    ref: str
+    inputs: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -2375,6 +2384,39 @@ def get_workflow_run(
         "GET",
         repo_path(owner, repo, "actions", "runs", str(run_id)),
         token,
+    )
+
+
+def dispatch_workflow(
+    request: GitHubDispatchWorkflowRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    workflow_id = require_text(request.workflow_id, "workflow_id")
+    ref = require_text(request.ref, "ref")
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"actions": "write"}
+    )
+    payload: dict[str, Any] = {"ref": ref}
+    if request.inputs:
+        payload["inputs"] = dict(request.inputs)
+    return github.github_json(
+        "POST",
+        repo_path(owner, repo, "actions", "workflows", workflow_id, "dispatches"),
+        token,
+        payload,
     )
 
 

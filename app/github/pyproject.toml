@@ -63,6 +63,7 @@ vulture-ignore-names = [
   "bot_get_workflow_run",
   "bot_list_workflow_run_jobs",
   "bot_list_workflow_runs",
+  "bot_dispatch_workflow",
   "bot_get_workflow_job_logs",
   "bot_list_issue_comments",
   "bot_search_pull_requests",

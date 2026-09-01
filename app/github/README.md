@@ -126,4 +126,5 @@ can retry delivery.
 - `bot.listCheckSuiteCheckRuns`
 - `bot.listCheckRunAnnotations`
 - `bot.getWorkflowRun`
+- `bot.dispatchWorkflow`
 - `bot.listWorkflowRunJobs`

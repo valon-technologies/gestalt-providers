@@ -24,6 +24,7 @@ from internals.constants import (
     BOT_CREATE_PULL_REQUEST_OPERATION,
     BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
     BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
+    BOT_DISPATCH_WORKFLOW_OPERATION,
     BOT_GET_CHECK_RUN_OPERATION,
     BOT_GET_CONTENT_OPERATION,
     BOT_GET_ISSUE_OPERATION,
@@ -84,6 +85,7 @@ from internals.operations import (
     GitHubCreatePullRequestConversationCommentRequest,
     GitHubCreatePullRequestRequest,
     GitHubCreatePullRequestReviewRequest,
+    GitHubDispatchWorkflowRequest,
     GitHubFileContentRequest,
     GitHubListDirectoryContentsRequest,
     GitHubListCommitsRequest,
@@ -137,6 +139,7 @@ from internals.operations import (
     create_pull_request_conversation_comment,
     create_pull_request_review,
     create_pull_request_with_files,
+    dispatch_workflow,
     get_check_run,
     get_file_text_at_ref,
     get_issue,
@@ -1011,6 +1014,22 @@ class ListWorkflowRunsInput(gestalt.Model):
     )
     page: int = gestalt.field(
         description="Page number, starting at 1", default=0, required=False
+    )
+
+
+class DispatchWorkflowInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    workflow_id: str = gestalt.field(
+        description="Workflow file name or numeric ID to dispatch"
+    )
+    ref: str = gestalt.field(
+        description="Git ref, branch, or tag to run the workflow on"
+    )
+    inputs: dict[str, str] = gestalt.field(
+        description="Workflow input values, as accepted by workflow_dispatch",
+        default_factory=dict,
+        required=False,
     )
 
 
@@ -2029,6 +2048,17 @@ def bot_list_workflow_runs(
 ) -> OperationResult:
     return _run_bot(lambda: workflow_runs_list_summary((list_workflow_runs(
 _to_request(GitHubListWorkflowRunsRequest, input), **_bot_call(req)))))
+@app.operation(
+    id=BOT_DISPATCH_WORKFLOW_OPERATION,
+    method="POST",
+    description="Dispatch a GitHub Actions workflow run using a GitHub App installation token",
+    tags=["repo", "workflow"],
+)
+def bot_dispatch_workflow(
+    input: DispatchWorkflowInput, req: gestalt.Request
+) -> OperationResult:
+    return _run_bot(lambda: dispatch_workflow(
+        _to_request(GitHubDispatchWorkflowRequest, input), **_bot_call(req)))
 @app.operation(
     id=BOT_GET_WORKFLOW_JOB_LOGS_OPERATION,
     method="GET",
