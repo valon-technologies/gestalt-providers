@@ -1172,6 +1172,31 @@ operations:
     type: integer
     description: Page number, starting at 1
     default: 0
+- id: bot.dispatchWorkflow
+  method: POST
+  description: Dispatch a GitHub Actions workflow run using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: workflow_id
+    type: string
+    description: Workflow file name or numeric ID to dispatch
+    required: true
+  - name: ref
+    type: string
+    description: Git ref, branch, or tag to run the workflow on
+    required: true
+  - name: inputs
+    type: object
+    description: Workflow input values, as accepted by workflow_dispatch
+    required: false
+  tags: [repo, workflow]
 - id: bot.getWorkflowJobLogs
   method: GET
   description: Get plain-text logs for a GitHub Actions workflow job using a GitHub

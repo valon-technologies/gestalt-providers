@@ -63,6 +63,11 @@ class FakeHTTPResponse:
         return self._body
 
 
+class EmptyHTTPResponse(FakeHTTPResponse):
+    def __init__(self) -> None:
+        self._body = b""
+
+
 class FakeWorkflowClient:
     def __init__(self, *, fail: bool = False) -> None:
         self.fail = fail
@@ -529,6 +534,9 @@ class GitHubProviderTests(unittest.TestCase):
         workflow_job_logs = operations[
             provider_module.BOT_GET_WORKFLOW_JOB_LOGS_OPERATION
         ]
+        dispatch_workflow = operations[
+            provider_module.BOT_DISPATCH_WORKFLOW_OPERATION
+        ]
         list_issue_comments = operations[
             provider_module.BOT_LIST_ISSUE_COMMENTS_OPERATION
         ]
@@ -580,6 +588,12 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("commit ref", commit_check_runs["description"])
         self.assertIn("workflow runs", list_workflow_runs["description"])
         self.assertIn("plain-text logs", workflow_job_logs["description"])
+        self.assertEqual(dispatch_workflow["method"], "POST")
+        self.assertIn("workflow", dispatch_workflow["description"])
+        self.assertEqual(
+            [parameter["name"] for parameter in dispatch_workflow["parameters"]],
+            ["owner", "repo", "workflow_id", "ref", "inputs"],
+        )
         self.assertIn("comments", list_issue_comments["description"])
         self.assertIn("Search pull requests", search_pull_requests["description"])
         self.assertIn("merge queue", merge_queue["description"])
@@ -4576,6 +4590,172 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(
             cast(dict[str, Any], result)["workflow_runs"][0]["id"], 99
         )
+
+    def test_dispatch_workflow_posts_inputs_with_actions_write_permission(self) -> None:
+        calls: list[tuple[str, str, dict[str, Any], str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            calls.append((method, path, body, auth_header(request)))
+
+            if path == "/repos/acme/widgets/installation":
+                self.assertEqual(method, "GET")
+                self.assertEqual(auth_header(request), "Bearer app-jwt")
+                return FakeHTTPResponse({"id": 99})
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(method, "POST")
+                self.assertEqual(auth_header(request), "Bearer app-jwt")
+                self.assertEqual(body["permissions"], {"actions": "write"})
+                return FakeHTTPResponse({"token": "installation-token"})
+            if path == "/repos/acme/widgets/actions/workflows/ci.yaml/dispatches":
+                self.assertEqual(method, "POST")
+                self.assertEqual(
+                    auth_header(request), "Bearer installation-token"
+                )
+                self.assertEqual(
+                    body,
+                    {
+                        "ref": "main",
+                        "inputs": {"environment": "staging", "deploy": "true"},
+                    },
+                )
+                return FakeHTTPResponse({})
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_dispatch_workflow(
+                provider_module.DispatchWorkflowInput(
+                    owner="acme",
+                    repo="widgets",
+                    workflow_id="ci.yaml",
+                    ref="main",
+                    inputs={"environment": "staging", "deploy": "true"},
+                ),
+                github_request(),
+            )
+
+        self.assertEqual(result, {})
+        self.assertEqual(
+            [call[1] for call in calls],
+            [
+                "/repos/acme/widgets/installation",
+                "/app/installations/99/access_tokens",
+                "/repos/acme/widgets/actions/workflows/ci.yaml/dispatches",
+            ],
+        )
+
+    def test_dispatch_workflow_omits_empty_inputs_for_empty_response(self) -> None:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse | EmptyHTTPResponse:
+            self.assertEqual(timeout, 30)
+            path = request_path(request)
+            body = request_json(request)
+
+            if path == "/repos/acme/widgets/installation":
+                return FakeHTTPResponse({"id": 99})
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(body["permissions"], {"actions": "write"})
+                return FakeHTTPResponse({"token": "installation-token"})
+            if path == "/repos/acme/widgets/actions/workflows/ci.yaml/dispatches":
+                self.assertEqual(body, {"ref": "main"})
+                self.assertEqual(
+                    auth_header(request), "Bearer installation-token"
+                )
+                return EmptyHTTPResponse()
+            self.fail(f"unexpected request {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_dispatch_workflow(
+                provider_module.DispatchWorkflowInput(
+                    owner="acme",
+                    repo="widgets",
+                    workflow_id="ci.yaml",
+                    ref="main",
+                ),
+                github_request(),
+            )
+
+        self.assertEqual(result, {})
+
+    def test_dispatch_workflow_returns_forbidden_without_github_call(self) -> None:
+        class UnauthorizedRequest:
+            subject = github_request().subject
+
+            def authorization(self) -> FakeAuthorization:
+                return FakeAuthorization(allowed=False)
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen"
+        ) as urlopen:
+            result = provider_module.bot_dispatch_workflow(
+                provider_module.DispatchWorkflowInput(
+                    owner="acme",
+                    repo="widgets",
+                    workflow_id="ci.yaml",
+                    ref="main",
+                ),
+                UnauthorizedRequest(),  # type: ignore[arg-type]
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
+        urlopen.assert_not_called()
+
+    def test_dispatch_workflow_returns_github_not_found_error(self) -> None:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            path = request_path(request)
+            body = request_json(request)
+
+            if path == "/repos/acme/widgets/installation":
+                return FakeHTTPResponse({"id": 99})
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(body["permissions"], {"actions": "write"})
+                return FakeHTTPResponse({"token": "installation-token"})
+            if path == "/repos/acme/widgets/actions/workflows/ci.yaml/dispatches":
+                self.assertEqual(body, {"ref": "main"})
+                raise http_error(request.full_url, HTTPStatus.NOT_FOUND)
+            self.fail(f"unexpected request {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_dispatch_workflow(
+                provider_module.DispatchWorkflowInput(
+                    owner="acme",
+                    repo="widgets",
+                    workflow_id="ci.yaml",
+                    ref="main",
+                ),
+                github_request(),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.NOT_FOUND)
+        self.assertEqual(response.body, {"error": "Not Found"})
 
     def test_list_commit_check_runs_uses_commit_ref_path_and_maps_output(self) -> None:
         def fake_urlopen(
