@@ -4,15 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+	"strings"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 )
 
 type fakeIndexedDB struct {
-	createdStores []string
-	closed        bool
-	stores        map[string]*fakeObjectStore
+	createdStores  []string
+	createdIndexes []indexeddb.IndexDefinition
+	closed         bool
+	stores         map[string]*fakeObjectStore
+	nilGetAllCalls int
 }
 
 func (db *fakeIndexedDB) CreateObjectStore(_ context.Context, name string, _ indexeddb.ObjectStoreOptions) (indexeddb.ObjectStore, error) {
@@ -24,11 +27,18 @@ func (db *fakeIndexedDB) DeleteObjectStore(context.Context, string) error {
 	return indexeddb.ErrUnsupported
 }
 
-func (db *fakeIndexedDB) CreateIndex(context.Context, string, indexeddb.IndexDefinition) error {
+func (db *fakeIndexedDB) CreateIndex(_ context.Context, storeName string, definition indexeddb.IndexDefinition) error {
+	store := db.objectStore(storeName).(*fakeObjectStore)
+	if _, exists := store.indexes[definition.Name]; exists {
+		return indexeddb.ErrAlreadyExists
+	}
+	store.indexes[definition.Name] = definition
+	db.createdIndexes = append(db.createdIndexes, definition)
 	return nil
 }
 
-func (db *fakeIndexedDB) DeleteIndex(context.Context, string, string) error {
+func (db *fakeIndexedDB) DeleteIndex(_ context.Context, storeName, name string) error {
+	delete(db.objectStore(storeName).(*fakeObjectStore).indexes, name)
 	return nil
 }
 
@@ -61,13 +71,15 @@ func (db *fakeIndexedDB) objectStore(name string) indexeddb.ObjectStore {
 	if store, ok := db.stores[name]; ok {
 		return store
 	}
-	store := &fakeObjectStore{records: make(map[string]indexeddb.Record)}
+	store := &fakeObjectStore{records: make(map[string]indexeddb.Record), indexes: make(map[string]indexeddb.IndexDefinition), nilGetAllCalls: &db.nilGetAllCalls}
 	db.stores[name] = store
 	return store
 }
 
 type fakeObjectStore struct {
-	records map[string]indexeddb.Record
+	records        map[string]indexeddb.Record
+	indexes        map[string]indexeddb.IndexDefinition
+	nilGetAllCalls *int
 }
 
 func (s *fakeObjectStore) Add(context.Context, indexeddb.Record) error {
@@ -102,6 +114,9 @@ func (s *fakeObjectStore) Clear(context.Context) error {
 }
 
 func (s *fakeObjectStore) GetAll(_ context.Context, query any, _ ...uint32) ([]indexeddb.Record, error) {
+	if query == nil && s.nilGetAllCalls != nil {
+		(*s.nilGetAllCalls)++
+	}
 	ids := make([]string, 0, len(s.records))
 	for id := range s.records {
 		ok, err := indexeddb.MatchQuery(id, indexeddb.ToQuery(query))
@@ -137,8 +152,11 @@ func (s *fakeObjectStore) DeleteRange(context.Context, any) (int64, error) {
 	return 0, indexeddb.ErrUnsupported
 }
 
-func (s *fakeObjectStore) Index(string) indexeddb.Index {
-	return nil
+func (s *fakeObjectStore) Index(name string) indexeddb.Index {
+	if _, ok := s.indexes[name]; !ok {
+		return nil
+	}
+	return &fakeIndex{store: s, name: name}
 }
 
 func (s *fakeObjectStore) OpenCursor(context.Context, any, indexeddb.CursorDirection) (indexeddb.Cursor, error) {
@@ -150,9 +168,12 @@ func (s *fakeObjectStore) OpenKeyCursor(context.Context, any, indexeddb.CursorDi
 }
 
 func (s *fakeObjectStore) clone() *fakeObjectStore {
-	clone := &fakeObjectStore{records: make(map[string]indexeddb.Record, len(s.records))}
+	clone := &fakeObjectStore{records: make(map[string]indexeddb.Record, len(s.records)), indexes: make(map[string]indexeddb.IndexDefinition, len(s.indexes)), nilGetAllCalls: s.nilGetAllCalls}
 	for id, record := range s.records {
 		clone.records[id] = cloneFakeRecord(record)
+	}
+	for name, definition := range s.indexes {
+		clone.indexes[name] = definition
 	}
 	return clone
 }
@@ -233,8 +254,85 @@ func (fakeTransactionObjectStore) DeleteRange(context.Context, any) (int64, erro
 	return 0, indexeddb.ErrUnsupported
 }
 
-func (s fakeTransactionObjectStore) Index(string) indexeddb.TransactionIndex {
+func (fakeTransactionObjectStore) Index(string) indexeddb.TransactionIndex {
 	return nil
+}
+
+type fakeIndex struct {
+	store *fakeObjectStore
+	name  string
+}
+
+func (*fakeIndex) Get(context.Context, any) (indexeddb.Record, error) {
+	return nil, indexeddb.ErrUnsupported
+}
+
+func (*fakeIndex) GetKey(context.Context, any) (string, error) {
+	return "", indexeddb.ErrUnsupported
+}
+
+func (i *fakeIndex) GetAll(_ context.Context, query any, _ ...uint32) ([]indexeddb.Record, error) {
+	definition := i.store.indexes[i.name]
+	nativeQuery := indexeddb.ToQuery(query)
+	ids := make([]string, 0, len(i.store.records))
+	for id, record := range i.store.records {
+		key, ok := fakeIndexKey(record, definition.KeyPath)
+		if !ok {
+			continue
+		}
+		matched, err := indexeddb.MatchQuery(key, nativeQuery)
+		if err != nil {
+			return nil, err
+		}
+		if matched {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	result := make([]indexeddb.Record, 0, len(ids))
+	for _, id := range ids {
+		result = append(result, cloneFakeRecord(i.store.records[id]))
+	}
+	return result, nil
+}
+
+func (*fakeIndex) GetAllKeys(context.Context, any, ...uint32) ([]string, error) {
+	return nil, indexeddb.ErrUnsupported
+}
+
+func (*fakeIndex) Count(context.Context, any) (int64, error) {
+	return 0, indexeddb.ErrUnsupported
+}
+
+func (*fakeIndex) Delete(context.Context, any) (int64, error) {
+	return 0, indexeddb.ErrUnsupported
+}
+
+func (*fakeIndex) OpenCursor(context.Context, any, indexeddb.CursorDirection) (indexeddb.Cursor, error) {
+	return nil, indexeddb.ErrUnsupported
+}
+
+func (*fakeIndex) OpenKeyCursor(context.Context, any, indexeddb.CursorDirection) (indexeddb.Cursor, error) {
+	return nil, indexeddb.ErrUnsupported
+}
+
+func fakeIndexKey(record indexeddb.Record, path []string) ([]any, bool) {
+	key := make([]any, 0, len(path))
+	for _, fieldPath := range path {
+		var value any = record
+		for _, part := range strings.Split(fieldPath, ".") {
+			values, ok := value.(map[string]any)
+			if !ok {
+				return nil, false
+			}
+			value, ok = values[part]
+			if !ok {
+				return nil, false
+			}
+		}
+		key = append(key, value)
+	}
+	return key, true
 }
 
 func fakeRecordID(record indexeddb.Record) string {

@@ -1,11 +1,13 @@
 package indexeddb
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -170,6 +172,61 @@ func relationshipMatchesFilter(relationship *Relationship, filter *RelationshipF
 		return false
 	}
 	return true
+}
+
+// relationshipRecordsForFilter chooses the narrowest available index and
+// always applies relationshipMatchesFilter afterward. The latter is
+// important because relationship identity includes properties while filters
+// intentionally match only the tuple endpoints and source layer.
+func relationshipRecordsForFilter(ctx context.Context, store indexeddb.ObjectStore, filter *RelationshipFilter) ([]indexeddb.Record, error) {
+	indexName, keyPrefix, indexed := relationshipIndexPlan(filter)
+	if !indexed {
+		return store.GetAll(ctx, nil)
+	}
+	index := store.Index(indexName)
+	if index == nil {
+		return store.GetAll(ctx, nil)
+	}
+	byID := map[string]indexeddb.Record{}
+	for _, sourceKey := range []any{sourceLayerString(filter.SourceLayer), int32(filter.SourceLayer)} {
+		key := append(append([]any{}, keyPrefix...), sourceKey)
+		records, err := index.GetAll(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		for _, record := range records {
+			id := stringField(record, "id")
+			if id != "" {
+				byID[id] = record
+			}
+		}
+	}
+	ids := make([]string, 0, len(byID))
+	for id := range byID {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	records := make([]indexeddb.Record, 0, len(ids))
+	for _, id := range ids {
+		records = append(records, byID[id])
+	}
+	return records, nil
+}
+
+func relationshipIndexPlan(filter *RelationshipFilter) (string, []any, bool) {
+	if filter == nil || filter.SourceLayer == SourceLayerUnspecified {
+		return "", nil, false
+	}
+	if filter.Resource != nil && strings.TrimSpace(filter.Resource.Type) != "" && strings.TrimSpace(filter.Resource.Id) != "" && strings.TrimSpace(filter.Relation) != "" {
+		return "by_resource_relation_source", []any{strings.TrimSpace(filter.Resource.Type), strings.TrimSpace(filter.Resource.Id), strings.TrimSpace(filter.Relation)}, true
+	}
+	if filter.Target != nil && filter.Target.Subject != nil && strings.TrimSpace(filter.Target.Subject.Type) != "" && strings.TrimSpace(filter.Target.Subject.Id) != "" {
+		return "by_subject_source", []any{strings.TrimSpace(filter.Target.Subject.Type), strings.TrimSpace(filter.Target.Subject.Id)}, true
+	}
+	if filter.Target != nil && filter.Target.SubjectSet != nil && filter.Target.SubjectSet.Resource != nil && strings.TrimSpace(filter.Target.SubjectSet.Resource.Type) != "" && strings.TrimSpace(filter.Target.SubjectSet.Resource.Id) != "" && strings.TrimSpace(filter.Target.SubjectSet.Relation) != "" {
+		return "by_subject_set_source", []any{strings.TrimSpace(filter.Target.SubjectSet.Resource.Type), strings.TrimSpace(filter.Target.SubjectSet.Resource.Id), strings.TrimSpace(filter.Target.SubjectSet.Relation)}, true
+	}
+	return "", nil, false
 }
 
 func parseRelationshipPageToken(token string) (int, error) {
