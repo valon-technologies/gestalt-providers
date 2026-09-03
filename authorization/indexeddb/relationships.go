@@ -66,6 +66,11 @@ func normalizeRelationship(relationship *Relationship) error {
 	if relationship == nil {
 		return fmt.Errorf("relationship is required")
 	}
+	switch relationship.SourceLayer {
+	case SourceLayerUnspecified, SourceLayerStaticConfig, SourceLayerRuntime:
+	default:
+		return fmt.Errorf("source layer is invalid")
+	}
 	if relationship.Tuple == nil {
 		return fmt.Errorf("tuple is required")
 	}
@@ -174,16 +179,28 @@ func relationshipMatchesFilter(relationship *Relationship, filter *RelationshipF
 	return true
 }
 
+type relationshipReader interface {
+	GetAll(context.Context, any, ...uint32) ([]indexeddb.Record, error)
+}
+
 // relationshipRecordsForFilter chooses the narrowest available index and
 // always applies relationshipMatchesFilter afterward. The latter is
 // important because relationship identity includes properties while filters
 // intentionally match only the tuple endpoints and source layer.
-func relationshipRecordsForFilter(ctx context.Context, store indexeddb.ObjectStore, filter *RelationshipFilter) ([]indexeddb.Record, error) {
+func relationshipRecordsForFilter(ctx context.Context, store relationshipReader, filter *RelationshipFilter) ([]indexeddb.Record, error) {
 	indexName, keyPrefix, indexed := relationshipIndexPlan(filter)
 	if !indexed {
 		return store.GetAll(ctx, nil)
 	}
-	index := store.Index(indexName)
+	var index relationshipReader
+	switch typedStore := store.(type) {
+	case indexeddb.ObjectStore:
+		index = typedStore.Index(indexName)
+	case indexeddb.TransactionObjectStore:
+		index = typedStore.Index(indexName)
+	default:
+		return nil, fmt.Errorf("relationship store does not expose indexes")
+	}
 	if index == nil {
 		return store.GetAll(ctx, nil)
 	}

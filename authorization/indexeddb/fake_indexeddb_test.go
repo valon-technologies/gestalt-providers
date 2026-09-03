@@ -13,6 +13,7 @@ import (
 type fakeIndexedDB struct {
 	createdStores  []string
 	createdIndexes []indexeddb.IndexDefinition
+	commitErr      error
 	closed         bool
 	stores         map[string]*fakeObjectStore
 	nilGetAllCalls int
@@ -192,6 +193,9 @@ func (tx *fakeTransaction) Commit(context.Context) error {
 	if tx.done {
 		return indexeddb.ErrTransactionDone
 	}
+	if tx.db.commitErr != nil {
+		return tx.db.commitErr
+	}
 	if tx.db.stores == nil {
 		tx.db.stores = make(map[string]*fakeObjectStore)
 	}
@@ -214,8 +218,8 @@ type fakeTransactionObjectStore struct {
 	store *fakeObjectStore
 }
 
-func (fakeTransactionObjectStore) Get(context.Context, string) (indexeddb.Record, error) {
-	return nil, indexeddb.ErrUnsupported
+func (s fakeTransactionObjectStore) Get(ctx context.Context, id string) (indexeddb.Record, error) {
+	return s.store.Get(ctx, id)
 }
 
 func (fakeTransactionObjectStore) GetKey(context.Context, string) (string, error) {
@@ -230,20 +234,20 @@ func (s fakeTransactionObjectStore) Put(ctx context.Context, record indexeddb.Re
 	return s.store.Put(ctx, record)
 }
 
-func (fakeTransactionObjectStore) Delete(context.Context, string) error {
-	return indexeddb.ErrUnsupported
+func (s fakeTransactionObjectStore) Delete(ctx context.Context, id string) error {
+	return s.store.Delete(ctx, id)
 }
 
 func (s fakeTransactionObjectStore) Clear(ctx context.Context) error {
 	return s.store.Clear(ctx)
 }
 
-func (fakeTransactionObjectStore) GetAll(context.Context, any, ...uint32) ([]indexeddb.Record, error) {
-	return nil, indexeddb.ErrUnsupported
+func (s fakeTransactionObjectStore) GetAll(ctx context.Context, query any, count ...uint32) ([]indexeddb.Record, error) {
+	return s.store.GetAll(ctx, query, count...)
 }
 
-func (fakeTransactionObjectStore) GetAllKeys(context.Context, any, ...uint32) ([]string, error) {
-	return nil, indexeddb.ErrUnsupported
+func (s fakeTransactionObjectStore) GetAllKeys(ctx context.Context, query any, count ...uint32) ([]string, error) {
+	return s.store.GetAllKeys(ctx, query, count...)
 }
 
 func (fakeTransactionObjectStore) Count(context.Context, any) (int64, error) {
@@ -254,8 +258,11 @@ func (fakeTransactionObjectStore) DeleteRange(context.Context, any) (int64, erro
 	return 0, indexeddb.ErrUnsupported
 }
 
-func (fakeTransactionObjectStore) Index(string) indexeddb.TransactionIndex {
-	return nil
+func (s fakeTransactionObjectStore) Index(name string) indexeddb.TransactionIndex {
+	if _, ok := s.store.indexes[name]; !ok {
+		return nil
+	}
+	return &fakeIndex{store: s.store, name: name}
 }
 
 type fakeIndex struct {

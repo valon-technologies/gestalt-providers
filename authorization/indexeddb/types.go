@@ -13,6 +13,10 @@ type AddRelationshipRequest = gestalt.AddRelationshipRequest
 type AddRelationshipResponse = gestalt.AddRelationshipResponse
 type DeleteRelationshipRequest = gestalt.DeleteRelationshipRequest
 type DeleteRelationshipResponse = gestalt.DeleteRelationshipResponse
+type RelationshipUpdate = gestalt.RelationshipUpdate
+type Precondition = gestalt.Precondition
+type WriteRelationshipsRequest = gestalt.WriteRelationshipsRequest
+type WriteRelationshipsResponse = gestalt.WriteRelationshipsResponse
 type SetAuthorizationStateRequest = gestalt.SetAuthorizationStateRequest
 type SetAuthorizationStateResponse = gestalt.SetAuthorizationStateResponse
 type Subject = gestalt.AuthorizationSubject
@@ -51,15 +55,24 @@ type RelationshipTarget = gestalt.RelationshipTarget
 type SubjectSet = gestalt.SubjectSet
 type RelationshipTargetType = gestalt.RelationshipTargetType
 type SourceLayer = gestalt.SourceLayer
+type RelationshipUpdateOperation = gestalt.RelationshipUpdateOperation
+type PreconditionOperation = gestalt.PreconditionOperation
 
 const (
-	RelationshipTargetTypeUnspecified = gestalt.RelationshipTargetTypeUnspecified
-	RelationshipTargetTypeSubject     = gestalt.RelationshipTargetTypeSubject
-	RelationshipTargetTypeResource    = gestalt.RelationshipTargetTypeResource
-	RelationshipTargetTypeSubjectSet  = gestalt.RelationshipTargetTypeSubjectSet
-	SourceLayerUnspecified            = gestalt.SourceLayerUnspecified
-	SourceLayerStaticConfig           = gestalt.SourceLayerStaticConfig
-	SourceLayerRuntime                = gestalt.SourceLayerRuntime
+	RelationshipTargetTypeUnspecified      = gestalt.RelationshipTargetTypeUnspecified
+	RelationshipTargetTypeSubject          = gestalt.RelationshipTargetTypeSubject
+	RelationshipTargetTypeResource         = gestalt.RelationshipTargetTypeResource
+	RelationshipTargetTypeSubjectSet       = gestalt.RelationshipTargetTypeSubjectSet
+	SourceLayerUnspecified                 = gestalt.SourceLayerUnspecified
+	SourceLayerStaticConfig                = gestalt.SourceLayerStaticConfig
+	SourceLayerRuntime                     = gestalt.SourceLayerRuntime
+	RelationshipUpdateOperationUnspecified = gestalt.RelationshipUpdateOperationUnspecified
+	RelationshipUpdateOperationCreate      = gestalt.RelationshipUpdateOperationCreate
+	RelationshipUpdateOperationTouch       = gestalt.RelationshipUpdateOperationTouch
+	RelationshipUpdateOperationDelete      = gestalt.RelationshipUpdateOperationDelete
+	PreconditionOperationUnspecified       = gestalt.PreconditionOperationUnspecified
+	PreconditionOperationMustNotMatch      = gestalt.PreconditionOperationMustNotMatch
+	PreconditionOperationMustMatch         = gestalt.PreconditionOperationMustMatch
 )
 
 // AuthorizationModel is currently stored with a shape like:
