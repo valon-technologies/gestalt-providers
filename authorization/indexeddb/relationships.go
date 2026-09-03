@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 )
 
@@ -208,6 +209,9 @@ func relationshipRecordsForFilter(ctx context.Context, store relationshipReader,
 	for _, sourceKey := range []any{sourceLayerString(filter.SourceLayer), int32(filter.SourceLayer)} {
 		key := append(append([]any{}, keyPrefix...), sourceKey)
 		records, err := index.GetAll(ctx, key)
+		if errors.Is(err, gestalt.ErrNotFound) || errors.Is(err, indexeddb.ErrNotFound) {
+			return store.GetAll(ctx, nil)
+		}
 		if err != nil {
 			return nil, err
 		}
