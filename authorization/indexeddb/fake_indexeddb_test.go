@@ -154,9 +154,6 @@ func (s *fakeObjectStore) DeleteRange(context.Context, any) (int64, error) {
 }
 
 func (s *fakeObjectStore) Index(name string) indexeddb.Index {
-	if _, ok := s.indexes[name]; !ok {
-		return nil
-	}
 	return &fakeIndex{store: s, name: name}
 }
 
@@ -259,9 +256,6 @@ func (fakeTransactionObjectStore) DeleteRange(context.Context, any) (int64, erro
 }
 
 func (s fakeTransactionObjectStore) Index(name string) indexeddb.TransactionIndex {
-	if _, ok := s.store.indexes[name]; !ok {
-		return nil
-	}
 	return &fakeIndex{store: s.store, name: name}
 }
 
@@ -279,7 +273,10 @@ func (*fakeIndex) GetKey(context.Context, any) (string, error) {
 }
 
 func (i *fakeIndex) GetAll(_ context.Context, query any, _ ...uint32) ([]indexeddb.Record, error) {
-	definition := i.store.indexes[i.name]
+	definition, ok := i.store.indexes[i.name]
+	if !ok {
+		return nil, indexeddb.ErrNotFound
+	}
 	nativeQuery := indexeddb.ToQuery(query)
 	ids := make([]string, 0, len(i.store.records))
 	for id, record := range i.store.records {

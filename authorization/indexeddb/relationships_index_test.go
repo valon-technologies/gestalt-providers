@@ -169,6 +169,28 @@ func TestRelationshipListUnsupportedFilterScansStore(t *testing.T) {
 	}
 }
 
+func TestRelationshipListFallsBackWhenPlannedIndexIsUnavailable(t *testing.T) {
+	ctx := context.Background()
+	db := &fakeIndexedDB{}
+	provider := New()
+	provider.configureDatabase(db)
+	seedRelationship(t, db, testRelationship("repo-1", SourceLayerRuntime))
+
+	response, err := provider.ListRelationships(ctx, &ListRelationshipsRequest{Filter: &RelationshipFilter{
+		Target:      &RelationshipTarget{Subject: &Subject{Type: "subject", Id: "user:alice"}},
+		SourceLayer: SourceLayerRuntime,
+	}})
+	if err != nil {
+		t.Fatalf("ListRelationships() error = %v", err)
+	}
+	if len(response.Relationships) != 1 {
+		t.Fatalf("ListRelationships() count = %d, want 1", len(response.Relationships))
+	}
+	if db.nilGetAllCalls != 1 {
+		t.Fatalf("missing-index fallback GetAll(nil) calls = %d, want 1", db.nilGetAllCalls)
+	}
+}
+
 func TestRelationshipIndexMigrationDefinitions(t *testing.T) {
 	ctx := context.Background()
 	db := &fakeIndexedDB{}
