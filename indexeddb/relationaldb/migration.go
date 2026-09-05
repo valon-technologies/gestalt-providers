@@ -65,11 +65,6 @@ func (s *Store) createObjectStoreStrict(ctx context.Context, name string, schema
 	} else if ok {
 		return status.Errorf(codes.AlreadyExists, "object store already exists: %s", name)
 	}
-	if _, inTx := txFromContext(ctx); !inTx {
-		if err := s.ensureGenericTables(ctx); err != nil {
-			return status.Errorf(codes.Internal, "create generic tables: %v", err)
-		}
-	}
 	return s.persistStoreMetadata(ctx, name, schema)
 }
 

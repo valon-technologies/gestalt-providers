@@ -34,7 +34,7 @@ func testStoreWithDSN(t *testing.T, dsn string) *Store {
 
 func testStoreWithOptions(t *testing.T, dsn string, options storeOptions) *Store {
 	t.Helper()
-	store, err := newStoreWithOptions(dsn, options)
+	store, err := newStoreWithOptions(context.Background(), dsn, options)
 	if err != nil {
 		t.Fatalf("newStoreWithOptions: %v", err)
 	}
@@ -79,9 +79,13 @@ func TestConfigStoreOptionsRejectsConflictingPrefixAliases(t *testing.T) {
 }
 
 func TestProviderConfigureAppliesConnectionSettings(t *testing.T) {
+	dsn := "file:" + filepath.Join(t.TempDir(), "connection-options.sqlite")
+	if err := Migrate(context.Background(), dsn, Options{}); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
 	p := New()
 	err := p.Configure(context.Background(), "", map[string]any{
-		"dsn": "file:" + filepath.Join(t.TempDir(), "connection-options.sqlite"),
+		"dsn": dsn,
 		"connection": map[string]any{
 			"max_open_conns":     7,
 			"max_idle_conns":     3,
@@ -205,7 +209,7 @@ func TestStoreNamesUseConfiguredSchemaAndPrefix(t *testing.T) {
 }
 
 func TestNewStoreWithSchemaRejectsSQLite(t *testing.T) {
-	_, err := newStoreWithOptions("file:"+filepath.Join(t.TempDir(), "relationaldb.sqlite"), storeOptions{
+	_, err := newStoreWithOptions(context.Background(), "file:"+filepath.Join(t.TempDir(), "relationaldb.sqlite"), storeOptions{
 		Schema: "analytics",
 	})
 	if err == nil {

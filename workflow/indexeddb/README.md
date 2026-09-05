@@ -27,6 +27,9 @@ providers:
         runClaimRenewEvery: 3m20s
 ```
 
+Before the first start, provision this database with the
+[RelationalDB migration command](../../indexeddb/relationaldb/README.md#configuration).
+
 `pollInterval` controls how often workers scan for due schedule activations
 and pending runs. `workerCount` controls how many local poll workers this
 provider starts after lifecycle start. `runClaimTTL` controls how long another

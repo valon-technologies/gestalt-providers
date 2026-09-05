@@ -1637,9 +1637,13 @@ func cloneScheduleDescription(desc *client.ScheduleDescription) *client.Schedule
 func startTestIndexedDBBackend(t *testing.T) indexeddb.Database {
 	t.Helper()
 
+	dsn := "file:" + filepath.Join(t.TempDir(), "workflow.sqlite") + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+	if err := relationaldb.Migrate(context.Background(), dsn, relationaldb.Options{}); err != nil {
+		t.Fatalf("relationaldb.Migrate: %v", err)
+	}
 	store := relationaldb.New()
 	if err := store.Configure(context.Background(), "temporal_workflow_state", map[string]any{
-		"dsn": "file:" + filepath.Join(t.TempDir(), "workflow.sqlite") + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)",
+		"dsn": dsn,
 	}); err != nil {
 		t.Fatalf("relationaldb.Configure: %v", err)
 	}

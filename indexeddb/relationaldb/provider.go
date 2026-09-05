@@ -120,7 +120,7 @@ func (c connectionConfig) options() (connectionOptions, error) {
 	return options, nil
 }
 
-func (p *Provider) Configure(_ context.Context, _ string, raw map[string]any) error {
+func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) error {
 	var cfg config
 	data, err := yaml.Marshal(raw)
 	if err != nil {
@@ -138,7 +138,7 @@ func (p *Provider) Configure(_ context.Context, _ string, raw map[string]any) er
 	if err != nil {
 		return err
 	}
-	store, err := newStoreWithOptions(cfg.DSN, options)
+	store, err := openStoreWithOptions(ctx, cfg.DSN, options)
 	if err != nil {
 		return err
 	}
