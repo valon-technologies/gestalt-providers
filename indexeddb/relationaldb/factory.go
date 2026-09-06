@@ -87,7 +87,7 @@ func OpenFactoryDSN(dsn string, opts Options) (Factory, error) {
 	if d == dialectSQLite && storeOpts.Schema != "" {
 		return nil, fmt.Errorf("relationaldb: schema is not supported for sqlite")
 	}
-	if err := ensureRelationalTargetExists(dsn, storeOpts); err != nil {
+	if err := ensureRelationalTargetExists(context.Background(), dsn, storeOpts); err != nil {
 		return nil, err
 	}
 	db, err := openConfiguredDB(driver, connStr, storeOpts.Connection)

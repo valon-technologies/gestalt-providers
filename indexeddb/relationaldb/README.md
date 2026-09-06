@@ -51,10 +51,14 @@ Optional configuration:
     Defaults to `2`.
   - `retry_backoff`: Base backoff between retry attempts. Defaults to `200ms`.
 
-RelationalDB creates missing object-store metadata during startup, but it does
-not automatically mutate existing object-store schemas. If a provider version
-requires a different schema, run an explicit data/index migration first and then
-deploy the provider version that expects the migrated schema.
+Provision the physical schema before starting the provider:
+
+```sh
+RELATIONALDB_DSN=... go run ./cmd/migrate --schema plugin_alpha
+```
+
+Pass the same `--schema` and `--table-prefix` values used in provider
+configuration. Provider startup validates the schema without issuing DDL.
 
 Examples:
 

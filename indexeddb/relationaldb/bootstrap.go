@@ -11,21 +11,21 @@ import (
 	mysqlcfg "github.com/go-sql-driver/mysql"
 )
 
-func ensureRelationalTargetExists(dsn string, options storeOptions) error {
+func ensureRelationalTargetExists(ctx context.Context, dsn string, options storeOptions) error {
 	driver, connStr, _, d := parseDSN(dsn)
 	switch d {
 	case dialectSQLite:
 		return nil
 	case dialectMySQL:
-		if err := ensureMySQLDatabase(connStr, options.Connection); err != nil {
+		if err := ensureMySQLDatabase(ctx, connStr, options.Connection); err != nil {
 			return err
 		}
 	case dialectPostgres:
-		if err := ensurePostgresDatabase(connStr, options.Connection); err != nil {
+		if err := ensurePostgresDatabase(ctx, connStr, options.Connection); err != nil {
 			return err
 		}
 	case dialectSQLServer:
-		if err := ensureSQLServerDatabase(connStr, options.Connection); err != nil {
+		if err := ensureSQLServerDatabase(ctx, connStr, options.Connection); err != nil {
 			return err
 		}
 	}
@@ -36,16 +36,16 @@ func ensureRelationalTargetExists(dsn string, options storeOptions) error {
 	}
 	defer db.Close()
 
-	if err := pingDatabase(context.Background(), db, options.Connection); err != nil {
+	if err := pingDatabase(ctx, db, options.Connection); err != nil {
 		return fmt.Errorf("relationaldb: ping: %w", err)
 	}
-	if err := ensureRelationalNamespace(context.Background(), db, d, options.Schema, options.Connection); err != nil {
+	if err := ensureRelationalNamespace(ctx, db, d, options.Schema, options.Connection); err != nil {
 		return err
 	}
 	return nil
 }
 
-func ensureMySQLDatabase(connStr string, options connectionOptions) error {
+func ensureMySQLDatabase(ctx context.Context, connStr string, options connectionOptions) error {
 	cfg, err := mysqlcfg.ParseDSN(connStr)
 	if err != nil {
 		return fmt.Errorf("relationaldb: parse mysql dsn: %w", err)
@@ -63,13 +63,13 @@ func ensureMySQLDatabase(connStr string, options connectionOptions) error {
 	}
 	defer db.Close()
 
-	if err := pingDatabase(context.Background(), db, options); err != nil {
+	if err := pingDatabase(ctx, db, options); err != nil {
 		return fmt.Errorf("relationaldb: ping mysql admin connection: %w", err)
 	}
-	return ensureMySQLSchemaExists(context.Background(), db, target, options)
+	return ensureMySQLSchemaExists(ctx, db, target, options)
 }
 
-func ensurePostgresDatabase(connStr string, options connectionOptions) error {
+func ensurePostgresDatabase(ctx context.Context, connStr string, options connectionOptions) error {
 	target, adminConnStr, err := postgresAdminConnStr(connStr)
 	if err != nil {
 		return err
@@ -84,18 +84,18 @@ func ensurePostgresDatabase(connStr string, options connectionOptions) error {
 	}
 	defer db.Close()
 
-	if err := pingDatabase(context.Background(), db, options); err != nil {
+	if err := pingDatabase(ctx, db, options); err != nil {
 		return fmt.Errorf("relationaldb: ping postgres admin connection: %w", err)
 	}
 
 	var exists bool
-	if err := queryRowScanWithRetry(context.Background(), db, options, "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", []any{target}, &exists); err != nil {
+	if err := queryRowScanWithRetry(ctx, db, options, "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", []any{target}, &exists); err != nil {
 		return fmt.Errorf("relationaldb: check postgres database %q: %w", target, err)
 	}
 	if exists {
 		return nil
 	}
-	if _, err := execWithRetry(context.Background(), db, options, "CREATE DATABASE "+quoteIdent(dialectPostgres, target)); err != nil {
+	if _, err := execWithRetry(ctx, db, options, "CREATE DATABASE "+quoteIdent(dialectPostgres, target)); err != nil {
 		return fmt.Errorf("relationaldb: create postgres database %q: %w", target, err)
 	}
 	return nil
@@ -112,7 +112,7 @@ func postgresAdminConnStr(connStr string) (targetDB string, adminConnStr string,
 	return targetDB, adminURL.String(), nil
 }
 
-func ensureSQLServerDatabase(connStr string, options connectionOptions) error {
+func ensureSQLServerDatabase(ctx context.Context, connStr string, options connectionOptions) error {
 	target, adminConnStr, err := sqlServerAdminConnStr(connStr)
 	if err != nil {
 		return err
@@ -127,18 +127,18 @@ func ensureSQLServerDatabase(connStr string, options connectionOptions) error {
 	}
 	defer db.Close()
 
-	if err := pingDatabase(context.Background(), db, options); err != nil {
+	if err := pingDatabase(ctx, db, options); err != nil {
 		return fmt.Errorf("relationaldb: ping sqlserver admin connection: %w", err)
 	}
 
 	var exists int
-	if err := queryRowScanWithRetry(context.Background(), db, options, "SELECT COUNT(1) FROM sys.databases WHERE name = @p1", []any{target}, &exists); err != nil {
+	if err := queryRowScanWithRetry(ctx, db, options, "SELECT COUNT(1) FROM sys.databases WHERE name = @p1", []any{target}, &exists); err != nil {
 		return fmt.Errorf("relationaldb: check sqlserver database %q: %w", target, err)
 	}
 	if exists > 0 {
 		return nil
 	}
-	if _, err := execWithRetry(context.Background(), db, options, "CREATE DATABASE "+quoteIdent(dialectSQLServer, target)); err != nil {
+	if _, err := execWithRetry(ctx, db, options, "CREATE DATABASE "+quoteIdent(dialectSQLServer, target)); err != nil {
 		return fmt.Errorf("relationaldb: create sqlserver database %q: %w", target, err)
 	}
 	return nil

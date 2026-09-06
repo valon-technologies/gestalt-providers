@@ -67,6 +67,9 @@ func (h *relationalContractHarness) Capabilities() contracttest.Capabilities {
 func (h *relationalContractHarness) NewProvider(t *testing.T) (gestalt.IndexedDBProvider, func()) {
 	t.Helper()
 
+	if err := Migrate(context.Background(), h.dsn, Options{SQL: SQLOptions{TablePrefix: h.prefix}}); err != nil {
+		t.Fatalf("Migrate(%s): %v", h.name, err)
+	}
 	provider := New()
 	if err := provider.Configure(context.Background(), "", map[string]any{
 		"dsn":    h.dsn,
@@ -83,7 +86,7 @@ func (h *relationalContractHarness) NewProvider(t *testing.T) (gestalt.IndexedDB
 func (h *relationalContractHarness) InsertUnreadablePayloadRow(t *testing.T, storeName, id, status string) {
 	t.Helper()
 
-	store, err := newStoreWithOptions(h.dsn, storeOptions{TablePrefix: h.prefix})
+	store, err := openStoreWithOptions(context.Background(), h.dsn, storeOptions{TablePrefix: h.prefix})
 	if err != nil {
 		t.Fatalf("newStoreWithOptions(%s): %v", h.name, err)
 	}
