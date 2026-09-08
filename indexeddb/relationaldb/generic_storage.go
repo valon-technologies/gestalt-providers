@@ -351,9 +351,9 @@ func (s *Store) loadGenericIndexRowsByRange(ctx context.Context, table, store, i
 	return out, nil
 }
 
-func (s *Store) loadGenericRecordsByPKHashes(ctx context.Context, store string, hashes [][]byte) (map[string]gestalt.Record, error) {
+func (s *Store) loadGenericRecordRowsByPKHashes(ctx context.Context, store string, hashes [][]byte, includeBlob bool) (map[string]genericRecordRow, error) {
 	if len(hashes) == 0 {
-		return map[string]gestalt.Record{}, nil
+		return map[string]genericRecordRow{}, nil
 	}
 	unique := make([][]byte, 0, len(hashes))
 	seen := make(map[string]struct{}, len(hashes))
@@ -366,7 +366,7 @@ func (s *Store) loadGenericRecordsByPKHashes(ctx context.Context, store string, 
 		unique = append(unique, hash)
 	}
 
-	out := make(map[string]gestalt.Record, len(unique))
+	out := make(map[string]genericRecordRow, len(unique))
 	for start := 0; start < len(unique); start += genericRecordPKBatchSize {
 		end := start + genericRecordPKBatchSize
 		if end > len(unique) {
@@ -379,8 +379,10 @@ func (s *Store) loadGenericRecordsByPKHashes(ctx context.Context, store string, 
 		query.WriteString(quoteIdent(s.dialect, "pk_hash"))
 		query.WriteString(", ")
 		query.WriteString(quoteIdent(s.dialect, "pk_bytes"))
-		query.WriteString(", ")
-		query.WriteString(quoteIdent(s.dialect, "record_blob"))
+		if includeBlob {
+			query.WriteString(", ")
+			query.WriteString(quoteIdent(s.dialect, "record_blob"))
+		}
 		query.WriteString(" FROM ")
 		query.WriteString(quoteTableName(s.dialect, s.genericRecordsTable()))
 		query.WriteString(" WHERE ")
@@ -405,16 +407,15 @@ func (s *Store) loadGenericRecordsByPKHashes(ctx context.Context, store string, 
 		}
 		for rows.Next() {
 			var row genericRecordRow
-			if err := rows.Scan(&row.pkHash, &row.pkBytes, &row.recordBlob); err != nil {
+			dest := []any{&row.pkHash, &row.pkBytes}
+			if includeBlob {
+				dest = append(dest, &row.recordBlob)
+			}
+			if err := rows.Scan(dest...); err != nil {
 				rows.Close()
 				return nil, status.Errorf(codes.Internal, "scan records by pk hash: %v", err)
 			}
-			record, err := unmarshalRecordBlob(row.recordBlob)
-			if err != nil {
-				rows.Close()
-				return nil, err
-			}
-			out[genericRecordLookupKey(row.pkHash, row.pkBytes)] = record
+			out[genericRecordLookupKey(row.pkHash, row.pkBytes)] = row
 		}
 		if err := rows.Close(); err != nil {
 			return nil, status.Errorf(codes.Internal, "close records by pk hash: %v", err)
@@ -965,14 +966,14 @@ func (s *Store) genericIndexEntries(ctx context.Context, store string, idx *gest
 }
 
 func (s *Store) indexEntriesFromRows(ctx context.Context, store string, rows []genericIndexRow, keysOnly bool) ([]cursorutil.Entry, error) {
-	recordByPrimary := map[string]gestalt.Record{}
+	recordByPrimary := map[string]genericRecordRow{}
 	if !keysOnly {
 		hashes := make([][]byte, len(rows))
 		for i, row := range rows {
 			hashes[i] = row.pkHash
 		}
 		var err error
-		recordByPrimary, err = s.loadGenericRecordsByPKHashes(ctx, store, hashes)
+		recordByPrimary, err = s.loadGenericRecordRowsByPKHashes(ctx, store, hashes, true)
 		if err != nil {
 			return nil, err
 		}
@@ -994,9 +995,13 @@ func (s *Store) indexEntriesFromRows(ctx context.Context, store string, rows []g
 			PrimaryKeyValue: primaryKeyValue,
 		}
 		if !keysOnly {
-			record, ok := recordByPrimary[genericRecordLookupKey(row.pkHash, row.pkBytes)]
+			recordRow, ok := recordByPrimary[genericRecordLookupKey(row.pkHash, row.pkBytes)]
 			if !ok {
 				return nil, status.Error(codes.Internal, "index row points to missing record")
+			}
+			record, err := unmarshalRecordBlob(recordRow.recordBlob)
+			if err != nil {
+				return nil, err
 			}
 			entry.Record = record
 		}
