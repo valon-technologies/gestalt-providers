@@ -543,7 +543,6 @@ func (p *Provider) Close() error {
 }
 
 var _ gestalt.AuthorizationProvider = (*Provider)(nil)
-var _ gestalt.AuthorizationRelationshipWriter = (*Provider)(nil)
 var _ gestalt.MetadataProvider = (*Provider)(nil)
 var _ gestalt.HealthChecker = (*Provider)(nil)
 var _ gestalt.Closer = (*Provider)(nil)
