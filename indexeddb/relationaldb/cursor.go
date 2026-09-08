@@ -14,16 +14,13 @@ import (
 
 type relationalCursor struct {
 	cursorutil.LazyCursor
-	store            *Store
-	storeName        string
-	meta             *storeMeta
-	index            *gestalt.IndexSchema
-	req              gestalt.IndexedDBOpenCursorRequest
-	page             []cursorutil.Entry
-	sourceKey        any
-	sourcePrimaryKey any
-	sourceStarted    bool
-	exhausted        bool
+	store     *Store
+	storeName string
+	meta      *storeMeta
+	index     *gestalt.IndexSchema
+	page      []cursorutil.Entry
+	remaining []relationalCursorCandidate
+	loaded    bool
 }
 
 const relationalCursorPageSize = 100
@@ -47,7 +44,6 @@ func (s *Store) openCursor(ctx context.Context, req gestalt.IndexedDBOpenCursorR
 		store:      s,
 		storeName:  req.Store,
 		meta:       meta,
-		req:        req,
 	}
 	if cursor.IndexCursor {
 		cursor.index = findIndex(meta, req.Index)
@@ -80,96 +76,93 @@ func (c *relationalCursor) Update(ctx context.Context, record gestalt.Record) (*
 
 func (c *relationalCursor) Close() error {
 	c.page = nil
-	c.exhausted = true
+	c.remaining = nil
+	c.loaded = true
 	return nil
 }
 
 func (c *relationalCursor) nextEntry(ctx context.Context) (*cursorutil.Entry, error) {
 	for len(c.page) == 0 {
-		if c.exhausted {
-			return nil, nil
-		}
 		if err := c.loadPage(ctx); err != nil {
 			return nil, err
 		}
 		if len(c.page) == 0 {
-			c.exhausted = true
 			return nil, nil
 		}
 	}
 
 	entry := c.page[0]
 	c.page = c.page[1:]
-	c.sourceKey = entry.Key
-	c.sourcePrimaryKey = entry.PrimaryKeyValue
-	c.sourceStarted = true
 	return &entry, nil
 }
 
 func (c *relationalCursor) loadPage(ctx context.Context) error {
-	var (
-		candidates []relationalCursorCandidate
-		err        error
-	)
-	if c.IndexCursor {
-		candidates, err = c.collectIndexPage(ctx)
-	} else {
-		candidates, err = c.collectObjectStorePage(ctx)
+	if !c.loaded {
+		var err error
+		if c.IndexCursor {
+			c.remaining, err = c.collectIndexCandidates(ctx)
+		} else {
+			c.remaining, err = c.collectObjectStoreCandidates(ctx)
+		}
+		if err != nil {
+			return err
+		}
+		c.loaded = true
 	}
-	if err != nil {
-		return err
+	for len(c.remaining) > 0 {
+		end := min(relationalCursorPageSize, len(c.remaining))
+		entries, err := c.materializeCandidates(ctx, c.remaining[:end])
+		if err != nil {
+			return err
+		}
+		c.remaining = c.remaining[end:]
+		if len(entries) > 0 {
+			c.page = entries
+			return nil
+		}
 	}
-	if len(candidates) == 0 {
-		c.page = nil
-		return nil
-	}
-	entries, err := c.materializeCandidates(ctx, candidates)
-	if err != nil {
-		return err
-	}
-	c.page = entries
+	c.page = nil
 	return nil
 }
 
 type relationalCursorCandidate struct {
-	entry      cursorutil.Entry
-	recordBlob []byte
-	pkHash     []byte
-	pkBytes    []byte
+	entry   cursorutil.Entry
+	pkHash  []byte
+	pkBytes []byte
 }
 
-func (c *relationalCursor) collectObjectStorePage(ctx context.Context) ([]relationalCursorCandidate, error) {
+func (c *relationalCursor) collectObjectStoreCandidates(ctx context.Context) ([]relationalCursorCandidate, error) {
 	rows, err := c.store.query(ctx,
 		"SELECT "+quoteIdent(c.store.dialect, "pk_hash")+", "+
-			quoteIdent(c.store.dialect, "pk_bytes")+", "+
-			quoteIdent(c.store.dialect, "record_blob")+
+			quoteIdent(c.store.dialect, "pk_bytes")+
 			" FROM "+quoteTableName(c.store.dialect, c.store.genericRecordsTable())+
 			" WHERE "+quoteIdent(c.store.dialect, "store_name")+" = ?",
 		c.storeName,
 	)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "open cursor page: %v", err)
+		return nil, status.Errorf(codes.Internal, "load cursor keys: %v", err)
 	}
 	defer rows.Close()
 
-	var page []relationalCursorCandidate
+	var candidates []relationalCursorCandidate
 	for rows.Next() {
 		var row genericRecordRow
-		if err := rows.Scan(&row.pkHash, &row.pkBytes, &row.recordBlob); err != nil {
-			return nil, status.Errorf(codes.Internal, "scan cursor page: %v", err)
+		if err := rows.Scan(&row.pkHash, &row.pkBytes); err != nil {
+			return nil, status.Errorf(codes.Internal, "scan cursor keys: %v", err)
 		}
 		candidate, ok, err := c.objectStoreCandidate(row)
 		if err != nil {
 			return nil, err
 		}
 		if ok {
-			page = c.addCandidate(page, candidate)
+			candidates = append(candidates, candidate)
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, status.Errorf(codes.Internal, "iterate cursor page: %v", err)
+		return nil, status.Errorf(codes.Internal, "iterate cursor keys: %v", err)
 	}
-	return page, nil
+	c.sortCandidates(candidates)
+	return candidates, nil
 }
 
 func (c *relationalCursor) objectStoreCandidate(row genericRecordRow) (relationalCursorCandidate, bool, error) {
@@ -185,10 +178,14 @@ func (c *relationalCursor) objectStoreCandidate(row genericRecordRow) (relationa
 	if ok, err := c.entryEligible(entry); err != nil || !ok {
 		return relationalCursorCandidate{}, false, err
 	}
-	return relationalCursorCandidate{entry: entry, recordBlob: cloneBytes(row.recordBlob)}, true, nil
+	return relationalCursorCandidate{
+		entry:   entry,
+		pkHash:  cloneBytes(row.pkHash),
+		pkBytes: cloneBytes(row.pkBytes),
+	}, true, nil
 }
 
-func (c *relationalCursor) collectIndexPage(ctx context.Context) ([]relationalCursorCandidate, error) {
+func (c *relationalCursor) collectIndexCandidates(ctx context.Context) ([]relationalCursorCandidate, error) {
 	table := c.store.genericIndexTable()
 	if c.index.Unique {
 		table = c.store.genericUniqueIndexTable()
@@ -206,28 +203,29 @@ func (c *relationalCursor) collectIndexPage(ctx context.Context) ([]relationalCu
 		c.index.Name,
 	)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "open cursor page: %v", err)
+		return nil, status.Errorf(codes.Internal, "load cursor index keys: %v", err)
 	}
 	defer rows.Close()
 
-	var page []relationalCursorCandidate
+	var candidates []relationalCursorCandidate
 	for rows.Next() {
 		var row genericIndexRow
 		if err := rows.Scan(&row.indexName, &row.indexKeyHash, &row.indexKeyBytes, &row.pkHash, &row.pkBytes); err != nil {
-			return nil, status.Errorf(codes.Internal, "scan cursor page: %v", err)
+			return nil, status.Errorf(codes.Internal, "scan cursor index keys: %v", err)
 		}
 		candidate, ok, err := c.indexCandidate(row)
 		if err != nil {
 			return nil, err
 		}
 		if ok {
-			page = c.addCandidate(page, candidate)
+			candidates = append(candidates, candidate)
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, status.Errorf(codes.Internal, "iterate cursor page: %v", err)
+		return nil, status.Errorf(codes.Internal, "iterate cursor index keys: %v", err)
 	}
-	return page, nil
+	c.sortCandidates(candidates)
+	return candidates, nil
 }
 
 func (c *relationalCursor) indexCandidate(row genericIndexRow) (relationalCursorCandidate, bool, error) {
@@ -255,27 +253,7 @@ func (c *relationalCursor) indexCandidate(row genericIndexRow) (relationalCursor
 }
 
 func (c *relationalCursor) entryEligible(entry cursorutil.Entry) (bool, error) {
-	if c.sourceStarted && !c.entryAfterSource(entry) {
-		return false, nil
-	}
 	return indexeddb.MatchQuery(entry.Key, c.Query)
-}
-
-func (c *relationalCursor) entryAfterSource(entry cursorutil.Entry) bool {
-	cmp := compareRelationalCursorPosition(entry.Key, entry.PrimaryKeyValue, c.sourceKey, c.sourcePrimaryKey)
-	if c.Reverse {
-		return cmp < 0
-	}
-	return cmp > 0
-}
-
-func (c *relationalCursor) addCandidate(page []relationalCursorCandidate, candidate relationalCursorCandidate) []relationalCursorCandidate {
-	page = append(page, candidate)
-	c.sortCandidates(page)
-	if len(page) > relationalCursorPageSize {
-		page = page[:relationalCursorPageSize]
-	}
-	return page
 }
 
 func (c *relationalCursor) sortCandidates(page []relationalCursorCandidate) {
@@ -289,33 +267,32 @@ func (c *relationalCursor) sortCandidates(page []relationalCursorCandidate) {
 }
 
 func (c *relationalCursor) materializeCandidates(ctx context.Context, candidates []relationalCursorCandidate) ([]cursorutil.Entry, error) {
+	hashes := make([][]byte, len(candidates))
+	for i, candidate := range candidates {
+		hashes[i] = candidate.pkHash
+	}
+	records, err := c.store.loadGenericRecordRowsByPKHashes(ctx, c.storeName, hashes, !c.KeysOnly)
+	if err != nil {
+		return nil, err
+	}
+
 	entries := make([]cursorutil.Entry, 0, len(candidates))
 	for _, candidate := range candidates {
 		entry := candidate.entry
+		record, ok := records[genericRecordLookupKey(candidate.pkHash, candidate.pkBytes)]
+		if !ok {
+			continue
+		}
 		if !c.KeysOnly {
-			record, err := c.candidateRecord(ctx, candidate)
+			var err error
+			entry.Record, err = unmarshalRecordBlob(record.recordBlob)
 			if err != nil {
 				return nil, err
 			}
-			entry.Record = record
 		}
 		entries = append(entries, entry)
 	}
 	return entries, nil
-}
-
-func (c *relationalCursor) candidateRecord(ctx context.Context, candidate relationalCursorCandidate) (gestalt.Record, error) {
-	if !c.IndexCursor {
-		return unmarshalRecordBlob(candidate.recordBlob)
-	}
-	recordRow, err := c.store.loadGenericRecordByPrimaryDirect(ctx, c.storeName, candidate.pkHash, candidate.pkBytes)
-	if err != nil {
-		return nil, err
-	}
-	if recordRow == nil {
-		return nil, status.Error(codes.Internal, "index row points to missing record")
-	}
-	return unmarshalRecordBlob(recordRow.recordBlob)
 }
 
 func compareRelationalCursorEntries(a, b cursorutil.Entry) int {

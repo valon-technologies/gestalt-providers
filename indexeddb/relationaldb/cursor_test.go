@@ -123,6 +123,23 @@ func seedCursorItems(t *testing.T, store *Store) {
 	}
 }
 
+func seedManyCursorItems(t *testing.T, store *Store, count int) {
+	t.Helper()
+	ctx := context.Background()
+	if err := store.CreateObjectStore(ctx, "many", cursorItemsSchema()); err != nil {
+		t.Fatalf("CreateObjectStore(many): %v", err)
+	}
+	for i := 0; i < count; i++ {
+		id := fmt.Sprintf("%03d", i)
+		if err := store.Add(ctx, gestalt.IndexedDBRecordRequest{
+			Store:  "many",
+			Record: makeCursorItem(id, "User "+id, "active", id+"@test.com"),
+		}); err != nil {
+			t.Fatalf("Add(many, %q): %v", id, err)
+		}
+	}
+}
+
 func openTestCursor(t *testing.T, store *Store, req gestalt.IndexedDBOpenCursorRequest) gestalt.IndexedDBCursor {
 	t.Helper()
 	cursor, err := store.OpenCursor(context.Background(), req)
@@ -224,18 +241,8 @@ func TestOpenCursorOrdersStringPrimaryKeysByNativeValue(t *testing.T) {
 
 func TestOpenCursorStreamsPastRelationalPageSize(t *testing.T) {
 	h := newCursorHarness(t)
-	ctx := context.Background()
-	if err := h.store.CreateObjectStore(ctx, "many", cursorItemsSchema()); err != nil {
-		t.Fatalf("CreateObjectStore(many): %v", err)
-	}
 	count := relationalCursorPageSize + 5
-	for i := 0; i < count; i++ {
-		id := fmt.Sprintf("%03d", i)
-		record := makeCursorItem(id, "User "+id, "active", id+"@test.com")
-		if err := h.store.Add(ctx, gestalt.IndexedDBRecordRequest{Store: "many", Record: record}); err != nil {
-			t.Fatalf("Add(many, %q): %v", id, err)
-		}
-	}
+	seedManyCursorItems(t, h.store, count)
 
 	cursor := openTestCursor(t, h.store, gestalt.IndexedDBOpenCursorRequest{
 		Store:     "many",
@@ -247,6 +254,65 @@ func TestOpenCursorStreamsPastRelationalPageSize(t *testing.T) {
 	}
 	if got, want := entries[len(entries)-1].PrimaryKey, fmt.Sprintf("%03d", count-1); got != want {
 		t.Fatalf("last primary key = %q, want %q", got, want)
+	}
+}
+
+func TestOpenCursorRetriesFailedPage(t *testing.T) {
+	h := newCursorHarness(t)
+	seedManyCursorItems(t, h.store, relationalCursorPageSize+1)
+	cursor := openTestCursor(t, h.store, gestalt.IndexedDBOpenCursorRequest{Store: "many"})
+
+	if _, err := cursor.Advance(context.Background(), relationalCursorPageSize); err != nil {
+		t.Fatalf("Advance: %v", err)
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := cursor.Next(canceled); err == nil {
+		t.Fatal("Next with canceled context succeeded")
+	}
+
+	entry, err := cursor.Next(context.Background())
+	if err != nil {
+		t.Fatalf("retry Next: %v", err)
+	}
+	if got, want := entry.PrimaryKey, fmt.Sprintf("%03d", relationalCursorPageSize); got != want {
+		t.Fatalf("retry primary key = %q, want %q", got, want)
+	}
+}
+
+func TestOpenCursorSkipsDeletedUnvisitedRecord(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		index    string
+		keysOnly bool
+	}{
+		{name: "records"},
+		{name: "object keys", keysOnly: true},
+		{name: "index keys", index: "by_status", keysOnly: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newCursorHarness(t)
+			seedManyCursorItems(t, h.store, relationalCursorPageSize+3)
+			cursor := openTestCursor(t, h.store, gestalt.IndexedDBOpenCursorRequest{
+				Store: "many", Index: tc.index, KeysOnly: tc.keysOnly,
+			})
+
+			if _, err := cursor.Advance(context.Background(), relationalCursorPageSize); err != nil {
+				t.Fatalf("Advance: %v", err)
+			}
+			deleted := fmt.Sprintf("%03d", relationalCursorPageSize+1)
+			if err := h.store.Delete(context.Background(), gestalt.IndexedDBObjectStoreRequest{Store: "many", ID: deleted}); err != nil {
+				t.Fatalf("Delete(%q): %v", deleted, err)
+			}
+
+			entries := collectCursor(t, cursor)
+			if got, want := len(entries), 2; got != want {
+				t.Fatalf("remaining cursor entries = %d, want %d", got, want)
+			}
+			if got, want := entries[1].PrimaryKey, fmt.Sprintf("%03d", relationalCursorPageSize+2); got != want {
+				t.Fatalf("last primary key = %q, want %q", got, want)
+			}
+		})
 	}
 }
 
