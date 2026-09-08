@@ -916,21 +916,21 @@ func (s *Store) genericObjectStoreEntries(ctx context.Context, store string, m *
 	return entries, nil
 }
 
-func (s *Store) genericIndexEntries(ctx context.Context, store string, m *storeMeta, idx *gestalt.IndexSchema, query *client.IndexedDBQuery, keysOnly bool) ([]cursorutil.Entry, error) {
+func (s *Store) genericIndexEntries(ctx context.Context, store string, idx *gestalt.IndexSchema, query *client.IndexedDBQuery, keysOnly bool) ([]cursorutil.Entry, error) {
+	table := s.genericIndexTable()
+	if idx.Unique {
+		table = s.genericUniqueIndexTable()
+	}
 	if exactKey, ok := queryExactKey(query); ok {
 		encoded, err := encodeKeyValue(exactKey)
 		if err != nil {
 			return nil, err
 		}
-		nonUniqueRows, err := s.loadGenericIndexRowsByKey(ctx, s.genericIndexTable(), store, idx.Name, encoded.hash, encoded.raw)
+		rows, err := s.loadGenericIndexRowsByKey(ctx, table, store, idx.Name, encoded.hash, encoded.raw)
 		if err != nil {
 			return nil, err
 		}
-		uniqueRows, err := s.loadGenericIndexRowsByKey(ctx, s.genericUniqueIndexTable(), store, idx.Name, encoded.hash, encoded.raw)
-		if err != nil {
-			return nil, err
-		}
-		entries, err := s.indexEntriesFromRows(ctx, store, append(nonUniqueRows, uniqueRows...), keysOnly)
+		entries, err := s.indexEntriesFromRows(ctx, store, rows, keysOnly)
 		if err != nil {
 			return nil, err
 		}
@@ -947,17 +947,12 @@ func (s *Store) genericIndexEntries(ctx context.Context, store string, m *storeM
 		return nil, status.Errorf(codes.InvalidArgument, "index range bounds: %v", err)
 	}
 
-	nonUniqueRows, err := s.loadGenericIndexRowsByRange(ctx, s.genericIndexTable(), store, idx.Name, lo, hi, loOpen, hiOpen)
+	rows, err := s.loadGenericIndexRowsByRange(ctx, table, store, idx.Name, lo, hi, loOpen, hiOpen)
 	if err != nil {
 		return nil, err
 	}
-	uniqueRows, err := s.loadGenericIndexRowsByRange(ctx, s.genericUniqueIndexTable(), store, idx.Name, lo, hi, loOpen, hiOpen)
-	if err != nil {
-		return nil, err
-	}
-	allRows := append(nonUniqueRows, uniqueRows...)
 
-	entries, err := s.indexEntriesFromRows(ctx, store, allRows, keysOnly)
+	entries, err := s.indexEntriesFromRows(ctx, store, rows, keysOnly)
 	if err != nil {
 		return nil, err
 	}

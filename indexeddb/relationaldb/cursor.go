@@ -189,14 +189,10 @@ func (c *relationalCursor) objectStoreCandidate(row genericRecordRow) (relationa
 }
 
 func (c *relationalCursor) collectIndexPage(ctx context.Context) ([]relationalCursorCandidate, error) {
-	page, err := c.collectIndexTablePage(ctx, c.store.genericIndexTable(), nil)
-	if err != nil {
-		return nil, err
+	table := c.store.genericIndexTable()
+	if c.index.Unique {
+		table = c.store.genericUniqueIndexTable()
 	}
-	return c.collectIndexTablePage(ctx, c.store.genericUniqueIndexTable(), page)
-}
-
-func (c *relationalCursor) collectIndexTablePage(ctx context.Context, table string, page []relationalCursorCandidate) ([]relationalCursorCandidate, error) {
 	rows, err := c.store.query(ctx,
 		"SELECT "+quoteIdent(c.store.dialect, "index_name")+", "+
 			quoteIdent(c.store.dialect, "index_key_hash")+", "+
@@ -214,6 +210,7 @@ func (c *relationalCursor) collectIndexTablePage(ctx context.Context, table stri
 	}
 	defer rows.Close()
 
+	var page []relationalCursorCandidate
 	for rows.Next() {
 		var row genericIndexRow
 		if err := rows.Scan(&row.indexName, &row.indexKeyHash, &row.indexKeyBytes, &row.pkHash, &row.pkBytes); err != nil {
