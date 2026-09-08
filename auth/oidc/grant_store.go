@@ -366,12 +366,15 @@ func (s *grantStore) listGrantIDs(ctx context.Context, subjects []string) ([]str
 			if err != nil {
 				return nil, fmt.Errorf("oidc auth: get owned grant %q: %w", grantID, err)
 			}
+			if !grantIsListable(record, now) {
+				continue
+			}
 			owned, err := s.grantOwnedBy(ctx, record, subjects)
 			if err != nil {
 				return nil, err
 			}
 			if owned {
-				ids = appendListableGrantID(ids, seen, record, now)
+				ids = appendGrantID(ids, seen, record)
 			}
 		}
 
@@ -383,12 +386,15 @@ func (s *grantStore) listGrantIDs(ctx context.Context, subjects []string) ([]str
 			return nil, fmt.Errorf("oidc auth: list grants for subject %q: %w", subject, err)
 		}
 		for _, record := range records {
+			if !grantIsListable(record, now) {
+				continue
+			}
 			owned, err := s.grantOwnedBy(ctx, record, subjects)
 			if err != nil {
 				return nil, err
 			}
 			if owned {
-				ids = appendListableGrantID(ids, seen, record, now)
+				ids = appendGrantID(ids, seen, record)
 			}
 		}
 	}
@@ -396,12 +402,13 @@ func (s *grantStore) listGrantIDs(ctx context.Context, subjects []string) ([]str
 	return ids, nil
 }
 
-func appendListableGrantID(ids []string, seen map[string]bool, record gestalt.Record, now time.Time) []string {
-	if recordString(record, "category") != grantCategoryAPIToken ||
-		recordBool(record, "revoked") ||
-		!recordTime(record, "expires_at").After(now) {
-		return ids
-	}
+func grantIsListable(record gestalt.Record, now time.Time) bool {
+	return recordString(record, "category") == grantCategoryAPIToken &&
+		!recordBool(record, "revoked") &&
+		recordTime(record, "expires_at").After(now)
+}
+
+func appendGrantID(ids []string, seen map[string]bool, record gestalt.Record) []string {
 	if id := recordString(record, "id"); id != "" && !seen[id] {
 		seen[id] = true
 		return append(ids, id)
