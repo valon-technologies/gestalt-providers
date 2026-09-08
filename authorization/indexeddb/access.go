@@ -11,8 +11,14 @@ import (
 )
 
 type authorizationSnapshot struct {
-	model         *AuthorizationModel
-	relationships []*Relationship
+	model                   *AuthorizationModel
+	relationshipsByResource map[resourceRelation][]*Relationship
+}
+
+type resourceRelation struct {
+	resourceType string
+	resourceID   string
+	relation     string
 }
 
 func (p *Provider) loadAuthorizationSnapshot(ctx context.Context) (*authorizationSnapshot, error) {
@@ -39,29 +45,42 @@ func (p *Provider) loadAuthorizationSnapshot(ctx context.Context) (*authorizatio
 		return nil, status.Errorf(codes.NotFound, "model %q not found", ref.Id)
 	}
 
-	relationships, err := getAllRelationships(ctx, db.ObjectStore(stores.relationships))
+	relationships, err := loadRelationships(ctx, db.ObjectStore(stores.relationships))
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list relationships: %v", err)
 	}
 
 	return &authorizationSnapshot{
-		model:         model,
-		relationships: relationships,
+		model:                   model,
+		relationshipsByResource: relationships,
 	}, nil
 }
 
-func getAllRelationships(ctx context.Context, store indexeddb.ObjectStore) ([]*Relationship, error) {
+func (snapshot *authorizationSnapshot) relationshipsFor(resource *Resource, relation string) []*Relationship {
+	if snapshot == nil || resource == nil {
+		return nil
+	}
+	return snapshot.relationshipsByResource[resourceRelation{
+		resourceType: resource.Type,
+		resourceID:   resource.Id,
+		relation:     relation,
+	}]
+}
+
+func loadRelationships(ctx context.Context, store indexeddb.ObjectStore) (map[resourceRelation][]*Relationship, error) {
 	records, err := store.GetAll(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
-	relationships := make([]*Relationship, 0, len(records))
+	relationships := make(map[resourceRelation][]*Relationship)
 	for _, record := range records {
 		relationship, err := relationshipFromRecord(record)
 		if err != nil {
 			return nil, err
 		}
-		relationships = append(relationships, relationship)
+		resource := relationship.Tuple.Resource
+		key := resourceRelation{resource.Type, resource.Id, relationship.Tuple.Relation}
+		relationships[key] = append(relationships[key], relationship)
 	}
 	return relationships, nil
 }
@@ -100,18 +119,11 @@ func evaluateAccess(snapshot *authorizationSnapshot, req *CheckAccessRequest) (*
 	}
 
 	matchedRelations := make(map[string]struct{})
-	for _, relationship := range snapshot.relationships {
-		if relationship == nil || relationship.Tuple == nil {
-			continue
-		}
-		if !resourcesEqual(relationship.Tuple.Resource, resource) {
-			continue
-		}
-		if _, ok := allowedRelations[relationship.Tuple.Relation]; !ok {
-			continue
-		}
-		if relationshipTargetMatchesSubject(subject, relationship.Tuple.Target, snapshot.relationships, make(map[string]struct{})) {
-			matchedRelations[relationship.Tuple.Relation] = struct{}{}
+	for relation := range allowedRelations {
+		for _, relationship := range snapshot.relationshipsFor(resource, relation) {
+			if relationshipTargetMatchesSubject(subject, relationship.Tuple.Target, snapshot, make(map[string]struct{})) {
+				matchedRelations[relation] = struct{}{}
+			}
 		}
 	}
 	if len(matchedRelations) > 0 {
@@ -217,7 +229,7 @@ func orderedRelations(action *AuthorizationModelAction, included map[string]stru
 	return relations
 }
 
-func relationshipTargetMatchesSubject(subject *Subject, target *RelationshipTarget, relationships []*Relationship, visited map[string]struct{}) bool {
+func relationshipTargetMatchesSubject(subject *Subject, target *RelationshipTarget, snapshot *authorizationSnapshot, visited map[string]struct{}) bool {
 	if target == nil {
 		return false
 	}
@@ -225,12 +237,12 @@ func relationshipTargetMatchesSubject(subject *Subject, target *RelationshipTarg
 		return subjectsEqual(target.Subject, subject)
 	}
 	if target.SubjectSet != nil {
-		return subjectMatchesSubjectSet(subject, target.SubjectSet, relationships, visited)
+		return subjectMatchesSubjectSet(subject, target.SubjectSet, snapshot, visited)
 	}
 	return false
 }
 
-func subjectMatchesSubjectSet(subject *Subject, subjectSet *SubjectSet, relationships []*Relationship, visited map[string]struct{}) bool {
+func subjectMatchesSubjectSet(subject *Subject, subjectSet *SubjectSet, snapshot *authorizationSnapshot, visited map[string]struct{}) bool {
 	if subject == nil || subjectSet == nil || subjectSet.Resource == nil {
 		return false
 	}
@@ -240,17 +252,8 @@ func subjectMatchesSubjectSet(subject *Subject, subjectSet *SubjectSet, relation
 	}
 	visited[key] = struct{}{}
 
-	for _, relationship := range relationships {
-		if relationship == nil || relationship.Tuple == nil {
-			continue
-		}
-		if relationship.Tuple.Relation != subjectSet.Relation {
-			continue
-		}
-		if !resourcesEqual(relationship.Tuple.Resource, subjectSet.Resource) {
-			continue
-		}
-		if relationshipTargetMatchesSubject(subject, relationship.Tuple.Target, relationships, visited) {
+	for _, relationship := range snapshot.relationshipsFor(subjectSet.Resource, subjectSet.Relation) {
+		if relationshipTargetMatchesSubject(subject, relationship.Tuple.Target, snapshot, visited) {
 			return true
 		}
 	}
