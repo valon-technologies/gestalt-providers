@@ -781,7 +781,7 @@ func (s *Store) queryIndexEntries(ctx context.Context, req gestalt.IndexedDBInde
 	if idx == nil {
 		return nil, nil, status.Errorf(codes.NotFound, "index not found: %s", req.Index)
 	}
-	entries, err := s.genericIndexEntries(ctx, req.Store, m, idx, req.Query, keyOnly)
+	entries, err := s.genericIndexEntries(ctx, req.Store, idx, req.Query, keyOnly)
 	if err != nil {
 		return nil, nil, err
 	}
