@@ -9,7 +9,13 @@ import gestalt
 
 import internals.client as client_module
 import internals.operations as operations_module
-from internals.mime import MIMEParams, build_mime, decode_base64url, ensure_reply_prefix
+from internals.mime import (
+    MIMEParams,
+    build_mime,
+    decode_base64url,
+    encode_base64url,
+    ensure_reply_prefix,
+)
 import provider as provider_module
 
 
@@ -166,6 +172,65 @@ class GmailProviderTests(unittest.TestCase):
         response = cast(gestalt.Response[dict[str, Any]], result)
         self.assertEqual(response.status, 404)
         self.assertEqual(response.body, raw_error)
+
+    def test_messages_attachment_get_chunk_returns_bounded_decoded_bytes(self) -> None:
+        attachment_data = b"0123456789"
+        attachment = {
+            "attachmentId": "att-1",
+            "data": encode_base64url(attachment_data),
+            "size": len(attachment_data),
+        }
+
+        with mock.patch.object(
+            client_module, "get_json", return_value=attachment
+        ) as get_json:
+            result = provider_module.messages_attachments_get_chunk(
+                provider_module.MessageAttachmentChunkInput(
+                    messageId="msg-1",
+                    attachmentId="att-1",
+                    offset=3,
+                    length=4,
+                ),
+                gestalt.Request(
+                    token="user-token",
+                    credential=gestalt.Credential(mode="subject"),
+                ),
+            )
+
+        self.assertEqual(
+            result,
+            {
+                "attachmentId": "att-1",
+                "offset": 3,
+                "size": 10,
+                "data": encode_base64url(b"3456"),
+                "nextOffset": 7,
+                "done": False,
+            },
+        )
+        url = get_json.call_args.args[0]
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+        self.assertEqual(query["fields"], ["data,size"])
+
+    def test_messages_attachment_get_chunk_rejects_oversized_chunks(self) -> None:
+        result = provider_module.messages_attachments_get_chunk(
+            provider_module.MessageAttachmentChunkInput(
+                messageId="msg-1",
+                attachmentId="att-1",
+                length=provider_module.GMAIL_ATTACHMENT_CHUNK_MAX_BYTES + 1,
+            ),
+            gestalt.Request(token="test-token"),
+        )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.BAD_REQUEST)
+        self.assertEqual(
+            response.body,
+            {
+                "error": "length must not exceed 1048576 bytes",
+            },
+        )
 
     def test_threads_get_full_preserves_attachment_metadata_payload(self) -> None:
         thread = {

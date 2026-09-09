@@ -25,6 +25,7 @@ vulture-ignore-names = [
   "messages_list",
   "messages_get",
   "messages_attachments_get",
+  "messages_attachments_get_chunk",
   "threads_get",
   "labels_list",
   "get_profile",
