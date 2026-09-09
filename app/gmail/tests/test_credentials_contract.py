@@ -44,6 +44,7 @@ class GmailCredentialContractTests(unittest.TestCase):
         self.assertIn("messages.list", allowed)
         self.assertIn("messages.get", allowed)
         self.assertIn("messages.attachments.get", allowed)
+        self.assertIn("messages.attachments.getChunk", allowed)
         self.assertIn("threads.get", allowed)
         self.assertIn("labels.list", allowed)
         self.assertIn("getProfile", allowed)
@@ -83,6 +84,23 @@ class GmailCredentialContractTests(unittest.TestCase):
             {
                 parameter["name"]
                 for parameter in attachment_operation["parameters"]
+                if parameter.get("required")
+            },
+            {"messageId", "attachmentId"},
+        )
+
+        chunk_operation = {
+            operation["id"]: operation for operation in catalog["operations"]
+        }["messages.attachments.getChunk"]
+        self.assertTrue(chunk_operation["read_only"])
+        self.assertEqual(
+            [parameter["name"] for parameter in chunk_operation["parameters"]],
+            ["messageId", "attachmentId", "offset", "length"],
+        )
+        self.assertEqual(
+            {
+                parameter["name"]
+                for parameter in chunk_operation["parameters"]
                 if parameter.get("required")
             },
             {"messageId", "attachmentId"},

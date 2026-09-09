@@ -63,6 +63,7 @@ Representative operations include:
 - `messages.list`
 - `messages.get`
 - `messages.attachments.get`
+- `messages.attachments.getChunk` (returns at most 1 MiB of decoded attachment bytes)
 - `messages.trash`
 - `messages.modify`
 - `drafts.list`

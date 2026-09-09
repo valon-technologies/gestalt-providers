@@ -7,7 +7,7 @@ import gestalt
 
 import internals.client as client_module
 from internals.client import GmailAPIError, GmailClientError
-from internals.mime import MIMEParams
+from internals.mime import MIMEParams, decode_base64url, encode_base64url
 from internals.operations import (
     GmailForwardRequest,
     GmailReplyRequest,
@@ -23,6 +23,8 @@ ErrorResponse: TypeAlias = gestalt.Response[dict[str, str]]
 OperationResult: TypeAlias = dict[str, Any] | ErrorResponse
 
 app = gestalt.App("gmail")
+
+GMAIL_ATTACHMENT_CHUNK_MAX_BYTES = 1_048_576
 
 
 @app.configure
@@ -84,6 +86,21 @@ class MessageAttachmentGetInput(gestalt.Model):
     fields: str = gestalt.field(
         description="Partial response fields selector",
         default="",
+        required=False,
+    )
+
+
+class MessageAttachmentChunkInput(gestalt.Model):
+    messageId: str = gestalt.field(description="Message ID")
+    attachmentId: str = gestalt.field(description="Attachment ID")
+    offset: int = gestalt.field(
+        description="Zero-based byte offset within the decoded attachment",
+        default=0,
+        required=False,
+    )
+    length: int = gestalt.field(
+        description="Maximum number of decoded attachment bytes to return",
+        default=GMAIL_ATTACHMENT_CHUNK_MAX_BYTES,
         required=False,
     )
 
@@ -270,6 +287,68 @@ def messages_attachments_get(
             ),
             token,
         )
+    except GmailAPIError as err:
+        return gestalt.Response(status=err.status, body=err.raw_body)
+    except GmailClientError as err:
+        return _server_error(str(err))
+
+
+@app.operation(
+    id="messages.attachments.getChunk",
+    method="GET",
+    description="Get a bounded byte chunk from a Gmail message attachment",
+    tags=["email", "mail"],
+    read_only=True,
+)
+def messages_attachments_get_chunk(
+    input: MessageAttachmentChunkInput, req: gestalt.Request
+) -> OperationResult:
+    if not input.messageId or not input.attachmentId:
+        return _bad_request("messageId and attachmentId are required")
+    if input.offset < 0:
+        return _bad_request("offset must be non-negative")
+    if input.length <= 0:
+        return _bad_request("length must be positive")
+    if input.length > GMAIL_ATTACHMENT_CHUNK_MAX_BYTES:
+        return _bad_request(
+            f"length must not exceed {GMAIL_ATTACHMENT_CHUNK_MAX_BYTES} bytes"
+        )
+
+    token = _read_token("messages.attachments.getChunk", req)
+    if isinstance(token, gestalt.Response):
+        return token
+    try:
+        attachment = client_module.get_json(
+            client_module.message_attachment_url(
+                input.messageId,
+                input.attachmentId,
+                fields="data,size",
+            ),
+            token,
+        )
+        encoded_data = attachment.get("data")
+        if not isinstance(encoded_data, str):
+            return _server_error(
+                "Gmail attachment response did not contain base64url data"
+            )
+        try:
+            decoded_data = decode_base64url(encoded_data)
+        except (TypeError, ValueError) as err:
+            return _server_error(f"decoding Gmail attachment data: {err}")
+
+        total_size = len(decoded_data)
+        if input.offset > total_size:
+            return _bad_request("offset exceeds attachment size")
+        next_offset = min(input.offset + input.length, total_size)
+        chunk = decoded_data[input.offset : next_offset]
+        return {
+            "attachmentId": input.attachmentId,
+            "offset": input.offset,
+            "size": total_size,
+            "data": encode_base64url(chunk),
+            "nextOffset": next_offset,
+            "done": next_offset >= total_size,
+        }
     except GmailAPIError as err:
         return gestalt.Response(status=err.status, body=err.raw_body)
     except GmailClientError as err:

@@ -24,6 +24,7 @@ spec:
     messages.list: {}
     messages.get: {}
     messages.attachments.get: {}
+    messages.attachments.getChunk: {}
     gmail.users.messages.trash:
       alias: messages.trash
     gmail.users.messages.modify:

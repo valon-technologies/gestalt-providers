@@ -73,6 +73,30 @@ operations:
   tags:
   - email
   - mail
+- id: messages.attachments.getChunk
+  method: GET
+  description: Get a bounded byte chunk from a Gmail message attachment
+  read_only: true
+  parameters:
+  - name: messageId
+    type: string
+    description: Message ID
+    required: true
+  - name: attachmentId
+    type: string
+    description: Attachment ID
+    required: true
+  - name: offset
+    type: integer
+    description: Zero-based byte offset within the decoded attachment
+    default: 0
+  - name: length
+    type: integer
+    description: Maximum number of decoded attachment bytes to return
+    default: 1048576
+  tags:
+  - email
+  - mail
 - id: threads.get
   method: GET
   description: Get a Gmail thread
