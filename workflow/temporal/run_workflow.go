@@ -189,12 +189,17 @@ func TemporalRun(ctx workflow.Context, input runWorkflowInput) (*gestalt.Workflo
 		pendingSignals = nil
 		runMutex.Unlock()
 
-		activityCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-			StartToCloseTimeout: input.ActivityStartToCloseTimeoutNS,
-			RetryPolicy:         &sdktemporal.RetryPolicy{MaximumAttempts: 1},
-		})
 		failed := false
 		for stepIndex := 0; stepIndex < workflowTargetStepCountInput(state.Target); stepIndex++ {
+			step := state.Target.Steps[stepIndex]
+			activityTimeout := input.ActivityStartToCloseTimeoutNS
+			if step.TimeoutSeconds > 0 {
+				activityTimeout = time.Duration(step.TimeoutSeconds)*time.Second + stepActivityDeadlineGrace
+			}
+			activityCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+				StartToCloseTimeout: activityTimeout,
+				RetryPolicy:         &sdktemporal.RetryPolicy{MaximumAttempts: stepActivityMaximumAttempts},
+			})
 			stepStartedAt := workflow.Now(ctx).UTC()
 			invokeReq := gestaltworkflow.Request{
 				ProviderName:         strings.TrimSpace(input.ProviderName),
@@ -218,6 +223,10 @@ func TemporalRun(ctx workflow.Context, input runWorkflowInput) (*gestalt.Workflo
 			}
 			var stepResp gestaltworkflow.StepResponse
 			invokeErr := workflow.ExecuteActivity(activityCtx, (*workflowActivities).ExecuteStep, stepReq).Get(activityCtx, &stepResp)
+			if failedResp, ok := failedStepResponseFromActivityError(invokeErr); ok {
+				stepResp = *failedResp
+				invokeErr = nil
+			}
 
 			if err := runMutex.Lock(ctx); err != nil {
 				return nil, err
@@ -303,6 +312,9 @@ func TemporalRun(ctx workflow.Context, input runWorkflowInput) (*gestalt.Workflo
 }
 
 const (
+	stepActivityMaximumAttempts = 5
+	stepActivityDeadlineGrace   = 30 * time.Second
+
 	runCompletionRecordTimeout  = 30 * time.Second
 	runCompletionRecordAttempts = 3
 )
