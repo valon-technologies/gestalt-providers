@@ -198,7 +198,6 @@ func TemporalRun(ctx workflow.Context, input runWorkflowInput) (*gestalt.Workflo
 			}
 			activityCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 				StartToCloseTimeout: activityTimeout,
-				RetryPolicy:         &sdktemporal.RetryPolicy{MaximumAttempts: stepActivityMaximumAttempts},
 			})
 			stepStartedAt := workflow.Now(ctx).UTC()
 			invokeReq := gestaltworkflow.Request{
@@ -312,8 +311,7 @@ func TemporalRun(ctx workflow.Context, input runWorkflowInput) (*gestalt.Workflo
 }
 
 const (
-	stepActivityMaximumAttempts = 5
-	stepActivityDeadlineGrace   = 30 * time.Second
+	stepActivityDeadlineGrace = 30 * time.Second
 
 	runCompletionRecordTimeout  = 30 * time.Second
 	runCompletionRecordAttempts = 3

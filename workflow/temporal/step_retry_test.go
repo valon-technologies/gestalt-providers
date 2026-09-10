@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -33,28 +32,34 @@ func TestTemporalRunReusesStepIdentityAfterLostResponse(t *testing.T) {
 	}
 }
 
-func TestTemporalRunStopsAfterFiveFailedAttemptsAndPreservesStepFailure(t *testing.T) {
-	app := &retryContractApp{err: errors.New("redaction failed")}
+func TestTemporalRunRetriesTransientFailureBeyondFiveAttempts(t *testing.T) {
+	app := &retryContractApp{failuresRemaining: 6}
 	run := executeRetryContractWorkflow(t, app, retryContractTarget(300))
 
-	if got := app.callCount(); got != 5 {
-		t.Fatalf("app calls = %d, want 5", got)
+	if run.Status != gestalt.WorkflowRunStatusValueSucceeded {
+		t.Fatalf("run = %#v, want succeeded", run)
 	}
-	if run.Status != gestalt.WorkflowRunStatusValueFailed || !strings.Contains(run.StatusMessage, "redaction failed") {
-		t.Fatalf("run = %#v, want failed with the app error", run)
+	if got := app.callCount(); got != 7 {
+		t.Fatalf("app calls = %d, want 7", got)
 	}
-	if run.CurrentStepID != "redact" || len(run.Steps) != 1 || run.Steps[0].Status != gestalt.WorkflowStepStatusValueFailed {
-		t.Fatalf("run steps = %#v currentStepID = %q, want materialized failed execution", run.Steps, run.CurrentStepID)
+	if got := app.effectCount(); got != 1 {
+		t.Fatalf("side effects = %d, want 1", got)
 	}
-	if len(run.Steps[0].Attempts) != 1 || !strings.Contains(run.Steps[0].Attempts[0].StatusMessage, "redaction failed") {
-		t.Fatalf("step attempts = %#v, want structured final failure", run.Steps[0].Attempts)
+	keys := app.idempotencyKeys()
+	if keys[0] == "" {
+		t.Fatal("idempotency key is empty")
+	}
+	for _, key := range keys[1:] {
+		if key != keys[0] {
+			t.Fatalf("idempotency keys = %q, want one stable key", keys)
+		}
 	}
 }
 
 type retryContractApp struct {
 	mu                sync.Mutex
 	loseFirstResponse bool
-	err               error
+	failuresRemaining int
 	calls             []string
 	effects           map[string]struct{}
 }
@@ -65,8 +70,9 @@ func (a *retryContractApp) InvokeWorkflowApp(_ context.Context, invocation gesta
 
 	key := invocation.IdempotencyKey
 	a.calls = append(a.calls, key)
-	if a.err != nil {
-		return nil, a.err
+	if a.failuresRemaining > 0 {
+		a.failuresRemaining--
+		return nil, errors.New("redaction unavailable")
 	}
 	if a.effects == nil {
 		a.effects = map[string]struct{}{}
