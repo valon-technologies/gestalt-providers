@@ -2,9 +2,11 @@ package indexeddb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -21,15 +23,22 @@ type resourceRelation struct {
 	relation     string
 }
 
-func (p *Provider) loadAuthorizationSnapshot(ctx context.Context) (*authorizationSnapshot, error) {
+func (p *Provider) loadAuthorizationSnapshot(ctx context.Context, checks ...*CheckAccessRequest) (*authorizationSnapshot, error) {
 	db, err := p.getDbWithLock()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	stores := getStoreNames()
 	keys := getStateKeys()
+	tx, err := db.Transaction(ctx, stores.all(), indexeddb.TransactionReadonly, indexeddb.TransactionOptions{})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "start authorization snapshot: %v", err)
+	}
+	defer func() {
+		_ = tx.Abort(ctx)
+	}()
 
-	ref, err := getActiveModelRef(ctx, db.ObjectStore(stores.state), keys.activeModel)
+	ref, err := getActiveModelRef(ctx, tx.ObjectStore(stores.state), keys.activeModel)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get active model ref: %v", err)
 	}
@@ -37,7 +46,7 @@ func (p *Provider) loadAuthorizationSnapshot(ctx context.Context) (*authorizatio
 		return nil, status.Error(codes.NotFound, "active model is not set")
 	}
 
-	model, err := getModel(ctx, db.ObjectStore(stores.models), ref.Id)
+	model, err := getModel(ctx, tx.ObjectStore(stores.models), ref.Id)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get active model %q: %v", ref.Id, err)
 	}
@@ -45,9 +54,12 @@ func (p *Provider) loadAuthorizationSnapshot(ctx context.Context) (*authorizatio
 		return nil, status.Errorf(codes.NotFound, "model %q not found", ref.Id)
 	}
 
-	relationships, err := loadRelationships(ctx, db.ObjectStore(stores.relationships))
+	relationships, err := loadRelationships(ctx, tx.ObjectStore(stores.relationships), relationshipRoots(model, checks))
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list relationships: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, status.Errorf(codes.Internal, "commit authorization snapshot: %v", err)
 	}
 
 	return &authorizationSnapshot{
@@ -67,7 +79,66 @@ func (snapshot *authorizationSnapshot) relationshipsFor(resource *Resource, rela
 	}]
 }
 
-func loadRelationships(ctx context.Context, store indexeddb.ObjectStore) (map[resourceRelation][]*Relationship, error) {
+func relationshipRoots(model *AuthorizationModel, checks []*CheckAccessRequest) []resourceRelation {
+	var roots []resourceRelation
+	for _, check := range checks {
+		_, action, resource, err := normalizeCheckAccessRequest(check)
+		if err != nil {
+			continue
+		}
+		_, modelAction := modelActionFor(model, action, resource)
+		if modelAction == nil {
+			continue
+		}
+		for relation := range modelActionAllowedRelations(modelAction) {
+			roots = append(roots, resourceRelation{resource.Type, resource.Id, relation})
+		}
+	}
+	return roots
+}
+
+func loadRelationships(ctx context.Context, store indexeddb.TransactionObjectStore, pending []resourceRelation) (map[resourceRelation][]*Relationship, error) {
+	relationships := make(map[resourceRelation][]*Relationship)
+	seen := make(map[resourceRelation]struct{})
+	index := store.Index("by_resource_relation_source")
+	if index == nil {
+		return loadAllRelationships(ctx, store)
+	}
+	for i := 0; i < len(pending); i++ {
+		key := pending[i]
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+
+		prefix := []any{key.resourceType, key.resourceID, key.relation}
+		// Arrays sort after scalar IndexedDB keys, so this range includes every source layer.
+		records, err := index.GetAll(ctx, indexeddb.Bound(prefix, append(prefix, []any{}), false, false))
+		if errors.Is(err, gestalt.ErrNotFound) || errors.Is(err, indexeddb.ErrNotFound) {
+			return loadAllRelationships(ctx, store)
+		}
+		if err != nil {
+			return nil, err
+		}
+		for _, record := range records {
+			relationship, err := relationshipFromRecord(record)
+			if err != nil {
+				return nil, err
+			}
+			relationships[key] = append(relationships[key], relationship)
+			if subjectSet := relationship.Tuple.Target.SubjectSet; subjectSet != nil {
+				pending = append(pending, resourceRelation{
+					subjectSet.Resource.Type,
+					subjectSet.Resource.Id,
+					subjectSet.Relation,
+				})
+			}
+		}
+	}
+	return relationships, nil
+}
+
+func loadAllRelationships(ctx context.Context, store relationshipReader) (map[resourceRelation][]*Relationship, error) {
 	records, err := store.GetAll(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -101,13 +172,9 @@ func evaluateAccess(snapshot *authorizationSnapshot, req *CheckAccessRequest) (*
 		}
 	}
 
-	resourceType := findModelResourceType(snapshot.model, resource.Type)
+	resourceType, modelAction := modelActionFor(snapshot.model, action, resource)
 	if resourceType == nil {
 		return &CheckAccessResponse{Allowed: false, ModelId: modelID}, nil
-	}
-	modelAction := findModelAction(resourceType, action.Name)
-	if modelAction == nil {
-		modelAction = findModelAction(resourceType, wildcardActionName)
 	}
 	if modelAction == nil {
 		return &CheckAccessResponse{Allowed: false, ModelId: modelID}, nil
@@ -189,6 +256,18 @@ func findModelResourceType(model *AuthorizationModel, name string) *Authorizatio
 }
 
 const wildcardActionName = "*"
+
+func modelActionFor(model *AuthorizationModel, action *Action, resource *Resource) (*AuthorizationModelResourceType, *AuthorizationModelAction) {
+	resourceType := findModelResourceType(model, resource.Type)
+	if resourceType == nil {
+		return nil, nil
+	}
+	actionModel := findModelAction(resourceType, action.Name)
+	if actionModel == nil {
+		actionModel = findModelAction(resourceType, wildcardActionName)
+	}
+	return resourceType, actionModel
+}
 
 func findModelAction(resourceType *AuthorizationModelResourceType, name string) *AuthorizationModelAction {
 	name = strings.TrimSpace(name)
