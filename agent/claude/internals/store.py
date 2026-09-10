@@ -731,18 +731,10 @@ def _get_optional_record(store: Any, record_id: str) -> dict[str, Any] | None:
     record_id = record_id.strip()
     if not record_id:
         return None
-    if isinstance(store, (_LazyObjectStore, _RetryingObjectStore)):
-        try:
-            return store.get(record_id)
-        except gestalt.NotFoundError:
-            return None
-    # Transaction-scoped get() closes the transaction stream on NOT_FOUND, so use
-    # a bounded exact-key range where missing records are expected.
-    records = store.get_all(gestalt.only(record_id))
-    for record in records:
-        if str(record.get("id") or "") == record_id:
-            return record
-    return None
+    try:
+        return store.get(record_id)
+    except gestalt.NotFoundError:
+        return None
 
 
 def _session_for_idempotency_key_from_stores(

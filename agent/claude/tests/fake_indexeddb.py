@@ -214,6 +214,11 @@ class FakeIndexedDB(indexeddb_pb2_grpc.IndexedDBServicer):
                     )
                     yield indexeddb_pb2.TransactionServerMessage(operation=response)
                     if response.HasField("error") and response.error.code:
+                        if (
+                            message.operation.WhichOneof("operation") == "get"
+                            and response.error.code == grpc.StatusCode.NOT_FOUND.value[0]
+                        ):
+                            continue
                         return
                     continue
                 if kind == "commit":
