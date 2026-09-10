@@ -232,6 +232,20 @@ func runTypedIndexRangeFidelity(t *testing.T, harness Harness) {
 
 	store := "typed_index_range_fidelity"
 	mustSeedNumericIndexItems(t, sess.client, store)
+	mustAddRecord(t, sess.client, store, gestalt.Record{"id": "exact", "rank": int64(1)})
+
+	exact := mustIndexGetAll(t, sess.client, store, "by_rank", indexeddb.Only(float64(1)))
+	if got := recordPrimaryKeys(t, exact); !stringSlicesEqual(got, []string{"exact"}) {
+		t.Fatalf("IndexGetAll equivalent numeric key ids = %#v, want %#v", got, []string{"exact"})
+	}
+	exactEntries := collectCursorEntries(t, sess.client, &cursorRequest{
+		Store: store,
+		Index: "by_rank",
+		Query: indexeddb.Only(float64(1)),
+	})
+	if got := cursorPrimaryKeys(exactEntries); !stringSlicesEqual(got, []string{"exact"}) {
+		t.Fatalf("index cursor equivalent numeric key ids = %#v, want %#v", got, []string{"exact"})
+	}
 
 	rangeReq := indexeddb.Bound(
 		int64(9007199254740993),
