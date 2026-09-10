@@ -26,6 +26,10 @@ func migrateAndOpenStore(ctx context.Context, dsn string, options storeOptions) 
 		_ = store.Close()
 		return nil, err
 	}
+	if err := store.loadSchemas(ctx); err != nil {
+		_ = store.Close()
+		return nil, err
+	}
 	return store, nil
 }
 

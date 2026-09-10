@@ -65,7 +65,11 @@ func (s *Store) createObjectStoreStrict(ctx context.Context, name string, schema
 	} else if ok {
 		return status.Errorf(codes.AlreadyExists, "object store already exists: %s", name)
 	}
-	return s.persistStoreMetadata(ctx, name, schema)
+	if err := s.persistStoreMetadata(ctx, name, schema); err != nil {
+		return err
+	}
+	s.schemas[name] = newStoredSchema(schema).toMeta(name)
+	return nil
 }
 
 func (s *Store) deleteObjectStoreStrict(ctx context.Context, name string) error {
@@ -84,6 +88,7 @@ func (s *Store) deleteObjectStoreStrict(ctx context.Context, name string) error 
 	if err != nil {
 		return status.Errorf(codes.Internal, "delete object store metadata: %v", err)
 	}
+	delete(s.schemas, name)
 	return nil
 }
 
@@ -94,7 +99,8 @@ func (s *Store) createIndexStrict(ctx context.Context, storeName, indexName stri
 	if len(keyPath) == 0 {
 		return status.Error(codes.InvalidArgument, "index key path is required")
 	}
-	return s.withTx(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+	var next *storeMeta
+	err := s.withTx(ctx, func(txCtx context.Context, tx *sql.Tx) error {
 		if _, ok := txFromContext(txCtx); !ok {
 			txCtx = contextWithTx(txCtx, tx, nil)
 		}
@@ -151,12 +157,21 @@ func (s *Store) createIndexStrict(ctx context.Context, storeName, indexName stri
 
 		schema := schemaFromMeta(meta)
 		schema.Indexes = append(schema.Indexes, idx)
-		return s.persistStoreMetadata(txCtx, storeName, schema)
+		if err := s.persistStoreMetadata(txCtx, storeName, schema); err != nil {
+			return err
+		}
+		next = newStoredSchema(schema).toMeta(storeName)
+		return nil
 	})
+	if err == nil {
+		s.schemas[storeName] = next
+	}
+	return err
 }
 
 func (s *Store) deleteIndexStrict(ctx context.Context, storeName, indexName string) error {
-	return s.withTx(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+	var next *storeMeta
+	err := s.withTx(ctx, func(txCtx context.Context, tx *sql.Tx) error {
 		if _, ok := txFromContext(txCtx); !ok {
 			txCtx = contextWithTx(txCtx, tx, nil)
 		}
@@ -191,8 +206,16 @@ func (s *Store) deleteIndexStrict(ctx context.Context, storeName, indexName stri
 			}
 		}
 		schema.Indexes = nextIndexes
-		return s.persistStoreMetadata(txCtx, storeName, schema)
+		if err := s.persistStoreMetadata(txCtx, storeName, schema); err != nil {
+			return err
+		}
+		next = newStoredSchema(schema).toMeta(storeName)
+		return nil
 	})
+	if err == nil {
+		s.schemas[storeName] = next
+	}
+	return err
 }
 
 func schemaFromMeta(meta *storeMeta) gestalt.ObjectStoreOptions {
@@ -222,7 +245,7 @@ func (u *relationalUpgradeContext) ObjectStoreNames(ctx context.Context) ([]stri
 }
 
 func (u *relationalUpgradeContext) ObjectStore(name string) (UpgradeObjectStore, error) {
-	if _, err := u.store.getMeta(u.ctx, name); err != nil {
+	if _, err := u.store.getMetaForContext(u.ctx, name); err != nil {
 		return nil, err
 	}
 	return &relationalUpgradeObjectStore{store: u.store, ctx: u.ctx, name: name}, nil
@@ -265,7 +288,7 @@ type relationalUpgradeObjectStore struct {
 func (s *relationalUpgradeObjectStore) Name() string { return s.name }
 
 func (s *relationalUpgradeObjectStore) Schema() gestalt.ObjectStoreOptions {
-	meta, err := s.store.getMeta(s.ctx, s.name)
+	meta, err := s.store.getMetaForContext(s.ctx, s.name)
 	if err != nil {
 		return gestalt.ObjectStoreOptions{}
 	}

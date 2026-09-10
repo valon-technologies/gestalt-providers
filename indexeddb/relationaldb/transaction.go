@@ -21,11 +21,7 @@ func (s *Store) beginTransaction(ctx context.Context, req gestalt.IndexedDBBegin
 	meta := make(map[string]*storeMeta, len(req.Stores))
 	for _, store := range req.Stores {
 		if _, ok := scope[store]; !ok {
-			storeMeta, found, err := s.loadStoreMetadata(ctx, store)
-			if err != nil {
-				s.mu.RUnlock()
-				return nil, preserveStatusOrInternal("load metadata for %q: %v", store, err)
-			}
+			storeMeta, found := s.schemas[store]
 			if !found {
 				s.mu.RUnlock()
 				return nil, status.Errorf(codes.NotFound, "object store not found: %s", store)

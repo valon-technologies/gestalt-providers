@@ -59,6 +59,7 @@ type Store struct {
 	conn              connectionOptions
 	lifecycle         *storeLifecycle
 	mu                sync.RWMutex
+	schemas           map[string]*storeMeta
 }
 
 type storeLifecycle struct {
@@ -83,6 +84,10 @@ func openStoreWithOptions(ctx context.Context, dsn string, options storeOptions)
 	if err := s.validateGenericTables(ctx); err != nil {
 		_ = s.Close()
 		return nil, fmt.Errorf("relationaldb: physical schema is not ready; set RELATIONALDB_DSN and run `%s` from indexeddb/relationaldb: %w", migrationCommand(options), err)
+	}
+	if err := s.loadSchemas(ctx); err != nil {
+		_ = s.Close()
+		return nil, err
 	}
 	return s, nil
 }
@@ -125,6 +130,7 @@ func makeStoreWithDB(db *sql.DB, style bindStyle, d dialect, options storeOption
 		tablePrefix:       options.TablePrefix,
 		metadataKeyPrefix: options.MetadataKeyPrefix,
 		conn:              options.Connection,
+		schemas:           make(map[string]*storeMeta),
 	}
 }
 
@@ -136,6 +142,9 @@ func newStoreWithDB(db *sql.DB, style bindStyle, d dialect, options storeOptions
 		return nil, fmt.Errorf("relationaldb: create metadata table: %w", err)
 	}
 	if err := s.ensureGenericTables(context.Background()); err != nil {
+		return nil, err
+	}
+	if err := s.loadSchemas(context.Background()); err != nil {
 		return nil, err
 	}
 
@@ -197,6 +206,25 @@ func (s *Store) loadStoreMetadata(ctx context.Context, storeName string) (*store
 		return nil, false, nil
 	}
 	return stored.toMeta(storeName), true, nil
+}
+
+func (s *Store) loadSchemas(ctx context.Context) error {
+	names, err := s.ObjectStoreNames(ctx)
+	if err != nil {
+		return err
+	}
+	schemas := make(map[string]*storeMeta, len(names))
+	for _, name := range names {
+		meta, ok, err := s.loadStoreMetadata(ctx, name)
+		if err != nil {
+			return err
+		}
+		if ok {
+			schemas[name] = meta
+		}
+	}
+	s.schemas = schemas
+	return nil
 }
 
 func (s *Store) HealthCheck(ctx context.Context) error {
@@ -306,10 +334,9 @@ func (s *Store) withTx(ctx context.Context, fn func(context.Context, *sql.Tx) er
 }
 
 func (s *Store) getMeta(ctx context.Context, name string) (*storeMeta, error) {
-	m, ok, err := s.loadStoreMetadata(ctx, name)
-	if err != nil {
-		return nil, preserveStatusOrInternal("load metadata for %q: %v", name, err)
-	}
+	s.mu.RLock()
+	m, ok := s.schemas[name]
+	s.mu.RUnlock()
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "object store not found: %s", name)
 	}
@@ -317,8 +344,18 @@ func (s *Store) getMeta(ctx context.Context, name string) (*storeMeta, error) {
 }
 
 func (s *Store) getMetaForContext(ctx context.Context, name string) (*storeMeta, error) {
-	if state, ok := ctx.Value(txContextKey{}).(txContextState); ok && state.meta != nil {
-		m, ok := state.meta[name]
+	if state, ok := ctx.Value(txContextKey{}).(txContextState); ok {
+		if state.meta != nil {
+			m, ok := state.meta[name]
+			if !ok {
+				return nil, status.Errorf(codes.NotFound, "object store not found: %s", name)
+			}
+			return m, nil
+		}
+		m, ok, err := s.loadStoreMetadata(ctx, name)
+		if err != nil {
+			return nil, preserveStatusOrInternal("load metadata for %q: %v", name, err)
+		}
 		if !ok {
 			return nil, status.Errorf(codes.NotFound, "object store not found: %s", name)
 		}
@@ -504,6 +541,7 @@ func (s *Store) CreateObjectStore(ctx context.Context, name string, schema gesta
 		return preserveStatusOrInternal("load metadata: %v", err)
 	}
 	if ok {
+		s.schemas[name] = existing
 		if genericStoreSchemaMatches(existing, schema) {
 			return nil
 		}
@@ -513,6 +551,7 @@ func (s *Store) CreateObjectStore(ctx context.Context, name string, schema gesta
 	if err := s.persistStoreMetadata(ctx, name, schema); err != nil {
 		return err
 	}
+	s.schemas[name] = newStoredSchema(schema).toMeta(name)
 	return nil
 }
 
@@ -584,6 +623,7 @@ func (s *Store) DeleteObjectStore(ctx context.Context, name string) error {
 		"DELETE FROM "+quoteTableName(s.dialect, s.metadataTable())+" WHERE "+quoteIdent(s.dialect, "name")+" = ?",
 		s.metadataStoreKey(name),
 	)
+	delete(s.schemas, name)
 	return nil
 }
 
