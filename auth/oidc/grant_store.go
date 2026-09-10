@@ -345,6 +345,7 @@ func (s *grantStore) listGrantIDs(ctx context.Context, subjects []string) ([]str
 	now := s.currentTime()
 	ids := make([]string, 0)
 	seen := map[string]bool{}
+	owned := map[string]bool{}
 	for _, subject := range subjects {
 		subject = strings.TrimSpace(subject)
 		if subject == "" {
@@ -359,6 +360,7 @@ func (s *grantStore) listGrantIDs(ctx context.Context, subjects []string) ([]str
 			if grantID == "" {
 				continue
 			}
+			owned[grantID] = true
 			record, err := s.grants.Get(ctx, grantID)
 			if errors.Is(err, gestalt.ErrNotFound) {
 				continue
@@ -369,13 +371,7 @@ func (s *grantStore) listGrantIDs(ctx context.Context, subjects []string) ([]str
 			if !grantIsListable(record, now) {
 				continue
 			}
-			owned, err := s.grantOwnedBy(ctx, record, subjects)
-			if err != nil {
-				return nil, err
-			}
-			if owned {
-				ids = appendGrantID(ids, seen, record)
-			}
+			ids = appendGrantID(ids, seen, record)
 		}
 
 		records, err := s.grants.Index(grantIndexBySubject).GetAll(ctx, subject)
@@ -386,6 +382,9 @@ func (s *grantStore) listGrantIDs(ctx context.Context, subjects []string) ([]str
 			return nil, fmt.Errorf("oidc auth: list grants for subject %q: %w", subject, err)
 		}
 		for _, record := range records {
+			if owned[recordString(record, "id")] {
+				continue
+			}
 			if !grantIsListable(record, now) {
 				continue
 			}
