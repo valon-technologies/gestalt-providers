@@ -190,39 +190,24 @@ func (c *relationalCursor) collectIndexCandidates(ctx context.Context) ([]relati
 	if c.index.Unique {
 		table = c.store.genericUniqueIndexTable()
 	}
-	rows, err := c.store.query(ctx,
-		"SELECT "+quoteIdent(c.store.dialect, "index_name")+", "+
-			quoteIdent(c.store.dialect, "index_key_hash")+", "+
-			quoteIdent(c.store.dialect, "index_key_bytes")+", "+
-			quoteIdent(c.store.dialect, "pk_hash")+", "+
-			quoteIdent(c.store.dialect, "pk_bytes")+
-			" FROM "+quoteTableName(c.store.dialect, table)+
-			" WHERE "+quoteIdent(c.store.dialect, "store_name")+" = ? AND "+
-			quoteIdent(c.store.dialect, "index_name")+" = ?",
-		c.storeName,
-		c.index.Name,
-	)
+	lo, hi, loOpen, hiOpen, err := orderedQueryBounds(c.Query)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "load cursor index keys: %v", err)
+		return nil, err
 	}
-	defer rows.Close()
 
 	var candidates []relationalCursorCandidate
-	for rows.Next() {
-		var row genericIndexRow
-		if err := rows.Scan(&row.indexName, &row.indexKeyHash, &row.indexKeyBytes, &row.pkHash, &row.pkBytes); err != nil {
-			return nil, status.Errorf(codes.Internal, "scan cursor index keys: %v", err)
-		}
+	err = c.store.scanGenericIndexRowsByRange(ctx, table, c.storeName, c.index.Name, lo, hi, loOpen, hiOpen, func(row genericIndexRow) error {
 		candidate, ok, err := c.indexCandidate(row)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if ok {
 			candidates = append(candidates, candidate)
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, status.Errorf(codes.Internal, "iterate cursor index keys: %v", err)
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	c.sortCandidates(candidates)
 	return candidates, nil
