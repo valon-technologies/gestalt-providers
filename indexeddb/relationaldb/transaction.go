@@ -18,19 +18,15 @@ func (s *Store) beginTransaction(ctx context.Context, req gestalt.IndexedDBBegin
 	s.mu.RLock()
 
 	scope := make(map[string]struct{}, len(req.Stores))
-	meta := make(map[string]*storeMeta, len(req.Stores))
+	meta, err := s.loadStoreMetadataBatch(ctx, req.Stores)
+	if err != nil {
+		s.mu.RUnlock()
+		return nil, preserveStatusOrInternal("load transaction metadata: %v", err)
+	}
 	for _, store := range req.Stores {
-		if _, ok := scope[store]; !ok {
-			storeMeta, found, err := s.loadStoreMetadata(ctx, store)
-			if err != nil {
-				s.mu.RUnlock()
-				return nil, preserveStatusOrInternal("load metadata for %q: %v", store, err)
-			}
-			if !found {
-				s.mu.RUnlock()
-				return nil, status.Errorf(codes.NotFound, "object store not found: %s", store)
-			}
-			meta[store] = storeMeta
+		if _, found := meta[store]; !found {
+			s.mu.RUnlock()
+			return nil, status.Errorf(codes.NotFound, "object store not found: %s", store)
 		}
 		scope[store] = struct{}{}
 	}

@@ -40,6 +40,7 @@ const (
 	genericIndexTableName       = "_gestalt_index_entries"
 	genericUniqueIndexTableName = "_gestalt_unique_index_entries"
 	defaultTablePrefix          = ""
+	metadataReadBatchSize       = 500
 )
 
 type storeOptions struct {
@@ -193,11 +194,62 @@ func (s *Store) loadStoreMetadata(ctx context.Context, storeName string) (*store
 		return nil, false, fmt.Errorf("relationaldb: load metadata for %q: %w", storeName, err)
 	}
 
+	meta, ok := decodeStoreMetadata(storeName, schemaJSON)
+	return meta, ok, nil
+}
+
+func (s *Store) loadStoreMetadataBatch(ctx context.Context, storeNames []string) (map[string]*storeMeta, error) {
+	uniqueNames := make([]string, 0, len(storeNames))
+	seen := make(map[string]struct{}, len(storeNames))
+	for _, name := range storeNames {
+		if _, exists := seen[name]; exists {
+			continue
+		}
+		seen[name] = struct{}{}
+		uniqueNames = append(uniqueNames, name)
+	}
+	if len(uniqueNames) == 0 {
+		return map[string]*storeMeta{}, nil
+	}
+	if err := s.checkLifecycle(ctx); err != nil {
+		return nil, err
+	}
+
+	metadata := make(map[string]*storeMeta, len(uniqueNames))
+	for start := 0; start < len(uniqueNames); start += metadataReadBatchSize {
+		names := uniqueNames[start:min(start+metadataReadBatchSize, len(uniqueNames))]
+		selects := make([]string, len(names))
+		args := make([]any, len(names))
+		values := make([]sql.NullString, len(names))
+		dest := make([]any, len(names))
+		for i, name := range names {
+			selects[i] = "(SELECT " + quoteIdent(s.dialect, "schema_json") +
+				" FROM " + quoteTableName(s.dialect, s.metadataTable()) +
+				" WHERE " + quoteIdent(s.dialect, "name") + " = ?)"
+			args[i] = s.metadataStoreKey(name)
+			dest[i] = &values[i]
+		}
+		if err := s.scanOne(ctx, "SELECT "+strings.Join(selects, ", "), args, dest...); err != nil {
+			return nil, err
+		}
+		for i, value := range values {
+			if !value.Valid {
+				continue
+			}
+			if meta, ok := decodeStoreMetadata(names[i], value.String); ok {
+				metadata[names[i]] = meta
+			}
+		}
+	}
+	return metadata, nil
+}
+
+func decodeStoreMetadata(storeName, schemaJSON string) (*storeMeta, bool) {
 	var stored storedSchema
 	if err := decodeStoredSchema([]byte(schemaJSON), &stored); err != nil {
-		return nil, false, nil
+		return nil, false
 	}
-	return stored.toMeta(storeName), true, nil
+	return stored.toMeta(storeName), true
 }
 
 func (s *Store) HealthCheck(ctx context.Context) error {
