@@ -93,6 +93,14 @@ func (p *Provider) Start(ctx context.Context) error {
 	return backend.PromoteCurrentVersion(ctx)
 }
 
+func (p *Provider) PromoteWorkers(ctx context.Context) error {
+	backend, err := p.requireBackend()
+	if err != nil {
+		return err
+	}
+	return backend.promoteCurrentVersion(ctx)
+}
+
 func (p *Provider) HealthCheck(ctx context.Context) error {
 	backend, err := p.requireBackend()
 	if err != nil {
