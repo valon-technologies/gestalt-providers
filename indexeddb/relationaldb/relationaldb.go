@@ -22,6 +22,7 @@ import (
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt/sdk/go/client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -781,7 +782,11 @@ func (s *Store) queryIndexEntries(ctx context.Context, req gestalt.IndexedDBInde
 	if idx == nil {
 		return nil, nil, status.Errorf(codes.NotFound, "index not found: %s", req.Index)
 	}
-	entries, err := s.genericIndexEntries(ctx, req.Store, idx, req.Query, keyOnly)
+	queries := req.Queries
+	if len(queries) == 0 {
+		queries = []*client.IndexedDBQuery{req.Query}
+	}
+	entries, err := s.genericIndexEntries(ctx, req.Store, idx, queries, keyOnly)
 	if err != nil {
 		return nil, nil, err
 	}

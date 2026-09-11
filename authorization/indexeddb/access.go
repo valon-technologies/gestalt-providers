@@ -2,11 +2,9 @@ package indexeddb
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
-	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -101,30 +99,32 @@ func loadRelationships(ctx context.Context, store indexeddb.TransactionObjectSto
 	relationships := make(map[resourceRelation][]*Relationship)
 	seen := make(map[resourceRelation]struct{})
 	index := store.Index("by_resource_relation_source")
-	if index == nil {
-		return loadAllRelationships(ctx, store)
-	}
-	for i := 0; i < len(pending); i++ {
-		key := pending[i]
-		if _, ok := seen[key]; ok {
-			continue
+	for len(pending) > 0 {
+		queries := make([]any, 0, len(pending))
+		for _, key := range pending {
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			prefix := []any{key.resourceType, key.resourceID, key.relation}
+			// Arrays sort after scalar IndexedDB keys, so this range includes every source layer.
+			queries = append(queries, indexeddb.Bound(prefix, append(prefix, []any{}), false, false))
 		}
-		seen[key] = struct{}{}
-
-		prefix := []any{key.resourceType, key.resourceID, key.relation}
-		// Arrays sort after scalar IndexedDB keys, so this range includes every source layer.
-		records, err := index.GetAll(ctx, indexeddb.Bound(prefix, append(prefix, []any{}), false, false))
-		if errors.Is(err, gestalt.ErrNotFound) || errors.Is(err, indexeddb.ErrNotFound) {
-			return loadAllRelationships(ctx, store)
+		if len(queries) == 0 {
+			break
 		}
+		records, err := index.GetAll(ctx, indexeddb.AnyOf(queries[0], queries[1:]...))
 		if err != nil {
 			return nil, err
 		}
+		pending = nil
 		for _, record := range records {
 			relationship, err := relationshipFromRecord(record)
 			if err != nil {
 				return nil, err
 			}
+			resource := relationship.Tuple.Resource
+			key := resourceRelation{resource.Type, resource.Id, relationship.Tuple.Relation}
 			relationships[key] = append(relationships[key], relationship)
 			if subjectSet := relationship.Tuple.Target.SubjectSet; subjectSet != nil {
 				pending = append(pending, resourceRelation{
@@ -134,24 +134,6 @@ func loadRelationships(ctx context.Context, store indexeddb.TransactionObjectSto
 				})
 			}
 		}
-	}
-	return relationships, nil
-}
-
-func loadAllRelationships(ctx context.Context, store relationshipReader) (map[resourceRelation][]*Relationship, error) {
-	records, err := store.GetAll(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	relationships := make(map[resourceRelation][]*Relationship)
-	for _, record := range records {
-		relationship, err := relationshipFromRecord(record)
-		if err != nil {
-			return nil, err
-		}
-		resource := relationship.Tuple.Resource
-		key := resourceRelation{resource.Type, resource.Id, relationship.Tuple.Relation}
-		relationships[key] = append(relationships[key], relationship)
 	}
 	return relationships, nil
 }

@@ -65,6 +65,34 @@ func TestCreateIndexBackfillsAndQueries(t *testing.T) {
 	if got := len(open); got != 2 {
 		t.Fatalf("open record count = %d, want 2", got)
 	}
+
+	all, err := p.IndexGetAll(ctx, gestalt.IndexedDBIndexQueryRequest{
+		Store:   "issues",
+		Index:   "by_status",
+		Queries: indexeddb.AnyOf(indexeddb.UpperBound("closed", false), indexeddb.LowerBound("open", false)).Queries(),
+	})
+	if err != nil {
+		t.Fatalf("IndexGetAll(AnyOf): %v", err)
+	}
+	if got := len(all); got != 3 {
+		t.Fatalf("AnyOf record count = %d, want 3", got)
+	}
+
+	queries := make([]any, 1200)
+	for i := range queries {
+		queries[i] = indexeddb.Bound("closed", "open", false, false)
+	}
+	all, err = p.IndexGetAll(ctx, gestalt.IndexedDBIndexQueryRequest{
+		Store:   "issues",
+		Index:   "by_status",
+		Queries: indexeddb.AnyOf(queries[0], queries[1:]...).Queries(),
+	})
+	if err != nil {
+		t.Fatalf("IndexGetAll(large AnyOf): %v", err)
+	}
+	if got := len(all); got != 3 {
+		t.Fatalf("large AnyOf record count = %d, want 3", got)
+	}
 }
 
 func TestCreateIndexAlreadyExists(t *testing.T) {
