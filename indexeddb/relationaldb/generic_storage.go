@@ -737,10 +737,13 @@ func classifyGenericRecordInsertConflict(existing *genericRecordRow, primary enc
 	return status.Error(codes.Internal, "primary key hash collision")
 }
 
-func (s *Store) upsertGenericRecord(ctx context.Context, tx *sql.Tx, store string, primary encodedKey, payload []byte) error {
-	existing, err := s.loadGenericRecordByHash(ctx, tx, store, primary.hash)
-	if err != nil {
-		return err
+func (s *Store) upsertGenericRecord(ctx context.Context, tx *sql.Tx, store string, primary encodedKey, payload []byte, existing *genericRecordRow) error {
+	if existing == nil {
+		var err error
+		existing, err = s.loadGenericRecordByHash(ctx, tx, store, primary.hash)
+		if err != nil {
+			return err
+		}
 	}
 	if existing != nil && !bytes.Equal(existing.pkBytes, primary.raw) {
 		return status.Error(codes.Internal, "primary key hash collision")
@@ -829,7 +832,7 @@ func (s *Store) putGeneric(ctx context.Context, store string, m *storeMeta, reco
 		if err := s.insertGenericIndexRows(txCtx, tx, s.genericIndexTable(), store, nonUniqueRows); err != nil {
 			return err
 		}
-		return s.upsertGenericRecord(txCtx, tx, store, primary, payload)
+		return s.upsertGenericRecord(txCtx, tx, store, primary, payload, existing)
 	})
 }
 
