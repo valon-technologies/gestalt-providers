@@ -497,6 +497,13 @@ func TestProviderCheckAccess(t *testing.T) {
 	ctx := context.Background()
 	provider := New()
 	fakeDB := &fakeIndexedDB{}
+	opts, _, err := provider.MigrationOptions(ctx, "test", nil)
+	if err != nil {
+		t.Fatalf("MigrationOptions() error = %v", err)
+	}
+	if _, err := migrations.Run(ctx, fakeDB, opts); err != nil {
+		t.Fatalf("migrations.Run() error = %v", err)
+	}
 	provider.configureDatabase(fakeDB)
 	t.Cleanup(func() {
 		if err := provider.Close(); err != nil {

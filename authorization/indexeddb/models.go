@@ -33,7 +33,11 @@ func putModel(ctx context.Context, store indexeddb.ObjectStore, model *Authoriza
 	return store.Put(ctx, record)
 }
 
-func getModel(ctx context.Context, store indexeddb.ObjectStore, id string) (*AuthorizationModel, error) {
+type recordReader interface {
+	Get(context.Context, string) (indexeddb.Record, error)
+}
+
+func getModel(ctx context.Context, store recordReader, id string) (*AuthorizationModel, error) {
 	record, err := store.Get(ctx, id)
 	if err != nil {
 		if errors.Is(err, gestalt.ErrNotFound) {
@@ -52,7 +56,7 @@ func putActiveModelRef(ctx context.Context, store indexeddb.ObjectStore, key str
 	return store.Put(ctx, record)
 }
 
-func getActiveModelRef(ctx context.Context, store indexeddb.ObjectStore, key string) (*AuthorizationModelRef, error) {
+func getActiveModelRef(ctx context.Context, store recordReader, key string) (*AuthorizationModelRef, error) {
 	record, err := store.Get(ctx, key)
 	if err != nil {
 		if errors.Is(err, gestalt.ErrNotFound) {

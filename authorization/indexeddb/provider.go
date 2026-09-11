@@ -83,7 +83,7 @@ func (p *Provider) getDbWithLock() (indexeddb.Database, error) {
 }
 
 func (p *Provider) CheckAccess(ctx context.Context, req *CheckAccessRequest) (*CheckAccessResponse, error) {
-	snapshot, err := p.loadAuthorizationSnapshot(ctx)
+	snapshot, err := p.loadAuthorizationSnapshot(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func (p *Provider) CheckAccessMany(ctx context.Context, req *CheckAccessManyRequ
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	snapshot, err := p.loadAuthorizationSnapshot(ctx)
+	snapshot, err := p.loadAuthorizationSnapshot(ctx, req.Requests...)
 	if err != nil {
 		return nil, err
 	}

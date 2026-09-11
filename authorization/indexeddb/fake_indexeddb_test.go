@@ -46,7 +46,7 @@ func (db *fakeIndexedDB) DeleteIndex(_ context.Context, storeName, name string) 
 var _ indexeddb.IndexManager = (*fakeIndexedDB)(nil)
 
 func (db *fakeIndexedDB) Transaction(_ context.Context, stores []string, mode indexeddb.TransactionMode, _ indexeddb.TransactionOptions) (indexeddb.Transaction, error) {
-	if mode != indexeddb.TransactionReadwrite {
+	if mode != indexeddb.TransactionReadonly && mode != indexeddb.TransactionReadwrite {
 		return nil, indexeddb.ErrUnsupported
 	}
 	txStores := make(map[string]*fakeObjectStore, len(stores))
