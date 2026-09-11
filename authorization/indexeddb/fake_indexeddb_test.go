@@ -277,19 +277,26 @@ func (i *fakeIndex) GetAll(_ context.Context, query any, _ ...uint32) ([]indexed
 	if !ok {
 		return nil, indexeddb.ErrNotFound
 	}
-	nativeQuery := indexeddb.ToQuery(query)
+	querySet, ok := query.(indexeddb.QuerySet)
+	queries := querySet.Queries()
+	if !ok {
+		queries = append(queries, indexeddb.ToQuery(query))
+	}
 	ids := make([]string, 0, len(i.store.records))
 	for id, record := range i.store.records {
 		key, ok := fakeIndexKey(record, definition.KeyPath)
 		if !ok {
 			continue
 		}
-		matched, err := indexeddb.MatchQuery(key, nativeQuery)
-		if err != nil {
-			return nil, err
-		}
-		if matched {
-			ids = append(ids, id)
+		for _, query := range queries {
+			matched, err := indexeddb.MatchQuery(key, query)
+			if err != nil {
+				return nil, err
+			}
+			if matched {
+				ids = append(ids, id)
+				break
+			}
 		}
 	}
 	sort.Strings(ids)

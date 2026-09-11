@@ -69,17 +69,24 @@ func sortObjectStoreEntries(entries []cursorutil.Entry) {
 }
 
 func filterEntriesByQuery(entries []cursorutil.Entry, query *client.IndexedDBQuery) ([]cursorutil.Entry, error) {
-	if query == nil {
+	return filterEntriesByQueries(entries, []*client.IndexedDBQuery{query})
+}
+
+func filterEntriesByQueries(entries []cursorutil.Entry, queries []*client.IndexedDBQuery) ([]cursorutil.Entry, error) {
+	if len(queries) == 0 {
 		return entries, nil
 	}
 	filtered := make([]cursorutil.Entry, 0, len(entries))
 	for _, entry := range entries {
-		ok, err := indexeddb.MatchQuery(entry.Key, query)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			filtered = append(filtered, entry)
+		for _, query := range queries {
+			ok, err := indexeddb.MatchQuery(entry.Key, query)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				filtered = append(filtered, entry)
+				break
+			}
 		}
 	}
 	return filtered, nil
