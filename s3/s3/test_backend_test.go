@@ -23,7 +23,7 @@ import (
 	s3provider "github.com/valon-technologies/gestalt-providers/s3/s3"
 )
 
-const minIOImage = "minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
+const minIOImage = "quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
 
 var (
 	backendOnce    sync.Once
