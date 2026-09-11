@@ -611,6 +611,21 @@ func runBulkConsistency(t *testing.T, harness Harness) {
 		}
 	})
 
+	t.Run("ObjectStoreAnyOf", func(t *testing.T) {
+		sess := newSession(t, harness)
+		t.Cleanup(sess.Close)
+
+		store := "bulk_object_store_any_of"
+		mustSeedBulkItems(t, sess.client, store)
+
+		records := mustGetAll(t, sess.client, store, indexeddb.AnyOf("a", "c", "a", "missing"))
+		gotIDs := sortedStrings(recordPrimaryKeys(t, records))
+		want := []string{"a", "c"}
+		if !stringSlicesEqual(gotIDs, want) {
+			t.Fatalf("GetAll AnyOf ids = %#v, want %#v", gotIDs, want)
+		}
+	})
+
 	t.Run("IndexQuery", func(t *testing.T) {
 		sess := newSession(t, harness)
 		t.Cleanup(sess.Close)

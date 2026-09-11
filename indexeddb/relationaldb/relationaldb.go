@@ -704,7 +704,7 @@ func (s *Store) GetAll(ctx context.Context, req gestalt.IndexedDBObjectStoreRang
 	if err != nil {
 		return nil, err
 	}
-	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Query, false)
+	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, objectStoreQueries(req), false)
 	if err != nil {
 		return nil, err
 	}
@@ -716,7 +716,7 @@ func (s *Store) GetAllKeys(ctx context.Context, req gestalt.IndexedDBObjectStore
 	if err != nil {
 		return nil, err
 	}
-	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Query, true)
+	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, []*client.IndexedDBQuery{req.Query}, true)
 	if err != nil {
 		return nil, err
 	}
@@ -740,7 +740,7 @@ func (s *Store) Count(ctx context.Context, req gestalt.IndexedDBObjectStoreRange
 		}
 		return count, nil
 	}
-	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Query, true)
+	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, []*client.IndexedDBQuery{req.Query}, true)
 	if err != nil {
 		return 0, err
 	}
@@ -755,7 +755,7 @@ func (s *Store) DeleteRange(ctx context.Context, req gestalt.IndexedDBObjectStor
 	if err != nil {
 		return 0, err
 	}
-	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Query, true)
+	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, []*client.IndexedDBQuery{req.Query}, true)
 	if err != nil {
 		return 0, err
 	}

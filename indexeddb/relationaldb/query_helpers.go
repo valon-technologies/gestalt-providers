@@ -38,6 +38,13 @@ func queryKeyRange(query *client.IndexedDBQuery) (*client.KeyRange, bool) {
 	return rq.Value, true
 }
 
+func objectStoreQueries(req gestalt.IndexedDBObjectStoreRangeRequest) []*client.IndexedDBQuery {
+	if len(req.Queries) > 0 {
+		return req.Queries
+	}
+	return []*client.IndexedDBQuery{req.Query}
+}
+
 func limitRecords[T any](items []T, count *uint32) []T {
 	if count == nil || *count == 0 || int(*count) >= len(items) {
 		return items

@@ -945,8 +945,8 @@ func (s *Store) genericGet(ctx context.Context, store string, m *storeMeta, rawK
 	return unmarshalRecordBlob(row.recordBlob)
 }
 
-func (s *Store) genericObjectStoreEntries(ctx context.Context, store string, m *storeMeta, query *client.IndexedDBQuery, keysOnly bool) ([]cursorutil.Entry, error) {
-	rows, err := s.loadAllGenericRecords(ctx, store)
+func (s *Store) genericObjectStoreEntries(ctx context.Context, store string, m *storeMeta, queries []*client.IndexedDBQuery, keysOnly bool) ([]cursorutil.Entry, error) {
+	rows, err := s.loadGenericRecordRowsForQueries(ctx, store, queries, !keysOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -971,12 +971,48 @@ func (s *Store) genericObjectStoreEntries(ctx context.Context, store string, m *
 			Record:          record,
 		})
 	}
-	entries, err = filterEntriesByQuery(entries, query)
+	entries, err = filterEntriesByQueries(entries, queries)
 	if err != nil {
 		return nil, err
 	}
 	sortObjectStoreEntries(entries)
 	return entries, nil
+}
+
+func (s *Store) loadGenericRecordRowsForQueries(ctx context.Context, store string, queries []*client.IndexedDBQuery, includeBlob bool) ([]genericRecordRow, error) {
+	keys := make([]encodedKey, len(queries))
+	for i, query := range queries {
+		value, ok := queryExactKey(query)
+		if !ok {
+			return s.loadAllGenericRecords(ctx, store)
+		}
+		key, err := encodeKeyValue(value)
+		if err != nil {
+			return nil, err
+		}
+		keys[i] = key
+	}
+	hashes := make([][]byte, len(keys))
+	for i, key := range keys {
+		hashes[i] = key.hash
+	}
+	rowsByPrimary, err := s.loadGenericRecordRowsByPKHashes(ctx, store, hashes, includeBlob)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]genericRecordRow, 0, len(rowsByPrimary))
+	seen := make(map[string]struct{}, len(rowsByPrimary))
+	for _, key := range keys {
+		lookup := genericRecordLookupKey(key.hash, key.raw)
+		if row, ok := rowsByPrimary[lookup]; ok {
+			if _, duplicate := seen[lookup]; duplicate {
+				continue
+			}
+			seen[lookup] = struct{}{}
+			rows = append(rows, row)
+		}
+	}
+	return rows, nil
 }
 
 func (s *Store) genericIndexEntries(ctx context.Context, store string, idx *gestalt.IndexSchema, queries []*client.IndexedDBQuery, keysOnly bool) ([]cursorutil.Entry, error) {
