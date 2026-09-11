@@ -23,7 +23,7 @@ type resourceRelation struct {
 	relation     string
 }
 
-func (p *Provider) loadAuthorizationSnapshot(ctx context.Context, checks ...*CheckAccessRequest) (*authorizationSnapshot, error) {
+func (p *Provider) loadAuthorizationSnapshot(ctx context.Context, checks []*CheckAccessRequest) (*authorizationSnapshot, error) {
 	db, err := p.getDbWithLock()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -54,7 +54,13 @@ func (p *Provider) loadAuthorizationSnapshot(ctx context.Context, checks ...*Che
 		return nil, status.Errorf(codes.NotFound, "model %q not found", ref.Id)
 	}
 
-	relationships, err := loadRelationships(ctx, tx.ObjectStore(stores.relationships), relationshipRoots(model, checks))
+	var relationships map[resourceRelation][]*Relationship
+	if len(checks) > 1 {
+		// A batch shares one snapshot instead of issuing one indexed read per resource.
+		relationships, err = loadAllRelationships(ctx, tx.ObjectStore(stores.relationships))
+	} else {
+		relationships, err = loadRelationships(ctx, tx.ObjectStore(stores.relationships), relationshipRoots(model, checks))
+	}
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list relationships: %v", err)
 	}
