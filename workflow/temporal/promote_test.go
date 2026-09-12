@@ -176,6 +176,84 @@ func TestPromoteCurrentVersionSetsBuildID(t *testing.T) {
 	}
 }
 
+func TestPromoteWorkersSetCurrentFromAToB(t *testing.T) {
+	handle := &fakeDeploymentHandle{
+		conflictToken: []byte("token-1"),
+	}
+	reader := &fakeRoutingReader{
+		snapshots: []workerDeploymentRoutingSnapshot{
+			{
+				ConflictToken:      []byte("token-1"),
+				CurrentBuildID:     "old-revision",
+				RoutingUpdateState: enumspb.ROUTING_CONFIG_UPDATE_STATE_COMPLETED,
+			},
+			{
+				ConflictToken:      []byte("token-2"),
+				CurrentBuildID:     "revision-1",
+				RoutingUpdateState: enumspb.ROUTING_CONFIG_UPDATE_STATE_IN_PROGRESS,
+			},
+			{
+				ConflictToken:      []byte("token-3"),
+				CurrentBuildID:     "revision-1",
+				RoutingUpdateState: enumspb.ROUTING_CONFIG_UPDATE_STATE_COMPLETED,
+			},
+		},
+	}
+	b := newPromotionBackend(handle, false)
+	b.routingReader = reader
+
+	if err := b.promoteCurrentVersion(context.Background()); err != nil {
+		t.Fatalf("promoteCurrentVersion: %v", err)
+	}
+	if got := handle.setCallCount(); got != 1 {
+		t.Fatalf("expected 1 SetCurrentVersion call, got %d", got)
+	}
+	opts := handle.setCalls[0]
+	if opts.BuildID != "revision-1" {
+		t.Fatalf("BuildID = %q, want revision-1", opts.BuildID)
+	}
+	if got := reader.callCount(); got != 3 {
+		t.Fatalf("expected 3 routing reads, got %d", got)
+	}
+}
+
+func TestPromoteWorkersCancelsWhileRoutingStuck(t *testing.T) {
+	handle := &fakeDeploymentHandle{
+		conflictToken: []byte("token-1"),
+	}
+	reader := &fakeRoutingReader{
+		snapshots: []workerDeploymentRoutingSnapshot{
+			{
+				ConflictToken:      []byte("token-1"),
+				CurrentBuildID:     "old-revision",
+				RoutingUpdateState: enumspb.ROUTING_CONFIG_UPDATE_STATE_COMPLETED,
+			},
+			{
+				ConflictToken:      []byte("token-2"),
+				CurrentBuildID:     "revision-1",
+				RoutingUpdateState: enumspb.ROUTING_CONFIG_UPDATE_STATE_IN_PROGRESS,
+			},
+		},
+	}
+	b := newPromotionBackend(handle, false)
+	b.routingReader = reader
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- b.promoteCurrentVersion(ctx) }()
+	time.Sleep(10 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected cancellation while routing remained in progress")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("promotion did not unwind after context cancellation")
+	}
+}
+
 func TestPromoteWorkersWaitsForRoutingCompletion(t *testing.T) {
 	handle := &fakeDeploymentHandle{
 		conflictToken: []byte("token-1"),
