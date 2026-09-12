@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
@@ -21,6 +22,7 @@ type fakeDeploymentHandle struct {
 	setErr         error
 	setErrFunc     func(call int) error
 	currentBuildID func(call int) string
+	currentBuild   string
 
 	describeCalls int
 	setCalls      []client.WorkerDeploymentSetCurrentVersionOptions
@@ -31,8 +33,8 @@ func (h *fakeDeploymentHandle) Describe(_ context.Context, _ client.WorkerDeploy
 	h.mu.Lock()
 	call := h.describeCalls
 	h.describeCalls++
-	build := ""
-	if h.currentBuildID != nil {
+	build := h.currentBuild
+	if build == "" && h.currentBuildID != nil {
 		build = h.currentBuildID(call)
 	}
 	resp := client.WorkerDeploymentDescribeResponse{ConflictToken: h.conflictToken}
@@ -57,6 +59,9 @@ func (h *fakeDeploymentHandle) SetCurrentVersion(_ context.Context, opts client.
 	err := h.setErr
 	if h.setErrFunc != nil {
 		err = h.setErrFunc(call)
+	}
+	if err == nil {
+		h.currentBuild = opts.BuildID
 	}
 	h.mu.Unlock()
 	return client.WorkerDeploymentSetCurrentVersionResponse{}, err
@@ -96,6 +101,35 @@ func (c *fakePromotionClient) WorkerDeploymentClient() client.WorkerDeploymentCl
 }
 
 func (c *fakePromotionClient) Close() {}
+
+type fakeRoutingReader struct {
+	mu        sync.Mutex
+	snapshots []workerDeploymentRoutingSnapshot
+	calls     int
+}
+
+func (r *fakeRoutingReader) ReadRoutingSnapshot(
+	_ context.Context,
+	_ string,
+) (workerDeploymentRoutingSnapshot, error) {
+	r.mu.Lock()
+	call := r.calls
+	r.calls++
+	var snapshot workerDeploymentRoutingSnapshot
+	if call < len(r.snapshots) {
+		snapshot = r.snapshots[call]
+	} else if len(r.snapshots) > 0 {
+		snapshot = r.snapshots[len(r.snapshots)-1]
+	}
+	r.mu.Unlock()
+	return snapshot, nil
+}
+
+func (r *fakeRoutingReader) callCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.calls
+}
 
 func newPromotionBackend(handle *fakeDeploymentHandle, setCurrentOnStart bool) *temporalBackend {
 	cfg := baseTemporalConfig()
@@ -139,6 +173,116 @@ func TestPromoteCurrentVersionSetsBuildID(t *testing.T) {
 	}
 	if string(opts.ConflictToken) != "token-1" {
 		t.Fatalf("ConflictToken = %q, want token-1", string(opts.ConflictToken))
+	}
+}
+
+func TestPromoteWorkersSetCurrentFromAToB(t *testing.T) {
+	handle := &fakeDeploymentHandle{
+		conflictToken: []byte("token-1"),
+	}
+	reader := &fakeRoutingReader{
+		snapshots: []workerDeploymentRoutingSnapshot{
+			{
+				ConflictToken:      []byte("token-1"),
+				CurrentBuildID:     "old-revision",
+				RoutingUpdateState: enumspb.ROUTING_CONFIG_UPDATE_STATE_COMPLETED,
+			},
+			{
+				ConflictToken:      []byte("token-2"),
+				CurrentBuildID:     "revision-1",
+				RoutingUpdateState: enumspb.ROUTING_CONFIG_UPDATE_STATE_IN_PROGRESS,
+			},
+			{
+				ConflictToken:      []byte("token-3"),
+				CurrentBuildID:     "revision-1",
+				RoutingUpdateState: enumspb.ROUTING_CONFIG_UPDATE_STATE_COMPLETED,
+			},
+		},
+	}
+	b := newPromotionBackend(handle, false)
+	b.routingReader = reader
+
+	if err := b.promoteCurrentVersion(context.Background()); err != nil {
+		t.Fatalf("promoteCurrentVersion: %v", err)
+	}
+	if got := handle.setCallCount(); got != 1 {
+		t.Fatalf("expected 1 SetCurrentVersion call, got %d", got)
+	}
+	opts := handle.setCalls[0]
+	if opts.BuildID != "revision-1" {
+		t.Fatalf("BuildID = %q, want revision-1", opts.BuildID)
+	}
+	if got := reader.callCount(); got != 3 {
+		t.Fatalf("expected 3 routing reads, got %d", got)
+	}
+}
+
+func TestPromoteWorkersCancelsWhileRoutingStuck(t *testing.T) {
+	handle := &fakeDeploymentHandle{
+		conflictToken: []byte("token-1"),
+	}
+	reader := &fakeRoutingReader{
+		snapshots: []workerDeploymentRoutingSnapshot{
+			{
+				ConflictToken:      []byte("token-1"),
+				CurrentBuildID:     "old-revision",
+				RoutingUpdateState: enumspb.ROUTING_CONFIG_UPDATE_STATE_COMPLETED,
+			},
+			{
+				ConflictToken:      []byte("token-2"),
+				CurrentBuildID:     "revision-1",
+				RoutingUpdateState: enumspb.ROUTING_CONFIG_UPDATE_STATE_IN_PROGRESS,
+			},
+		},
+	}
+	b := newPromotionBackend(handle, false)
+	b.routingReader = reader
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- b.promoteCurrentVersion(ctx) }()
+	time.Sleep(10 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected cancellation while routing remained in progress")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("promotion did not unwind after context cancellation")
+	}
+}
+
+func TestPromoteWorkersWaitsForRoutingCompletion(t *testing.T) {
+	handle := &fakeDeploymentHandle{
+		conflictToken: []byte("token-1"),
+	}
+	reader := &fakeRoutingReader{
+		snapshots: []workerDeploymentRoutingSnapshot{
+			{
+				ConflictToken:      []byte("token-1"),
+				CurrentBuildID:     "revision-1",
+				RoutingUpdateState: enumspb.ROUTING_CONFIG_UPDATE_STATE_IN_PROGRESS,
+			},
+			{
+				ConflictToken:      []byte("token-2"),
+				CurrentBuildID:     "revision-1",
+				RoutingUpdateState: enumspb.ROUTING_CONFIG_UPDATE_STATE_COMPLETED,
+			},
+		},
+	}
+	b := newPromotionBackend(handle, true)
+	b.routingReader = reader
+
+	if err := b.promoteCurrentVersion(context.Background()); err != nil {
+		t.Fatalf("promoteCurrentVersion: %v", err)
+	}
+	if got := handle.setCallCount(); got != 0 {
+		t.Fatalf("expected no SetCurrentVersion when already current, got %d", got)
+	}
+	if got := reader.callCount(); got != 2 {
+		t.Fatalf("expected 2 routing reads, got %d", got)
 	}
 }
 
