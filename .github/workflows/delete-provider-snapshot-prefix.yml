@@ -1,0 +1,33 @@
+name: Delete Provider Snapshot Prefix
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider-ref:
+        description: Full gestalt-providers commit SHA prefix to delete
+        required: true
+        type: string
+      provider-dir:
+        description: Provider directory under the snapshot prefix (e.g. workflow/temporal)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Delete snapshot prefix
+        run: |
+          set -euo pipefail
+          prefix="gs://gitlab-peach-street-gestalt-provider-snapshots/github.com/valon-technologies/gestalt-providers/${{ inputs.provider-ref }}/${{ inputs.provider-dir }}/"
+          echo "Deleting ${prefix}"
+          gcloud storage rm -r "${prefix}"
