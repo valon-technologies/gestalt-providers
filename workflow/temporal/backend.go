@@ -43,6 +43,7 @@ type temporalBackend struct {
 	client       client.Client
 	stepExecutor gestaltworkflow.StepExecutor
 	state        *workflowStateStore
+	routingReader workerDeploymentRoutingReader
 
 	newWorker temporalWorkerFactory
 
@@ -144,27 +145,27 @@ func (b *temporalBackend) PromoteCurrentVersion(ctx context.Context) error {
 func (b *temporalBackend) promoteCurrentVersion(ctx context.Context) error {
 	handle := b.client.WorkerDeploymentClient().GetHandle(b.cfg.Versioning.DeploymentName)
 	buildID := b.cfg.Versioning.BuildID
+	deploymentName := b.cfg.Versioning.DeploymentName
 
 	for {
-		desc, err := handle.Describe(ctx, client.WorkerDeploymentDescribeOptions{})
+		snapshot, err := b.readPromotionRoutingSnapshot(ctx, deploymentName)
 		if err != nil {
 			return fmt.Errorf("describe worker deployment: %w", err)
 		}
-		if currentDeploymentBuildID(desc) == buildID {
+		if promotionRoutingConverged(snapshot, buildID) {
 			return nil
 		}
 
-		_, err = handle.SetCurrentVersion(ctx, client.WorkerDeploymentSetCurrentVersionOptions{
-			BuildID:                 buildID,
-			ConflictToken:           desc.ConflictToken,
-			Identity:                b.promotionIdentity(),
-			IgnoreMissingTaskQueues: false,
-		})
-		if err == nil {
-			return nil
-		}
-		if !isRetryablePromotionError(err) {
-			return fmt.Errorf("set worker deployment current version: %w", err)
+		if snapshot.CurrentBuildID != buildID {
+			_, err = handle.SetCurrentVersion(ctx, client.WorkerDeploymentSetCurrentVersionOptions{
+				BuildID:                 buildID,
+				ConflictToken:           snapshot.ConflictToken,
+				Identity:                b.promotionIdentity(),
+				IgnoreMissingTaskQueues: false,
+			})
+			if err != nil && !isRetryablePromotionError(err) {
+				return fmt.Errorf("set worker deployment current version: %w", err)
+			}
 		}
 
 		select {
@@ -173,6 +174,25 @@ func (b *temporalBackend) promoteCurrentVersion(ctx context.Context) error {
 		case <-time.After(promotionPollInterval):
 		}
 	}
+}
+
+func (b *temporalBackend) readPromotionRoutingSnapshot(
+	ctx context.Context,
+	deploymentName string,
+) (workerDeploymentRoutingSnapshot, error) {
+	if b.routingReader != nil {
+		return b.routingReader.ReadRoutingSnapshot(ctx, deploymentName)
+	}
+	handle := b.client.WorkerDeploymentClient().GetHandle(deploymentName)
+	desc, err := handle.Describe(ctx, client.WorkerDeploymentDescribeOptions{})
+	if err != nil {
+		return workerDeploymentRoutingSnapshot{}, err
+	}
+	return workerDeploymentRoutingSnapshot{
+		ConflictToken:      desc.ConflictToken,
+		CurrentBuildID:     currentDeploymentBuildID(desc),
+		RoutingUpdateState: enumspb.ROUTING_CONFIG_UPDATE_STATE_COMPLETED,
+	}, nil
 }
 
 func (b *temporalBackend) promotionIdentity() string {
@@ -216,6 +236,9 @@ func (b *temporalBackend) Close() error {
 	}
 	if b.state != nil {
 		errs = append(errs, b.state.Close())
+	}
+	if reader, ok := b.routingReader.(*workflowServiceRoutingReader); ok {
+		errs = append(errs, reader.Close())
 	}
 	if b.client != nil {
 		b.client.Close()

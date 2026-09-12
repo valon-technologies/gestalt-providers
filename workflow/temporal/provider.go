@@ -59,6 +59,13 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	}
 	providerName := strings.TrimSpace(name)
 	backend := newTemporalBackend(providerName, cfg, tc, gestaltworkflow.New(gestaltworkflow.Config{}), state)
+	routingReader, err := newWorkflowServiceRoutingReader(cfg)
+	if err != nil {
+		tc.Close()
+		_ = state.Close()
+		return fmt.Errorf("temporal workflow: %w", err)
+	}
+	backend.routingReader = routingReader
 	p.mu.Lock()
 	p.name = providerName
 	p.backend = backend
