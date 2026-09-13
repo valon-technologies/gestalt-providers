@@ -9,6 +9,7 @@ from .client import (
     SlackAPIError,
     SlackClientError,
     get_bytes,
+    is_slack_file_download_url,
     slack_get,
     slack_post,
     slack_post_form,
@@ -472,13 +473,18 @@ def get_file(
                 HTTPStatus.BAD_REQUEST,
                 {"error": "file does not include a private download URL"},
             )
-        result["content"] = _download_file_content(
-            token,
-            url_private=url_private,
-            mimetype=string_field(normalized, "mimetype"),
-            max_bytes=max_bytes,
-            include_image_data=True,
-        )
+        if not is_slack_file_download_url(url_private):
+            result["content"] = _omitted_external_file_content(
+                string_field(normalized, "mimetype")
+            )
+        else:
+            result["content"] = _download_file_content(
+                token,
+                url_private=url_private,
+                mimetype=string_field(normalized, "mimetype"),
+                max_bytes=max_bytes,
+                include_image_data=True,
+            )
     return {"data": result}
 
 
@@ -627,13 +633,18 @@ def _context_file(
             file_data, "url_private"
         )
         if url_private:
-            normalized["content"] = _download_file_content(
-                token,
-                url_private=url_private,
-                mimetype=string_field(file_data, "mimetype"),
-                max_bytes=max_file_bytes,
-                include_image_data=include_image_data,
-            )
+            if not is_slack_file_download_url(url_private):
+                normalized["content"] = _omitted_external_file_content(
+                    string_field(file_data, "mimetype")
+                )
+            else:
+                normalized["content"] = _download_file_content(
+                    token,
+                    url_private=url_private,
+                    mimetype=string_field(file_data, "mimetype"),
+                    max_bytes=max_file_bytes,
+                    include_image_data=include_image_data,
+                )
     return normalized
 
 
@@ -711,6 +722,16 @@ def _normalize_file(
         "url_private_download": string_field(file_data, "url_private_download"),
         "channel": channel,
         "message_ts": message_ts,
+    }
+
+
+def _omitted_external_file_content(mimetype: str) -> dict[str, Any]:
+    return {
+        "mime_type": mimetype,
+        "bytes_read": 0,
+        "truncated": False,
+        "encoding": "omitted",
+        "omitted_reason": "file is hosted outside Slack",
     }
 
 
