@@ -182,25 +182,6 @@ func (s *Store) loadPrimaryRows(ctx context.Context, store string, query *client
 		return nil, err
 	}
 	bounds := genericIndexRange{lo: lo, hi: hi, loOpen: loOpen, hiOpen: hiOpen}
-	var out []genericRecordRow
-	mode := ""
-	if ordered {
-		mode = "ordered"
-	}
-	err = s.scanPrimaryRows(ctx, store, mode, bounds, keysOnly, count, func(row genericRecordRow) error {
-		out = append(out, row)
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	if ordered {
-		sort.Slice(out, func(i, j int) bool { return bytes.Compare(out[i].pkOrd, out[j].pkOrd) < 0 })
-	}
-	return limitRecords(out, count), nil
-}
-
-func (s *Store) scanPrimaryRows(ctx context.Context, store, mode string, bounds genericIndexRange, keysOnly bool, count *uint32, visit func(genericRecordRow) error) error {
 	q := func(name string) string { return quoteIdent(s.dialect, name) }
 	blob := q("record_blob")
 	if keysOnly {
@@ -211,8 +192,8 @@ func (s *Store) scanPrimaryRows(ctx context.Context, store, mode string, bounds 
 	order := q("pk_hash")
 	orderedKey := primaryOrderExpression(s.dialect, q("pk_ord"))
 	orderParam := primaryOrderExpression(s.dialect, "?")
-	prefixOrder := mode == "ordered" && orderedKey != q("pk_ord")
-	if mode == "ordered" {
+	prefixOrder := ordered && orderedKey != q("pk_ord")
+	if ordered {
 		base += " AND " + q("pk_ord") + " IS NOT NULL"
 		if bounds.lo != nil || bounds.hi != nil {
 			predicate, values := genericIndexRangePredicate(q("pk_ord"), bounds)
@@ -222,6 +203,7 @@ func (s *Store) scanPrimaryRows(ctx context.Context, store, mode string, bounds 
 		order = orderedKey + ", " + q("pk_hash")
 	}
 	var last genericRecordRow
+	var out []genericRecordRow
 	read := uint64(0)
 	for {
 		limit := genericSQLPageSize
@@ -229,7 +211,7 @@ func (s *Store) scanPrimaryRows(ctx context.Context, store, mode string, bounds 
 		if count != nil {
 			if read >= uint64(*count) {
 				if !prefixOrder || *count == 0 {
-					return nil
+					break
 				}
 				finishPrefix = true
 			} else {
@@ -239,7 +221,7 @@ func (s *Store) scanPrimaryRows(ctx context.Context, store, mode string, bounds 
 		stmt := base
 		pageArgs := append([]any(nil), args...)
 		if last.pkHash != nil {
-			if mode == "ordered" {
+			if ordered {
 				if finishPrefix {
 					stmt += " AND (" + orderedKey + " = " + orderParam + " AND " + q("pk_hash") + " > ?)"
 					pageArgs = append(pageArgs, last.pkOrd, last.pkHash)
@@ -254,32 +236,31 @@ func (s *Store) scanPrimaryRows(ctx context.Context, store, mode string, bounds 
 		}
 		rows, err := s.query(ctx, sqlPageLimit(s.dialect, stmt+" ORDER BY "+order, limit), pageArgs...)
 		if err != nil {
-			return fmt.Errorf("load primary-key page: %w", err)
+			return nil, fmt.Errorf("load primary-key page: %w", err)
 		}
-		// Close each SQL result before invoking callbacks; a callback may write.
-		page := make([]genericRecordRow, 0, limit)
+		pageSize := 0
 		for rows.Next() {
 			var row genericRecordRow
 			if err := rows.Scan(&row.pkHash, &row.pkBytes, &row.recordBlob, &row.pkOrd); err != nil {
 				rows.Close()
-				return err
+				return nil, err
 			}
-			page = append(page, row)
+			out = append(out, row)
+			last = row
+			pageSize++
 		}
 		err = rows.Err()
 		rows.Close()
 		if err != nil {
-			return err
+			return nil, err
 		}
-		for _, row := range page {
-			if err := visit(row); err != nil {
-				return err
-			}
+		read += uint64(pageSize)
+		if pageSize < limit {
+			break
 		}
-		read += uint64(len(page))
-		if len(page) < limit {
-			return nil
-		}
-		last = page[len(page)-1]
 	}
+	if ordered {
+		sort.Slice(out, func(i, j int) bool { return bytes.Compare(out[i].pkOrd, out[j].pkOrd) < 0 })
+	}
+	return limitRecords(out, count), nil
 }

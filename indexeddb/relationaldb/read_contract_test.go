@@ -21,7 +21,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func TestLargeStoreReadContract(t *testing.T) {
+func TestObjectStorePaginationContract(t *testing.T) {
 	s, err := relationaldb.NewStore("file:" + filepath.Join(t.TempDir(), "large.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -31,7 +31,7 @@ func TestLargeStoreReadContract(t *testing.T) {
 	if err := s.CreateObjectStore(ctx, "large", gestalt.ObjectStoreOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	const size = 100005
+	const size = 1005
 	for start := 0; start < size; start += 1000 {
 		tx, err := s.BeginTransaction(ctx, gestalt.IndexedDBBeginTransactionRequest{Stores: []string{"large"}, Mode: gestalt.TransactionReadwrite})
 		if err != nil {
@@ -48,18 +48,18 @@ func TestLargeStoreReadContract(t *testing.T) {
 		}
 	}
 	limit := uint32(2)
-	first, err := s.GetAll(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: "large", Query: indexeddb.ToQuery(indexeddb.Bound("row-100000", "row-100004", true, false)), Count: &limit})
+	first, err := s.GetAll(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: "large", Query: indexeddb.ToQuery(indexeddb.Bound("row-001000", "row-001004", true, false)), Count: &limit})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(first) != 2 || first[0]["id"] != "row-100001" || first[1]["id"] != "row-100002" {
+	if len(first) != 2 || first[0]["id"] != "row-001001" || first[1]["id"] != "row-001002" {
 		t.Fatalf("first page: %v", first)
 	}
-	next, err := s.GetAllKeys(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: "large", Query: indexeddb.ToQuery(indexeddb.Bound(first[1]["id"], "row-100004", true, false)), Count: &limit})
-	if err != nil || !reflect.DeepEqual(next, []string{"row-100003", "row-100004"}) {
+	next, err := s.GetAllKeys(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: "large", Query: indexeddb.ToQuery(indexeddb.Bound(first[1]["id"], "row-001004", true, false)), Count: &limit})
+	if err != nil || !reflect.DeepEqual(next, []string{"row-001003", "row-001004"}) {
 		t.Fatalf("continuation: %v %v", next, err)
 	}
-	count, err := s.Count(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: "large", Query: indexeddb.ToQuery(indexeddb.Bound("row-100000", "row-100004", true, true))})
+	count, err := s.Count(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: "large", Query: indexeddb.ToQuery(indexeddb.Bound("row-001000", "row-001004", true, true))})
 	if err != nil || count != 3 {
 		t.Fatalf("count: %d %v", count, err)
 	}

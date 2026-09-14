@@ -964,12 +964,7 @@ func (s *Store) genericObjectStoreEntriesLimited(ctx context.Context, store stri
 			Record:          record,
 		})
 	}
-	entries, err = filterEntriesByQuery(entries, query)
-	if err != nil {
-		return nil, err
-	}
-	sortObjectStoreEntries(entries)
-	return limitRecords(entries, count), nil
+	return entries, nil
 }
 
 func (s *Store) genericIndexEntries(ctx context.Context, store string, idx *gestalt.IndexSchema, queries []*client.IndexedDBQuery, keysOnly bool) ([]cursorutil.Entry, error) {
