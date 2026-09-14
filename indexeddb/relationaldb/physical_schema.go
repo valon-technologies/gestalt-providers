@@ -16,10 +16,10 @@ func (s *Store) validateGenericTables(ctx context.Context) error {
 	for _, table := range s.genericTableRequirements() {
 		columns := make([]string, len(table.columns))
 		for i, column := range table.columns {
-			columns[i] = quoteIdent(s.dialect, column)
+			columns[i] = "physical_table." + quoteIdent(s.dialect, column)
 		}
 		rows, err := s.query(ctx,
-			"SELECT "+strings.Join(columns, ", ")+" FROM "+quoteTableName(s.dialect, table.name)+" WHERE 1 = 0",
+			"SELECT "+strings.Join(columns, ", ")+" FROM "+quoteTableName(s.dialect, table.name)+" AS physical_table WHERE 1 = 0",
 		)
 		if err != nil {
 			return fmt.Errorf("validate table %q: %w", table.name, err)
@@ -43,8 +43,8 @@ func (s *Store) genericTableRequirements() []tableRequirement {
 		},
 		{
 			name:                 s.genericRecordsTable(),
-			columns:              []string{"store_name", "pk_hash", "pk_bytes", "record_blob"},
-			mysqlLongBlobColumns: []string{"pk_bytes", "record_blob"},
+			columns:              []string{"store_name", "pk_hash", "pk_bytes", "pk_ord", "record_blob"},
+			mysqlLongBlobColumns: []string{"pk_bytes", "pk_ord", "record_blob"},
 		},
 		{
 			name:                 s.genericIndexTable(),

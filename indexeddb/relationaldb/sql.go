@@ -197,6 +197,7 @@ func createGenericRecordsTableSQL(d dialect, table string) string {
 		quoteIdent(d, "store_name") + " " + sqlType(d, 0, true) + " NOT NULL",
 		quoteIdent(d, "pk_hash") + " " + sqlType(d, 5, true) + " NOT NULL",
 		quoteIdent(d, "pk_bytes") + " " + sqlType(d, 5, false) + " NOT NULL",
+		quoteIdent(d, "pk_ord") + " " + sqlType(d, 5, false) + " NULL",
 		quoteIdent(d, "record_blob") + " " + sqlType(d, 5, false) + " NOT NULL",
 	}
 	if d == dialectSQLServer {
