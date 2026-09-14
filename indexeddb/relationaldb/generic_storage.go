@@ -493,19 +493,7 @@ func (s *Store) loadGenericRecordRowsByPKHashes(ctx context.Context, store strin
 }
 
 func (s *Store) loadGenericIndexRows(ctx context.Context, table, store, index string) ([]genericIndexRow, error) {
-	return s.loadGenericIndexRowsForQueries(ctx, table, store, index, nil)
-}
-
-func (s *Store) loadGenericIndexRowsForQueries(ctx context.Context, table, store, index string, queries []*client.IndexedDBQuery) ([]genericIndexRow, error) {
-	ranges := make([]genericIndexRange, len(queries))
-	for i, query := range queries {
-		lo, hi, loOpen, hiOpen, err := orderedQueryBounds(query)
-		if err != nil {
-			return nil, err
-		}
-		ranges[i] = genericIndexRange{lo, hi, loOpen, hiOpen}
-	}
-	return s.loadGenericIndexRowsByRanges(ctx, table, store, index, ranges)
+	return s.loadGenericIndexRowsByRanges(ctx, table, store, index, nil)
 }
 
 func orderedQueryBounds(query *client.IndexedDBQuery) (lo, hi []byte, loOpen, hiOpen bool, err error) {
@@ -951,9 +939,6 @@ func (s *Store) genericObjectStoreEntries(ctx context.Context, store string, m *
 }
 
 func (s *Store) genericObjectStoreEntriesLimited(ctx context.Context, store string, m *storeMeta, query *client.IndexedDBQuery, keysOnly bool, count *uint32) ([]cursorutil.Entry, error) {
-	if count != nil && *count == 0 {
-		return nil, nil
-	}
 	rows, err := s.loadPrimaryRows(ctx, store, query, keysOnly, count, true)
 	if err != nil {
 		return nil, err
@@ -992,6 +977,14 @@ func (s *Store) genericIndexEntries(ctx context.Context, store string, idx *gest
 }
 
 func (s *Store) genericIndexEntriesLimited(ctx context.Context, store string, idx *gestalt.IndexSchema, queries []*client.IndexedDBQuery, keysOnly bool, count *uint32) ([]cursorutil.Entry, error) {
+	ranges := make([]genericIndexRange, len(queries))
+	for i, query := range queries {
+		lo, hi, loOpen, hiOpen, err := orderedQueryBounds(query)
+		if err != nil {
+			return nil, err
+		}
+		ranges[i] = genericIndexRange{lo, hi, loOpen, hiOpen}
+	}
 	if count != nil && *count == 0 {
 		return nil, nil
 	}
@@ -999,7 +992,7 @@ func (s *Store) genericIndexEntriesLimited(ctx context.Context, store string, id
 	if idx.Unique {
 		table = s.genericUniqueIndexTable()
 	}
-	rows, err := s.loadGenericIndexRowsForQueries(ctx, table, store, idx.Name, queries)
+	rows, err := s.loadGenericIndexRowsByRanges(ctx, table, store, idx.Name, ranges)
 	if err != nil {
 		return nil, err
 	}

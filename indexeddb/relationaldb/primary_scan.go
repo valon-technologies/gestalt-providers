@@ -36,10 +36,26 @@ func createGenericPrimaryOrderIndexSQL(d dialect, table string) string {
 	switch d {
 	case dialectMySQL:
 		return fmt.Sprintf("CREATE INDEX %s ON %s (%s, %s(%d))", quoteIdent(d, name), quoteTableName(d, table), quoteIdent(d, "store_name"), quoteIdent(d, "pk_ord"), orderedKeyIndexPrefixLen)
+	case dialectPostgres:
+		return fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s ON %s (%s, (%s), %s)", quoteIdent(d, name), quoteTableName(d, table), quoteIdent(d, "store_name"), primaryOrderExpression(d, quoteIdent(d, "pk_ord")), quoteIdent(d, "pk_hash"))
 	case dialectSQLServer:
 		return createColumnsIndexSQL(d, table, name, []string{"store_name"}, false)
 	default:
 		return createColumnsIndexSQL(d, table, name, []string{"store_name", "pk_ord", "pk_hash"}, false)
+	}
+}
+
+// Bound the sort key where the database limits BLOB sorting or index entries.
+// Range predicates still compare the full key, and reads finish the last prefix
+// group before sorting and applying the requested count.
+func primaryOrderExpression(d dialect, value string) string {
+	switch d {
+	case dialectMySQL:
+		return fmt.Sprintf("CAST(%s AS BINARY(%d))", value, orderedKeyIndexPrefixLen)
+	case dialectPostgres:
+		return fmt.Sprintf("SUBSTRING(CAST(%s AS BYTEA) FROM 1 FOR %d)", value, orderedKeyIndexPrefixLen)
+	default:
+		return value
 	}
 }
 
@@ -193,12 +209,9 @@ func (s *Store) scanPrimaryRows(ctx context.Context, store, mode string, bounds 
 	base := "SELECT " + q("pk_hash") + ", " + q("pk_bytes") + ", " + blob + ", " + q("pk_ord") + " FROM " + quoteTableName(s.dialect, s.genericRecordsTable()) + " WHERE " + q("store_name") + " = ?"
 	args := []any{store}
 	order := q("pk_hash")
-	orderedKey := q("pk_ord")
-	if s.dialect == dialectMySQL {
-		// A fixed-width binary expression avoids max_sort_length truncation
-		// of LONGBLOBs. Finish the boundary prefix group before applying count.
-		orderedKey = "CAST(" + orderedKey + " AS BINARY(255))"
-	}
+	orderedKey := primaryOrderExpression(s.dialect, q("pk_ord"))
+	orderParam := primaryOrderExpression(s.dialect, "?")
+	prefixOrder := mode == "ordered" && orderedKey != q("pk_ord")
 	if mode == "ordered" {
 		base += " AND " + q("pk_ord") + " IS NOT NULL"
 		if bounds.lo != nil || bounds.hi != nil {
@@ -215,7 +228,7 @@ func (s *Store) scanPrimaryRows(ctx context.Context, store, mode string, bounds 
 		finishPrefix := false
 		if count != nil {
 			if read >= uint64(*count) {
-				if s.dialect != dialectMySQL || mode != "ordered" || *count == 0 {
+				if !prefixOrder || *count == 0 {
 					return nil
 				}
 				finishPrefix = true
@@ -227,17 +240,12 @@ func (s *Store) scanPrimaryRows(ctx context.Context, store, mode string, bounds 
 		pageArgs := append([]any(nil), args...)
 		if last.pkHash != nil {
 			if mode == "ordered" {
-				lastOrder := last.pkOrd
-				if s.dialect == dialectMySQL {
-					lastOrder = make([]byte, 255)
-					copy(lastOrder, last.pkOrd)
-				}
 				if finishPrefix {
-					stmt += " AND (" + orderedKey + " = ? AND " + q("pk_hash") + " > ?)"
-					pageArgs = append(pageArgs, lastOrder, last.pkHash)
+					stmt += " AND (" + orderedKey + " = " + orderParam + " AND " + q("pk_hash") + " > ?)"
+					pageArgs = append(pageArgs, last.pkOrd, last.pkHash)
 				} else {
-					stmt += " AND (" + orderedKey + " > ? OR (" + orderedKey + " = ? AND " + q("pk_hash") + " > ?))"
-					pageArgs = append(pageArgs, lastOrder, lastOrder, last.pkHash)
+					stmt += " AND (" + orderedKey + " > " + orderParam + " OR (" + orderedKey + " = " + orderParam + " AND " + q("pk_hash") + " > ?))"
+					pageArgs = append(pageArgs, last.pkOrd, last.pkOrd, last.pkHash)
 				}
 			} else {
 				stmt += " AND " + q("pk_hash") + " > ?"
