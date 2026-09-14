@@ -86,6 +86,10 @@ func openStoreWithOptions(ctx context.Context, dsn string, options storeOptions)
 		_ = s.Close()
 		return nil, fmt.Errorf("relationaldb: physical schema is not ready; set RELATIONALDB_DSN and run `%s` from indexeddb/relationaldb: %w", migrationCommand(options), err)
 	}
+	if err := s.requireOrderedPrimaryKeys(ctx, ""); err != nil {
+		_ = s.Close()
+		return nil, err
+	}
 	return s, nil
 }
 

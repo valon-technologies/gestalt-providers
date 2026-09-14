@@ -106,14 +106,15 @@ func (h *relationalContractHarness) InsertUnreadablePayloadRow(t *testing.T, sto
 	}
 
 	recordStmt := fmt.Sprintf(
-		"INSERT INTO %s (%s, %s, %s, %s) VALUES (?, ?, ?, ?)",
+		"INSERT INTO %s (%s, %s, %s, %s, %s) VALUES (?, ?, ?, ?, ?)",
 		quoteTableName(store.dialect, store.genericRecordsTable()),
 		quoteIdent(store.dialect, "store_name"),
 		quoteIdent(store.dialect, "pk_hash"),
 		quoteIdent(store.dialect, "pk_bytes"),
 		quoteIdent(store.dialect, "record_blob"),
+		quoteIdent(store.dialect, "pk_ord"),
 	)
-	if _, err := store.db.ExecContext(context.Background(), store.q(recordStmt), storeName, primary.hash, primary.raw, []byte("not-a-proto-record")); err != nil {
+	if _, err := store.db.ExecContext(context.Background(), store.q(recordStmt), storeName, primary.hash, primary.raw, []byte("not-a-proto-record"), primary.ord); err != nil {
 		t.Fatalf("ExecContext(insert unreadable generic record): %v", err)
 	}
 

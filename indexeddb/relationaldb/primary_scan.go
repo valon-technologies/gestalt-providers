@@ -3,11 +3,12 @@ package relationaldb
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"fmt"
 	"sort"
 
 	"github.com/valon-technologies/gestalt/sdk/go/client"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const genericSQLPageSize = 1000
@@ -50,40 +51,9 @@ func sqlPageLimit(d dialect, query string, count int) string {
 }
 
 func (s *Store) countPrimaryRange(ctx context.Context, store string, query *client.IndexedDBQuery) (int64, error) {
-	var count int64
-	err := s.withPrimaryReadSnapshot(ctx, func(ctx context.Context) error {
-		var err error
-		count, err = s.countPrimaryRangeSnapshot(ctx, store, query)
-		return err
-	})
-	return count, err
-}
-
-// A backfill must not move a row from the legacy set into the ordered set
-// between the two reads. Reuse explicit IndexedDB transactions when present.
-func (s *Store) withPrimaryReadSnapshot(ctx context.Context, read func(context.Context) error) error {
-	if _, ok := txFromContext(ctx); ok {
-		return read(ctx)
+	if err := s.requireOrderedPrimaryKeys(ctx, store); err != nil {
+		return 0, err
 	}
-	if err := s.checkLifecycle(ctx); err != nil {
-		return err
-	}
-	isolation := sql.LevelRepeatableRead
-	if s.dialect == dialectSQLite || s.dialect == dialectSQLServer {
-		isolation = sql.LevelSerializable
-	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: isolation, ReadOnly: true})
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if err := read(contextWithTx(ctx, tx, nil)); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-func (s *Store) countPrimaryRangeSnapshot(ctx context.Context, store string, query *client.IndexedDBQuery) (int64, error) {
 	lo, hi, loOpen, hiOpen, err := orderedQueryBounds(query)
 	if err != nil {
 		return 0, err
@@ -97,47 +67,36 @@ func (s *Store) countPrimaryRangeSnapshot(ctx context.Context, store string, que
 		stmt += " AND " + predicate
 		args = append(args, values...)
 	}
-	rows, err := s.query(ctx, stmt, args...)
-	if err != nil {
-		return 0, err
-	}
 	var count int64
-	if rows.Next() {
-		err = rows.Scan(&count)
-	}
-	if err == nil {
-		err = rows.Err()
-	}
-	rows.Close()
-	if err != nil {
-		return 0, err
-	}
-	err = s.scanPrimaryRows(ctx, store, "legacy", bounds, true, nil, func(row genericRecordRow) error {
-		key, err := decodeKeyValue(row.pkBytes)
-		if err != nil {
-			return err
-		}
-		ord, err := encodeOrderedKey(key)
-		if err != nil {
-			return err
-		}
-		if lo != nil && (bytes.Compare(ord, lo) < 0 || loOpen && bytes.Equal(ord, lo)) {
-			return nil
-		}
-		if hi != nil && (bytes.Compare(ord, hi) > 0 || hiOpen && bytes.Equal(ord, hi)) {
-			return nil
-		}
-		count++
-		return nil
-	})
+	err = s.scanOne(ctx, stmt, args, &count)
 	return count, err
+}
+
+// Old writers must be drained and the backfill completed before this provider
+// serves reads. Missing ordered keys are an upgrade error, never a read fallback.
+func (s *Store) requireOrderedPrimaryKeys(ctx context.Context, store string) error {
+	q := func(name string) string { return quoteIdent(s.dialect, name) }
+	stmt := "SELECT 1 FROM " + quoteTableName(s.dialect, s.genericRecordsTable()) + " WHERE " + q("pk_ord") + " IS NULL"
+	var args []any
+	if store != "" {
+		stmt += " AND " + q("store_name") + " = ?"
+		args = append(args, store)
+	}
+	var incomplete int
+	if err := s.scanOne(ctx, "SELECT CASE WHEN EXISTS ("+stmt+") THEN 1 ELSE 0 END", args, &incomplete); err != nil {
+		return err
+	}
+	if incomplete != 0 {
+		return status.Error(codes.FailedPrecondition, "ordered primary-key backfill is incomplete; drain older writers and run migrate --backfill-primary-keys")
+	}
+	return nil
 }
 
 // BackfillPrimaryKeyOrder fills legacy keys using short, independently committed
 // updates. It is safe to restart: NULL is the checkpoint and concurrent writes
 // win because the update also checks the original key bytes.
 func BackfillPrimaryKeyOrder(ctx context.Context, dsn string, options Options) (int64, error) {
-	s, err := openStoreWithOptions(ctx, dsn, options.storeOptions())
+	s, err := connectStoreWithOptions(ctx, dsn, options.storeOptions())
 	if err != nil {
 		return 0, err
 	}
@@ -197,65 +156,31 @@ func (s *Store) backfillPrimaryKeyOrder(ctx context.Context) (int64, error) {
 	}
 }
 
-// During a rolling upgrade, old writers can still insert NULL pk_ord values.
-// Merge those rows with the SQL-ordered page until the resumable backfill has
-// caught up. Never omit legacy rows or limit them in hash order.
+// All keys are migrated before reads begin. There is one SQL range-scan path.
 func (s *Store) loadPrimaryRows(ctx context.Context, store string, query *client.IndexedDBQuery, keysOnly bool, count *uint32, ordered bool) ([]genericRecordRow, error) {
-	var rows []genericRecordRow
-	err := s.withPrimaryReadSnapshot(ctx, func(ctx context.Context) error {
-		var err error
-		rows, err = s.loadPrimaryRowsSnapshot(ctx, store, query, keysOnly, count, ordered)
-		return err
-	})
-	return rows, err
-}
-
-func (s *Store) loadPrimaryRowsSnapshot(ctx context.Context, store string, query *client.IndexedDBQuery, keysOnly bool, count *uint32, ordered bool) ([]genericRecordRow, error) {
-	var bounds genericIndexRange
-	if query != nil {
-		lo, hi, loOpen, hiOpen, err := orderedQueryBounds(query)
-		if err != nil {
-			return nil, err
-		}
-		bounds = genericIndexRange{lo: lo, hi: hi, loOpen: loOpen, hiOpen: hiOpen}
+	if err := s.requireOrderedPrimaryKeys(ctx, store); err != nil {
+		return nil, err
 	}
+	lo, hi, loOpen, hiOpen, err := orderedQueryBounds(query)
+	if err != nil {
+		return nil, err
+	}
+	bounds := genericIndexRange{lo: lo, hi: hi, loOpen: loOpen, hiOpen: hiOpen}
 	var out []genericRecordRow
-	collect := func(row genericRecordRow) error {
-		if row.pkOrd == nil {
-			key, err := decodeKeyValue(row.pkBytes)
-			if err != nil {
-				return err
-			}
-			row.pkOrd, err = encodeOrderedKey(key)
-			if err != nil {
-				return err
-			}
-		}
-		if bounds.lo != nil && (bytes.Compare(row.pkOrd, bounds.lo) < 0 || bounds.loOpen && bytes.Equal(row.pkOrd, bounds.lo)) {
-			return nil
-		}
-		if bounds.hi != nil && (bytes.Compare(row.pkOrd, bounds.hi) > 0 || bounds.hiOpen && bytes.Equal(row.pkOrd, bounds.hi)) {
-			return nil
-		}
+	mode := ""
+	if ordered {
+		mode = "ordered"
+	}
+	err = s.scanPrimaryRows(ctx, store, mode, bounds, keysOnly, count, func(row genericRecordRow) error {
 		out = append(out, row)
-		// Keep bounded memory for a limited request even with many legacy rows.
-		if ordered && count != nil && len(out) >= int(*count)+genericSQLPageSize {
-			sort.Slice(out, func(i, j int) bool { return bytes.Compare(out[i].pkOrd, out[j].pkOrd) < 0 })
-			out = out[:int(*count)]
-		}
 		return nil
-	}
-	if !ordered {
-		err := s.scanPrimaryRows(ctx, store, "", bounds, keysOnly, nil, collect)
-		return out, err
-	}
-	if err := s.scanPrimaryRows(ctx, store, "ordered", bounds, keysOnly, count, collect); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
-	if err := s.scanPrimaryRows(ctx, store, "legacy", bounds, keysOnly, nil, collect); err != nil {
-		return nil, err
+	if ordered {
+		sort.Slice(out, func(i, j int) bool { return bytes.Compare(out[i].pkOrd, out[j].pkOrd) < 0 })
 	}
-	sort.Slice(out, func(i, j int) bool { return bytes.Compare(out[i].pkOrd, out[j].pkOrd) < 0 })
 	return limitRecords(out, count), nil
 }
 
@@ -282,8 +207,6 @@ func (s *Store) scanPrimaryRows(ctx context.Context, store, mode string, bounds 
 			args = append(args, values...)
 		}
 		order = orderedKey + ", " + q("pk_hash")
-	} else if mode == "legacy" {
-		base += " AND " + q("pk_ord") + " IS NULL"
 	}
 	var last genericRecordRow
 	read := uint64(0)

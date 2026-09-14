@@ -60,34 +60,6 @@ RELATIONALDB_DSN=... go run ./cmd/migrate --schema plugin_alpha
 Pass the same `--schema` and `--table-prefix` values used in provider
 configuration. Provider startup validates the schema without issuing DDL.
 
-### Ordered primary-key upgrade
-
-This version adds a nullable `pk_ord` column and a primary-key scan index to the
-physical records table. Provision these with the migration command **before**
-deploying the new provider. Existing providers can continue writing while it is
-provisioned; they leave new rows' `pk_ord` values null. Use the database's supported
-online schema-change procedure for large production tables.
-
-After deploying the provider, run the resumable backfill:
-
-```sh
-RELATIONALDB_DSN=... go run ./cmd/migrate --schema plugin_alpha --backfill-primary-keys
-```
-
-The backfill reads at most 1,000 keys per SQL result and commits each conditional
-update independently. Interrupting it is safe; rerunning processes remaining null
-keys. Retire older writers and rerun once more to finish rows they inserted during
-the rollout. Readers merge null-key rows with ordered results throughout the
-upgrade, so correctness does not depend on backfill completion. The legacy scan
-cost disappears once all keys are backfilled.
-
-Object-store ranges and limits are applied in SQL for ordered rows. Each SQL
-result contains at most 1,000 rows, including unbounded requests and secondary
-index scans. Limited secondary reads sort matching keys before fetching only the
-requested payloads; they still inspect all matching index keys. MySQL finishes
-equal ordered-key prefix groups before limiting, preserving long-key ordering
-without depending on the server's BLOB sort-length setting.
-
 Examples:
 
 ```yaml
