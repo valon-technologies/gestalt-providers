@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/valon-technologies/gestalt-providers/secrets/internal/configutil"
@@ -24,7 +23,6 @@ type config struct {
 }
 
 type Provider struct {
-	mu    sync.RWMutex
 	name  string
 	store *secretstore.Store
 }
@@ -48,20 +46,12 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 		return fmt.Errorf("relationaldb secrets: %w", err)
 	}
 
-	p.mu.Lock()
-	previous := p.store
 	p.name = strings.TrimSpace(name)
 	p.store = store
-	p.mu.Unlock()
-	if previous != nil {
-		_ = previous.Close()
-	}
 	return nil
 }
 
 func (p *Provider) Metadata() gestalt.ProviderMetadata {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
 	return gestalt.ProviderMetadata{
 		Kind:        gestalt.ProviderKindSecrets,
 		Name:        p.name,
@@ -72,27 +62,20 @@ func (p *Provider) Metadata() gestalt.ProviderMetadata {
 }
 
 func (p *Provider) GetSecret(ctx context.Context, name string) (string, error) {
-	p.mu.RLock()
-	store := p.store
-	p.mu.RUnlock()
-	if store == nil {
+	if p.store == nil {
 		return "", fmt.Errorf("relationaldb secrets: provider is not configured")
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, defaultTimeout)
 	defer cancel()
-	return store.Get(ctx, name)
+	return p.store.Get(ctx, name)
 }
 
 func (p *Provider) Close() error {
-	p.mu.Lock()
-	store := p.store
-	p.store = nil
-	p.mu.Unlock()
-	if store == nil {
+	if p.store == nil {
 		return nil
 	}
-	return store.Close()
+	return p.store.Close()
 }
 
 var _ gestalt.SecretsProvider = (*Provider)(nil)
