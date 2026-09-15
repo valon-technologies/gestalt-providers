@@ -32,13 +32,6 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	if err := relationaldb.Migrate(ctx, dsn, relationaldb.Options{SQL: relationaldb.SQLOptions{
-		Schema:      schema,
-		TablePrefix: tablePrefix,
-	}}); err != nil {
-		fmt.Fprintf(os.Stderr, "migrate relationaldb: %v\n", err)
-		os.Exit(1)
-	}
 	if backfillPrimaryKeys {
 		updated, err := relationaldb.BackfillPrimaryKeyOrder(ctx, dsn, relationaldb.Options{SQL: relationaldb.SQLOptions{Schema: schema, TablePrefix: tablePrefix}})
 		if err != nil {
@@ -46,5 +39,13 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Printf("backfilled %d primary keys\n", updated)
+		return
+	}
+	if err := relationaldb.Migrate(ctx, dsn, relationaldb.Options{SQL: relationaldb.SQLOptions{
+		Schema:      schema,
+		TablePrefix: tablePrefix,
+	}}); err != nil {
+		fmt.Fprintf(os.Stderr, "migrate relationaldb: %v\n", err)
+		os.Exit(1)
 	}
 }

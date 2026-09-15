@@ -34,7 +34,7 @@ func (s *Store) validateGenericTables(ctx context.Context) error {
 func (s *Store) genericTableRequirements() []tableRequirement {
 	indexColumns := []string{
 		"store_name", "index_name", "index_key_hash", "index_key_bytes",
-		"index_key_ord", "pk_hash", "pk_bytes",
+		"index_key_ord", "pk_hash", "pk_bytes", "pk_ord",
 	}
 	return []tableRequirement{
 		{
@@ -49,12 +49,12 @@ func (s *Store) genericTableRequirements() []tableRequirement {
 		{
 			name:                 s.genericIndexTable(),
 			columns:              indexColumns,
-			mysqlLongBlobColumns: []string{"index_key_bytes", "pk_bytes"},
+			mysqlLongBlobColumns: []string{"index_key_bytes", "pk_bytes", "pk_ord"},
 		},
 		{
 			name:                 s.genericUniqueIndexTable(),
 			columns:              indexColumns,
-			mysqlLongBlobColumns: []string{"index_key_bytes", "pk_bytes"},
+			mysqlLongBlobColumns: []string{"index_key_bytes", "pk_bytes", "pk_ord"},
 		},
 	}
 }

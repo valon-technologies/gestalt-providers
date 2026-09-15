@@ -14,9 +14,18 @@ import (
 const genericSQLPageSize = 1000
 
 func (s *Store) ensurePrimaryKeyOrderColumn(ctx context.Context) error {
+	for _, table := range []string{s.genericRecordsTable(), s.genericIndexTable(), s.genericUniqueIndexTable()} {
+		if err := s.ensureOrderedColumn(ctx, table); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) ensureOrderedColumn(ctx context.Context, table string) error {
 	// Qualify the column so SQLite cannot treat an unknown quoted identifier
 	// as a string literal and incorrectly skip the migration.
-	rows, err := s.query(ctx, "SELECT records."+quoteIdent(s.dialect, "pk_ord")+" FROM "+quoteTableName(s.dialect, s.genericRecordsTable())+" AS records WHERE 1 = 0")
+	rows, err := s.query(ctx, "SELECT records."+quoteIdent(s.dialect, "pk_ord")+" FROM "+quoteTableName(s.dialect, table)+" AS records WHERE 1 = 0")
 	if err == nil {
 		return rows.Close()
 	}
@@ -24,7 +33,7 @@ func (s *Store) ensurePrimaryKeyOrderColumn(ctx context.Context) error {
 	if s.dialect == dialectSQLServer {
 		add = " ADD "
 	}
-	_, err = s.exec(ctx, "ALTER TABLE "+quoteTableName(s.dialect, s.genericRecordsTable())+add+quoteIdent(s.dialect, "pk_ord")+" "+sqlType(s.dialect, 5, false)+" NULL")
+	_, err = s.exec(ctx, "ALTER TABLE "+quoteTableName(s.dialect, table)+add+quoteIdent(s.dialect, "pk_ord")+" "+sqlType(s.dialect, 5, false)+" NULL")
 	if err != nil {
 		return fmt.Errorf("add ordered primary key column: %w", err)
 	}
@@ -32,10 +41,10 @@ func (s *Store) ensurePrimaryKeyOrderColumn(ctx context.Context) error {
 }
 
 func createGenericPrimaryOrderIndexSQL(d dialect, table string) string {
-	name := portableIndexName(table, "primary_order")
+	name := portableIndexName(table, "primary_page")
 	switch d {
 	case dialectMySQL:
-		return fmt.Sprintf("CREATE INDEX %s ON %s (%s, %s(%d))", quoteIdent(d, name), quoteTableName(d, table), quoteIdent(d, "store_name"), quoteIdent(d, "pk_ord"), orderedKeyIndexPrefixLen)
+		return fmt.Sprintf("CREATE INDEX %s ON %s (%s, (%s), %s)", quoteIdent(d, name), quoteTableName(d, table), quoteIdent(d, "store_name"), primaryOrderExpression(d, quoteIdent(d, "pk_ord")), quoteIdent(d, "pk_hash"))
 	case dialectPostgres:
 		return fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s ON %s (%s, (%s), %s)", quoteIdent(d, name), quoteTableName(d, table), quoteIdent(d, "store_name"), primaryOrderExpression(d, quoteIdent(d, "pk_ord")), quoteIdent(d, "pk_hash"))
 	case dialectSQLServer:
@@ -51,7 +60,7 @@ func createGenericPrimaryOrderIndexSQL(d dialect, table string) string {
 func primaryOrderExpression(d dialect, value string) string {
 	switch d {
 	case dialectMySQL:
-		return fmt.Sprintf("CAST(%s AS BINARY(%d))", value, orderedKeyIndexPrefixLen)
+		return fmt.Sprintf("CAST(SUBSTRING(%s, 1, %d) AS BINARY(%d))", value, orderedKeyIndexPrefixLen, orderedKeyIndexPrefixLen)
 	case dialectPostgres:
 		return fmt.Sprintf("SUBSTRING(CAST(%s AS BYTEA) FROM 1 FOR %d)", value, orderedKeyIndexPrefixLen)
 	default:
@@ -79,7 +88,7 @@ func (s *Store) countPrimaryRange(ctx context.Context, store string, query *clie
 	stmt := "SELECT COUNT(*) FROM " + quoteTableName(s.dialect, s.genericRecordsTable()) + " WHERE " + q("store_name") + " = ? AND " + q("pk_ord") + " IS NOT NULL"
 	args := []any{store}
 	if lo != nil || hi != nil {
-		predicate, values := genericIndexRangePredicate(q("pk_ord"), bounds)
+		predicate, values := orderedRangePredicate(s.dialect, q("pk_ord"), bounds)
 		stmt += " AND " + predicate
 		args = append(args, values...)
 	}
@@ -91,8 +100,21 @@ func (s *Store) countPrimaryRange(ctx context.Context, store string, query *clie
 // Old writers must be drained and the backfill completed before this provider
 // serves reads. Missing ordered keys are an upgrade error, never a read fallback.
 func (s *Store) requireOrderedPrimaryKeys(ctx context.Context, store string) error {
+	tables := []string{s.genericRecordsTable()}
+	if store == "" {
+		tables = append(tables, s.genericIndexTable(), s.genericUniqueIndexTable())
+	}
+	for _, table := range tables {
+		if err := s.requireOrderedKeysInTable(ctx, table, store); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) requireOrderedKeysInTable(ctx context.Context, table, store string) error {
 	q := func(name string) string { return quoteIdent(s.dialect, name) }
-	stmt := "SELECT 1 FROM " + quoteTableName(s.dialect, s.genericRecordsTable()) + " WHERE " + q("pk_ord") + " IS NULL"
+	stmt := "SELECT 1 FROM " + quoteTableName(s.dialect, table) + " WHERE " + primaryOrderExpression(s.dialect, q("pk_ord")) + " IS NULL"
 	var args []any
 	if store != "" {
 		stmt += " AND " + q("store_name") + " = ?"
@@ -121,10 +143,22 @@ func BackfillPrimaryKeyOrder(ctx context.Context, dsn string, options Options) (
 }
 
 func (s *Store) backfillPrimaryKeyOrder(ctx context.Context) (int64, error) {
+	var updated int64
+	for _, table := range []string{s.genericRecordsTable(), s.genericIndexTable(), s.genericUniqueIndexTable()} {
+		n, err := s.backfillOrderedTable(ctx, table)
+		updated += n
+		if err != nil {
+			return updated, err
+		}
+	}
+	return updated, nil
+}
+
+func (s *Store) backfillOrderedTable(ctx context.Context, table string) (int64, error) {
 	q := func(name string) string { return quoteIdent(s.dialect, name) }
 	var updated int64
 	for {
-		stmt := "SELECT " + q("store_name") + ", " + q("pk_hash") + ", " + q("pk_bytes") + " FROM " + quoteTableName(s.dialect, s.genericRecordsTable()) + " WHERE " + q("pk_ord") + " IS NULL ORDER BY " + q("store_name") + ", " + q("pk_hash")
+		stmt := "SELECT " + q("store_name") + ", " + q("pk_hash") + ", " + q("pk_bytes") + " FROM " + quoteTableName(s.dialect, table) + " WHERE " + q("pk_ord") + " IS NULL ORDER BY " + q("store_name") + ", " + q("pk_hash")
 		rows, err := s.query(ctx, sqlPageLimit(s.dialect, stmt, genericSQLPageSize))
 		if err != nil {
 			return updated, err
@@ -159,7 +193,7 @@ func (s *Store) backfillPrimaryKeyOrder(ctx context.Context) (int64, error) {
 			if err != nil {
 				return updated, err
 			}
-			result, err := s.exec(ctx, "UPDATE "+quoteTableName(s.dialect, s.genericRecordsTable())+" SET "+q("pk_ord")+" = ? WHERE "+q("store_name")+" = ? AND "+q("pk_hash")+" = ? AND "+q("pk_bytes")+" = ? AND "+q("pk_ord")+" IS NULL", ordered, row.store, row.hash, row.raw)
+			result, err := s.exec(ctx, "UPDATE "+quoteTableName(s.dialect, table)+" SET "+q("pk_ord")+" = ? WHERE "+q("store_name")+" = ? AND "+q("pk_hash")+" = ? AND "+q("pk_bytes")+" = ? AND "+q("pk_ord")+" IS NULL", ordered, row.store, row.hash, row.raw)
 			if err != nil {
 				return updated, err
 			}
@@ -196,7 +230,7 @@ func (s *Store) loadPrimaryRows(ctx context.Context, store string, query *client
 	if ordered {
 		base += " AND " + q("pk_ord") + " IS NOT NULL"
 		if bounds.lo != nil || bounds.hi != nil {
-			predicate, values := genericIndexRangePredicate(q("pk_ord"), bounds)
+			predicate, values := orderedRangePredicate(s.dialect, q("pk_ord"), bounds)
 			base += " AND " + predicate
 			args = append(args, values...)
 		}
@@ -210,7 +244,7 @@ func (s *Store) loadPrimaryRows(ctx context.Context, store string, query *client
 		finishPrefix := false
 		if count != nil {
 			if read >= uint64(*count) {
-				if !prefixOrder || *count == 0 {
+				if !prefixOrder || *count == 0 || len(last.pkOrd) < orderedKeyIndexPrefixLen {
 					break
 				}
 				finishPrefix = true

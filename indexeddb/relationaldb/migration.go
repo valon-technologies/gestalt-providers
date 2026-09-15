@@ -139,6 +139,7 @@ func (s *Store) createIndexStrict(ctx context.Context, storeName, indexName stri
 				indexKeyOrd:   cloneBytes(encoded.ord),
 				pkHash:        cloneBytes(row.pkHash),
 				pkBytes:       cloneBytes(row.pkBytes),
+				pkOrd:         cloneBytes(row.pkOrd),
 			}
 			if idx.Unique {
 				if err := s.insertGenericUniqueIndexRow(txCtx, tx, storeName, indexRow); err != nil {

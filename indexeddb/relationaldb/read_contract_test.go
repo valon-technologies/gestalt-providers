@@ -135,6 +135,29 @@ func TestLongKeysAndDuplicateIndexReadContract(t *testing.T) {
 			if err != nil || count != 1205 {
 				t.Fatalf("duplicate count: %d %v", count, err)
 			}
+			// Index keys with the same truncated prefix must still sort by their
+			// full value, even when that reverses the primary-key order.
+			tx, err = s.BeginTransaction(ctx, gestalt.IndexedDBBeginTransactionRequest{Stores: []string{store}, Mode: gestalt.TransactionReadwrite})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i := 0; i < 1205; i++ {
+				if err := tx.Put(ctx, gestalt.IndexedDBRecordRequest{Store: store, Record: gestalt.Record{"id": fmt.Sprintf("%s-%04d", prefix, i), "group": fmt.Sprintf("%s-%04d", prefix, 1204-i)}}); err != nil {
+					tx.Abort(ctx)
+					t.Fatal(err)
+				}
+			}
+			if err := tx.Commit(ctx); err != nil {
+				t.Fatal(err)
+			}
+			first, err = s.IndexGetAllKeys(ctx, gestalt.IndexedDBIndexQueryRequest{Store: store, Index: "by_group", Count: &limit})
+			if err != nil || !reflect.DeepEqual(first, []string{prefix + "-1204", prefix + "-1203"}) {
+				t.Fatalf("long index order: %v", err)
+			}
+			next, err = s.IndexGetAllKeys(ctx, gestalt.IndexedDBIndexQueryRequest{Store: store, Index: "by_group", Query: indexeddb.ToQuery(indexeddb.LowerBound(prefix+"-0001", true)), Count: &limit})
+			if err != nil || !reflect.DeepEqual(next, []string{prefix + "-1202", prefix + "-1201"}) {
+				t.Fatalf("long index continuation: %v", err)
+			}
 		})
 	}
 }
@@ -220,7 +243,7 @@ func TestBackfillUpgradeContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CreateObjectStore(ctx, "records", gestalt.ObjectStoreOptions{}); err != nil {
+	if err := s.CreateObjectStore(ctx, "records", gestalt.ObjectStoreOptions{Indexes: []gestalt.IndexSchema{{Name: "by_value", KeyPath: []string{"value"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	want := gestalt.Record{"id": "persisted-before-upgrade", "value": "keep me"}
@@ -234,6 +257,10 @@ func TestBackfillUpgradeContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec("UPDATE _gestalt_records SET pk_ord = NULL"); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("UPDATE _gestalt_index_entries SET pk_ord = NULL"); err != nil {
 		db.Close()
 		t.Fatal(err)
 	}
@@ -253,5 +280,9 @@ func TestBackfillUpgradeContract(t *testing.T) {
 	got, err := p.GetAll(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: "records"})
 	if err != nil || !reflect.DeepEqual(got, []gestalt.Record{want}) {
 		t.Fatalf("persisted records after upgrade: %v %v", got, err)
+	}
+	indexed, err := p.IndexGetAll(ctx, gestalt.IndexedDBIndexQueryRequest{Store: "records", Index: "by_value", Query: indexeddb.ToQuery("keep me")})
+	if err != nil || !reflect.DeepEqual(indexed, []gestalt.Record{want}) {
+		t.Fatalf("persisted index after upgrade: %v %v", indexed, err)
 	}
 }

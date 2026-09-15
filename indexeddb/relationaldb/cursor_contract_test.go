@@ -119,7 +119,7 @@ func (h *relationalContractHarness) InsertUnreadablePayloadRow(t *testing.T, sto
 	}
 
 	indexStmt := fmt.Sprintf(
-		"INSERT INTO %s (%s, %s, %s, %s, %s, %s, %s) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		"INSERT INTO %s (%s, %s, %s, %s, %s, %s, %s, %s) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
 		quoteTableName(store.dialect, store.genericIndexTable()),
 		quoteIdent(store.dialect, "store_name"),
 		quoteIdent(store.dialect, "index_name"),
@@ -128,8 +128,9 @@ func (h *relationalContractHarness) InsertUnreadablePayloadRow(t *testing.T, sto
 		quoteIdent(store.dialect, "index_key_ord"),
 		quoteIdent(store.dialect, "pk_hash"),
 		quoteIdent(store.dialect, "pk_bytes"),
+		quoteIdent(store.dialect, "pk_ord"),
 	)
-	if _, err := store.db.ExecContext(context.Background(), store.q(indexStmt), storeName, "by_status", indexKey.hash, indexKey.raw, indexKey.ord, primary.hash, primary.raw); err != nil {
+	if _, err := store.db.ExecContext(context.Background(), store.q(indexStmt), storeName, "by_status", indexKey.hash, indexKey.raw, indexKey.ord, primary.hash, primary.raw, primary.ord); err != nil {
 		t.Fatalf("ExecContext(insert unreadable generic index row): %v", err)
 	}
 

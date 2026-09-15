@@ -619,6 +619,7 @@ func TestCreateObjectStoreKeepsGenericRowsWhenSchemaUnchanged(t *testing.T) {
 			indexKeyOrd:   indexKey.ord,
 			pkHash:        primary.hash,
 			pkBytes:       primary.raw,
+			pkOrd:         primary.ord,
 		}})
 	}); err != nil {
 		t.Fatalf("insert sentinel index row: %v", err)

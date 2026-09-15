@@ -217,6 +217,7 @@ func createGenericIndexEntriesTableSQL(d dialect, table string) string {
 		quoteIdent(d, "index_key_ord") + " " + sqlType(d, 5, false) + " NOT NULL",
 		quoteIdent(d, "pk_hash") + " " + sqlType(d, 5, true) + " NOT NULL",
 		quoteIdent(d, "pk_bytes") + " " + sqlType(d, 5, false) + " NOT NULL",
+		quoteIdent(d, "pk_ord") + " " + sqlType(d, 5, false) + " NULL",
 	}
 	if d == dialectSQLServer {
 		return fmt.Sprintf("IF OBJECT_ID(N'%s', N'U') IS NULL CREATE TABLE %s (%s)",
@@ -253,34 +254,17 @@ func createGenericIndexRecordIndexSQL(d dialect, table string) string {
 const orderedKeyIndexPrefixLen = 255
 
 func createGenericIndexScanIndexSQL(d dialect, table string) string {
-	indexName := portableIndexName(table, "scan")
-	switch d {
-	case dialectMySQL:
-		// index_key_ord is LONGBLOB; MySQL cannot index a BLOB column without a
-		// key prefix length. Callers still filter the full column for exact
-		// bounds, so the prefix only accelerates the range scan.
-		return createMySQLOrderedScanIndexSQL(table, indexName)
-	case dialectSQLServer:
-		// index_key_ord is VARBINARY(MAX), which SQL Server cannot use as an
-		// index key column at all. Index the leading equality columns only;
-		// range bounds are still applied through the WHERE clause.
-		return createColumnsIndexSQL(d, table, indexName, []string{"store_name", "index_name"}, false)
-	default:
-		// Postgres (BYTEA) and SQLite (BLOB) index the full column directly.
-		return createColumnsIndexSQL(d, table, indexName, []string{"store_name", "index_name", "index_key_ord"}, false)
+	name := portableIndexName(table, "ordered_scan")
+	q := func(column string) string { return quoteIdent(d, column) }
+	if d == dialectSQLServer {
+		return createColumnsIndexSQL(d, table, name, []string{"store_name", "index_name"}, false)
 	}
-}
-
-func createMySQLOrderedScanIndexSQL(table, indexName string) string {
-	d := dialectMySQL
-	return fmt.Sprintf("CREATE INDEX %s ON %s (%s, %s, %s(%d))",
-		quoteIdent(d, indexName),
-		quoteTableName(d, table),
-		quoteIdent(d, "store_name"),
-		quoteIdent(d, "index_name"),
-		quoteIdent(d, "index_key_ord"),
-		orderedKeyIndexPrefixLen,
-	)
+	columns := q("store_name") + ", " + q("index_name") + ", (" + primaryOrderExpression(d, q("index_key_ord")) + "), (" + primaryOrderExpression(d, q("pk_ord")) + "), " + q("pk_hash") + ", " + q("index_key_hash")
+	create := "CREATE INDEX "
+	if d == dialectPostgres || d == dialectSQLite {
+		create += "IF NOT EXISTS "
+	}
+	return create + q(name) + " ON " + quoteTableName(d, table) + " (" + columns + ")"
 }
 
 func portableIndexName(table, suffix string) string {
