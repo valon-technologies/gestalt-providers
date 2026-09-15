@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -33,13 +32,27 @@ func run(args []string, stdin io.Reader, stdout io.Writer) error {
 		return fmt.Errorf("usage: gestalt-secrets [flags] init|list|put NAME|delete NAME")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	store, err := secretstore.Open(ctx, secretstore.Config{DSN: os.Getenv("GESTALT_SECRETS_DSN"), Schema: *schema, KMSKey: *kmsKey})
+	var value []byte
+	if commandArgs[0] == "put" {
+		if len(commandArgs) != 2 {
+			return fmt.Errorf("usage: gestalt-secrets [flags] put NAME")
+		}
+		var err error
+		value, err = io.ReadAll(io.LimitReader(stdin, secretstore.MaxPlaintextBytes+1))
+		if err != nil {
+			return fmt.Errorf("read secret value: %w", err)
+		}
+	}
+
+	openCtx, cancelOpen := context.WithTimeout(context.Background(), timeout)
+	store, err := secretstore.Open(openCtx, secretstore.Config{DSN: os.Getenv("GESTALT_SECRETS_DSN"), Schema: *schema, KMSKey: *kmsKey})
+	cancelOpen()
 	if err != nil {
 		return err
 	}
 	defer store.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 
 	switch commandArgs[0] {
 	case "init":
@@ -60,13 +73,6 @@ func run(args []string, stdin io.Reader, stdout io.Writer) error {
 		}
 		return nil
 	case "put":
-		if len(commandArgs) != 2 {
-			return fmt.Errorf("usage: gestalt-secrets [flags] put NAME")
-		}
-		value, err := io.ReadAll(bufio.NewReader(stdin))
-		if err != nil {
-			return fmt.Errorf("read secret value: %w", err)
-		}
 		return store.Put(ctx, commandArgs[1], value)
 	case "delete":
 		if len(commandArgs) != 2 {

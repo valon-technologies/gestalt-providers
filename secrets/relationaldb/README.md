@@ -14,7 +14,7 @@ providers:
   secrets:
     secrets:
       source:
-        package: github.com/valon-technologies/gestalt-providers/secrets/relationaldb
+        ref: github.com/valon-technologies/gestalt-providers/secrets/relationaldb
         version: 0.0.1-alpha.1
       config:
         dsn: ${GESTALT_SECRETS_DSN}

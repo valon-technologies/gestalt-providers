@@ -16,7 +16,7 @@ import (
 )
 
 const tableName = "_gestalt_secrets"
-const maxPlaintextBytes = 64 * 1024
+const MaxPlaintextBytes = 64 * 1024
 
 var identifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
@@ -115,7 +115,7 @@ func (s *Store) Get(ctx context.Context, name string) (string, error) {
 
 func (s *Store) Initialize(ctx context.Context) error {
 	query := "CREATE TABLE IF NOT EXISTS " + s.table + " (" +
-		"name VARCHAR(255) NOT NULL PRIMARY KEY, " +
+		"name VARBINARY(255) NOT NULL PRIMARY KEY, " +
 		"ciphertext LONGBLOB NOT NULL, " +
 		"updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)" +
 		")"
@@ -133,8 +133,8 @@ func (s *Store) Put(ctx context.Context, name string, plaintext []byte) error {
 	if len(plaintext) == 0 {
 		return fmt.Errorf("secret value must not be empty")
 	}
-	if len(plaintext) > maxPlaintextBytes {
-		return fmt.Errorf("secret value must not exceed %d bytes", maxPlaintextBytes)
+	if len(plaintext) > MaxPlaintextBytes {
+		return fmt.Errorf("secret value must not exceed %d bytes", MaxPlaintextBytes)
 	}
 
 	response, err := s.kms.Encrypt(ctx, &kmspb.EncryptRequest{
