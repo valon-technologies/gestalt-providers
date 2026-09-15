@@ -63,11 +63,29 @@ func TestIndexManagementCoordinatesProviderConnections(t *testing.T) {
 			go func() {
 				created <- first.Store.changeIndex(ctx, "issues", func(ctx context.Context) error {
 					close(locked)
-					<-release
+					select {
+					case <-release:
+					case <-ctx.Done():
+						return ctx.Err()
+					}
 					return first.Store.createIndexStrict(ctx, "issues", "by_id", []string{"id"}, IndexParameters{})
 				})
 			}()
-			<-locked
+			select {
+			case <-locked:
+			case err := <-created:
+				t.Fatal(err)
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+			if name != "SQLite" {
+				if err := first.CreateObjectStore(ctx, "unrelated", indexTestStoreSchema()); err != nil {
+					t.Fatal(err)
+				}
+				if err := first.Add(ctx, gestalt.IndexedDBRecordRequest{Store: "unrelated", Record: gestalt.Record{"id": "other", "status": "open"}}); err != nil {
+					t.Fatalf("unrelated store was blocked: %v", err)
+				}
+			}
 			written := make(chan error, 1)
 			go func() {
 				written <- second.Put(ctx, gestalt.IndexedDBRecordRequest{Store: "issues", Record: gestalt.Record{"id": "after", "status": "open"}})
