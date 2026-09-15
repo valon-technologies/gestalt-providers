@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/valon-technologies/gestalt/sdk/go/client"
 	"google.golang.org/grpc/codes"
@@ -132,7 +133,8 @@ func (s *Store) requireOrderedKeysInTable(ctx context.Context, table, store stri
 
 // BackfillPrimaryKeyOrder fills legacy keys using short, independently committed
 // updates. It is safe to restart: NULL is the checkpoint and concurrent writes
-// win because the update also checks the original key bytes.
+// win because the update also checks the original key bytes. Drain older writers
+// and repeat the pass to include keys inserted behind its scan position.
 func BackfillPrimaryKeyOrder(ctx context.Context, dsn string, options Options) (int64, error) {
 	s, err := connectStoreWithOptions(ctx, dsn, options.storeOptions())
 	if err != nil {
@@ -157,9 +159,18 @@ func (s *Store) backfillPrimaryKeyOrder(ctx context.Context) (int64, error) {
 func (s *Store) backfillOrderedTable(ctx context.Context, table string) (int64, error) {
 	q := func(name string) string { return quoteIdent(s.dialect, name) }
 	var updated int64
+	var lastStore string
+	var lastHash []byte
 	for {
-		stmt := "SELECT " + q("store_name") + ", " + q("pk_hash") + ", " + q("pk_bytes") + " FROM " + quoteTableName(s.dialect, table) + " WHERE " + q("pk_ord") + " IS NULL ORDER BY " + q("store_name") + ", " + q("pk_hash")
-		rows, err := s.query(ctx, sqlPageLimit(s.dialect, stmt, genericSQLPageSize))
+		stmt := "SELECT " + q("store_name") + ", " + q("pk_hash") + ", " + q("pk_bytes") + " FROM " + quoteTableName(s.dialect, table) + " WHERE " + q("pk_ord") + " IS NULL"
+		var args []any
+		if lastHash != nil {
+			stmt += " AND (" + q("store_name") + " > ? OR (" + q("store_name") + " = ? AND " + q("pk_hash") + " > ?))"
+			args = append(args, lastStore, lastStore, lastHash)
+		}
+		stmt += " ORDER BY " + q("store_name") + ", " + q("pk_hash")
+		// Seven parameters per key keep each update below SQLite's legacy limit.
+		rows, err := s.query(ctx, sqlPageLimit(s.dialect, stmt, 128), args...)
 		if err != nil {
 			return updated, err
 		}
@@ -184,6 +195,10 @@ func (s *Store) backfillOrderedTable(ctx context.Context, table string) (int64, 
 		if len(page) == 0 {
 			return updated, nil
 		}
+		cases := make([]string, 0, len(page))
+		matches := make([]string, 0, len(page))
+		args = nil
+		var matchArgs []any
 		for _, row := range page {
 			key, err := decodeKeyValue(row.raw)
 			if err != nil {
@@ -193,16 +208,24 @@ func (s *Store) backfillOrderedTable(ctx context.Context, table string) (int64, 
 			if err != nil {
 				return updated, err
 			}
-			result, err := s.exec(ctx, "UPDATE "+quoteTableName(s.dialect, table)+" SET "+q("pk_ord")+" = ? WHERE "+q("store_name")+" = ? AND "+q("pk_hash")+" = ? AND "+q("pk_bytes")+" = ? AND "+q("pk_ord")+" IS NULL", ordered, row.store, row.hash, row.raw)
-			if err != nil {
-				return updated, err
-			}
-			n, err := result.RowsAffected()
-			if err != nil {
-				return updated, err
-			}
-			updated += n
+			match := q("store_name") + " = ? AND " + q("pk_hash") + " = ? AND " + q("pk_bytes") + " = ?"
+			cases = append(cases, "WHEN "+match+" THEN ?")
+			args = append(args, row.store, row.hash, row.raw, ordered)
+			matches = append(matches, "("+match+")")
+			matchArgs = append(matchArgs, row.store, row.hash, row.raw)
 		}
+		stmt = "UPDATE " + quoteTableName(s.dialect, table) + " SET " + q("pk_ord") + " = CASE " + strings.Join(cases, " ") + " ELSE " + q("pk_ord") + " END WHERE " + q("pk_ord") + " IS NULL AND (" + strings.Join(matches, " OR ") + ")"
+		result, err := s.exec(ctx, stmt, append(args, matchArgs...)...)
+		if err != nil {
+			return updated, err
+		}
+		n, err := result.RowsAffected()
+		if err != nil {
+			return updated, err
+		}
+		updated += n
+		last := page[len(page)-1]
+		lastStore, lastHash = last.store, last.hash
 	}
 }
 

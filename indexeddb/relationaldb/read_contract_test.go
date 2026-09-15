@@ -243,12 +243,31 @@ func TestBackfillUpgradeContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CreateObjectStore(ctx, "records", gestalt.ObjectStoreOptions{Indexes: []gestalt.IndexSchema{{Name: "by_value", KeyPath: []string{"value"}}}}); err != nil {
-		t.Fatal(err)
+	stores := []string{"records", "records-second"}
+	var want []gestalt.Record
+	for i := range 1005 {
+		want = append(want, gestalt.Record{"id": fmt.Sprintf("persisted-%06d", i), "value": "keep me"})
 	}
-	want := gestalt.Record{"id": "persisted-before-upgrade", "value": "keep me"}
-	if err := s.Add(ctx, gestalt.IndexedDBRecordRequest{Store: "records", Record: want}); err != nil {
-		t.Fatal(err)
+	for _, store := range stores {
+		if err := s.CreateObjectStore(ctx, store, gestalt.ObjectStoreOptions{Indexes: []gestalt.IndexSchema{
+			{Name: "by_value", KeyPath: []string{"value"}},
+			{Name: "by_id", KeyPath: []string{"id"}, Unique: true},
+		}}); err != nil {
+			t.Fatal(err)
+		}
+		tx, err := s.BeginTransaction(ctx, gestalt.IndexedDBBeginTransactionRequest{Stores: []string{store}, Mode: gestalt.TransactionReadwrite})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, record := range want {
+			if err := tx.Add(ctx, gestalt.IndexedDBRecordRequest{Store: store, Record: record}); err != nil {
+				_ = tx.Abort(ctx)
+				t.Fatal(err)
+			}
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
 	}
 	s.Close()
 	// Persisted fixture after adding the column, before the data migration.
@@ -256,13 +275,11 @@ func TestBackfillUpgradeContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec("UPDATE _gestalt_records SET pk_ord = NULL"); err != nil {
-		db.Close()
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("UPDATE _gestalt_index_entries SET pk_ord = NULL"); err != nil {
-		db.Close()
-		t.Fatal(err)
+	for _, table := range []string{"_gestalt_records", "_gestalt_index_entries", "_gestalt_unique_index_entries"} {
+		if _, err := db.Exec("UPDATE " + table + " SET pk_ord = NULL"); err != nil {
+			_ = db.Close()
+			t.Fatal(err)
+		}
 	}
 	db.Close()
 	p := relationaldb.New()
@@ -273,16 +290,23 @@ func TestBackfillUpgradeContract(t *testing.T) {
 	if _, err := relationaldb.BackfillPrimaryKeyOrder(ctx, dsn, relationaldb.Options{}); err != nil {
 		t.Fatal(err)
 	}
+	if n, err := relationaldb.BackfillPrimaryKeyOrder(ctx, dsn, relationaldb.Options{}); err != nil || n != 0 {
+		t.Fatalf("repeat backfill: %d updates, %v", n, err)
+	}
 	if err := p.Configure(ctx, "", map[string]any{"dsn": dsn}); err != nil {
 		t.Fatal(err)
 	}
 	defer p.Close()
-	got, err := p.GetAll(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: "records"})
-	if err != nil || !reflect.DeepEqual(got, []gestalt.Record{want}) {
-		t.Fatalf("persisted records after upgrade: %v %v", got, err)
-	}
-	indexed, err := p.IndexGetAll(ctx, gestalt.IndexedDBIndexQueryRequest{Store: "records", Index: "by_value", Query: indexeddb.ToQuery("keep me")})
-	if err != nil || !reflect.DeepEqual(indexed, []gestalt.Record{want}) {
-		t.Fatalf("persisted index after upgrade: %v %v", indexed, err)
+	for _, store := range stores {
+		got, err := p.GetAll(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: store})
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Fatalf("persisted records in %s after upgrade: %d records, %v", store, len(got), err)
+		}
+		for _, index := range []string{"by_value", "by_id"} {
+			indexed, err := p.IndexGetAll(ctx, gestalt.IndexedDBIndexQueryRequest{Store: store, Index: index})
+			if err != nil || !reflect.DeepEqual(indexed, want) {
+				t.Fatalf("persisted index %s/%s after upgrade: %d records, %v", store, index, len(indexed), err)
+			}
+		}
 	}
 }
