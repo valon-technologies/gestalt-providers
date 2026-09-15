@@ -22,14 +22,4 @@ providers:
         kmsKey: projects/example/locations/us-east1/keyRings/gestalt/cryptoKeys/runtime-secrets
 ```
 
-The runtime never creates or mutates the table. Initialize and manage it with
-the companion command, which reads secret values from standard input:
-
-```sh
-export GESTALT_SECRETS_DSN='...'
-export GESTALT_SECRETS_SCHEMA='vt'
-export GESTALT_SECRETS_KMS_KEY='projects/.../cryptoKeys/runtime-secrets'
-go run ./relationaldb/cmd/gestalt-secrets init
-printf %s "$VALUE" | go run ./relationaldb/cmd/gestalt-secrets put secret-name
-go run ./relationaldb/cmd/gestalt-secrets list
-```
+The provider is runtime-only and never creates or mutates the table.
