@@ -2846,6 +2846,35 @@
         "entryKind": "secrets",
         "section": "providers.secrets"
       },
+      "description": "Resolves KMS-encrypted deployment secrets from a relational database.",
+      "displayName": "Relational Database Secrets",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/secrets/relationaldb/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/secrets/relationaldb/README.md",
+          "sourcePath": "secrets/relationaldb/README.md",
+          "title": "Relational Database Secrets"
+        }
+      ],
+      "iconUrl": null,
+      "kind": "secrets",
+      "latestInstallableVersion": null,
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/secrets/relationaldb/manifest.yaml",
+      "manifestVersion": "0.0.1-alpha.1",
+      "name": "relationaldb",
+      "package": "github.com/valon-technologies/gestalt-providers/secrets/relationaldb",
+      "packagePath": "secrets/relationaldb",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/secrets/relationaldb/README.md",
+      "registryPath": "/providers/secrets/relationaldb/",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/secrets/relationaldb",
+      "versions": []
+    },
+    {
+      "configTarget": {
+        "entryKind": "secrets",
+        "section": "providers.secrets"
+      },
       "description": "Resolves secrets from HashiCorp Vault KV v2.",
       "displayName": "HashiCorp Vault",
       "docs": [],
