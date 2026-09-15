@@ -51,14 +51,10 @@ Optional configuration:
     Defaults to `2`.
   - `retry_backoff`: Base backoff between retry attempts. Defaults to `200ms`.
 
-Provision the physical schema before starting the provider:
-
-```sh
-RELATIONALDB_DSN=... go run ./cmd/migrate --schema plugin_alpha
-```
-
-Pass the same `--schema` and `--table-prefix` values used in provider
-configuration. Provider startup validates the schema without issuing DDL.
+RelationalDB bootstraps its physical storage during startup. The bootstrap is
+idempotent, but it does not automatically mutate existing object-store schemas.
+If a provider version requires a different object-store schema, run an explicit
+data or index migration before deploying that version.
 
 Examples:
 

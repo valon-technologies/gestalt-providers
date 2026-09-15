@@ -1351,7 +1351,7 @@ func (f *relationalFactory) deleteSQLDatabase(ctx context.Context, name, namespa
 }
 
 func (f *relationalFactory) storeForNamespace(namespace string) (*Store, error) {
-	return newStoreWithDB(f.db, f.bind, f.dialect, storeOptions{
+	return newStoreWithDB(context.Background(), f.db, f.bind, f.dialect, storeOptions{
 		TablePrefix:       namespace,
 		Schema:            f.schemaName,
 		Connection:        f.conn,
