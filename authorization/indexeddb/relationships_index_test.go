@@ -5,6 +5,9 @@ import (
 	"reflect"
 	"testing"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	sdkindexeddb "github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"github.com/valon-technologies/gestalt/sdk/go/migrations"
 )
@@ -60,9 +63,6 @@ func TestRelationshipIndexesCoverSupportedListPlans(t *testing.T) {
 			if len(response.Relationships) != 1 {
 				t.Fatalf("ListRelationships() count = %d, want 1", len(response.Relationships))
 			}
-			if db.nilGetAllCalls != 0 {
-				t.Fatalf("indexed list used object-store GetAll(nil) %d times", db.nilGetAllCalls)
-			}
 		})
 	}
 }
@@ -110,9 +110,6 @@ func TestRelationshipIndexLegacySourceLayerAndPaginationParity(t *testing.T) {
 	if !reflect.DeepEqual(paged, all.Relationships) {
 		t.Fatalf("paged relationships = %#v, want %#v", paged, all.Relationships)
 	}
-	if db.nilGetAllCalls != 0 {
-		t.Fatalf("indexed list used object-store GetAll(nil) %d times", db.nilGetAllCalls)
-	}
 	seen := make(map[string]struct{}, len(paged))
 	for _, relationship := range paged {
 		key := relationshipID(relationship.Tuple)
@@ -147,7 +144,7 @@ func TestRelationshipIndexIgnoresTupleProperties(t *testing.T) {
 	}
 }
 
-func TestRelationshipListUnsupportedFilterScansStore(t *testing.T) {
+func TestRelationshipListSupportsResourceTypeFilter(t *testing.T) {
 	ctx := context.Background()
 	db := relationshipTestDB(t)
 	provider := New()
@@ -164,55 +161,17 @@ func TestRelationshipListUnsupportedFilterScansStore(t *testing.T) {
 	if len(response.Relationships) != 1 {
 		t.Fatalf("ListRelationships() count = %d, want 1", len(response.Relationships))
 	}
-	if db.nilGetAllCalls != 1 {
-		t.Fatalf("unsupported filter GetAll(nil) calls = %d, want 1", db.nilGetAllCalls)
-	}
 }
 
-func TestRelationshipListFallsBackWhenPlannedIndexIsUnavailable(t *testing.T) {
+func TestRelationshipListRequiresMigration(t *testing.T) {
 	ctx := context.Background()
-	db := &fakeIndexedDB{}
 	provider := New()
-	provider.configureDatabase(db)
-	seedRelationship(t, db, testRelationship("repo-1", SourceLayerRuntime))
-
-	response, err := provider.ListRelationships(ctx, &ListRelationshipsRequest{Filter: &RelationshipFilter{
-		Target:      &RelationshipTarget{Subject: &Subject{Type: "subject", Id: "user:alice"}},
-		SourceLayer: SourceLayerRuntime,
+	provider.configureDatabase(&fakeIndexedDB{})
+	_, err := provider.ListRelationships(ctx, &ListRelationshipsRequest{Filter: &RelationshipFilter{
+		Target: &RelationshipTarget{Subject: &Subject{Type: "subject", Id: "user:alice"}},
 	}})
-	if err != nil {
-		t.Fatalf("ListRelationships() error = %v", err)
-	}
-	if len(response.Relationships) != 1 {
-		t.Fatalf("ListRelationships() count = %d, want 1", len(response.Relationships))
-	}
-	if db.nilGetAllCalls != 1 {
-		t.Fatalf("missing-index fallback GetAll(nil) calls = %d, want 1", db.nilGetAllCalls)
-	}
-}
-
-func TestRelationshipIndexMigrationDefinitions(t *testing.T) {
-	ctx := context.Background()
-	db := &fakeIndexedDB{}
-	provider := New()
-	options, _, err := provider.MigrationOptions(ctx, "test", nil)
-	if err != nil {
-		t.Fatalf("MigrationOptions() error = %v", err)
-	}
-	if _, err := migrations.Run(ctx, db, options); err != nil {
-		t.Fatalf("migrations.Run() error = %v", err)
-	}
-	got := make(map[string]sdkindexeddb.IndexDefinition, len(db.createdIndexes))
-	for _, definition := range db.createdIndexes {
-		got[definition.Name] = definition
-	}
-	want := map[string]sdkindexeddb.IndexDefinition{
-		"by_resource_relation_source": {Name: "by_resource_relation_source", KeyPath: []string{"value.tuple.resource.type", "value.tuple.resource.id", "value.tuple.relation", "value.source_layer"}},
-		"by_subject_source":           {Name: "by_subject_source", KeyPath: []string{"value.tuple.target.subject.type", "value.tuple.target.subject.id", "value.source_layer"}},
-		"by_subject_set_source":       {Name: "by_subject_set_source", KeyPath: []string{"value.tuple.target.subject_set.resource.type", "value.tuple.target.subject_set.resource.id", "value.tuple.target.subject_set.relation", "value.source_layer"}},
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("index definitions = %#v, want %#v", got, want)
+	if status.Code(err) != codes.Internal {
+		t.Fatalf("ListRelationships without migration error = %v, want Internal", err)
 	}
 }
 
@@ -231,23 +190,25 @@ func TestRelationshipIndexMigrationRetriesAfterPartialCreation(t *testing.T) {
 	if _, err := migrations.Run(ctx, db, options); err != nil {
 		t.Fatalf("migrations.Run() error = %v", err)
 	}
-	store := db.objectStore(getStoreNames().relationships).(*fakeObjectStore)
-	if len(store.indexes) != 3 {
-		t.Fatalf("indexes after retry = %d, want 3", len(store.indexes))
+	provider.configureDatabase(db)
+	seedRelationship(t, db, testRelationship("repo-1", SourceLayerRuntime))
+	response, err := provider.ListRelationships(ctx, &ListRelationshipsRequest{Filter: &RelationshipFilter{
+		Target: &RelationshipTarget{Subject: &Subject{Type: "subject", Id: "user:alice"}},
+	}})
+	if err != nil || len(response.Relationships) != 1 {
+		t.Fatalf("ListRelationships after migration retry = %v, error = %v", response, err)
 	}
 }
 
 func relationshipTestDB(t *testing.T) *fakeIndexedDB {
 	t.Helper()
 	db := &fakeIndexedDB{}
-	for _, definition := range []sdkindexeddb.IndexDefinition{
-		{Name: "by_resource_relation_source", KeyPath: []string{"value.tuple.resource.type", "value.tuple.resource.id", "value.tuple.relation", "value.source_layer"}},
-		{Name: "by_subject_source", KeyPath: []string{"value.tuple.target.subject.type", "value.tuple.target.subject.id", "value.source_layer"}},
-		{Name: "by_subject_set_source", KeyPath: []string{"value.tuple.target.subject_set.resource.type", "value.tuple.target.subject_set.resource.id", "value.tuple.target.subject_set.relation", "value.source_layer"}},
-	} {
-		if err := db.CreateIndex(context.Background(), getStoreNames().relationships, definition); err != nil {
-			t.Fatalf("CreateIndex(%q) error = %v", definition.Name, err)
-		}
+	options, _, err := New().MigrationOptions(context.Background(), "test", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := migrations.Run(context.Background(), db, options); err != nil {
+		t.Fatal(err)
 	}
 	return db
 }
@@ -275,5 +236,76 @@ func testRelationship(resourceID string, sourceLayer SourceLayer) *Relationship 
 			Resource: &Resource{Type: "repository", Id: resourceID},
 		},
 		SourceLayer: sourceLayer,
+	}
+}
+
+func TestRelationshipPagesContinueAfterEarlierDeletion(t *testing.T) {
+	for _, plan := range []string{"primary", "resource", "subject", "subject set"} {
+		t.Run(plan, func(t *testing.T) {
+			ctx := context.Background()
+			provider := New()
+			provider.configureDatabase(relationshipTestDB(t))
+			filter := &RelationshipFilter{SourceLayer: SourceLayerRuntime}
+			target := &RelationshipTarget{Subject: &Subject{Type: "subject", Id: "user:alice"}}
+			switch plan {
+			case "resource":
+				filter.Resource = &Resource{Type: "repository", Id: "repo-1"}
+			case "subject":
+				filter.Target = target
+			case "subject set":
+				target = &RelationshipTarget{SubjectSet: &SubjectSet{Resource: &Resource{Type: "group", Id: "engineering"}, Relation: "member"}}
+				filter.Target = target
+			}
+			var expected []*Relationship
+			for i := range 12 {
+				relationship := testRelationship("repo-1", SourceLayerRuntime)
+				relationship.Tuple.Target = target
+				relationship.Tuple.Resource.Properties = map[string]any{"position": float64(i)}
+				if i%2 != 0 {
+					relationship.SourceLayer = SourceLayerStaticConfig
+				} else {
+					expected = append(expected, relationship)
+				}
+				if _, err := provider.AddRelationship(ctx, &AddRelationshipRequest{Relationship: relationship}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			first, err := provider.ListRelationships(ctx, &ListRelationshipsRequest{Filter: filter, PageSize: 2})
+			if err != nil || len(first.Relationships) != 2 || first.NextPageToken == "" {
+				t.Fatalf("first page = %v, error = %v", first, err)
+			}
+			if _, err := provider.DeleteRelationship(ctx, &DeleteRelationshipRequest{RelationshipTuple: first.Relationships[0].Tuple}); err != nil {
+				t.Fatal(err)
+			}
+			got := first.Relationships
+			token := first.NextPageToken
+			for pages := 0; token != ""; pages++ {
+				if pages >= len(expected) {
+					t.Fatal("pagination did not terminate")
+				}
+				next, err := provider.ListRelationships(ctx, &ListRelationshipsRequest{Filter: filter, PageSize: 2, PageToken: token})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(next.Relationships) != 2 {
+					t.Fatalf("next page count = %d, want 2", len(next.Relationships))
+				}
+				got = append(got, next.Relationships...)
+				token = next.NextPageToken
+			}
+			if !sameRelationshipSet(got, expected) {
+				t.Fatalf("pagination skipped or duplicated relationships: got %v, want %v", got, expected)
+			}
+		})
+	}
+}
+
+func TestRelationshipListRejectsInvalidPagination(t *testing.T) {
+	provider := New()
+	provider.configureDatabase(relationshipTestDB(t))
+	for _, req := range []*ListRelationshipsRequest{{PageSize: -1}, {PageToken: "2"}, {PageToken: "bogus"}} {
+		if _, err := provider.ListRelationships(context.Background(), req); status.Code(err) != codes.InvalidArgument {
+			t.Fatalf("ListRelationships(%v) error = %v, want InvalidArgument", req, err)
+		}
 	}
 }
