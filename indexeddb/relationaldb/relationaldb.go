@@ -67,41 +67,33 @@ type storeLifecycle struct {
 	check func(context.Context) error
 }
 
-// NewStore provisions the physical schema before opening it. Deployed
-// providers use the validation-only Configure path instead.
 func NewStore(dsn string) (*Store, error) {
 	return newStoreWithOptions(context.Background(), dsn, storeOptions{TablePrefix: defaultTablePrefix})
 }
 
 func newStoreWithOptions(ctx context.Context, dsn string, options storeOptions) (*Store, error) {
-	return migrateAndOpenStore(ctx, dsn, options)
-}
-
-func openStoreWithOptions(ctx context.Context, dsn string, options storeOptions) (*Store, error) {
 	s, err := connectStoreWithOptions(ctx, dsn, options)
 	if err != nil {
+		if err := ensureRelationalTargetExists(ctx, dsn, options); err != nil {
+			return nil, err
+		}
+		s, err = connectStoreWithOptions(ctx, dsn, options)
+		if err != nil {
+			return nil, err
+		}
+	} else if err := ensureRelationalNamespace(ctx, s.db, s.dialect, options.Schema, options.Connection); err != nil {
+		_ = s.Close()
 		return nil, err
 	}
-	if err := s.validateGenericTables(ctx); err != nil {
+	if err := bootstrapStore(ctx, s); err != nil {
 		_ = s.Close()
-		return nil, fmt.Errorf("relationaldb: physical schema is not ready; set RELATIONALDB_DSN and run `%s` from indexeddb/relationaldb: %w", migrationCommand(options), err)
+		return nil, err
 	}
 	if err := s.requireOrderedPrimaryKeys(ctx, ""); err != nil {
 		_ = s.Close()
 		return nil, err
 	}
 	return s, nil
-}
-
-func migrationCommand(options storeOptions) string {
-	command := "go run ./cmd/migrate"
-	if options.Schema != "" {
-		command += fmt.Sprintf(" --schema %q", options.Schema)
-	}
-	if options.TablePrefix != "" {
-		command += fmt.Sprintf(" --table-prefix %q", options.TablePrefix)
-	}
-	return command
 }
 
 func connectStoreWithOptions(ctx context.Context, dsn string, options storeOptions) (*Store, error) {
@@ -134,18 +126,53 @@ func makeStoreWithDB(db *sql.DB, style bindStyle, d dialect, options storeOption
 	}
 }
 
-// newStoreWithDB preserves the factory's existing behavior. The deployed
-// provider uses openStoreWithOptions, which only validates existing storage.
-func newStoreWithDB(db *sql.DB, style bindStyle, d dialect, options storeOptions, ownsDB bool) (*Store, error) {
+func newStoreWithDB(ctx context.Context, db *sql.DB, style bindStyle, d dialect, options storeOptions, ownsDB bool) (*Store, error) {
 	s := makeStoreWithDB(db, style, d, options, ownsDB)
-	if _, err := execWithRetry(context.Background(), db, options.Connection, s.q(metadataTableSQL(d, s.metadataTable()))); err != nil {
-		return nil, fmt.Errorf("relationaldb: create metadata table: %w", err)
-	}
-	if err := s.ensureGenericTables(context.Background()); err != nil {
+	if err := bootstrapStore(ctx, s); err != nil {
 		return nil, err
 	}
-
 	return s, nil
+}
+
+func bootstrapStore(ctx context.Context, s *Store) error {
+	if _, err := execWithRetry(ctx, s.db, s.conn, s.q(metadataTableSQL(s.dialect, s.metadataTable()))); err != nil {
+		return fmt.Errorf("relationaldb: create metadata table: %w", err)
+	}
+	if err := s.ensureGenericTables(ctx); err != nil {
+		return err
+	}
+	if err := s.dropObsoleteScanIndexes(ctx); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Store) dropObsoleteScanIndexes(ctx context.Context) error {
+	for _, index := range []struct{ table, suffix string }{
+		{s.genericRecordsTable(), "primary_order"},
+		{s.genericIndexTable(), "scan"},
+		{s.genericUniqueIndexTable(), "scan"},
+	} {
+		name := portableIndexName(index.table, index.suffix)
+		stmt := "DROP INDEX IF EXISTS " + quoteTableName(s.dialect, qualifyTableName(s.schemaName, name))
+		switch s.dialect {
+		case dialectMySQL:
+			var exists int
+			if err := s.scanOne(ctx, "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = COALESCE(NULLIF(?, ''), DATABASE()) AND table_name = ? AND index_name = ?", []any{s.schemaName, baseTableName(index.table), name}, &exists); err != nil {
+				return err
+			}
+			if exists == 0 {
+				continue
+			}
+			stmt = "DROP INDEX " + quoteIdent(s.dialect, name) + " ON " + quoteTableName(s.dialect, index.table)
+		case dialectSQLServer:
+			stmt = "DROP INDEX IF EXISTS " + quoteIdent(s.dialect, name) + " ON " + quoteTableName(s.dialect, index.table)
+		}
+		if _, err := s.exec(ctx, stmt); err != nil {
+			return fmt.Errorf("relationaldb: remove obsolete index %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 func (s *Store) Close() error {
@@ -425,21 +452,25 @@ func (s *Store) ensureGenericMySQLLongBlobColumns(ctx context.Context) error {
 	if s.dialect != dialectMySQL {
 		return nil
 	}
-	for _, table := range s.genericTableRequirements() {
-		if len(table.mysqlLongBlobColumns) == 0 {
-			continue
-		}
-		mismatches, err := s.mysqlLongBlobMismatches(ctx, table)
+	for _, table := range []struct {
+		name    string
+		columns []string
+	}{
+		{s.genericRecordsTable(), []string{"pk_bytes", "pk_ord", "record_blob"}},
+		{s.genericIndexTable(), []string{"index_key_bytes", "pk_bytes", "pk_ord"}},
+		{s.genericUniqueIndexTable(), []string{"index_key_bytes", "pk_bytes", "pk_ord"}},
+	} {
+		mismatches, err := s.mysqlNonLongBlobColumns(ctx, table.name, table.columns)
 		if err != nil {
 			return err
 		}
 		clauses := make([]string, 0, len(mismatches))
-		for _, mismatch := range mismatches {
+		for _, column := range mismatches {
 			nullability := " NOT NULL"
-			if mismatch.name == "pk_ord" {
+			if column == "pk_ord" {
 				nullability = " NULL"
 			}
-			clauses = append(clauses, "MODIFY COLUMN "+quoteIdent(s.dialect, mismatch.name)+" LONGBLOB"+nullability)
+			clauses = append(clauses, "MODIFY COLUMN "+quoteIdent(s.dialect, column)+" LONGBLOB"+nullability)
 		}
 		if len(clauses) == 0 {
 			continue
@@ -451,37 +482,12 @@ func (s *Store) ensureGenericMySQLLongBlobColumns(ctx context.Context) error {
 	return nil
 }
 
-func (s *Store) validateGenericMySQLLongBlobColumns(ctx context.Context) error {
-	if s.dialect != dialectMySQL {
-		return nil
-	}
-	for _, table := range s.genericTableRequirements() {
-		if len(table.mysqlLongBlobColumns) == 0 {
-			continue
-		}
-		mismatches, err := s.mysqlLongBlobMismatches(ctx, table)
-		if err != nil {
-			return err
-		}
-		if len(mismatches) != 0 {
-			mismatch := mismatches[0]
-			return fmt.Errorf("relationaldb: physical schema column %s.%s must be LONGBLOB, found %s", table.name, mismatch.name, mismatch.dataType)
-		}
-	}
-	return nil
-}
-
-type mysqlColumnMismatch struct {
-	name     string
-	dataType string
-}
-
-func (s *Store) mysqlLongBlobMismatches(ctx context.Context, table tableRequirement) ([]mysqlColumnMismatch, error) {
+func (s *Store) mysqlNonLongBlobColumns(ctx context.Context, table string, columns []string) ([]string, error) {
 	rows, err := s.query(ctx, `
 		SELECT COLUMN_NAME, DATA_TYPE
 		FROM INFORMATION_SCHEMA.COLUMNS
 		WHERE TABLE_SCHEMA = COALESCE(NULLIF(?, ''), DATABASE()) AND TABLE_NAME = ?`,
-		s.schemaName, baseTableName(table.name),
+		s.schemaName, baseTableName(table),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("relationaldb: inspect mysql generic storage columns: %w", err)
@@ -500,14 +506,14 @@ func (s *Store) mysqlLongBlobMismatches(ctx context.Context, table tableRequirem
 		return nil, fmt.Errorf("relationaldb: inspect mysql generic storage columns: %w", err)
 	}
 
-	var mismatches []mysqlColumnMismatch
-	for _, column := range table.mysqlLongBlobColumns {
+	var mismatches []string
+	for _, column := range columns {
 		dataType, ok := types[column]
 		if !ok {
-			return nil, fmt.Errorf("relationaldb: mysql generic storage column missing: %s.%s", table.name, column)
+			return nil, fmt.Errorf("relationaldb: mysql generic storage column missing: %s.%s", table, column)
 		}
 		if dataType != "longblob" {
-			mismatches = append(mismatches, mysqlColumnMismatch{name: column, dataType: dataType})
+			mismatches = append(mismatches, column)
 		}
 	}
 	return mismatches, nil

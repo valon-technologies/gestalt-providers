@@ -80,9 +80,6 @@ func TestConfigStoreOptionsRejectsConflictingPrefixAliases(t *testing.T) {
 
 func TestProviderConfigureAppliesConnectionSettings(t *testing.T) {
 	dsn := "file:" + filepath.Join(t.TempDir(), "connection-options.sqlite")
-	if err := Migrate(context.Background(), dsn, Options{}); err != nil {
-		t.Fatalf("Migrate: %v", err)
-	}
 	p := New()
 	err := p.Configure(context.Background(), "", map[string]any{
 		"dsn": dsn,

@@ -138,7 +138,7 @@ func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) 
 	if err != nil {
 		return err
 	}
-	store, err := openStoreWithOptions(ctx, cfg.DSN, options)
+	store, err := newStoreWithOptions(ctx, cfg.DSN, options)
 	if err != nil {
 		return err
 	}
