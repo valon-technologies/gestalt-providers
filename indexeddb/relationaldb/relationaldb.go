@@ -72,11 +72,17 @@ func NewStore(dsn string) (*Store, error) {
 }
 
 func newStoreWithOptions(ctx context.Context, dsn string, options storeOptions) (*Store, error) {
-	if err := ensureRelationalTargetExists(ctx, dsn, options); err != nil {
-		return nil, err
-	}
 	s, err := connectStoreWithOptions(ctx, dsn, options)
 	if err != nil {
+		if err := ensureRelationalTargetExists(ctx, dsn, options); err != nil {
+			return nil, err
+		}
+		s, err = connectStoreWithOptions(ctx, dsn, options)
+		if err != nil {
+			return nil, err
+		}
+	} else if err := ensureRelationalNamespace(ctx, s.db, s.dialect, options.Schema, options.Connection); err != nil {
+		_ = s.Close()
 		return nil, err
 	}
 	if err := bootstrapStore(ctx, s); err != nil {
@@ -134,6 +140,37 @@ func bootstrapStore(ctx context.Context, s *Store) error {
 	}
 	if err := s.ensureGenericTables(ctx); err != nil {
 		return err
+	}
+	if err := s.dropObsoleteScanIndexes(ctx); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Store) dropObsoleteScanIndexes(ctx context.Context) error {
+	for _, index := range []struct{ table, suffix string }{
+		{s.genericRecordsTable(), "primary_order"},
+		{s.genericIndexTable(), "scan"},
+		{s.genericUniqueIndexTable(), "scan"},
+	} {
+		name := portableIndexName(index.table, index.suffix)
+		stmt := "DROP INDEX IF EXISTS " + quoteTableName(s.dialect, qualifyTableName(s.schemaName, name))
+		switch s.dialect {
+		case dialectMySQL:
+			var exists int
+			if err := s.scanOne(ctx, "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = COALESCE(NULLIF(?, ''), DATABASE()) AND table_name = ? AND index_name = ?", []any{s.schemaName, baseTableName(index.table), name}, &exists); err != nil {
+				return err
+			}
+			if exists == 0 {
+				continue
+			}
+			stmt = "DROP INDEX " + quoteIdent(s.dialect, name) + " ON " + quoteTableName(s.dialect, index.table)
+		case dialectSQLServer:
+			stmt = "DROP INDEX IF EXISTS " + quoteIdent(s.dialect, name) + " ON " + quoteTableName(s.dialect, index.table)
+		}
+		if _, err := s.exec(ctx, stmt); err != nil {
+			return fmt.Errorf("relationaldb: remove obsolete index %s: %w", name, err)
+		}
 	}
 	return nil
 }

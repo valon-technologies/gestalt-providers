@@ -56,6 +56,13 @@ idempotent, but it does not automatically mutate existing object-store schemas.
 If a provider version requires a different object-store schema, run an explicit
 data or index migration before deploying that version.
 
+For a database created before ordered primary keys were introduced, drain old
+writers and run the resumable data backfill before starting the provider:
+
+```sh
+RELATIONALDB_DSN=... go run ./cmd/backfill-primary-keys --schema plugin_alpha
+```
+
 Examples:
 
 ```yaml

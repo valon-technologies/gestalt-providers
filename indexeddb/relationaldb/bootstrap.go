@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	mysqlcfg "github.com/go-sql-driver/mysql"
+	"github.com/jackc/pgx/v5/pgconn"
+	mssql "github.com/microsoft/go-mssqldb"
 )
 
 func ensureRelationalTargetExists(ctx context.Context, dsn string, options storeOptions) error {
@@ -95,7 +97,7 @@ func ensurePostgresDatabase(ctx context.Context, connStr string, options connect
 	if exists {
 		return nil
 	}
-	if _, err := execWithRetry(ctx, db, options, "CREATE DATABASE "+quoteIdent(dialectPostgres, target)); err != nil {
+	if _, err := execWithRetry(ctx, db, options, "CREATE DATABASE "+quoteIdent(dialectPostgres, target)); err != nil && !isDatabaseAlreadyExists(err) {
 		return fmt.Errorf("relationaldb: create postgres database %q: %w", target, err)
 	}
 	return nil
@@ -138,7 +140,7 @@ func ensureSQLServerDatabase(ctx context.Context, connStr string, options connec
 	if exists > 0 {
 		return nil
 	}
-	if _, err := execWithRetry(ctx, db, options, "CREATE DATABASE "+quoteIdent(dialectSQLServer, target)); err != nil {
+	if _, err := execWithRetry(ctx, db, options, "CREATE DATABASE "+quoteIdent(dialectSQLServer, target)); err != nil && !isDatabaseAlreadyExists(err) {
 		return fmt.Errorf("relationaldb: create sqlserver database %q: %w", target, err)
 	}
 	return nil
@@ -221,6 +223,16 @@ func isVitessCreateDatabaseUnsupported(err error) bool {
 
 	message := err.Error()
 	return strings.Contains(message, "VT12001") && strings.Contains(message, "failDBDDL")
+}
+
+func isDatabaseAlreadyExists(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "42P04"
+	}
+
+	var msErr mssql.Error
+	return errors.As(err, &msErr) && msErr.Number == 1801
 }
 
 func sqlStringLiteral(value string) string {

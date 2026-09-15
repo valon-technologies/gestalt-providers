@@ -125,7 +125,7 @@ func (s *Store) requireOrderedKeysInTable(ctx context.Context, table, store stri
 		return err
 	}
 	if incomplete != 0 {
-		return status.Error(codes.FailedPrecondition, "ordered primary-key backfill is incomplete; drain older writers and run migrate --backfill-primary-keys")
+		return status.Error(codes.FailedPrecondition, "ordered primary-key backfill is incomplete; drain older writers and run go run ./cmd/backfill-primary-keys")
 	}
 	return nil
 }
