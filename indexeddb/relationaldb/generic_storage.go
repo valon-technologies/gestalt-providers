@@ -19,6 +19,7 @@ import (
 type genericRecordRow struct {
 	pkHash     []byte
 	pkBytes    []byte
+	pkOrd      []byte
 	recordBlob []byte
 }
 
@@ -35,6 +36,7 @@ type genericIndexRow struct {
 	indexKeyOrd   []byte
 	pkHash        []byte
 	pkBytes       []byte
+	pkOrd         []byte
 }
 
 type genericIndexRange struct {
@@ -148,6 +150,7 @@ func buildGenericIndexRows(record gestalt.Record, m *storeMeta, primary encodedK
 			indexKeyOrd:   cloneBytes(encoded.ord),
 			pkHash:        cloneBytes(primary.hash),
 			pkBytes:       cloneBytes(primary.raw),
+			pkOrd:         cloneBytes(primary.ord),
 		}
 		if idx.Unique {
 			uniqueRows = append(uniqueRows, row)
@@ -242,29 +245,7 @@ func (s *Store) loadGenericRecordByPrimaryDirect(ctx context.Context, store stri
 }
 
 func (s *Store) loadAllGenericRecords(ctx context.Context, store string) ([]genericRecordRow, error) {
-	rows, err := s.query(ctx,
-		"SELECT "+quoteIdent(s.dialect, "pk_hash")+", "+quoteIdent(s.dialect, "pk_bytes")+", "+quoteIdent(s.dialect, "record_blob")+
-			" FROM "+quoteTableName(s.dialect, s.genericRecordsTable())+
-			" WHERE "+quoteIdent(s.dialect, "store_name")+" = ?",
-		store,
-	)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "load records: %v", err)
-	}
-	defer rows.Close()
-
-	var out []genericRecordRow
-	for rows.Next() {
-		var row genericRecordRow
-		if err := rows.Scan(&row.pkHash, &row.pkBytes, &row.recordBlob); err != nil {
-			return nil, status.Errorf(codes.Internal, "scan records: %v", err)
-		}
-		out = append(out, row)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, status.Errorf(codes.Internal, "iterate records: %v", err)
-	}
-	return out, nil
+	return s.loadPrimaryRows(ctx, store, nil, false, nil, false)
 }
 
 func (s *Store) countGenericRecords(ctx context.Context, store string) (int64, error) {
@@ -284,7 +265,7 @@ func scanGenericIndexRow(scanner interface {
 	Scan(dest ...any) error
 }) (genericIndexRow, error) {
 	var row genericIndexRow
-	if err := scanner.Scan(&row.indexName, &row.indexKeyHash, &row.indexKeyBytes, &row.indexKeyOrd, &row.pkHash, &row.pkBytes); err != nil {
+	if err := scanner.Scan(&row.indexName, &row.indexKeyHash, &row.indexKeyBytes, &row.indexKeyOrd, &row.pkHash, &row.pkBytes, &row.pkOrd); err != nil {
 		return genericIndexRow{}, err
 	}
 	return row, nil
@@ -297,9 +278,13 @@ func (s *Store) loadGenericIndexRowsByRange(ctx context.Context, table, store, i
 }
 
 func (s *Store) loadGenericIndexRowsByRanges(ctx context.Context, table, store, index string, ranges []genericIndexRange) ([]genericIndexRow, error) {
+	return s.loadGenericIndexRowsLimited(ctx, table, store, index, ranges, nil)
+}
+
+func (s *Store) loadGenericIndexRowsLimited(ctx context.Context, table, store, index string, ranges []genericIndexRange, count *uint32) ([]genericIndexRow, error) {
 	if len(ranges) <= genericIndexRangeBatchSize {
 		var out []genericIndexRow
-		err := s.scanGenericIndexRowsByRanges(ctx, table, store, index, ranges, func(row genericIndexRow) error {
+		err := s.scanGenericIndexRowsByRanges(ctx, table, store, index, ranges, count, func(row genericIndexRow) error {
 			out = append(out, row)
 			return nil
 		})
@@ -310,7 +295,7 @@ func (s *Store) loadGenericIndexRowsByRanges(ctx context.Context, table, store, 
 	seen := make(map[[2]string]struct{})
 	for start := 0; start < len(ranges); start += genericIndexRangeBatchSize {
 		end := min(start+genericIndexRangeBatchSize, len(ranges))
-		err := s.scanGenericIndexRowsByRanges(ctx, table, store, index, ranges[start:end], func(row genericIndexRow) error {
+		err := s.scanGenericIndexRowsByRanges(ctx, table, store, index, ranges[start:end], count, func(row genericIndexRow) error {
 			key := [2]string{string(row.indexKeyBytes), string(row.pkBytes)}
 			if _, ok := seen[key]; !ok {
 				seen[key] = struct{}{}
@@ -328,66 +313,7 @@ func (s *Store) loadGenericIndexRowsByRanges(ctx context.Context, table, store, 
 func (s *Store) scanGenericIndexRowsByRange(ctx context.Context, table, store, index string, lo, hi []byte, loOpen, hiOpen bool, visit func(genericIndexRow) error) error {
 	return s.scanGenericIndexRowsByRanges(ctx, table, store, index, []genericIndexRange{{
 		lo: lo, hi: hi, loOpen: loOpen, hiOpen: hiOpen,
-	}}, visit)
-}
-
-func (s *Store) scanGenericIndexRowsByRanges(ctx context.Context, table, store, index string, ranges []genericIndexRange, visit func(genericIndexRow) error) error {
-	var query strings.Builder
-	query.WriteString("SELECT ")
-	query.WriteString(quoteIdent(s.dialect, "index_name"))
-	query.WriteString(", ")
-	query.WriteString(quoteIdent(s.dialect, "index_key_hash"))
-	query.WriteString(", ")
-	query.WriteString(quoteIdent(s.dialect, "index_key_bytes"))
-	query.WriteString(", ")
-	query.WriteString(quoteIdent(s.dialect, "index_key_ord"))
-	query.WriteString(", ")
-	query.WriteString(quoteIdent(s.dialect, "pk_hash"))
-	query.WriteString(", ")
-	query.WriteString(quoteIdent(s.dialect, "pk_bytes"))
-	query.WriteString(" FROM ")
-	query.WriteString(quoteTableName(s.dialect, table))
-	query.WriteString(" WHERE ")
-	query.WriteString(quoteIdent(s.dialect, "store_name"))
-	query.WriteString(" = ? AND ")
-	query.WriteString(quoteIdent(s.dialect, "index_name"))
-	query.WriteString(" = ?")
-
-	args := []any{store, index}
-	for _, r := range ranges {
-		if r.lo == nil && r.hi == nil {
-			ranges = nil
-			break
-		}
-	}
-	if len(ranges) > 0 {
-		predicates := make([]string, len(ranges))
-		for i, r := range ranges {
-			var predicateArgs []any
-			predicates[i], predicateArgs = genericIndexRangePredicate(quoteIdent(s.dialect, "index_key_ord"), r)
-			args = append(args, predicateArgs...)
-		}
-		query.WriteString(" AND (" + strings.Join(predicates, " OR ") + ")")
-	}
-	rows, err := s.query(ctx, query.String(), args...)
-	if err != nil {
-		return status.Errorf(codes.Internal, "load index rows by range: %v", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		row, err := scanGenericIndexRow(rows)
-		if err != nil {
-			return status.Errorf(codes.Internal, "scan index rows by range: %v", err)
-		}
-		if err := visit(row); err != nil {
-			return err
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return status.Errorf(codes.Internal, "iterate index rows by range: %v", err)
-	}
-	return nil
+	}}, nil, visit)
 }
 
 func genericIndexRangePredicate(column string, r genericIndexRange) (string, []any) {
@@ -492,19 +418,7 @@ func (s *Store) loadGenericRecordRowsByPKHashes(ctx context.Context, store strin
 }
 
 func (s *Store) loadGenericIndexRows(ctx context.Context, table, store, index string) ([]genericIndexRow, error) {
-	return s.loadGenericIndexRowsForQueries(ctx, table, store, index, nil)
-}
-
-func (s *Store) loadGenericIndexRowsForQueries(ctx context.Context, table, store, index string, queries []*client.IndexedDBQuery) ([]genericIndexRow, error) {
-	ranges := make([]genericIndexRange, len(queries))
-	for i, query := range queries {
-		lo, hi, loOpen, hiOpen, err := orderedQueryBounds(query)
-		if err != nil {
-			return nil, err
-		}
-		ranges[i] = genericIndexRange{lo, hi, loOpen, hiOpen}
-	}
-	return s.loadGenericIndexRowsByRanges(ctx, table, store, index, ranges)
+	return s.loadGenericIndexRowsByRanges(ctx, table, store, index, nil)
 }
 
 func orderedQueryBounds(query *client.IndexedDBQuery) (lo, hi []byte, loOpen, hiOpen bool, err error) {
@@ -574,7 +488,7 @@ func (s *Store) insertGenericUniqueIndexRow(ctx context.Context, tx *sql.Tx, sto
 		quoteIdent(s.dialect, "index_key_bytes") + ", " +
 		quoteIdent(s.dialect, "index_key_ord") + ", " +
 		quoteIdent(s.dialect, "pk_hash") + ", " +
-		quoteIdent(s.dialect, "pk_bytes") + ") VALUES (?, ?, ?, ?, ?, ?, ?)"
+		quoteIdent(s.dialect, "pk_bytes") + ", " + quoteIdent(s.dialect, "pk_ord") + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
 	existingKeyBytes, existingPKBytes, found, err := s.loadExistingGenericUniqueIndexRow(ctx, tx, store, row.indexName, row.indexKeyHash)
 	if err != nil {
 		return err
@@ -587,7 +501,7 @@ func (s *Store) insertGenericUniqueIndexRow(ctx context.Context, tx *sql.Tx, sto
 		return s.upsertPostgresGenericUniqueIndexRow(ctx, tx, store, row)
 	}
 
-	_, err = tx.ExecContext(ctx, s.q(stmt), store, row.indexName, row.indexKeyHash, row.indexKeyBytes, row.indexKeyOrd, row.pkHash, row.pkBytes)
+	_, err = tx.ExecContext(ctx, s.q(stmt), store, row.indexName, row.indexKeyHash, row.indexKeyBytes, row.indexKeyOrd, row.pkHash, row.pkBytes, row.pkOrd)
 	if err == nil {
 		return nil
 	}
@@ -614,7 +528,7 @@ func (s *Store) upsertPostgresGenericUniqueIndexRow(ctx context.Context, tx *sql
 		quoteIdent(s.dialect, "index_key_bytes") + ", " +
 		quoteIdent(s.dialect, "index_key_ord") + ", " +
 		quoteIdent(s.dialect, "pk_hash") + ", " +
-		quoteIdent(s.dialect, "pk_bytes") + ") VALUES (?, ?, ?, ?, ?, ?, ?)" +
+		quoteIdent(s.dialect, "pk_bytes") + ", " + quoteIdent(s.dialect, "pk_ord") + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)" +
 		" ON CONFLICT (" + quoteIdent(s.dialect, "store_name") + ", " +
 		quoteIdent(s.dialect, "index_name") + ", " +
 		quoteIdent(s.dialect, "index_key_hash") + ")" +
@@ -626,7 +540,7 @@ func (s *Store) upsertPostgresGenericUniqueIndexRow(ctx context.Context, tx *sql
 
 	var existingKeyBytes []byte
 	var existingPKBytes []byte
-	if err := tx.QueryRowContext(ctx, s.q(stmt), store, row.indexName, row.indexKeyHash, row.indexKeyBytes, row.indexKeyOrd, row.pkHash, row.pkBytes).Scan(&existingKeyBytes, &existingPKBytes); err != nil {
+	if err := tx.QueryRowContext(ctx, s.q(stmt), store, row.indexName, row.indexKeyHash, row.indexKeyBytes, row.indexKeyOrd, row.pkHash, row.pkBytes, row.pkOrd).Scan(&existingKeyBytes, &existingPKBytes); err != nil {
 		return status.Errorf(codes.Internal, "upsert unique index row: %v", err)
 	}
 	return classifyGenericUniqueIndexConflict(existingKeyBytes, existingPKBytes, row)
@@ -670,9 +584,9 @@ func (s *Store) insertGenericIndexRows(ctx context.Context, tx *sql.Tx, table, s
 		quoteIdent(s.dialect, "index_key_bytes") + ", " +
 		quoteIdent(s.dialect, "index_key_ord") + ", " +
 		quoteIdent(s.dialect, "pk_hash") + ", " +
-		quoteIdent(s.dialect, "pk_bytes") + ") VALUES (?, ?, ?, ?, ?, ?, ?)"
+		quoteIdent(s.dialect, "pk_bytes") + ", " + quoteIdent(s.dialect, "pk_ord") + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
 	for _, row := range rows {
-		if _, err := tx.ExecContext(ctx, s.q(stmt), store, row.indexName, row.indexKeyHash, row.indexKeyBytes, row.indexKeyOrd, row.pkHash, row.pkBytes); err != nil {
+		if _, err := tx.ExecContext(ctx, s.q(stmt), store, row.indexName, row.indexKeyHash, row.indexKeyBytes, row.indexKeyOrd, row.pkHash, row.pkBytes, row.pkOrd); err != nil {
 			return status.Errorf(codes.Internal, "insert index row: %v", err)
 		}
 	}
@@ -687,8 +601,8 @@ func (s *Store) insertGenericRecord(ctx context.Context, tx *sql.Tx, store strin
 		" (" + quoteIdent(s.dialect, "store_name") + ", " +
 		quoteIdent(s.dialect, "pk_hash") + ", " +
 		quoteIdent(s.dialect, "pk_bytes") + ", " +
-		quoteIdent(s.dialect, "record_blob") + ") VALUES (?, ?, ?, ?)"
-	_, err := tx.ExecContext(ctx, s.q(stmt), store, primary.hash, primary.raw, payload)
+		quoteIdent(s.dialect, "record_blob") + ", " + quoteIdent(s.dialect, "pk_ord") + ") VALUES (?, ?, ?, ?, ?)"
+	_, err := tx.ExecContext(ctx, s.q(stmt), store, primary.hash, primary.raw, payload, primary.ord)
 	if err == nil {
 		return nil
 	}
@@ -707,9 +621,9 @@ func (s *Store) insertPostgresGenericRecord(ctx context.Context, tx *sql.Tx, sto
 		" (" + quoteIdent(s.dialect, "store_name") + ", " +
 		quoteIdent(s.dialect, "pk_hash") + ", " +
 		quoteIdent(s.dialect, "pk_bytes") + ", " +
-		quoteIdent(s.dialect, "record_blob") + ") VALUES (?, ?, ?, ?)" +
+		quoteIdent(s.dialect, "record_blob") + ", " + quoteIdent(s.dialect, "pk_ord") + ") VALUES (?, ?, ?, ?, ?)" +
 		" ON CONFLICT (" + quoteIdent(s.dialect, "store_name") + ", " + quoteIdent(s.dialect, "pk_hash") + ") DO NOTHING"
-	result, err := tx.ExecContext(ctx, s.q(stmt), store, primary.hash, primary.raw, payload)
+	result, err := tx.ExecContext(ctx, s.q(stmt), store, primary.hash, primary.raw, payload, primary.ord)
 	if err != nil {
 		return status.Errorf(codes.Internal, "insert record: %v", err)
 	}
@@ -738,22 +652,15 @@ func classifyGenericRecordInsertConflict(existing *genericRecordRow, primary enc
 }
 
 func (s *Store) upsertGenericRecord(ctx context.Context, tx *sql.Tx, store string, primary encodedKey, payload []byte, existing *genericRecordRow) error {
-	if existing == nil {
-		var err error
-		existing, err = s.loadGenericRecordByHash(ctx, tx, store, primary.hash)
-		if err != nil {
-			return err
-		}
-	}
 	if existing != nil && !bytes.Equal(existing.pkBytes, primary.raw) {
 		return status.Error(codes.Internal, "primary key hash collision")
 	}
 
 	updateStmt := "UPDATE " + quoteTableName(s.dialect, s.genericRecordsTable()) +
-		" SET " + quoteIdent(s.dialect, "pk_bytes") + " = ?, " + quoteIdent(s.dialect, "record_blob") + " = ?" +
+		" SET " + quoteIdent(s.dialect, "pk_bytes") + " = ?, " + quoteIdent(s.dialect, "record_blob") + " = ?, " + quoteIdent(s.dialect, "pk_ord") + " = ?" +
 		" WHERE " + quoteIdent(s.dialect, "store_name") + " = ? AND " + quoteIdent(s.dialect, "pk_hash") + " = ?"
 	if existing != nil {
-		result, err := tx.ExecContext(ctx, s.q(updateStmt), primary.raw, payload, store, primary.hash)
+		result, err := tx.ExecContext(ctx, s.q(updateStmt), primary.raw, payload, primary.ord, store, primary.hash)
 		if err != nil {
 			return status.Errorf(codes.Internal, "update record: %v", err)
 		}
@@ -821,8 +728,10 @@ func (s *Store) putGeneric(ctx context.Context, store string, m *storeMeta, reco
 		if existing != nil && !bytes.Equal(existing.pkBytes, primary.raw) {
 			return status.Error(codes.Internal, "primary key hash collision")
 		}
-		if err := s.deleteGenericIndexRowsByPrimaryKey(txCtx, tx, store, primary.hash); err != nil {
-			return err
+		if existing != nil {
+			if err := s.deleteGenericIndexRowsByPrimaryKey(txCtx, tx, store, primary.hash); err != nil {
+				return err
+			}
 		}
 		for _, row := range uniqueRows {
 			if err := s.insertGenericUniqueIndexRow(txCtx, tx, store, row); err != nil {
@@ -946,7 +855,11 @@ func (s *Store) genericGet(ctx context.Context, store string, m *storeMeta, rawK
 }
 
 func (s *Store) genericObjectStoreEntries(ctx context.Context, store string, m *storeMeta, query *client.IndexedDBQuery, keysOnly bool) ([]cursorutil.Entry, error) {
-	rows, err := s.loadAllGenericRecords(ctx, store)
+	return s.genericObjectStoreEntriesLimited(ctx, store, m, query, keysOnly, nil)
+}
+
+func (s *Store) genericObjectStoreEntriesLimited(ctx context.Context, store string, m *storeMeta, query *client.IndexedDBQuery, keysOnly bool, count *uint32) ([]cursorutil.Entry, error) {
+	rows, err := s.loadPrimaryRows(ctx, store, query, keysOnly, count, true)
 	if err != nil {
 		return nil, err
 	}
@@ -971,25 +884,35 @@ func (s *Store) genericObjectStoreEntries(ctx context.Context, store string, m *
 			Record:          record,
 		})
 	}
-	entries, err = filterEntriesByQuery(entries, query)
-	if err != nil {
-		return nil, err
-	}
-	sortObjectStoreEntries(entries)
 	return entries, nil
 }
 
 func (s *Store) genericIndexEntries(ctx context.Context, store string, idx *gestalt.IndexSchema, queries []*client.IndexedDBQuery, keysOnly bool) ([]cursorutil.Entry, error) {
+	return s.genericIndexEntriesLimited(ctx, store, idx, queries, keysOnly, nil)
+}
+
+func (s *Store) genericIndexEntriesLimited(ctx context.Context, store string, idx *gestalt.IndexSchema, queries []*client.IndexedDBQuery, keysOnly bool, count *uint32) ([]cursorutil.Entry, error) {
+	ranges := make([]genericIndexRange, len(queries))
+	for i, query := range queries {
+		lo, hi, loOpen, hiOpen, err := orderedQueryBounds(query)
+		if err != nil {
+			return nil, err
+		}
+		ranges[i] = genericIndexRange{lo, hi, loOpen, hiOpen}
+	}
+	if count != nil && *count == 0 {
+		return nil, nil
+	}
 	table := s.genericIndexTable()
 	if idx.Unique {
 		table = s.genericUniqueIndexTable()
 	}
-	rows, err := s.loadGenericIndexRowsForQueries(ctx, table, store, idx.Name, queries)
+	rows, err := s.loadGenericIndexRowsLimited(ctx, table, store, idx.Name, ranges, count)
 	if err != nil {
 		return nil, err
 	}
 
-	entries, err := s.indexEntriesFromRows(ctx, store, rows, keysOnly)
+	entries, err := s.indexEntriesFromRows(ctx, store, rows, true)
 	if err != nil {
 		return nil, err
 	}
@@ -998,6 +921,34 @@ func (s *Store) genericIndexEntries(ctx context.Context, store string, idx *gest
 		return nil, err
 	}
 	sortIndexEntries(entries)
+	entries = limitRecords(entries, count)
+	if !keysOnly {
+		// Fetch payloads only for the requested, correctly ordered keys. In
+		// particular, do not limit a duplicate index-key group in hash order.
+		hashes := make([][]byte, len(entries))
+		keys := make([]encodedKey, len(entries))
+		for i, entry := range entries {
+			keys[i], err = encodeKeyValue(entry.PrimaryKeyValue)
+			if err != nil {
+				return nil, err
+			}
+			hashes[i] = keys[i].hash
+		}
+		records, err := s.loadGenericRecordRowsByPKHashes(ctx, store, hashes, true)
+		if err != nil {
+			return nil, err
+		}
+		for i := range entries {
+			row, ok := records[genericRecordLookupKey(keys[i].hash, keys[i].raw)]
+			if !ok {
+				return nil, status.Error(codes.Internal, "index row points to missing record")
+			}
+			entries[i].Record, err = unmarshalRecordBlob(row.recordBlob)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
 	return entries, nil
 }
 

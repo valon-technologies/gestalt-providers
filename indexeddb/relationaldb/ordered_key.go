@@ -30,7 +30,7 @@ const (
 // string: bytes.Compare(encodeOrderedKey(a), encodeOrderedKey(b)) has the same
 // sign as indexeddb.CompareKeys(a, b) for all valid keys. It is the byte image
 // of the W3C ordering implemented by indexeddb.CompareKeys and is used only for
-// SQL range scans on index_key_ord. It is not round-trippable.
+// SQL range scans on pk_ord and index_key_ord. It is not round-trippable.
 func encodeOrderedKey(value any) ([]byte, error) {
 	if value == nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid key: nil")
@@ -165,7 +165,11 @@ func encodeLengthPrefixedMag(mag []byte) []byte {
 }
 
 func encodeOrderedDate(t time.Time) ([]byte, error) {
-	n := uint64(t.UnixNano()) ^ 0x8000000000000000
+	nanos := t.UnixNano()
+	if !time.Unix(0, nanos).Equal(t) {
+		return nil, status.Error(codes.InvalidArgument, "date key is outside the supported Unix nanosecond range")
+	}
+	n := uint64(nanos) ^ 0x8000000000000000
 	out := make([]byte, 1+8)
 	out[0] = tagDate
 	binary.BigEndian.PutUint64(out[1:], n)
