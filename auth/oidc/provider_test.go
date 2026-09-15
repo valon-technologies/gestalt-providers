@@ -286,6 +286,16 @@ func TestConfigureAllowsInsecureLoopbackIssuerWhenOptedIn(t *testing.T) {
 	if p.doc.AuthorizationEndpoint != server.URL+"/auth" {
 		t.Fatalf("Configure() authorization_endpoint = %q, want %q", p.doc.AuthorizationEndpoint, server.URL+"/auth")
 	}
+	logout, err := p.FederatedLogout(context.Background(), &gestalt.FederatedLogoutRequest{
+		ReturnTo: "https://app.example.test/",
+	})
+	if err != nil {
+		t.Fatalf("FederatedLogout() error = %v", err)
+	}
+	wantLogout := server.URL + "/logout?client_id=client-id&post_logout_redirect_uri=https%3A%2F%2Fapp.example.test%2F"
+	if logout.RedirectURI != wantLogout {
+		t.Fatalf("FederatedLogout() redirect_uri = %q, want %q", logout.RedirectURI, wantLogout)
+	}
 }
 
 func TestConfigureRejectsInsecureDiscoveryEndpointsByDefault(t *testing.T) {
@@ -1717,6 +1727,9 @@ func newDiscoveryServer(t *testing.T, doc discoveryDocument) *httptest.Server {
 	}
 	if doc.UserinfoEndpoint == "" {
 		doc.UserinfoEndpoint = server.URL + "/userinfo"
+	}
+	if doc.EndSessionEndpoint == "" {
+		doc.EndSessionEndpoint = server.URL + "/logout"
 	}
 	return server
 }
