@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
@@ -248,20 +247,6 @@ func relationshipIndexPlan(filter *RelationshipFilter) (string, []any, bool) {
 		return "by_subject_set_source", []any{strings.TrimSpace(filter.Target.SubjectSet.Resource.Type), strings.TrimSpace(filter.Target.SubjectSet.Resource.Id), strings.TrimSpace(filter.Target.SubjectSet.Relation)}, true
 	}
 	return "", nil, false
-}
-
-func parseRelationshipPageToken(token string) (int, error) {
-	if token == "" {
-		return 0, nil
-	}
-	offset, err := strconv.Atoi(token)
-	if err != nil {
-		return 0, err
-	}
-	if offset < 0 {
-		return 0, errors.New("offset must be non-negative")
-	}
-	return offset, nil
 }
 
 func sourceLayerString(layer SourceLayer) string {

@@ -7,6 +7,7 @@ import (
 
 const migrationInitRevisionID = "authorization/indexeddb/0001_init"
 const migrationRelationshipIndexesRevisionID = "authorization/indexeddb/0002_relationship_indexes"
+const migrationRelationshipPagesRevisionID = "authorization/indexeddb/0003_relationship_pages"
 
 type storeNames struct {
 	state         string
@@ -47,6 +48,13 @@ func authorizationMigrations() []migrations.Revision {
 			{Store: stores.relationships, Index: indexeddb.IndexSchema{Name: "by_resource_relation_source", KeyPath: []string{"value.tuple.resource.type", "value.tuple.resource.id", "value.tuple.relation", "value.source_layer"}}},
 			{Store: stores.relationships, Index: indexeddb.IndexSchema{Name: "by_subject_source", KeyPath: []string{"value.tuple.target.subject.type", "value.tuple.target.subject.id", "value.source_layer"}}},
 			{Store: stores.relationships, Index: indexeddb.IndexSchema{Name: "by_subject_set_source", KeyPath: []string{"value.tuple.target.subject_set.resource.type", "value.tuple.target.subject_set.resource.id", "value.tuple.target.subject_set.relation", "value.source_layer"}}},
+		}},
+	}, {
+		ID: migrationRelationshipPagesRevisionID,
+		Schema: &migrations.SchemaDeclaration{AddIndexes: []migrations.AddIndexDeclaration{
+			{Store: stores.relationships, Index: indexeddb.IndexSchema{Name: "by_resource_page", KeyPath: []string{"value.tuple.resource.type", "value.tuple.resource.id", "id"}}},
+			{Store: stores.relationships, Index: indexeddb.IndexSchema{Name: "by_subject_page", KeyPath: []string{"value.tuple.target.subject.type", "value.tuple.target.subject.id", "id"}}},
+			{Store: stores.relationships, Index: indexeddb.IndexSchema{Name: "by_subject_set_page", KeyPath: []string{"value.tuple.target.subject_set.resource.type", "value.tuple.target.subject_set.resource.id", "value.tuple.target.subject_set.relation", "id"}}},
 		}},
 	}}
 }

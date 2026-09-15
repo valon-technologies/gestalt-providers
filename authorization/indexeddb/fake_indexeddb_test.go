@@ -11,12 +11,10 @@ import (
 )
 
 type fakeIndexedDB struct {
-	createdStores  []string
-	createdIndexes []indexeddb.IndexDefinition
-	commitErr      error
-	closed         bool
-	stores         map[string]*fakeObjectStore
-	nilGetAllCalls int
+	createdStores []string
+	commitErr     error
+	closed        bool
+	stores        map[string]*fakeObjectStore
 }
 
 func (db *fakeIndexedDB) CreateObjectStore(_ context.Context, name string, _ indexeddb.ObjectStoreOptions) (indexeddb.ObjectStore, error) {
@@ -34,7 +32,6 @@ func (db *fakeIndexedDB) CreateIndex(_ context.Context, storeName string, defini
 		return indexeddb.ErrAlreadyExists
 	}
 	store.indexes[definition.Name] = definition
-	db.createdIndexes = append(db.createdIndexes, definition)
 	return nil
 }
 
@@ -72,15 +69,14 @@ func (db *fakeIndexedDB) objectStore(name string) indexeddb.ObjectStore {
 	if store, ok := db.stores[name]; ok {
 		return store
 	}
-	store := &fakeObjectStore{records: make(map[string]indexeddb.Record), indexes: make(map[string]indexeddb.IndexDefinition), nilGetAllCalls: &db.nilGetAllCalls}
+	store := &fakeObjectStore{records: make(map[string]indexeddb.Record), indexes: make(map[string]indexeddb.IndexDefinition)}
 	db.stores[name] = store
 	return store
 }
 
 type fakeObjectStore struct {
-	records        map[string]indexeddb.Record
-	indexes        map[string]indexeddb.IndexDefinition
-	nilGetAllCalls *int
+	records map[string]indexeddb.Record
+	indexes map[string]indexeddb.IndexDefinition
 }
 
 func (s *fakeObjectStore) Add(context.Context, indexeddb.Record) error {
@@ -114,10 +110,7 @@ func (s *fakeObjectStore) Clear(context.Context) error {
 	return nil
 }
 
-func (s *fakeObjectStore) GetAll(_ context.Context, query any, _ ...uint32) ([]indexeddb.Record, error) {
-	if query == nil && s.nilGetAllCalls != nil {
-		(*s.nilGetAllCalls)++
-	}
+func (s *fakeObjectStore) GetAll(_ context.Context, query any, count ...uint32) ([]indexeddb.Record, error) {
 	ids := make([]string, 0, len(s.records))
 	for id := range s.records {
 		ok, err := indexeddb.MatchQuery(id, indexeddb.ToQuery(query))
@@ -129,6 +122,9 @@ func (s *fakeObjectStore) GetAll(_ context.Context, query any, _ ...uint32) ([]i
 		}
 	}
 	sort.Strings(ids)
+	if len(count) > 0 && len(ids) > int(count[0]) {
+		ids = ids[:count[0]]
+	}
 	records := make([]indexeddb.Record, 0, len(ids))
 	for _, id := range ids {
 		records = append(records, cloneFakeRecord(s.records[id]))
@@ -166,7 +162,7 @@ func (s *fakeObjectStore) OpenKeyCursor(context.Context, any, indexeddb.CursorDi
 }
 
 func (s *fakeObjectStore) clone() *fakeObjectStore {
-	clone := &fakeObjectStore{records: make(map[string]indexeddb.Record, len(s.records)), indexes: make(map[string]indexeddb.IndexDefinition, len(s.indexes)), nilGetAllCalls: s.nilGetAllCalls}
+	clone := &fakeObjectStore{records: make(map[string]indexeddb.Record, len(s.records)), indexes: make(map[string]indexeddb.IndexDefinition, len(s.indexes))}
 	for id, record := range s.records {
 		clone.records[id] = cloneFakeRecord(record)
 	}
@@ -272,7 +268,7 @@ func (*fakeIndex) GetKey(context.Context, any) (string, error) {
 	return "", indexeddb.ErrUnsupported
 }
 
-func (i *fakeIndex) GetAll(_ context.Context, query any, _ ...uint32) ([]indexeddb.Record, error) {
+func (i *fakeIndex) GetAll(_ context.Context, query any, count ...uint32) ([]indexeddb.Record, error) {
 	definition, ok := i.store.indexes[i.name]
 	if !ok {
 		return nil, indexeddb.ErrNotFound
@@ -300,6 +296,9 @@ func (i *fakeIndex) GetAll(_ context.Context, query any, _ ...uint32) ([]indexed
 		}
 	}
 	sort.Strings(ids)
+	if len(count) > 0 && len(ids) > int(count[0]) {
+		ids = ids[:count[0]]
+	}
 	result := make([]indexeddb.Record, 0, len(ids))
 	for _, id := range ids {
 		result = append(result, cloneFakeRecord(i.store.records[id]))

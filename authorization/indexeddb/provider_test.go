@@ -325,7 +325,7 @@ func TestProviderSetActiveModelTrimsDefaultRole(t *testing.T) {
 func TestProviderSetAuthorizationStateAndListRelationships(t *testing.T) {
 	ctx := context.Background()
 	provider := New()
-	fakeDB := &fakeIndexedDB{}
+	fakeDB := relationshipTestDB(t)
 	provider.configureDatabase(fakeDB)
 	t.Cleanup(func() {
 		if err := provider.Close(); err != nil {
