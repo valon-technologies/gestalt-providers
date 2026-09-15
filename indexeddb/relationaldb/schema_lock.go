@@ -98,8 +98,6 @@ func (s *Store) withStoreWrite(ctx context.Context, name string, fn func(context
 }
 
 func (s *Store) changeIndex(ctx context.Context, name string, fn func(context.Context) error) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	return s.withTx(ctx, func(txCtx context.Context, tx *sql.Tx) error {
 		txCtx = contextWithTx(txCtx, tx, nil)
 		if _, err := s.lockStoreMetadata(txCtx, []string{name}, true); err != nil {
