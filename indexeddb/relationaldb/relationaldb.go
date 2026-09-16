@@ -89,6 +89,10 @@ func newStoreWithOptions(ctx context.Context, dsn string, options storeOptions) 
 		_ = s.Close()
 		return nil, err
 	}
+	if err := s.requireOrderedPrimaryKeys(ctx, ""); err != nil {
+		_ = s.Close()
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -716,7 +720,7 @@ func (s *Store) GetAll(ctx context.Context, req gestalt.IndexedDBObjectStoreRang
 	if err != nil {
 		return nil, err
 	}
-	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Query, false)
+	entries, err := s.genericObjectStoreEntriesLimited(ctx, req.Store, m, req.Query, false, req.Count)
 	if err != nil {
 		return nil, err
 	}
@@ -728,7 +732,7 @@ func (s *Store) GetAllKeys(ctx context.Context, req gestalt.IndexedDBObjectStore
 	if err != nil {
 		return nil, err
 	}
-	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Query, true)
+	entries, err := s.genericObjectStoreEntriesLimited(ctx, req.Store, m, req.Query, true, req.Count)
 	if err != nil {
 		return nil, err
 	}
@@ -741,7 +745,7 @@ func (s *Store) GetAllKeys(ctx context.Context, req gestalt.IndexedDBObjectStore
 }
 
 func (s *Store) Count(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) (int64, error) {
-	m, err := s.getMetaForContext(ctx, req.Store)
+	_, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
 		return 0, err
 	}
@@ -752,11 +756,7 @@ func (s *Store) Count(ctx context.Context, req gestalt.IndexedDBObjectStoreRange
 		}
 		return count, nil
 	}
-	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Query, true)
-	if err != nil {
-		return 0, err
-	}
-	return int64(len(entries)), nil
+	return s.countPrimaryRange(ctx, req.Store, req.Query)
 }
 
 func (s *Store) DeleteRange(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) (int64, error) {
@@ -856,7 +856,7 @@ func (s *Store) queryIndexEntries(ctx context.Context, req gestalt.IndexedDBInde
 	if len(queries) == 0 {
 		queries = []*client.IndexedDBQuery{req.Query}
 	}
-	entries, err := s.genericIndexEntries(ctx, req.Store, idx, queries, keyOnly)
+	entries, err := s.genericIndexEntriesLimited(ctx, req.Store, idx, queries, keyOnly, req.Count)
 	if err != nil {
 		return nil, nil, err
 	}
