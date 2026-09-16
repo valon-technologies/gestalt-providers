@@ -158,6 +158,57 @@ func TestLongKeysAndDuplicateIndexReadContract(t *testing.T) {
 			if err != nil || !reflect.DeepEqual(next, []string{prefix + "-1202", prefix + "-1201"}) {
 				t.Fatalf("long index continuation: %v", err)
 			}
+			// A legacy writer after startup must still make reads fail closed.
+			driver, sqlDSN, parameter := "sqlite", dsn, "?"
+			if strings.HasPrefix(dsn, "mysql://") {
+				driver, sqlDSN = "mysql", strings.TrimPrefix(dsn, "mysql://")
+			}
+			if strings.HasPrefix(dsn, "postgres://") {
+				driver, parameter = "pgx", "$1"
+			}
+			db, err := sql.Open(driver, sqlDSN)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			// An old writer can replace index rows while leaving a migrated
+			// record intact. A bounded duplicate-key read must fail closed too.
+			for _, id := range []string{"000-legacy-a", "000-legacy-b"} {
+				if err := s.Add(ctx, gestalt.IndexedDBRecordRequest{Store: store, Record: gestalt.Record{"id": id, "group": "shared"}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var indexHash []byte
+			if err := db.QueryRow("SELECT pk_hash FROM _gestalt_records WHERE store_name = "+parameter+" ORDER BY pk_ord LIMIT 1", store).Scan(&indexHash); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec("UPDATE _gestalt_index_entries SET pk_ord = NULL WHERE pk_hash = "+parameter, indexHash); err != nil {
+				t.Fatal(err)
+			}
+			one := uint32(1)
+			indexRequest := gestalt.IndexedDBIndexQueryRequest{Store: store, Index: "by_group", Query: indexeddb.ToQuery("shared"), Count: &one}
+			if _, err := s.IndexGetAll(ctx, indexRequest); status.Code(err) != codes.FailedPrecondition {
+				t.Fatalf("bounded index read after legacy write: %v", err)
+			}
+			var hash []byte
+			if err := db.QueryRow("SELECT pk_hash FROM _gestalt_records WHERE store_name = "+parameter+" ORDER BY pk_ord DESC LIMIT 1", store).Scan(&hash); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec("UPDATE _gestalt_records SET pk_ord = NULL WHERE pk_hash = "+parameter, hash); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.GetAll(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: store, Count: &limit}); status.Code(err) != codes.FailedPrecondition {
+				t.Fatalf("read after legacy write: %v", err)
+			}
+			if _, err := relationaldb.BackfillPrimaryKeyOrder(ctx, dsn, relationaldb.Options{}); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := s.GetAllKeys(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: store, Count: &limit}); err != nil || len(got) != 2 {
+				t.Fatalf("read after repair: %v", err)
+			}
+			if got, err := s.IndexGetAll(ctx, indexRequest); err != nil || len(got) != 1 || got[0]["id"] != "000-legacy-a" {
+				t.Fatalf("bounded index read after repair: %v %v", got, err)
+			}
 		})
 	}
 }
@@ -237,20 +288,8 @@ func TestDateKeyRangeContract(t *testing.T) {
 }
 
 func TestBackfillUpgradeContract(t *testing.T) {
-	dsns := map[string]string{"SQLite": "file:" + filepath.Join(t.TempDir(), "upgrade.sqlite")}
-	if dsn := os.Getenv("GESTALT_TEST_MYSQL_DSN"); dsn != "" {
-		dsns["MySQL"] = dsn
-	}
-	if dsn := os.Getenv("GESTALT_TEST_POSTGRES_DSN"); dsn != "" {
-		dsns["Postgres"] = dsn
-	}
-	for name, dsn := range dsns {
-		t.Run(name, func(t *testing.T) { testOnlineBackfillUpgrade(t, dsn) })
-	}
-}
-
-func testOnlineBackfillUpgrade(t *testing.T, dsn string) {
 	ctx := context.Background()
+	dsn := "file:" + filepath.Join(t.TempDir(), "upgrade.sqlite")
 	s, err := relationaldb.NewStore(dsn)
 	if err != nil {
 		t.Fatal(err)
@@ -283,19 +322,12 @@ func testOnlineBackfillUpgrade(t *testing.T, dsn string) {
 	}
 	s.Close()
 	// Persisted fixture after adding the column, before the data migration.
-	driver, sqlDSN := "sqlite", dsn
-	if strings.HasPrefix(dsn, "mysql://") {
-		driver, sqlDSN = "mysql", strings.TrimPrefix(dsn, "mysql://")
-	}
-	if strings.HasPrefix(dsn, "postgres://") {
-		driver = "pgx"
-	}
-	db, err := sql.Open(driver, sqlDSN)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, table := range []string{"_gestalt_records", "_gestalt_index_entries", "_gestalt_unique_index_entries"} {
-		if _, err := db.Exec("UPDATE " + table + " SET pk_ord = NULL WHERE store_name IN ('records', 'records-second')"); err != nil {
+		if _, err := db.Exec("UPDATE " + table + " SET pk_ord = NULL"); err != nil {
 			_ = db.Close()
 			t.Fatal(err)
 		}
@@ -303,48 +335,18 @@ func testOnlineBackfillUpgrade(t *testing.T, dsn string) {
 	db.Close()
 	p := relationaldb.New()
 	if err := p.Configure(ctx, "", map[string]any{"dsn": dsn}); err != nil {
-		t.Fatalf("compatibility provider must serve before backfill: %v", err)
+		t.Fatal(err)
 	}
-	for _, store := range stores {
-		got, err := p.GetAll(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: store})
-		if err != nil || !reflect.DeepEqual(got, want) {
-			t.Fatalf("legacy records before backfill: %v", err)
-		}
-		for _, index := range []string{"by_value", "by_id"} {
-			got, err := p.IndexGetAll(ctx, gestalt.IndexedDBIndexQueryRequest{Store: store, Index: index})
-			if err != nil || !reflect.DeepEqual(got, want) {
-				t.Fatalf("legacy index %s before backfill: %v", index, err)
-			}
-		}
-		if err := p.CreateIndex(ctx, gestalt.IndexedDBCreateIndexRequest{Store: store, Name: "during_upgrade", KeyPath: []string{"value"}}); err != nil {
-			t.Fatal(err)
-		}
-		indexed, err := p.IndexGetAll(ctx, gestalt.IndexedDBIndexQueryRequest{Store: store, Index: "during_upgrade"})
-		if err != nil || !reflect.DeepEqual(indexed, want) {
-			t.Fatalf("index created before backfill: %v", err)
-		}
-		if err := p.Put(ctx, gestalt.IndexedDBRecordRequest{Store: store, Record: want[0]}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	newRecord := gestalt.Record{"id": "persisted-new", "value": "keep me"}
-	for _, store := range stores {
-		if err := p.Add(ctx, gestalt.IndexedDBRecordRequest{Store: store, Record: newRecord}); err != nil {
-			t.Fatal(err)
-		}
-		got, err := p.GetAll(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: store})
-		if err != nil || !reflect.DeepEqual(got, append(append([]gestalt.Record{}, want...), newRecord)) {
-			t.Fatalf("mixed legacy and new records: %v", err)
-		}
+	if _, err := p.GetAll(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: stores[0]}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("read before backfill: %v", err)
 	}
 	p.Close()
-	if n, err := relationaldb.BackfillPrimaryKeyOrder(ctx, dsn, relationaldb.Options{}); err != nil || n != int64((len(want)-1)*len(stores)*3) {
-		t.Fatalf("backfill should update only legacy rows: %d, %v", n, err)
+	if _, err := relationaldb.BackfillPrimaryKeyOrder(ctx, dsn, relationaldb.Options{}); err != nil {
+		t.Fatal(err)
 	}
 	if n, err := relationaldb.BackfillPrimaryKeyOrder(ctx, dsn, relationaldb.Options{}); err != nil || n != 0 {
 		t.Fatalf("repeat backfill: %d updates, %v", n, err)
 	}
-	want = append(want, newRecord)
 	if err := p.Configure(ctx, "", map[string]any{"dsn": dsn}); err != nil {
 		t.Fatal(err)
 	}

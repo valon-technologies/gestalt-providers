@@ -1,9 +1,17 @@
 package relationaldb
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
+	"sort"
 	"strings"
+
+	"github.com/valon-technologies/gestalt/sdk/go/client"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const genericSQLPageSize = 1000
@@ -70,6 +78,60 @@ func sqlPageLimit(d dialect, query string, count int) string {
 	return fmt.Sprintf("%s LIMIT %d", query, count)
 }
 
+func (s *Store) countPrimaryRange(ctx context.Context, store string, query *client.IndexedDBQuery) (int64, error) {
+	if err := s.requireOrderedPrimaryKeys(ctx, store); err != nil {
+		return 0, err
+	}
+	lo, hi, loOpen, hiOpen, err := orderedQueryBounds(query)
+	if err != nil {
+		return 0, err
+	}
+	bounds := genericIndexRange{lo: lo, hi: hi, loOpen: loOpen, hiOpen: hiOpen}
+	q := func(name string) string { return quoteIdent(s.dialect, name) }
+	stmt := "SELECT COUNT(*) FROM " + quoteTableName(s.dialect, s.genericRecordsTable()) + " WHERE " + q("store_name") + " = ? AND " + q("pk_ord") + " IS NOT NULL"
+	args := []any{store}
+	if lo != nil || hi != nil {
+		predicate, values := orderedRangePredicate(s.dialect, q("pk_ord"), bounds)
+		stmt += " AND " + predicate
+		args = append(args, values...)
+	}
+	var count int64
+	err = s.scanOne(ctx, stmt, args, &count)
+	return count, err
+}
+
+// Missing ordered keys are an upgrade error, never a read fallback.
+func (s *Store) requireOrderedPrimaryKeys(ctx context.Context, store string) error {
+	q := func(name string) string { return quoteIdent(s.dialect, name) }
+	// Seek the NULL end of the existing ordered index. PostgreSQL stores
+	// NULL last, so scan its index backwards.
+	order := nullsFirstOrder(s.dialect, primaryOrderExpression(s.dialect, q("pk_ord")), q("pk_hash"))
+	stmt := "SELECT CASE WHEN " + q("pk_ord") + " IS NULL THEN 1 ELSE 0 END FROM " + quoteTableName(s.dialect, s.genericRecordsTable()) + " WHERE " + q("store_name") + " = ? ORDER BY " + order
+	var incomplete int
+	err := s.scanOne(ctx, sqlPageLimit(s.dialect, stmt, 1), []any{store}, &incomplete)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if incomplete != 0 {
+		return orderedPrimaryKeyUpgradeError()
+	}
+	return nil
+}
+
+func nullsFirstOrder(d dialect, columns ...string) string {
+	if d == dialectPostgres {
+		return strings.Join(columns, " DESC, ") + " DESC"
+	}
+	return strings.Join(columns, ", ")
+}
+
+func orderedPrimaryKeyUpgradeError() error {
+	return status.Error(codes.FailedPrecondition, "ordered primary-key backfill is incomplete; drain older writers and run go run ./cmd/backfill-primary-keys")
+}
+
 // BackfillPrimaryKeyOrder fills legacy keys using short, independently committed
 // updates. It is safe to restart: NULL is the checkpoint and concurrent writes
 // win because the update also checks the original key bytes. Drain older writers
@@ -85,27 +147,55 @@ func BackfillPrimaryKeyOrder(ctx context.Context, dsn string, options Options) (
 
 func (s *Store) backfillPrimaryKeyOrder(ctx context.Context) (int64, error) {
 	var updated int64
-	for _, table := range []string{s.genericRecordsTable(), s.genericIndexTable(), s.genericUniqueIndexTable()} {
-		n, err := s.backfillOrderedTable(ctx, table)
-		updated += n
+	for _, target := range []struct{ table, indexSuffix string }{
+		{s.genericRecordsTable(), "record_lookup"},
+		{s.genericIndexTable(), "record"},
+		{s.genericUniqueIndexTable(), "record"},
+	} {
+		table := target.table
+		rows, err := s.query(ctx, "SELECT DISTINCT "+quoteIdent(s.dialect, "store_name")+" FROM "+quoteTableName(s.dialect, table)+" ORDER BY "+quoteIdent(s.dialect, "store_name"))
 		if err != nil {
 			return updated, err
+		}
+		var stores []string
+		for rows.Next() {
+			var store string
+			if err := rows.Scan(&store); err != nil {
+				rows.Close()
+				return updated, err
+			}
+			stores = append(stores, store)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return updated, err
+		}
+		for _, store := range stores {
+			n, err := s.backfillOrderedTable(ctx, table, store, portableIndexName(table, target.indexSuffix))
+			updated += n
+			if err != nil {
+				return updated, err
+			}
 		}
 	}
 	return updated, nil
 }
 
-func (s *Store) backfillOrderedTable(ctx context.Context, table string) (int64, error) {
+func (s *Store) backfillOrderedTable(ctx context.Context, table, store, index string) (int64, error) {
 	q := func(name string) string { return quoteIdent(s.dialect, name) }
 	var updated int64
-	var lastStore string
 	var lastHash []byte
 	for {
-		stmt := "SELECT " + q("store_name") + ", " + q("pk_hash") + ", " + q("pk_bytes") + " FROM " + quoteTableName(s.dialect, table) + " WHERE " + q("pk_ord") + " IS NULL"
-		var args []any
+		// Bound the key page before checking pk_ord in the update. Filtering NULL
+		// here can scan an entire already-migrated store to find the next page.
+		// MySQL can otherwise choose a full-store sort for every page. Other
+		// dialects ignore this optimizer comment.
+		stmt := "SELECT /*+ INDEX(backfill " + q(index) + ") */ " + q("store_name") + ", " + q("pk_hash") + ", " + q("pk_bytes") + " FROM " + quoteTableName(s.dialect, table) + " AS backfill WHERE " + q("store_name") + " = ?"
+		args := []any{store}
 		if lastHash != nil {
-			stmt += " AND (" + q("store_name") + " > ? OR (" + q("store_name") + " = ? AND " + q("pk_hash") + " > ?))"
-			args = append(args, lastStore, lastStore, lastHash)
+			stmt += " AND " + q("pk_hash") + " > ?"
+			args = append(args, lastHash)
 		}
 		stmt += " ORDER BY " + q("store_name") + ", " + q("pk_hash")
 		// Seven parameters per key keep each update below SQLite's legacy limit.
@@ -164,6 +254,99 @@ func (s *Store) backfillOrderedTable(ctx context.Context, table string) (int64, 
 		}
 		updated += n
 		last := page[len(page)-1]
-		lastStore, lastHash = last.store, last.hash
+		lastHash = last.hash
 	}
+}
+
+// All keys are migrated before reads begin. There is one SQL range-scan path.
+func (s *Store) loadPrimaryRows(ctx context.Context, store string, query *client.IndexedDBQuery, keysOnly bool, count *uint32, ordered bool) ([]genericRecordRow, error) {
+	if err := s.requireOrderedPrimaryKeys(ctx, store); err != nil {
+		return nil, err
+	}
+	lo, hi, loOpen, hiOpen, err := orderedQueryBounds(query)
+	if err != nil {
+		return nil, err
+	}
+	bounds := genericIndexRange{lo: lo, hi: hi, loOpen: loOpen, hiOpen: hiOpen}
+	q := func(name string) string { return quoteIdent(s.dialect, name) }
+	blob := q("record_blob")
+	if keysOnly {
+		blob = "NULL"
+	}
+	base := "SELECT " + q("pk_hash") + ", " + q("pk_bytes") + ", " + blob + ", " + q("pk_ord") + " FROM " + quoteTableName(s.dialect, s.genericRecordsTable()) + " WHERE " + q("store_name") + " = ?"
+	args := []any{store}
+	order := q("pk_hash")
+	orderedKey := primaryOrderExpression(s.dialect, q("pk_ord"))
+	orderParam := primaryOrderExpression(s.dialect, "?")
+	prefixOrder := ordered && orderedKey != q("pk_ord")
+	if ordered {
+		base += " AND " + q("pk_ord") + " IS NOT NULL"
+		if bounds.lo != nil || bounds.hi != nil {
+			predicate, values := orderedRangePredicate(s.dialect, q("pk_ord"), bounds)
+			base += " AND " + predicate
+			args = append(args, values...)
+		}
+		order = orderedKey + ", " + q("pk_hash")
+	}
+	var last genericRecordRow
+	var out []genericRecordRow
+	read := uint64(0)
+	for {
+		limit := genericSQLPageSize
+		finishPrefix := false
+		if count != nil {
+			if read >= uint64(*count) {
+				if !prefixOrder || *count == 0 || len(last.pkOrd) < orderedKeyIndexPrefixLen {
+					break
+				}
+				finishPrefix = true
+			} else {
+				limit = min(limit, int(uint64(*count)-read))
+			}
+		}
+		stmt := base
+		pageArgs := append([]any(nil), args...)
+		if last.pkHash != nil {
+			if ordered {
+				if finishPrefix {
+					stmt += " AND (" + orderedKey + " = " + orderParam + " AND " + q("pk_hash") + " > ?)"
+					pageArgs = append(pageArgs, last.pkOrd, last.pkHash)
+				} else {
+					stmt += " AND (" + orderedKey + " > " + orderParam + " OR (" + orderedKey + " = " + orderParam + " AND " + q("pk_hash") + " > ?))"
+					pageArgs = append(pageArgs, last.pkOrd, last.pkOrd, last.pkHash)
+				}
+			} else {
+				stmt += " AND " + q("pk_hash") + " > ?"
+				pageArgs = append(pageArgs, last.pkHash)
+			}
+		}
+		rows, err := s.query(ctx, sqlPageLimit(s.dialect, stmt+" ORDER BY "+order, limit), pageArgs...)
+		if err != nil {
+			return nil, fmt.Errorf("load primary-key page: %w", err)
+		}
+		pageSize := 0
+		for rows.Next() {
+			var row genericRecordRow
+			if err := rows.Scan(&row.pkHash, &row.pkBytes, &row.recordBlob, &row.pkOrd); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out = append(out, row)
+			last = row
+			pageSize++
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+		read += uint64(pageSize)
+		if pageSize < limit {
+			break
+		}
+	}
+	if ordered {
+		sort.Slice(out, func(i, j int) bool { return bytes.Compare(out[i].pkOrd, out[j].pkOrd) < 0 })
+	}
+	return limitRecords(out, count), nil
 }
