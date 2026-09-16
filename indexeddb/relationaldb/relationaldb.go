@@ -131,42 +131,42 @@ func newStoreWithDB(ctx context.Context, db *sql.DB, style bindStyle, d dialect,
 }
 
 func bootstrapStore(ctx context.Context, s *Store) error {
-	if _, err := execWithRetry(ctx, s.db, s.conn, s.q(metadataTableSQL(s.dialect, s.metadataTable()))); err != nil {
-		return fmt.Errorf("relationaldb: create metadata table: %w", err)
-	}
-	if err := s.ensureGenericTables(ctx); err != nil {
+	if err := s.ensureTable(ctx, s.metadataTable(), metadataTableSQL(s.dialect, s.metadataTable())); err != nil {
 		return err
 	}
-	if err := s.dropObsoleteScanIndexes(ctx); err != nil {
-		return err
+	return s.ensureGenericTables(ctx)
+}
+
+func (s *Store) ensureTable(ctx context.Context, table, statement string) error {
+	// MySQL rejects CREATE TABLE IF NOT EXISTS for accounts without DDL
+	// permissions, even when the table already exists.
+	if s.dialect == dialectMySQL {
+		var exists int
+		if err := s.scanOne(ctx, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = COALESCE(NULLIF(?, ''), DATABASE()) AND table_name = ?", []any{s.schemaName, baseTableName(table)}, &exists); err != nil {
+			return err
+		}
+		if exists != 0 {
+			return nil
+		}
+	}
+	if _, err := s.exec(ctx, statement); err != nil {
+		return fmt.Errorf("relationaldb: create table %s: %w", table, err)
 	}
 	return nil
 }
 
-func (s *Store) dropObsoleteScanIndexes(ctx context.Context) error {
-	for _, index := range []struct{ table, suffix string }{
-		{s.genericRecordsTable(), "primary_order"},
-		{s.genericIndexTable(), "scan"},
-		{s.genericUniqueIndexTable(), "scan"},
-	} {
-		name := portableIndexName(index.table, index.suffix)
-		stmt := "DROP INDEX IF EXISTS " + quoteTableName(s.dialect, qualifyTableName(s.schemaName, name))
-		switch s.dialect {
-		case dialectMySQL:
-			var exists int
-			if err := s.scanOne(ctx, "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = COALESCE(NULLIF(?, ''), DATABASE()) AND table_name = ? AND index_name = ?", []any{s.schemaName, baseTableName(index.table), name}, &exists); err != nil {
-				return err
-			}
-			if exists == 0 {
-				continue
-			}
-			stmt = "DROP INDEX " + quoteIdent(s.dialect, name) + " ON " + quoteTableName(s.dialect, index.table)
-		case dialectSQLServer:
-			stmt = "DROP INDEX IF EXISTS " + quoteIdent(s.dialect, name) + " ON " + quoteTableName(s.dialect, index.table)
+func (s *Store) ensureIndex(ctx context.Context, table, suffix, statement string) error {
+	if s.dialect == dialectMySQL {
+		var exists int
+		if err := s.scanOne(ctx, "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = COALESCE(NULLIF(?, ''), DATABASE()) AND table_name = ? AND index_name = ?", []any{s.schemaName, baseTableName(table), portableIndexName(table, suffix)}, &exists); err != nil {
+			return err
 		}
-		if _, err := s.exec(ctx, stmt); err != nil {
-			return fmt.Errorf("relationaldb: remove obsolete index %s: %w", name, err)
+		if exists != 0 {
+			return nil
 		}
+	}
+	if _, err := s.exec(ctx, statement); err != nil && !isDuplicateErr(err) {
+		return fmt.Errorf("relationaldb: create index on %s: %w", table, err)
 	}
 	return nil
 }
@@ -408,34 +408,32 @@ func (s *Store) getMetaForContext(ctx context.Context, name string) (*storeMeta,
 }
 
 func (s *Store) ensureGenericTables(ctx context.Context) error {
-	statements := []string{
-		createGenericRecordsTableSQL(s.dialect, s.genericRecordsTable()),
-		createGenericIndexEntriesTableSQL(s.dialect, s.genericIndexTable()),
-		createGenericIndexEntriesTableSQL(s.dialect, s.genericUniqueIndexTable()),
-	}
-	for _, stmt := range statements {
-		if _, err := s.exec(ctx, stmt); err != nil {
-			return fmt.Errorf("relationaldb: create generic storage table: %w", err)
+	for _, table := range []struct{ name, statement string }{
+		{s.genericRecordsTable(), createGenericRecordsTableSQL(s.dialect, s.genericRecordsTable())},
+		{s.genericIndexTable(), createGenericIndexEntriesTableSQL(s.dialect, s.genericIndexTable())},
+		{s.genericUniqueIndexTable(), createGenericIndexEntriesTableSQL(s.dialect, s.genericUniqueIndexTable())},
+	} {
+		if err := s.ensureTable(ctx, table.name, table.statement); err != nil {
+			return err
 		}
 	}
 
 	if err := s.ensurePrimaryKeyOrderColumn(ctx); err != nil {
 		return err
 	}
-	indexStatements := []string{
-		createGenericPrimaryOrderIndexSQL(s.dialect, s.genericRecordsTable()),
-		createGenericRecordsLookupIndexSQL(s.dialect, s.genericRecordsTable()),
-		createGenericRecordsStoreIndexSQL(s.dialect, s.genericRecordsTable()),
-		createGenericIndexLookupIndexSQL(s.dialect, s.genericIndexTable(), false),
-		createGenericIndexRecordIndexSQL(s.dialect, s.genericIndexTable()),
-		createGenericIndexScanIndexSQL(s.dialect, s.genericIndexTable()),
-		createGenericIndexLookupIndexSQL(s.dialect, s.genericUniqueIndexTable(), true),
-		createGenericIndexRecordIndexSQL(s.dialect, s.genericUniqueIndexTable()),
-		createGenericIndexScanIndexSQL(s.dialect, s.genericUniqueIndexTable()),
-	}
-	for _, stmt := range indexStatements {
-		if _, err := s.exec(ctx, stmt); err != nil && !isDuplicateErr(err) {
-			return fmt.Errorf("relationaldb: create generic storage index: %w", err)
+	for _, index := range []struct{ table, suffix, statement string }{
+		{s.genericRecordsTable(), "primary_page", createGenericPrimaryOrderIndexSQL(s.dialect, s.genericRecordsTable())},
+		{s.genericRecordsTable(), "record_lookup", createGenericRecordsLookupIndexSQL(s.dialect, s.genericRecordsTable())},
+		{s.genericRecordsTable(), "store", createGenericRecordsStoreIndexSQL(s.dialect, s.genericRecordsTable())},
+		{s.genericIndexTable(), "lookup", createGenericIndexLookupIndexSQL(s.dialect, s.genericIndexTable(), false)},
+		{s.genericIndexTable(), "record", createGenericIndexRecordIndexSQL(s.dialect, s.genericIndexTable())},
+		{s.genericIndexTable(), "ordered_scan", createGenericIndexScanIndexSQL(s.dialect, s.genericIndexTable())},
+		{s.genericUniqueIndexTable(), "lookup", createGenericIndexLookupIndexSQL(s.dialect, s.genericUniqueIndexTable(), true)},
+		{s.genericUniqueIndexTable(), "record", createGenericIndexRecordIndexSQL(s.dialect, s.genericUniqueIndexTable())},
+		{s.genericUniqueIndexTable(), "ordered_scan", createGenericIndexScanIndexSQL(s.dialect, s.genericUniqueIndexTable())},
+	} {
+		if err := s.ensureIndex(ctx, index.table, index.suffix, index.statement); err != nil {
+			return err
 		}
 	}
 	if err := s.ensureGenericMySQLLongBlobColumns(ctx); err != nil {
