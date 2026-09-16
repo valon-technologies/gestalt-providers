@@ -100,41 +100,26 @@ func (s *Store) countPrimaryRange(ctx context.Context, store string, query *clie
 	return count, err
 }
 
-// Old writers must be drained and the backfill completed before this provider
-// serves reads. Missing ordered keys are an upgrade error, never a read fallback.
+// Missing ordered keys are an upgrade error, never a read fallback.
 func (s *Store) requireOrderedPrimaryKeys(ctx context.Context, store string) error {
-	if store != "" {
-		q := func(name string) string { return quoteIdent(s.dialect, name) }
-		// Seek the NULL end of the existing ordered index. PostgreSQL stores
-		// NULL last, so scan its index backwards.
-		order := primaryOrderExpression(s.dialect, q("pk_ord")) + ", " + q("pk_hash")
-		if s.dialect == dialectPostgres {
-			order = primaryOrderExpression(s.dialect, q("pk_ord")) + " DESC, " + q("pk_hash") + " DESC"
-		}
-		stmt := "SELECT CASE WHEN " + q("pk_ord") + " IS NULL THEN 1 ELSE 0 END FROM " + quoteTableName(s.dialect, s.genericRecordsTable()) + " WHERE " + q("store_name") + " = ? ORDER BY " + order
-		var incomplete int
-		err := s.scanOne(ctx, sqlPageLimit(s.dialect, stmt, 1), []any{store}, &incomplete)
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if incomplete != 0 {
-			return orderedPrimaryKeyUpgradeError()
-		}
+	q := func(name string) string { return quoteIdent(s.dialect, name) }
+	// Seek the NULL end of the existing ordered index. PostgreSQL stores
+	// NULL last, so scan its index backwards.
+	order := primaryOrderExpression(s.dialect, q("pk_ord")) + ", " + q("pk_hash")
+	if s.dialect == dialectPostgres {
+		order = primaryOrderExpression(s.dialect, q("pk_ord")) + " DESC, " + q("pk_hash") + " DESC"
+	}
+	stmt := "SELECT CASE WHEN " + q("pk_ord") + " IS NULL THEN 1 ELSE 0 END FROM " + quoteTableName(s.dialect, s.genericRecordsTable()) + " WHERE " + q("store_name") + " = ? ORDER BY " + order
+	var incomplete int
+	err := s.scanOne(ctx, sqlPageLimit(s.dialect, stmt, 1), []any{store}, &incomplete)
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
-	for _, table := range []string{s.genericRecordsTable(), s.genericIndexTable(), s.genericUniqueIndexTable()} {
-		q := func(name string) string { return quoteIdent(s.dialect, name) }
-		stmt := "SELECT 1 FROM " + quoteTableName(s.dialect, table) + " WHERE " + primaryOrderExpression(s.dialect, q("pk_ord")) + " IS NULL"
-		var incomplete int
-		if err := s.scanOne(ctx, "SELECT CASE WHEN EXISTS ("+stmt+") THEN 1 ELSE 0 END", nil, &incomplete); err != nil {
-			return err
-		}
-		if incomplete != 0 {
-			return orderedPrimaryKeyUpgradeError()
-		}
+	if err != nil {
+		return err
+	}
+	if incomplete != 0 {
+		return orderedPrimaryKeyUpgradeError()
 	}
 	return nil
 }
@@ -159,26 +144,47 @@ func BackfillPrimaryKeyOrder(ctx context.Context, dsn string, options Options) (
 func (s *Store) backfillPrimaryKeyOrder(ctx context.Context) (int64, error) {
 	var updated int64
 	for _, table := range []string{s.genericRecordsTable(), s.genericIndexTable(), s.genericUniqueIndexTable()} {
-		n, err := s.backfillOrderedTable(ctx, table)
-		updated += n
+		rows, err := s.query(ctx, "SELECT DISTINCT "+quoteIdent(s.dialect, "store_name")+" FROM "+quoteTableName(s.dialect, table)+" ORDER BY "+quoteIdent(s.dialect, "store_name"))
 		if err != nil {
 			return updated, err
+		}
+		var stores []string
+		for rows.Next() {
+			var store string
+			if err := rows.Scan(&store); err != nil {
+				rows.Close()
+				return updated, err
+			}
+			stores = append(stores, store)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return updated, err
+		}
+		for _, store := range stores {
+			n, err := s.backfillOrderedTable(ctx, table, store)
+			updated += n
+			if err != nil {
+				return updated, err
+			}
 		}
 	}
 	return updated, nil
 }
 
-func (s *Store) backfillOrderedTable(ctx context.Context, table string) (int64, error) {
+func (s *Store) backfillOrderedTable(ctx context.Context, table, store string) (int64, error) {
 	q := func(name string) string { return quoteIdent(s.dialect, name) }
 	var updated int64
-	var lastStore string
 	var lastHash []byte
 	for {
-		stmt := "SELECT " + q("store_name") + ", " + q("pk_hash") + ", " + q("pk_bytes") + " FROM " + quoteTableName(s.dialect, table) + " WHERE " + q("pk_ord") + " IS NULL"
-		var args []any
+		// Bound the key page before checking pk_ord in the update. Filtering NULL
+		// here can scan an entire already-migrated store to find the next page.
+		stmt := "SELECT " + q("store_name") + ", " + q("pk_hash") + ", " + q("pk_bytes") + " FROM " + quoteTableName(s.dialect, table) + " WHERE " + q("store_name") + " = ?"
+		args := []any{store}
 		if lastHash != nil {
-			stmt += " AND (" + q("store_name") + " > ? OR (" + q("store_name") + " = ? AND " + q("pk_hash") + " > ?))"
-			args = append(args, lastStore, lastStore, lastHash)
+			stmt += " AND " + q("pk_hash") + " > ?"
+			args = append(args, lastHash)
 		}
 		stmt += " ORDER BY " + q("store_name") + ", " + q("pk_hash")
 		// Seven parameters per key keep each update below SQLite's legacy limit.
@@ -237,7 +243,7 @@ func (s *Store) backfillOrderedTable(ctx context.Context, table string) (int64, 
 		}
 		updated += n
 		last := page[len(page)-1]
-		lastStore, lastHash = last.store, last.hash
+		lastHash = last.hash
 	}
 }
 

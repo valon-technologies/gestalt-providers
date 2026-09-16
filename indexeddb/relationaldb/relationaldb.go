@@ -89,10 +89,6 @@ func newStoreWithOptions(ctx context.Context, dsn string, options storeOptions) 
 		_ = s.Close()
 		return nil, err
 	}
-	if err := s.requireOrderedPrimaryKeys(ctx, ""); err != nil {
-		_ = s.Close()
-		return nil, err
-	}
 	return s, nil
 }
 

@@ -312,10 +312,13 @@ func TestBackfillUpgradeContract(t *testing.T) {
 	}
 	db.Close()
 	p := relationaldb.New()
-	if err := p.Configure(ctx, "", map[string]any{"dsn": dsn}); err == nil {
-		p.Close()
-		t.Fatal("provider accepted an unfinished data migration")
+	if err := p.Configure(ctx, "", map[string]any{"dsn": dsn}); err != nil {
+		t.Fatal(err)
 	}
+	if _, err := p.GetAll(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: stores[0]}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("read before backfill: %v", err)
+	}
+	p.Close()
 	if _, err := relationaldb.BackfillPrimaryKeyOrder(ctx, dsn, relationaldb.Options{}); err != nil {
 		t.Fatal(err)
 	}
