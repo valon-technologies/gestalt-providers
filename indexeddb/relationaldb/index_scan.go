@@ -103,6 +103,22 @@ func (s *Store) scanGenericIndexRowsByRanges(ctx context.Context, table, store, 
 		if err != nil {
 			return err
 		}
+		if len(page) == 0 {
+			return nil
+		}
+		// PostgreSQL sorts NULL last. Seek missing keys in the boundary
+		// group before a limit or continuation can skip those legacy rows.
+		check := "SELECT CASE WHEN " + q("pk_ord") + " IS NULL THEN 1 ELSE 0 END FROM " + quoteTableName(s.dialect, table) +
+			" WHERE " + q("store_name") + " = ? AND " + q("index_name") + " = ? AND " + indexOrder + " = " + parameter +
+			" ORDER BY " + nullsFirstOrder(s.dialect, primaryOrder, q("pk_hash"), q("index_key_hash"))
+		check = "SELECT COALESCE((" + sqlPageLimit(s.dialect, check, 1) + "), 0)"
+		var incomplete int
+		if err := s.scanOne(ctx, check, []any{store, index, page[len(page)-1].indexKeyOrd}, &incomplete); err != nil {
+			return err
+		}
+		if incomplete != 0 {
+			return orderedPrimaryKeyUpgradeError()
+		}
 		for _, row := range page {
 			if err := visit(row); err != nil {
 				return err

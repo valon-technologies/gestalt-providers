@@ -171,6 +171,25 @@ func TestLongKeysAndDuplicateIndexReadContract(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer db.Close()
+			// An old writer can replace index rows while leaving a migrated
+			// record intact. A bounded duplicate-key read must fail closed too.
+			for _, id := range []string{"000-legacy-a", "000-legacy-b"} {
+				if err := s.Add(ctx, gestalt.IndexedDBRecordRequest{Store: store, Record: gestalt.Record{"id": id, "group": "shared"}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var indexHash []byte
+			if err := db.QueryRow("SELECT pk_hash FROM _gestalt_records WHERE store_name = "+parameter+" ORDER BY pk_ord LIMIT 1", store).Scan(&indexHash); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec("UPDATE _gestalt_index_entries SET pk_ord = NULL WHERE pk_hash = "+parameter, indexHash); err != nil {
+				t.Fatal(err)
+			}
+			one := uint32(1)
+			indexRequest := gestalt.IndexedDBIndexQueryRequest{Store: store, Index: "by_group", Query: indexeddb.ToQuery("shared"), Count: &one}
+			if _, err := s.IndexGetAll(ctx, indexRequest); status.Code(err) != codes.FailedPrecondition {
+				t.Fatalf("bounded index read after legacy write: %v", err)
+			}
 			var hash []byte
 			if err := db.QueryRow("SELECT pk_hash FROM _gestalt_records WHERE store_name = "+parameter+" ORDER BY pk_ord DESC LIMIT 1", store).Scan(&hash); err != nil {
 				t.Fatal(err)
@@ -186,6 +205,9 @@ func TestLongKeysAndDuplicateIndexReadContract(t *testing.T) {
 			}
 			if got, err := s.GetAllKeys(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: store, Count: &limit}); err != nil || len(got) != 2 {
 				t.Fatalf("read after repair: %v", err)
+			}
+			if got, err := s.IndexGetAll(ctx, indexRequest); err != nil || len(got) != 1 || got[0]["id"] != "000-legacy-a" {
+				t.Fatalf("bounded index read after repair: %v %v", got, err)
 			}
 		})
 	}

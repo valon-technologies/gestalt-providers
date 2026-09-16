@@ -105,10 +105,7 @@ func (s *Store) requireOrderedPrimaryKeys(ctx context.Context, store string) err
 	q := func(name string) string { return quoteIdent(s.dialect, name) }
 	// Seek the NULL end of the existing ordered index. PostgreSQL stores
 	// NULL last, so scan its index backwards.
-	order := primaryOrderExpression(s.dialect, q("pk_ord")) + ", " + q("pk_hash")
-	if s.dialect == dialectPostgres {
-		order = primaryOrderExpression(s.dialect, q("pk_ord")) + " DESC, " + q("pk_hash") + " DESC"
-	}
+	order := nullsFirstOrder(s.dialect, primaryOrderExpression(s.dialect, q("pk_ord")), q("pk_hash"))
 	stmt := "SELECT CASE WHEN " + q("pk_ord") + " IS NULL THEN 1 ELSE 0 END FROM " + quoteTableName(s.dialect, s.genericRecordsTable()) + " WHERE " + q("store_name") + " = ? ORDER BY " + order
 	var incomplete int
 	err := s.scanOne(ctx, sqlPageLimit(s.dialect, stmt, 1), []any{store}, &incomplete)
@@ -122,6 +119,13 @@ func (s *Store) requireOrderedPrimaryKeys(ctx context.Context, store string) err
 		return orderedPrimaryKeyUpgradeError()
 	}
 	return nil
+}
+
+func nullsFirstOrder(d dialect, columns ...string) string {
+	if d == dialectPostgres {
+		return strings.Join(columns, " DESC, ") + " DESC"
+	}
+	return strings.Join(columns, ", ")
 }
 
 func orderedPrimaryKeyUpgradeError() error {
