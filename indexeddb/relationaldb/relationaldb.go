@@ -149,7 +149,7 @@ func (s *Store) ensureTable(ctx context.Context, table, statement string) error 
 			return nil
 		}
 	}
-	if _, err := s.exec(ctx, statement); err != nil {
+	if _, err := execWithRetry(ctx, s.db, s.conn, s.q(statement)); err != nil {
 		return fmt.Errorf("relationaldb: create table %s: %w", table, err)
 	}
 	return nil
