@@ -3,6 +3,8 @@ package relationaldb
 import (
 	"bytes"
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -101,34 +103,44 @@ func (s *Store) countPrimaryRange(ctx context.Context, store string, query *clie
 // Old writers must be drained and the backfill completed before this provider
 // serves reads. Missing ordered keys are an upgrade error, never a read fallback.
 func (s *Store) requireOrderedPrimaryKeys(ctx context.Context, store string) error {
-	tables := []string{s.genericRecordsTable()}
-	if store == "" {
-		tables = append(tables, s.genericIndexTable(), s.genericUniqueIndexTable())
-	}
-	for _, table := range tables {
-		if err := s.requireOrderedKeysInTable(ctx, table, store); err != nil {
+	if store != "" {
+		q := func(name string) string { return quoteIdent(s.dialect, name) }
+		// Seek the NULL end of the existing ordered index. PostgreSQL stores
+		// NULL last, so scan its index backwards.
+		order := primaryOrderExpression(s.dialect, q("pk_ord")) + ", " + q("pk_hash")
+		if s.dialect == dialectPostgres {
+			order = primaryOrderExpression(s.dialect, q("pk_ord")) + " DESC, " + q("pk_hash") + " DESC"
+		}
+		stmt := "SELECT CASE WHEN " + q("pk_ord") + " IS NULL THEN 1 ELSE 0 END FROM " + quoteTableName(s.dialect, s.genericRecordsTable()) + " WHERE " + q("store_name") + " = ? ORDER BY " + order
+		var incomplete int
+		err := s.scanOne(ctx, sqlPageLimit(s.dialect, stmt, 1), []any{store}, &incomplete)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
 			return err
+		}
+		if incomplete != 0 {
+			return orderedPrimaryKeyUpgradeError()
+		}
+		return nil
+	}
+	for _, table := range []string{s.genericRecordsTable(), s.genericIndexTable(), s.genericUniqueIndexTable()} {
+		q := func(name string) string { return quoteIdent(s.dialect, name) }
+		stmt := "SELECT 1 FROM " + quoteTableName(s.dialect, table) + " WHERE " + primaryOrderExpression(s.dialect, q("pk_ord")) + " IS NULL"
+		var incomplete int
+		if err := s.scanOne(ctx, "SELECT CASE WHEN EXISTS ("+stmt+") THEN 1 ELSE 0 END", nil, &incomplete); err != nil {
+			return err
+		}
+		if incomplete != 0 {
+			return orderedPrimaryKeyUpgradeError()
 		}
 	}
 	return nil
 }
 
-func (s *Store) requireOrderedKeysInTable(ctx context.Context, table, store string) error {
-	q := func(name string) string { return quoteIdent(s.dialect, name) }
-	stmt := "SELECT 1 FROM " + quoteTableName(s.dialect, table) + " WHERE " + primaryOrderExpression(s.dialect, q("pk_ord")) + " IS NULL"
-	var args []any
-	if store != "" {
-		stmt += " AND " + q("store_name") + " = ?"
-		args = append(args, store)
-	}
-	var incomplete int
-	if err := s.scanOne(ctx, "SELECT CASE WHEN EXISTS ("+stmt+") THEN 1 ELSE 0 END", args, &incomplete); err != nil {
-		return err
-	}
-	if incomplete != 0 {
-		return status.Error(codes.FailedPrecondition, "ordered primary-key backfill is incomplete; drain older writers and run go run ./cmd/backfill-primary-keys")
-	}
-	return nil
+func orderedPrimaryKeyUpgradeError() error {
+	return status.Error(codes.FailedPrecondition, "ordered primary-key backfill is incomplete; drain older writers and run go run ./cmd/backfill-primary-keys")
 }
 
 // BackfillPrimaryKeyOrder fills legacy keys using short, independently committed

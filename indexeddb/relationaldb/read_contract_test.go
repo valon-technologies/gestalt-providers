@@ -158,6 +158,35 @@ func TestLongKeysAndDuplicateIndexReadContract(t *testing.T) {
 			if err != nil || !reflect.DeepEqual(next, []string{prefix + "-1202", prefix + "-1201"}) {
 				t.Fatalf("long index continuation: %v", err)
 			}
+			// A legacy writer after startup must still make reads fail closed.
+			driver, sqlDSN, parameter := "sqlite", dsn, "?"
+			if strings.HasPrefix(dsn, "mysql://") {
+				driver, sqlDSN = "mysql", strings.TrimPrefix(dsn, "mysql://")
+			}
+			if strings.HasPrefix(dsn, "postgres://") {
+				driver, parameter = "pgx", "$1"
+			}
+			db, err := sql.Open(driver, sqlDSN)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			var hash []byte
+			if err := db.QueryRow("SELECT pk_hash FROM _gestalt_records WHERE store_name = "+parameter+" ORDER BY pk_ord DESC LIMIT 1", store).Scan(&hash); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec("UPDATE _gestalt_records SET pk_ord = NULL WHERE pk_hash = "+parameter, hash); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.GetAll(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: store, Count: &limit}); status.Code(err) != codes.FailedPrecondition {
+				t.Fatalf("read after legacy write: %v", err)
+			}
+			if _, err := relationaldb.BackfillPrimaryKeyOrder(ctx, dsn, relationaldb.Options{}); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := s.GetAllKeys(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: store, Count: &limit}); err != nil || len(got) != 2 {
+				t.Fatalf("read after repair: %v", err)
+			}
 		})
 	}
 }
