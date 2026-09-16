@@ -132,6 +132,14 @@ func (s *Store) createIndexStrict(ctx context.Context, storeName, indexName stri
 			if err != nil {
 				return err
 			}
+			primaryKey, err := decodeKeyValue(row.pkBytes)
+			if err != nil {
+				return err
+			}
+			primaryOrder, err := encodeOrderedKey(primaryKey)
+			if err != nil {
+				return err
+			}
 			indexRow := genericIndexRow{
 				indexName:     idx.Name,
 				indexKeyHash:  cloneBytes(encoded.hash),
@@ -139,7 +147,7 @@ func (s *Store) createIndexStrict(ctx context.Context, storeName, indexName stri
 				indexKeyOrd:   cloneBytes(encoded.ord),
 				pkHash:        cloneBytes(row.pkHash),
 				pkBytes:       cloneBytes(row.pkBytes),
-				pkOrd:         cloneBytes(row.pkOrd),
+				pkOrd:         primaryOrder,
 			}
 			if idx.Unique {
 				if err := s.insertGenericUniqueIndexRow(txCtx, tx, storeName, indexRow); err != nil {

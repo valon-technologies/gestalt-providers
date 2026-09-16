@@ -39,7 +39,7 @@ func queryKeyRange(query *client.IndexedDBQuery) (*client.KeyRange, bool) {
 }
 
 func limitRecords[T any](items []T, count *uint32) []T {
-	if count == nil || *count == 0 || int(*count) >= len(items) {
+	if count == nil || int(*count) >= len(items) {
 		return items
 	}
 	return items[:*count]
