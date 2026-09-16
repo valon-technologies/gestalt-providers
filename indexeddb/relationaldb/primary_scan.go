@@ -143,7 +143,12 @@ func BackfillPrimaryKeyOrder(ctx context.Context, dsn string, options Options) (
 
 func (s *Store) backfillPrimaryKeyOrder(ctx context.Context) (int64, error) {
 	var updated int64
-	for _, table := range []string{s.genericRecordsTable(), s.genericIndexTable(), s.genericUniqueIndexTable()} {
+	for _, target := range []struct{ table, indexSuffix string }{
+		{s.genericRecordsTable(), "record_lookup"},
+		{s.genericIndexTable(), "record"},
+		{s.genericUniqueIndexTable(), "record"},
+	} {
+		table := target.table
 		rows, err := s.query(ctx, "SELECT DISTINCT "+quoteIdent(s.dialect, "store_name")+" FROM "+quoteTableName(s.dialect, table)+" ORDER BY "+quoteIdent(s.dialect, "store_name"))
 		if err != nil {
 			return updated, err
@@ -163,7 +168,7 @@ func (s *Store) backfillPrimaryKeyOrder(ctx context.Context) (int64, error) {
 			return updated, err
 		}
 		for _, store := range stores {
-			n, err := s.backfillOrderedTable(ctx, table, store)
+			n, err := s.backfillOrderedTable(ctx, table, store, portableIndexName(table, target.indexSuffix))
 			updated += n
 			if err != nil {
 				return updated, err
@@ -173,14 +178,16 @@ func (s *Store) backfillPrimaryKeyOrder(ctx context.Context) (int64, error) {
 	return updated, nil
 }
 
-func (s *Store) backfillOrderedTable(ctx context.Context, table, store string) (int64, error) {
+func (s *Store) backfillOrderedTable(ctx context.Context, table, store, index string) (int64, error) {
 	q := func(name string) string { return quoteIdent(s.dialect, name) }
 	var updated int64
 	var lastHash []byte
 	for {
 		// Bound the key page before checking pk_ord in the update. Filtering NULL
 		// here can scan an entire already-migrated store to find the next page.
-		stmt := "SELECT " + q("store_name") + ", " + q("pk_hash") + ", " + q("pk_bytes") + " FROM " + quoteTableName(s.dialect, table) + " WHERE " + q("store_name") + " = ?"
+		// MySQL can otherwise choose a full-store sort for every page. Other
+		// dialects ignore this optimizer comment.
+		stmt := "SELECT /*+ INDEX(backfill " + q(index) + ") */ " + q("store_name") + ", " + q("pk_hash") + ", " + q("pk_bytes") + " FROM " + quoteTableName(s.dialect, table) + " AS backfill WHERE " + q("store_name") + " = ?"
 		args := []any{store}
 		if lastHash != nil {
 			stmt += " AND " + q("pk_hash") + " > ?"
