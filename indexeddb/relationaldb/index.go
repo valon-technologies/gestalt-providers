@@ -13,7 +13,9 @@ func (p *Provider) CreateIndex(ctx context.Context, req gestalt.IndexedDBCreateI
 	if p.Store == nil {
 		return fmt.Errorf("relationaldb: store is not configured")
 	}
-	return p.Store.createIndexStrict(ctx, req.Store, req.Name, req.KeyPath, IndexParameters{Unique: req.Unique})
+	return p.Store.changeIndex(ctx, req.Store, func(ctx context.Context) error {
+		return p.Store.createIndexStrict(ctx, req.Store, req.Name, req.KeyPath, IndexParameters{Unique: req.Unique})
+	})
 }
 
 // DeleteIndex removes a secondary index from an existing object store.
@@ -21,7 +23,9 @@ func (p *Provider) DeleteIndex(ctx context.Context, req gestalt.IndexedDBDeleteI
 	if p.Store == nil {
 		return fmt.Errorf("relationaldb: store is not configured")
 	}
-	return p.Store.deleteIndexStrict(ctx, req.Store, req.Name)
+	return p.Store.changeIndex(ctx, req.Store, func(ctx context.Context) error {
+		return p.Store.deleteIndexStrict(ctx, req.Store, req.Name)
+	})
 }
 
 var _ gestalt.IndexedDBIndexProvider = (*Provider)(nil)

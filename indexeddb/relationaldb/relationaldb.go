@@ -538,12 +538,20 @@ func (s *Store) persistStoreMetadata(ctx context.Context, storeName string, sche
 	}
 
 	if err := s.withTx(ctx, func(txCtx context.Context, tx *sql.Tx) error {
-		if _, err := tx.ExecContext(txCtx,
-			s.q("DELETE FROM "+quoteTableName(s.dialect, s.metadataTable())+" WHERE "+quoteIdent(s.dialect, "name")+" = ?"),
-			s.metadataStoreKey(storeName),
-		); err != nil {
+		// Preserve row identity: a waiting PostgreSQL locking read must see the
+		// updated schema, not skip a metadata row that was deleted and reinserted.
+		_, exists, err := s.loadStoreMetadata(contextWithTx(txCtx, tx, nil), storeName)
+		if err != nil {
 			return err
 		}
+		if exists {
+			_, err := tx.ExecContext(txCtx,
+				s.q("UPDATE "+quoteTableName(s.dialect, s.metadataTable())+" SET "+quoteIdent(s.dialect, "schema_json")+" = ? WHERE "+quoteIdent(s.dialect, "name")+" = ?"),
+				string(schemaJSON), s.metadataStoreKey(storeName),
+			)
+			return err
+		}
+
 		if _, err := tx.ExecContext(txCtx,
 			s.q("INSERT INTO "+quoteTableName(s.dialect, s.metadataTable())+" ("+quoteIdent(s.dialect, "name")+", "+quoteIdent(s.dialect, "schema_json")+") VALUES (?, ?)"),
 			s.metadataStoreKey(storeName), string(schemaJSON),
@@ -635,21 +643,17 @@ func indexesMatch(left, right []gestalt.IndexSchema) bool {
 }
 
 func (s *Store) DeleteObjectStore(ctx context.Context, name string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if _, ok, err := s.loadStoreMetadata(ctx, name); err != nil {
-		return preserveStatusOrInternal("load metadata: %v", err)
-	} else if ok {
-		if err := s.clearGeneric(ctx, name); err != nil {
-			return err
+	return s.changeIndex(ctx, name, func(ctx context.Context) error {
+		if _, ok, err := s.loadStoreMetadata(ctx, name); err != nil {
+			return preserveStatusOrInternal("load metadata: %v", err)
+		} else if ok {
+			if err := s.clearGeneric(ctx, name); err != nil {
+				return err
+			}
 		}
-	}
-	_, _ = s.exec(ctx,
-		"DELETE FROM "+quoteTableName(s.dialect, s.metadataTable())+" WHERE "+quoteIdent(s.dialect, "name")+" = ?",
-		s.metadataStoreKey(name),
-	)
-	return nil
+		_, err := s.exec(ctx, "DELETE FROM "+quoteTableName(s.dialect, s.metadataTable())+" WHERE "+quoteIdent(s.dialect, "name")+" = ?", s.metadataStoreKey(name))
+		return err
+	})
 }
 
 // ---- Primary key CRUD ----
@@ -679,36 +683,44 @@ func (s *Store) GetKey(ctx context.Context, req gestalt.IndexedDBObjectStoreRequ
 }
 
 func (s *Store) Add(ctx context.Context, req gestalt.IndexedDBRecordRequest) error {
-	m, err := s.getMetaForContext(ctx, req.Store)
-	if err != nil {
-		return err
-	}
-	return s.addGeneric(ctx, req.Store, m, req.Record)
+	return s.withStoreWrite(ctx, req.Store, func(ctx context.Context) error {
+		m, err := s.getMetaForContext(ctx, req.Store)
+		if err != nil {
+			return err
+		}
+		return s.addGeneric(ctx, req.Store, m, req.Record)
+	})
 }
 
 func (s *Store) Put(ctx context.Context, req gestalt.IndexedDBRecordRequest) error {
-	m, err := s.getMetaForContext(ctx, req.Store)
-	if err != nil {
-		return err
-	}
-	return s.putGeneric(ctx, req.Store, m, req.Record)
+	return s.withStoreWrite(ctx, req.Store, func(ctx context.Context) error {
+		m, err := s.getMetaForContext(ctx, req.Store)
+		if err != nil {
+			return err
+		}
+		return s.putGeneric(ctx, req.Store, m, req.Record)
+	})
 }
 
 func (s *Store) Delete(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) error {
-	m, err := s.getMetaForContext(ctx, req.Store)
-	if err != nil {
-		return err
-	}
-	return s.deleteGeneric(ctx, req.Store, m, req.ID)
+	return s.withStoreWrite(ctx, req.Store, func(ctx context.Context) error {
+		m, err := s.getMetaForContext(ctx, req.Store)
+		if err != nil {
+			return err
+		}
+		return s.deleteGeneric(ctx, req.Store, m, req.ID)
+	})
 }
 
 // ---- Bulk operations ----
 
 func (s *Store) Clear(ctx context.Context, store string) error {
-	if _, err := s.getMetaForContext(ctx, store); err != nil {
-		return err
-	}
-	return s.clearGeneric(ctx, store)
+	return s.withStoreWrite(ctx, store, func(ctx context.Context) error {
+		if _, err := s.getMetaForContext(ctx, store); err != nil {
+			return err
+		}
+		return s.clearGeneric(ctx, store)
+	})
 }
 
 func (s *Store) GetAll(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) ([]gestalt.Record, error) {
@@ -760,18 +772,23 @@ func (s *Store) Count(ctx context.Context, req gestalt.IndexedDBObjectStoreRange
 }
 
 func (s *Store) DeleteRange(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) (int64, error) {
-	if req.Query == nil {
-		return 0, status.Error(codes.InvalidArgument, "delete range requires a query")
-	}
-	m, err := s.getMetaForContext(ctx, req.Store)
-	if err != nil {
-		return 0, err
-	}
-	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Query, true)
-	if err != nil {
-		return 0, err
-	}
-	return s.deleteGenericEntries(ctx, req.Store, entries)
+	var count int64
+	err := s.withStoreWrite(ctx, req.Store, func(ctx context.Context) error {
+		if req.Query == nil {
+			return status.Error(codes.InvalidArgument, "delete range requires a query")
+		}
+		m, err := s.getMetaForContext(ctx, req.Store)
+		if err != nil {
+			return err
+		}
+		entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Query, true)
+		if err != nil {
+			return err
+		}
+		count, err = s.deleteGenericEntries(ctx, req.Store, entries)
+		return err
+	})
+	return count, err
 }
 
 // ---- Index queries ----
@@ -834,11 +851,17 @@ func (s *Store) IndexCount(ctx context.Context, req gestalt.IndexedDBIndexQueryR
 
 func (s *Store) IndexDelete(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (int64, error) {
 	req.Count = nil
-	_, entries, err := s.queryIndexEntries(ctx, req, true)
-	if err != nil {
-		return 0, err
-	}
-	return s.deleteGenericEntries(ctx, req.Store, entries)
+	var count int64
+	err := s.withStoreWrite(ctx, req.Store, func(ctx context.Context) error {
+		_, entries, err := s.queryIndexEntries(ctx, req, true)
+		if err != nil {
+			return err
+		}
+		count, err = s.deleteGenericEntries(ctx, req.Store, entries)
+		return err
+	})
+	return count, err
+
 }
 
 // ---- Query builders for range and index operations ----

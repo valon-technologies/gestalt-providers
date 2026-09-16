@@ -17,24 +17,40 @@ func (s *Store) BeginTransaction(ctx context.Context, req gestalt.IndexedDBBegin
 func (s *Store) beginTransaction(ctx context.Context, req gestalt.IndexedDBBeginTransactionRequest) (*relationalTransaction, error) {
 	s.mu.RLock()
 
-	scope := make(map[string]struct{}, len(req.Stores))
-	meta, err := s.loadStoreMetadataBatch(ctx, req.Stores)
-	if err != nil {
-		s.mu.RUnlock()
-		return nil, preserveStatusOrInternal("load transaction metadata: %v", err)
-	}
-	for _, store := range req.Stores {
-		if _, found := meta[store]; !found {
+	// SQLite must not acquire a read lock merely by opening a transaction:
+	// factory lifecycle bookkeeping uses a separate connection. Writes refresh
+	// metadata inside their transaction before deriving index entries.
+	var meta map[string]*storeMeta
+	var err error
+	if s.dialect == dialectSQLite {
+		meta, err = s.loadStoreMetadataBatch(ctx, req.Stores)
+		if err != nil {
 			s.mu.RUnlock()
-			return nil, status.Errorf(codes.NotFound, "object store not found: %s", store)
+			return nil, err
 		}
-		scope[store] = struct{}{}
 	}
-
 	sqlTx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		s.mu.RUnlock()
 		return nil, status.Errorf(codes.Internal, "begin transaction: %v", err)
+	}
+	scope := make(map[string]struct{}, len(req.Stores))
+	if s.dialect != dialectSQLite {
+		meta, err = s.lockStoreMetadata(contextWithTx(ctx, sqlTx, nil), req.Stores, false)
+	}
+	if err != nil {
+		_ = sqlTx.Rollback()
+		s.mu.RUnlock()
+		return nil, preserveStatusOrInternal("load transaction metadata: %v", err)
+	}
+
+	for _, name := range req.Stores {
+		if _, found := meta[name]; !found {
+			_ = sqlTx.Rollback()
+			s.mu.RUnlock()
+			return nil, status.Errorf(codes.NotFound, "object store not found: %s", name)
+		}
+		scope[name] = struct{}{}
 	}
 
 	return &relationalTransaction{
