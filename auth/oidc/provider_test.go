@@ -286,6 +286,16 @@ func TestConfigureAllowsInsecureLoopbackIssuerWhenOptedIn(t *testing.T) {
 	if p.doc.AuthorizationEndpoint != server.URL+"/auth" {
 		t.Fatalf("Configure() authorization_endpoint = %q, want %q", p.doc.AuthorizationEndpoint, server.URL+"/auth")
 	}
+	logout, err := p.FederatedLogout(context.Background(), &gestalt.FederatedLogoutRequest{
+		ReturnTo: "https://app.example.test/",
+	})
+	if err != nil {
+		t.Fatalf("FederatedLogout() error = %v", err)
+	}
+	wantLogout := server.URL + "/logout?client_id=client-id&post_logout_redirect_uri=https%3A%2F%2Fapp.example.test%2F"
+	if logout.RedirectURI != wantLogout {
+		t.Fatalf("FederatedLogout() redirect_uri = %q, want %q", logout.RedirectURI, wantLogout)
+	}
 }
 
 func TestConfigureRejectsInsecureDiscoveryEndpointsByDefault(t *testing.T) {
@@ -1718,6 +1728,9 @@ func newDiscoveryServer(t *testing.T, doc discoveryDocument) *httptest.Server {
 	if doc.UserinfoEndpoint == "" {
 		doc.UserinfoEndpoint = server.URL + "/userinfo"
 	}
+	if doc.EndSessionEndpoint == "" {
+		doc.EndSessionEndpoint = server.URL + "/logout"
+	}
 	return server
 }
 
@@ -1956,35 +1969,5 @@ func TestClaimsStoreDoesNotClearExistingName(t *testing.T) {
 	}
 	if record.Name != "Stored Name" {
 		t.Fatalf("name = %q, want Stored Name", record.Name)
-	}
-}
-
-func TestFederatedLogoutURL(t *testing.T) {
-	p := New()
-	p.cfg = config{
-		IssuerURL: "https://tenant.us.auth0.com/",
-		ClientID:  "client-id",
-	}
-	got, err := p.FederatedLogoutURL("https://valon.tools/apps")
-	if err != nil {
-		t.Fatalf("FederatedLogoutURL() error = %v", err)
-	}
-	want := "https://tenant.us.auth0.com/v2/logout?client_id=client-id&returnTo=https%3A%2F%2Fvalon.tools%2Fapps"
-	if got != want {
-		t.Fatalf("FederatedLogoutURL() = %q, want %q", got, want)
-	}
-}
-
-func TestFederatedLogoutURLRejectsNonAuth0Issuer(t *testing.T) {
-	for _, issuer := range []string{
-		"https://login.example.com/",
-		"https://tenant.auth0.com.example.com/",
-		"not-a-url",
-	} {
-		p := New()
-		p.cfg = config{IssuerURL: issuer, ClientID: "client-id"}
-		if _, err := p.FederatedLogoutURL("https://valon.tools/"); err == nil {
-			t.Errorf("FederatedLogoutURL() with issuer %q error = nil, want unsupported issuer error", issuer)
-		}
 	}
 }
