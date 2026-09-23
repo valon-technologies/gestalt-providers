@@ -1,6 +1,6 @@
 # Datadog
 
-Manage dashboards, monitors, incidents, logs, RUM, CI Visibility, Synthetics, users, and roles.
+Manage dashboards, monitors, SLOs, incidents, logs, RUM, CI Visibility, Synthetics, users, and roles.
 
 ## Configuration
 
@@ -19,10 +19,27 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 ## Capabilities
 
 Declarative provider built on a local OpenAPI specification. Exposes operations
-for managing Datadog dashboards, monitors, metric metadata, metric tag
+for managing Datadog dashboards, monitors, SLOs, metric metadata, metric tag
 configurations, incidents, log queries, Real User Monitoring (RUM) data,
 CI Visibility pipeline events, Synthetic tests, users, roles, and user
 invitations.
+
+SLO operations:
+
+```bash
+gestalt invoke datadog create_slo \
+  -p name="Edge LB error rate" \
+  -p type=metric \
+  -p 'query:={"numerator":"sum:gcp.loadbalancing.https.backend_request_count{project_id:vt-valon-tools-edge,response_code_class:2xx}.as_count()","denominator":"sum:gcp.loadbalancing.https.backend_request_count{project_id:vt-valon-tools-edge}.as_count()"}' \
+  -p 'thresholds:=[{"timeframe":"30d","target":99.9,"warning":99.95}]' \
+  -p 'tags:=["service:valon-tools-edge"]'
+
+gestalt invoke datadog list_slos -p query="valon-tools"
+gestalt invoke datadog get_slo -p slo_id=<SLO_ID>
+gestalt invoke datadog update_slo -p slo_id=<SLO_ID> -p 'thresholds:=[{"timeframe":"30d","target":99.95}]'
+gestalt invoke datadog get_slo_history -p slo_id=<SLO_ID> -p from_ts=1700000000 -p to_ts=1700086400
+gestalt invoke datadog delete_slo -p slo_id=<SLO_ID>
+```
 
 Metric configuration operations:
 
@@ -116,6 +133,12 @@ Representative operations include:
 - `create_monitor`
 - `get_monitor`
 - `update_monitor`
+- `list_slos`
+- `create_slo`
+- `get_slo`
+- `update_slo`
+- `delete_slo`
+- `get_slo_history`
 
 - Provide both Datadog API key and application key when creating the manual connection.
 
