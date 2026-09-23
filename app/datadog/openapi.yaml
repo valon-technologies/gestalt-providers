@@ -262,6 +262,131 @@ paths:
         "200":
           description: OK
 
+  /api/v1/slo:
+    get:
+      operationId: list_slos
+      summary: List SLOs
+      parameters:
+        - name: ids
+          in: query
+          schema:
+            type: string
+          description: Comma-separated list of SLO IDs
+        - name: query
+          in: query
+          schema:
+            type: string
+          description: Search query
+        - name: tags_query
+          in: query
+          schema:
+            type: string
+          description: Filter by SLO tags
+        - name: metrics_query
+          in: query
+          schema:
+            type: string
+          description: Filter by underlying metrics query
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+          description: Max SLOs to return
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Pagination offset
+      responses:
+        "200":
+          description: OK
+    post:
+      operationId: create_slo
+      summary: Create an SLO
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ServiceLevelObjective"
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/slo/{slo_id}:
+    parameters:
+      - name: slo_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: SLO ID
+    get:
+      operationId: get_slo
+      summary: Get an SLO
+      parameters:
+        - name: with_configured_alert_ids
+          in: query
+          schema:
+            type: boolean
+          description: Include configured monitor IDs for alerts on the SLO
+      responses:
+        "200":
+          description: OK
+    put:
+      operationId: update_slo
+      summary: Update an SLO
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ServiceLevelObjectiveUpdate"
+      responses:
+        "200":
+          description: OK
+    delete:
+      operationId: delete_slo
+      summary: Delete an SLO
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/slo/{slo_id}/history:
+    parameters:
+      - name: slo_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: SLO ID
+    get:
+      operationId: get_slo_history
+      summary: Get an SLO's error budget and status history
+      parameters:
+        - name: from_ts
+          in: query
+          required: true
+          schema:
+            type: integer
+          description: Start timestamp in seconds
+        - name: to_ts
+          in: query
+          required: true
+          schema:
+            type: integer
+          description: End timestamp in seconds
+        - name: target
+          in: query
+          schema:
+            type: number
+          description: Override the SLO's target for this query
+      responses:
+        "200":
+          description: OK
+
   /api/v1/query:
     get:
       operationId: query_metrics
@@ -1119,6 +1244,94 @@ components:
             type: string
         priority:
           type: integer
+
+    SLOThreshold:
+      type: object
+      required: [timeframe, target]
+      properties:
+        timeframe:
+          type: string
+          enum: [7d, 30d, 90d, custom]
+        target:
+          type: number
+          description: Target percentage for this timeframe, e.g. 99.9
+        target_display:
+          type: string
+        warning:
+          type: number
+          description: Warning percentage for this timeframe
+        warning_display:
+          type: string
+
+    SLOQuery:
+      type: object
+      required: [numerator, denominator]
+      properties:
+        numerator:
+          type: string
+          description: Metric query for the count of "good" events
+        denominator:
+          type: string
+          description: Metric query for the count of total events
+
+    ServiceLevelObjective:
+      type: object
+      required: [name, type, thresholds]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [metric, monitor]
+        description:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        thresholds:
+          type: array
+          items:
+            $ref: "#/components/schemas/SLOThreshold"
+        query:
+          $ref: "#/components/schemas/SLOQuery"
+          description: Required when type is metric
+        monitor_ids:
+          type: array
+          items:
+            type: integer
+          description: Required when type is monitor
+        groups:
+          type: array
+          items:
+            type: string
+          description: Monitor groups this SLO applies to, for type monitor
+
+    ServiceLevelObjectiveUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        thresholds:
+          type: array
+          items:
+            $ref: "#/components/schemas/SLOThreshold"
+        query:
+          $ref: "#/components/schemas/SLOQuery"
+        monitor_ids:
+          type: array
+          items:
+            type: integer
+        groups:
+          type: array
+          items:
+            type: string
 
     MetricMetadata:
       type: object
