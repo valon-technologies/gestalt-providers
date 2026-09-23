@@ -95,6 +95,7 @@ spec:
     lisDataAttributes: {}
     lisDataEvents: {}
     listAllCompanies: {}
+    listArticles: {}
     listCalls: {}
     listCallsWithTranscripts: {}
     listCompaniesForAContact: {}
@@ -134,6 +135,7 @@ spec:
     retrieveTeam: {}
     retrieveVisitorWithUserId: {}
     scrollOverAllCompanies: {}
+    searchArticles: {}
     searchConversations: {}
     searchTickets: {}
     setAwayAdmin: {}
