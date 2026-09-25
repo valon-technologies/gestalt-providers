@@ -120,7 +120,7 @@ packages:
           - "generic"
   github.com/valon-technologies/gestalt-providers/app/datadog:
     displayName: "Datadog"
-    description: "Manage dashboards, monitors, incidents, logs, RUM, CI Visibility, Synthetics, users, and roles."
+    description: "Manage dashboards, monitors, SLOs, incidents, logs, RUM, CI Visibility, Synthetics, users, and roles."
     versions:
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/app/datadog/v0.0.1-alpha.1/provider-release.yaml"
