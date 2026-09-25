@@ -389,7 +389,7 @@
         "entryKind": "app",
         "section": "app"
       },
-      "description": "Manage dashboards, monitors, incidents, logs, RUM, CI Visibility, Synthetics, users, and roles.",
+      "description": "Manage dashboards, monitors, SLOs, incidents, logs, RUM, CI Visibility, Synthetics, users, and roles.",
       "displayName": "Datadog",
       "docs": [
         {

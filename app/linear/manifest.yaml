@@ -738,6 +738,8 @@ spec:
         document: |
           query User(
             $id: String!
+            $first: Int
+            $after: String
           ) {
             user(id: $id) {
               id
@@ -747,6 +749,11 @@ spec:
               url
               active
               isMe
+              teams { nodes { id key name } }
+              teamMemberships(first: $first, after: $after) {
+                nodes { sortOrder team { id key name } }
+                pageInfo { hasNextPage endCursor }
+              }
             }
           }
     projectMilestones:
