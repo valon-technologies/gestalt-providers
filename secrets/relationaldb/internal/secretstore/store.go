@@ -17,7 +17,9 @@ import (
 
 const tableName = "_gestalt_secrets"
 
-var identifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+// PlanetScale database names may contain hyphens. Keep the accepted alphabet
+// narrow because the name is interpolated into a quoted SQL identifier below.
+var identifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
 
 type Config struct {
 	DSN    string
