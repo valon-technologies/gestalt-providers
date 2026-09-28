@@ -45,6 +45,7 @@ type discoveryDocument struct {
 	AuthorizationEndpoint string `json:"authorization_endpoint"`
 	TokenEndpoint         string `json:"token_endpoint"`
 	UserinfoEndpoint      string `json:"userinfo_endpoint"`
+	EndSessionEndpoint    string `json:"end_session_endpoint"`
 }
 
 type config struct {
@@ -744,6 +745,11 @@ func discover(ctx context.Context, client *http.Client, issuerURL string, allowI
 	if err := validateEndpointURL("userinfo_endpoint", doc.UserinfoEndpoint, allowInsecureHTTP); err != nil {
 		return discoveryDocument{}, err
 	}
+	if doc.EndSessionEndpoint != "" {
+		if err := validateEndpointURL("end_session_endpoint", doc.EndSessionEndpoint, allowInsecureHTTP); err != nil {
+			return discoveryDocument{}, err
+		}
+	}
 	return doc, nil
 }
 
@@ -862,36 +868,32 @@ func (p *Provider) currentTime() time.Time {
 	return time.Now()
 }
 
-// FederatedLogoutURL builds an Auth0 /v2/logout URL that clears the upstream SSO
-// session. returnTo must be an absolute URL allowed in the Auth0 application
-// logout allowlist.
-func (p *Provider) FederatedLogoutURL(returnTo string) (string, error) {
-	returnTo = strings.TrimSpace(returnTo)
+// FederatedLogout builds the RP-Initiated Logout redirect advertised by the
+// provider's discovery document.
+func (p *Provider) FederatedLogout(_ context.Context, req *gestalt.FederatedLogoutRequest) (*gestalt.FederatedLogoutResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("oidc auth: federated logout request is required")
+	}
+	returnTo := strings.TrimSpace(req.ReturnTo)
 	if returnTo == "" {
-		return "", fmt.Errorf("oidc auth: returnTo is required")
+		return nil, fmt.Errorf("oidc auth: returnTo is required")
 	}
-	issuer := strings.TrimRight(strings.TrimSpace(p.cfg.IssuerURL), "/")
+	endpoint := strings.TrimSpace(p.doc.EndSessionEndpoint)
 	clientID := strings.TrimSpace(p.cfg.ClientID)
-	if issuer == "" || clientID == "" {
-		return "", fmt.Errorf("oidc auth: federated logout is not configured")
+	if endpoint == "" || clientID == "" {
+		return nil, fmt.Errorf("oidc auth: federated logout is not supported")
 	}
-	issuerParsed, err := url.Parse(issuer)
-	if err != nil || issuerParsed.Scheme == "" || issuerParsed.Host == "" {
-		return "", fmt.Errorf("oidc auth: invalid issuer url")
-	}
-	if !strings.HasSuffix(strings.ToLower(issuerParsed.Hostname()), ".auth0.com") {
-		return "", fmt.Errorf("oidc auth: federated logout is not supported for issuer")
-	}
-	parsed, err := url.Parse(issuer + "/v2/logout")
+	parsed, err := url.Parse(endpoint)
 	if err != nil {
-		return "", fmt.Errorf("oidc auth: build logout url: %w", err)
+		return nil, fmt.Errorf("oidc auth: build logout url: %w", err)
 	}
 	query := parsed.Query()
 	query.Set("client_id", clientID)
-	query.Set("returnTo", returnTo)
+	query.Set("post_logout_redirect_uri", returnTo)
 	parsed.RawQuery = query.Encode()
-	return parsed.String(), nil
+	return &gestalt.FederatedLogoutResponse{RedirectURI: parsed.String()}, nil
 }
 
 var _ gestalt.IdentityProvider = (*Provider)(nil)
+var _ gestalt.FederatedLogoutProvider = (*Provider)(nil)
 var _ gestalt.MetadataProvider = (*Provider)(nil)
