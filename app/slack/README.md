@@ -296,6 +296,9 @@ base64:
 {"file_id":"F0123456789","include_content":true,"max_bytes":200000}
 ```
 
+Files hosted outside Slack, such as shared Google Docs, Sheets, and Slides links,
+return metadata with `content.encoding` set to `omitted`.
+
 `slack.files.upload` uploads bytes to Slack and shares the file in a channel or
 thread. It uses Slack's external upload flow, not Slack's deprecated
 `files.upload` endpoint. Use `content_base64` for PDFs, other binary files, and
