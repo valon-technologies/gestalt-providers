@@ -7466,6 +7466,44 @@ class SlackProviderTests(unittest.TestCase):
             "data:image/png;base64,aW1hZ2UtYnl0ZXM=",
         )
 
+    def test_files_get_omits_content_for_externally_hosted_file_contract(self) -> None:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            parsed = urllib.parse.urlsplit(request.full_url)
+            self.assertEqual(parsed.path, "/api/files.info")
+            return FakeHTTPResponse(
+                """
+                {
+                  "ok": true,
+                  "file": {
+                    "id": "FGSHEET",
+                    "name": "Tracker",
+                    "filetype": "gsheet",
+                    "mimetype": "application/vnd.google-apps.spreadsheet",
+                    "url_private": "https://docs.google.com/spreadsheets/d/abc/edit",
+                    "url_private_download": ""
+                  }
+                }
+                """
+            )
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            result = provider_module.files_get(
+                provider_module.GetFileInput(file_id="FGSHEET"),
+                gestalt.Request(token="test-token"),
+            )
+
+        data = result["data"]
+        self.assertEqual(data["file"]["id"], "FGSHEET")
+        self.assertEqual(data["content"]["encoding"], "omitted")
+        self.assertEqual(data["content"]["bytes_read"], 0)
+        self.assertEqual(
+            data["content"]["omitted_reason"], "file is hosted outside Slack"
+        )
+
     def test_files_get_allows_five_mib_download_request_contract(self) -> None:
         five_mib = 5 * 1024 * 1024
         download_read_sizes: list[int] = []

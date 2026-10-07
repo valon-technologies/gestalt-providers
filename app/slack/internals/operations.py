@@ -9,6 +9,7 @@ from .client import (
     SlackAPIError,
     SlackClientError,
     get_bytes,
+    is_slack_file_download_url,
     slack_get,
     slack_post,
     slack_post_form,
@@ -24,6 +25,7 @@ DEFAULT_FILE_MAX_BYTES = 200_000
 HARD_FILE_MAX_BYTES = 5 * 1024 * 1024
 DEFAULT_UPLOAD_CONTENT_TYPE = "application/octet-stream"
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+EXTERNAL_FILE_OMITTED_REASON = "file is hosted outside Slack"
 SLACK_MAX_SECTION_TEXT_CHARS = 3000
 
 
@@ -472,6 +474,16 @@ def get_file(
                 HTTPStatus.BAD_REQUEST,
                 {"error": "file does not include a private download URL"},
             )
+        if not is_slack_file_download_url(url_private):
+            # Google Docs/Sheets/Slides links shared in Slack have no Slack-hosted bytes.
+            result["content"] = {
+                "mime_type": string_field(normalized, "mimetype"),
+                "bytes_read": 0,
+                "truncated": False,
+                "encoding": "omitted",
+                "omitted_reason": EXTERNAL_FILE_OMITTED_REASON,
+            }
+            return {"data": result}
         result["content"] = _download_file_content(
             token,
             url_private=url_private,
