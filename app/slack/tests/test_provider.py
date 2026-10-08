@@ -22,6 +22,7 @@ import yaml
 from gestalt.authorization import RelationshipTargetSubject
 
 import internals.client as client_module
+from internals.channels import clear_channel_name_cache
 from internals.agent_links import agent_session_url
 import provider as provider_module
 
@@ -58,6 +59,21 @@ def authorization_subject(
     *, type: str, id: str, properties: dict[str, Any] | None = None
 ) -> gestalt.AuthorizationSubject:
     return gestalt.AuthorizationSubject(type=type, id=id, properties=properties or {})
+
+
+PUBLIC_CHANNEL_INFO = (
+    '{"ok": true, "channel": {"id": "C123", "name": "general",'
+    ' "is_channel": true, "is_private": false}}'
+)
+
+
+def with_public_channel_info(fake: Any) -> Any:
+    def urlopen(request: urllib.request.Request, timeout: float = 30) -> Any:
+        if urllib.parse.urlsplit(request.full_url).path == "/api/conversations.info":
+            return FakeHTTPResponse(PUBLIC_CHANNEL_INFO)
+        return fake(request, timeout)
+
+    return urlopen
 
 
 class FakeWorkflowDeliverEvent:
@@ -339,6 +355,9 @@ class FailingSecondDeliveryWorkflowClient(FakeWorkflowClient):
 
 
 class SlackProviderTests(unittest.TestCase):
+    def setUp(self) -> None:
+        clear_channel_name_cache()
+
     def test_agent_session_url_preserves_public_base_path(self) -> None:
         url = agent_session_url(
             "https://gestalt.example.test/team-a/",
@@ -6394,7 +6413,8 @@ class SlackProviderTests(unittest.TestCase):
             )
 
         with mock.patch(
-            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            "internals.client.urllib.request.urlopen",
+            side_effect=with_public_channel_info(fake_urlopen),
         ):
             result = provider_module.conversations_get_message(
                 provider_module.GetMessageInput(
@@ -6405,6 +6425,7 @@ class SlackProviderTests(unittest.TestCase):
 
         self.assertEqual(result["data"]["message"]["ts"], "1712161829.000300")
         self.assertEqual(result["data"]["message"]["text"], "hello")
+        self.assertEqual(result["data"]["channel_name"], "general")
 
     def test_find_user_mentions_uses_history_contract(self) -> None:
         def fake_urlopen(
@@ -6442,7 +6463,8 @@ class SlackProviderTests(unittest.TestCase):
             )
 
         with mock.patch(
-            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            "internals.client.urllib.request.urlopen",
+            side_effect=with_public_channel_info(fake_urlopen),
         ):
             result = provider_module.conversations_find_user_mentions(
                 provider_module.FindUserMentionsInput(
@@ -6531,7 +6553,8 @@ class SlackProviderTests(unittest.TestCase):
             raise AssertionError(f"unexpected request {request.full_url}")
 
         with mock.patch(
-            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            "internals.client.urllib.request.urlopen",
+            side_effect=with_public_channel_info(fake_urlopen),
         ):
             result = provider_module.conversations_get_thread_participants(
                 provider_module.GetThreadParticipantsInput(
@@ -6645,7 +6668,8 @@ class SlackProviderTests(unittest.TestCase):
 
         with (
             mock.patch(
-                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+                "internals.client.urllib.request.urlopen",
+                side_effect=with_public_channel_info(fake_urlopen),
             ),
             mock.patch(
                 "internals.client.urllib.request.build_opener",
@@ -6709,7 +6733,8 @@ class SlackProviderTests(unittest.TestCase):
             )
 
         with mock.patch(
-            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            "internals.client.urllib.request.urlopen",
+            side_effect=with_public_channel_info(fake_urlopen),
         ):
             result = provider_module.conversations_get_thread_context(
                 provider_module.GetThreadContextInput(
@@ -7574,7 +7599,8 @@ class SlackProviderTests(unittest.TestCase):
 
         with (
             mock.patch(
-                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+                "internals.client.urllib.request.urlopen",
+                side_effect=with_public_channel_info(fake_urlopen),
             ),
             mock.patch("internals.client.time.sleep") as sleep,
         ):
@@ -7586,6 +7612,113 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(calls, 2)
         sleep.assert_called_once_with(0.0)
         self.assertEqual(result["data"]["message"]["text"], "after retry")
+
+    def test_channel_name_covers_private_channels_but_not_dms_or_failures(self) -> None:
+        responses = {
+            "CPUBLIC": (
+                '{"ok": true, "channel": {"name": "general", "is_channel": true}}',
+                "general",
+            ),
+            "CPRIVATE": (
+                '{"ok": true, "channel": {"name": "secret", "is_channel": true, "is_private": true}}',
+                "secret",
+            ),
+            "CLEGACY": (
+                '{"ok": true, "channel": {"name": "old-secret", "is_group": true, "is_private": true}}',
+                "old-secret",
+            ),
+            "CMPIM": (
+                '{"ok": true, "channel": {"name": "mpdm-a--b-1", "is_mpim": true, "is_group": true}}',
+                "",
+            ),
+            "CDM": ('{"ok": true, "channel": {"is_im": true}}', ""),
+            "CFAIL": ('{"ok": false, "error": "channel_not_found"}', ""),
+        }
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            parsed = urllib.parse.urlsplit(request.full_url)
+            if parsed.path == "/api/conversations.info":
+                channel = urllib.parse.parse_qs(parsed.query)["channel"][0]
+                return FakeHTTPResponse(responses[channel][0])
+            return FakeHTTPResponse(
+                '{"ok": true, "messages": [{"ts": "1.0", "text": "hi"}]}'
+            )
+
+        for channel, (_, expected) in responses.items():
+            with self.subTest(channel=channel):
+                with mock.patch(
+                    "internals.client.urllib.request.urlopen",
+                    side_effect=fake_urlopen,
+                ):
+                    result = provider_module.conversations_get_message(
+                        provider_module.GetMessageInput(channel=channel, ts="1.0"),
+                        gestalt.Request(token="test-token"),
+                    )
+                self.assertEqual(result["data"]["message"]["text"], "hi")
+                self.assertEqual(result["data"].get("channel_name", ""), expected)
+
+    def test_channel_name_lookup_is_cached(self) -> None:
+        info_calls = 0
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            nonlocal info_calls
+            if (
+                urllib.parse.urlsplit(request.full_url).path
+                == "/api/conversations.info"
+            ):
+                info_calls += 1
+                return FakeHTTPResponse(PUBLIC_CHANNEL_INFO)
+            return FakeHTTPResponse(
+                '{"ok": true, "messages": [{"ts": "1.0", "text": "hi"}]}'
+            )
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            for _ in range(3):
+                result = provider_module.conversations_get_message(
+                    provider_module.GetMessageInput(channel="C123", ts="1.0"),
+                    gestalt.Request(token="test-token"),
+                )
+                self.assertEqual(result["data"]["channel_name"], "general")
+
+        self.assertEqual(info_calls, 1)
+
+    def test_channel_name_cache_is_scoped_to_token(self) -> None:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            if (
+                urllib.parse.urlsplit(request.full_url).path
+                == "/api/conversations.info"
+            ):
+                if authorization_header(request) == "Bearer member-token":
+                    return FakeHTTPResponse(
+                        '{"ok": true, "channel": {"name": "secret", "is_channel": true, "is_private": true}}'
+                    )
+                return FakeHTTPResponse('{"ok": false, "error": "channel_not_found"}')
+            return FakeHTTPResponse(
+                '{"ok": true, "messages": [{"ts": "1.0", "text": "hi"}]}'
+            )
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            member = provider_module.conversations_get_message(
+                provider_module.GetMessageInput(channel="CPRIV", ts="1.0"),
+                gestalt.Request(token="member-token"),
+            )
+            outsider = provider_module.conversations_get_message(
+                provider_module.GetMessageInput(channel="CPRIV", ts="1.0"),
+                gestalt.Request(token="outsider-token"),
+            )
+
+        self.assertEqual(member["data"]["channel_name"], "secret")
+        self.assertNotIn("channel_name", outsider["data"])
 
 
 if __name__ == "__main__":

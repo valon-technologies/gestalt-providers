@@ -271,6 +271,12 @@ Interaction refs are scoped to the Slack user who received the original
 `reply_ref`. Broader delegated approval semantics need a separate authorization
 model and are intentionally not inferred from button payloads.
 
+The `conversations.getMessage`, `getThreadContext`, `findUserMentions`, and
+`getThreadParticipants` responses include `channel_name` for public and private
+channels, as a best-effort label from `conversations.info` (cached per token for 10
+minutes). It is omitted for DMs, group DMs, and failed lookups; inputs still take
+channel IDs.
+
 `slack.conversations.getThreadContext` builds a thread-shaped payload with
 normalized messages, mentions, participants, and attached Slack file metadata:
 
