@@ -684,11 +684,7 @@ def _upload_complete_message_fields(
     comment_blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": chunk}}
         for index in range(0, len(initial_comment), SLACK_MAX_SECTION_TEXT_CHARS)
-        if (
-            chunk := initial_comment[
-                index : index + SLACK_MAX_SECTION_TEXT_CHARS
-            ]
-        )
+        if (chunk := initial_comment[index : index + SLACK_MAX_SECTION_TEXT_CHARS])
     ]
     return "", [*comment_blocks, *blocks]
 
