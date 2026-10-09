@@ -5,6 +5,7 @@ import re
 from http import HTTPStatus
 from typing import Any, cast
 
+from .channels import channel_name
 from .client import (
     SlackAPIError,
     SlackClientError,
@@ -67,7 +68,11 @@ def get_message(token: str, channel: str, ts: str) -> dict[str, Any]:
         raise SlackAPIError(
             HTTPStatus.NOT_FOUND, {"error": f"no message found at timestamp {ts}"}
         )
-    return {"data": {"message": messages[0]}}
+    return {
+        "data": _with_channel_name(
+            {"message": messages[0]}, channel_name(token, channel)
+        )
+    }
 
 
 def post_message(
@@ -298,12 +303,15 @@ def find_user_mentions(
             )
 
     return {
-        "data": {
-            "mentions": mentions,
-            "mentioned_user_ids": sorted(mentioned_user_ids),
-            "total_mentions": len(mentions),
-            "messages_scanned": len(messages),
-        }
+        "data": _with_channel_name(
+            {
+                "mentions": mentions,
+                "mentioned_user_ids": sorted(mentioned_user_ids),
+                "total_mentions": len(mentions),
+                "messages_scanned": len(messages),
+            },
+            channel_name(token, channel),
+        )
     }
 
 
@@ -353,25 +361,28 @@ def get_thread_context(
     ]
     response_metadata = map_field(data, "response_metadata")
     return {
-        "data": {
-            "channel": channel,
-            "thread_ts": ts,
-            "event_ref": {
+        "data": _with_channel_name(
+            {
                 "channel": channel,
-                "message_ts": ts,
                 "thread_ts": ts,
-                "reply_thread_ts": ts,
+                "event_ref": {
+                    "channel": channel,
+                    "message_ts": ts,
+                    "thread_ts": ts,
+                    "reply_thread_ts": ts,
+                },
+                "root_message": messages[0] if messages else {},
+                "messages": messages,
+                "messages_returned": len(messages),
+                "has_more": bool(data.get("has_more") is True),
+                "next_cursor": string_field(response_metadata, "next_cursor"),
+                "participants": participants,
+                "participant_count": len(participants),
+                "files": files,
+                "file_count": len(files),
             },
-            "root_message": messages[0] if messages else {},
-            "messages": messages,
-            "messages_returned": len(messages),
-            "has_more": bool(data.get("has_more") is True),
-            "next_cursor": string_field(response_metadata, "next_cursor"),
-            "participants": participants,
-            "participant_count": len(participants),
-            "files": files,
-            "file_count": len(files),
-        }
+            channel_name(token, channel),
+        )
     }
 
 
@@ -439,11 +450,14 @@ def get_thread_participants(
 
     total_replies = len(messages) - 1 if messages else 0
     return {
-        "data": {
-            "participants": participants,
-            "participant_count": len(participants),
-            "total_replies": total_replies,
-        }
+        "data": _with_channel_name(
+            {
+                "participants": participants,
+                "participant_count": len(participants),
+                "total_replies": total_replies,
+            },
+            channel_name(token, channel),
+        )
     }
 
 
@@ -582,6 +596,12 @@ def upload_file(
     return result
 
 
+def _with_channel_name(data: dict[str, Any], name: str) -> dict[str, Any]:
+    if name:
+        data["channel_name"] = name
+    return data
+
+
 def _context_message(
     token: str,
     *,
@@ -696,11 +716,7 @@ def _upload_complete_message_fields(
     comment_blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": chunk}}
         for index in range(0, len(initial_comment), SLACK_MAX_SECTION_TEXT_CHARS)
-        if (
-            chunk := initial_comment[
-                index : index + SLACK_MAX_SECTION_TEXT_CHARS
-            ]
-        )
+        if (chunk := initial_comment[index : index + SLACK_MAX_SECTION_TEXT_CHARS])
     ]
     return "", [*comment_blocks, *blocks]
 

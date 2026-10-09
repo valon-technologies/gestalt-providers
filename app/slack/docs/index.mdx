@@ -145,6 +145,8 @@ Representative public operations include:
 - `chat.appendStream`
 - `chat.stopStream`
 
+`conversations.getMessage`, `conversations.getThreadContext`, `conversations.findUserMentions`, and `conversations.getThreadParticipants` include a `channel_name` field for public and private channels the token can see. It is a best-effort display label looked up with `conversations.info` and cached briefly per token; it is omitted for DMs, group DMs, and failed lookups. Always pass the channel ID, not the name, as input.
+
 ## Usage Examples
 
 Hosted apps call this provider with `app.invoke`. Pass `runAs` or `credentialMode` in the invoke options when an operation needs a service-account identity or managed credentials instead of the caller's OAuth token.

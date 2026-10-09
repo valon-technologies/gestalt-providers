@@ -22,6 +22,7 @@ import yaml
 from gestalt.authorization import RelationshipTargetSubject
 
 import internals.client as client_module
+from internals.channels import clear_channel_name_cache
 from internals.agent_links import agent_session_url
 import provider as provider_module
 
@@ -58,6 +59,21 @@ def authorization_subject(
     *, type: str, id: str, properties: dict[str, Any] | None = None
 ) -> gestalt.AuthorizationSubject:
     return gestalt.AuthorizationSubject(type=type, id=id, properties=properties or {})
+
+
+PUBLIC_CHANNEL_INFO = (
+    '{"ok": true, "channel": {"id": "C123", "name": "general",'
+    ' "is_channel": true, "is_private": false}}'
+)
+
+
+def with_public_channel_info(fake: Any) -> Any:
+    def urlopen(request: urllib.request.Request, timeout: float = 30) -> Any:
+        if urllib.parse.urlsplit(request.full_url).path == "/api/conversations.info":
+            return FakeHTTPResponse(PUBLIC_CHANNEL_INFO)
+        return fake(request, timeout)
+
+    return urlopen
 
 
 class FakeWorkflowDeliverEvent:
@@ -339,6 +355,9 @@ class FailingSecondDeliveryWorkflowClient(FakeWorkflowClient):
 
 
 class SlackProviderTests(unittest.TestCase):
+    def setUp(self) -> None:
+        clear_channel_name_cache()
+
     def test_agent_session_url_preserves_public_base_path(self) -> None:
         url = agent_session_url(
             "https://gestalt.example.test/team-a/",
@@ -508,7 +527,10 @@ class SlackProviderTests(unittest.TestCase):
                 "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
             ),
             mock.patch.object(
-                gestalt.Request, "authorization", return_value=authorization, create=True
+                gestalt.Request,
+                "authorization",
+                return_value=authorization,
+                create=True,
             ),
         ):
             response = provider_module.slack_identity_link_self(
@@ -542,9 +564,7 @@ class SlackProviderTests(unittest.TestCase):
         assert relationship_tuple.target is not None
         self.assertIsInstance(relationship_tuple.target.kind, RelationshipTargetSubject)
         self.assertIsNotNone(relationship_tuple.resource)
-        subject = cast(
-            RelationshipTargetSubject, relationship_tuple.target.kind
-        ).value
+        subject = cast(RelationshipTargetSubject, relationship_tuple.target.kind).value
         resource = cast(gestalt.AuthorizationResource, relationship_tuple.resource)
         self.assertEqual(subject.type, "subject")
         self.assertEqual(subject.id, "user:gestalt-123")
@@ -554,9 +574,7 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.assertEqual(resource.type, provider_module._agent.SLACK_USER_RESOURCE_TYPE)
         self.assertEqual(resource.id, "T123/U456")
-        self.assertEqual(
-            relationship.source_layer, gestalt.SourceLayerValues.RUNTIME
-        )
+        self.assertEqual(relationship.source_layer, gestalt.SourceLayerValues.RUNTIME)
 
     def test_agent_routes_reject_duplicate_ids(self) -> None:
         with self.assertRaisesRegex(ValueError, "duplicates another agent route"):
@@ -1632,7 +1650,7 @@ class SlackProviderTests(unittest.TestCase):
             resolved = provider_module.resolve_http_subject(
                 gestalt.HTTPSubjectRequest(params=payload),
                 gestalt.Request(),
-        )
+            )
 
         self.assertIsNone(resolved)
         self.assertEqual(len(authorization.requests), 1)
@@ -1984,7 +2002,10 @@ class SlackProviderTests(unittest.TestCase):
                 }
 
                 with mock.patch.object(
-                    gestalt.Request, "authorization", return_value=authorization, create=True
+                    gestalt.Request,
+                    "authorization",
+                    return_value=authorization,
+                    create=True,
                 ):
                     resolved = provider_module.resolve_http_subject(
                         gestalt.HTTPSubjectRequest(params=payload),
@@ -2150,9 +2171,7 @@ class SlackProviderTests(unittest.TestCase):
                 "ok": True,
                 "delivered": True,
                 "delivered_event_count": 1,
-                "workflow_event_ids": [
-                    "slack:event:T123:C789:1712161829.000300:U456"
-                ],
+                "workflow_event_ids": ["slack:event:T123:C789:1712161829.000300:U456"],
                 "route_ids": ["default"],
             },
         )
@@ -2168,9 +2187,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(workflow_request.event.subject, "route:default")
 
         event_data = delivered_event_data(workflow_request)
-        self.assertEqual(
-            event_data["workflowKey"], "slack:T123:C789:1712161829.000300"
-        )
+        self.assertEqual(event_data["workflowKey"], "slack:T123:C789:1712161829.000300")
         self.assertEqual(event_data["routeId"], "default")
         agent_request = event_data["agent_request"]
         self.assertEqual(
@@ -2222,9 +2239,7 @@ class SlackProviderTests(unittest.TestCase):
             "id=F123 name=diagram.png mimetype=image/png size=12",
             event_data["user_prompt"],
         )
-        self.assertIn(
-            "reply_thread_ts: 1712161829.000300", event_data["user_prompt"]
-        )
+        self.assertIn("reply_thread_ts: 1712161829.000300", event_data["user_prompt"])
         reply_ref = event_data["reply_ref"]
         self.assertIn(f"reply_ref: {reply_ref}", event_data["user_prompt"])
         self.assertNotIn("Final reply tool:", event_data["user_prompt"])
@@ -2293,9 +2308,7 @@ class SlackProviderTests(unittest.TestCase):
             event_data["workflowKey"],
             "slack:T123:C0AH7JWFYM8:1777853873.601629",
         )
-        self.assertEqual(
-            event_data["slack"]["reply_thread_ts"], "1777853873.601629"
-        )
+        self.assertEqual(event_data["slack"]["reply_thread_ts"], "1777853873.601629")
         self.assertEqual(event_data["slack"]["addressed_to_bot"], True)
         self.assertEqual(event_data["slack"]["assistant_context_present"], True)
         self.assertEqual(event_data["slack"]["bot_user_id"], "U0A8T4M41NY")
@@ -2345,9 +2358,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(len(workflow_client.deliver_event_requests), 1)
         workflow_request = workflow_client.deliver_event_requests[0]
         event_data = delivered_event_data(workflow_request)
-        self.assertEqual(
-            event_data["slack"]["reply_thread_ts"], "1712161829.000300"
-        )
+        self.assertEqual(event_data["slack"]["reply_thread_ts"], "1712161829.000300")
         self.assertEqual(event_data["slack"]["addressed_to_bot"], True)
         self.assertEqual(event_data["slack"]["assistant_context_present"], False)
         self.assertEqual(event_data["slack"]["bot_user_id"], "UBOT")
@@ -2451,9 +2462,7 @@ class SlackProviderTests(unittest.TestCase):
                 "ok": True,
                 "delivered": True,
                 "delivered_event_count": 1,
-                "workflow_event_ids": [
-                    "slack:event:T123:C789:1712161829.000300:U456"
-                ],
+                "workflow_event_ids": ["slack:event:T123:C789:1712161829.000300:U456"],
                 "route_ids": ["default"],
             },
         )
@@ -2756,7 +2765,7 @@ class SlackProviderTests(unittest.TestCase):
                                 "message": "Summarize the latest deploy status",
                             }
                         ],
-                    }
+                    },
                 },
             },
         )
@@ -2798,9 +2807,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(operation_body(response)["ok"], True)
         self.assertEqual(len(workflow_client.deliver_event_requests), 1)
         event_data = delivered_event_data(workflow_client.deliver_event_requests[0])
-        self.assertEqual(
-            event_data["slack"]["event_type"], "assistant_thread_started"
-        )
+        self.assertEqual(event_data["slack"]["event_type"], "assistant_thread_started")
         self.assertEqual(event_data["slack"]["channel_id"], "D789")
         self.assertEqual(event_data["slack"]["reply_thread_ts"], "1712161829.000300")
         self.assertEqual(
@@ -3192,9 +3199,7 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.assertEqual(
             cast(gestalt.Response[dict[str, str]], ambiguous_body).body,
-            {
-                "error": "message.body cannot be combined with message.sections"
-            },
+            {"error": "message.body cannot be combined with message.sections"},
         )
 
     def test_slack_events_reply_allows_matching_workflow_event_context_for_invocation_subject(
@@ -3608,13 +3613,13 @@ class SlackProviderTests(unittest.TestCase):
         workflow_request = workflow_client.deliver_event_requests[0]
         self.assertEqual(workflow_request.provider, "local")
         self.assertEqual(workflow_request.event.source, "slack")
-        self.assertEqual(workflow_request.event.type, "slack.agent.interaction.received")
+        self.assertEqual(
+            workflow_request.event.type, "slack.agent.interaction.received"
+        )
         self.assertEqual(workflow_request.event.subject, "route:default")
         self.assertTrue(workflow_request.event.id.startswith("slack:interaction:"))
         event_data = delivered_event_data(workflow_request)
-        self.assertEqual(
-            event_data["workflowKey"], "slack:T123:C789:1712161829.000300"
-        )
+        self.assertEqual(event_data["workflowKey"], "slack:T123:C789:1712161829.000300")
         self.assertEqual(event_data["slack"]["action_id"], "approve")
         self.assertEqual(event_data["slack"]["action_value"], "approved")
         self.assertEqual(event_data["slack"]["message_ts"], "1712161829.000300")
@@ -3804,7 +3809,10 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(body["ok"], True)
         self.assertEqual(body["delivered"], True)
         self.assertEqual(body["delivered_event_count"], 1)
-        self.assertEqual(body["workflow_event_ids"], [workflow_client.deliver_event_requests[0].event.id])
+        self.assertEqual(
+            body["workflow_event_ids"],
+            [workflow_client.deliver_event_requests[0].event.id],
+        )
         self.assertEqual(body["route_ids"], ["default"])
         self.assertEqual(body["action_id"], "approve")
         self.assertEqual(len(workflow_client.deliver_event_requests), 1)
@@ -4626,12 +4634,8 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.assertEqual(event_data["slack"]["addressed_to_bot"], False)
         self.assertEqual(event_data["slack"]["subtype"], "")
-        self.assertEqual(
-            event_data["slack"]["reply_thread_ts"], "1712161829.000300"
-        )
-        self.assertIn(
-            "reply_thread_ts: 1712161829.000300", event_data["user_prompt"]
-        )
+        self.assertEqual(event_data["slack"]["reply_thread_ts"], "1712161829.000300")
+        self.assertIn("reply_thread_ts: 1712161829.000300", event_data["user_prompt"])
         verified_ref = provider_module._verify_reply_ref(
             event_data["reply_ref"], "user:gestalt-123"
         )
@@ -4690,9 +4694,7 @@ class SlackProviderTests(unittest.TestCase):
             workflow_request.event.id,
             "slack:event:T123:C_SUPPORT:1712161835.000400:U456",
         )
-        self.assertEqual(
-            event_data["slack"]["reply_thread_ts"], "1712161829.000300"
-        )
+        self.assertEqual(event_data["slack"]["reply_thread_ts"], "1712161829.000300")
         verified_ref = provider_module._verify_reply_ref(
             event_data["reply_ref"], "user:gestalt-123"
         )
@@ -4961,7 +4963,9 @@ class SlackProviderTests(unittest.TestCase):
         response, workflow_client = self._handle_event_with_workflow(payload)
 
         self.assertEqual(operation_body(response)["ok"], True)
-        event_metadata = delivered_event_metadata(workflow_client.deliver_event_requests[0])
+        event_metadata = delivered_event_metadata(
+            workflow_client.deliver_event_requests[0]
+        )
         self.assertEqual(
             event_metadata["slack"]["agent_route_id"], "explicit-slack-route"
         )
@@ -5207,7 +5211,9 @@ class SlackProviderTests(unittest.TestCase):
         )
 
         self.assertEqual(operation_body(response)["ok"], True)
-        event_metadata = delivered_event_metadata(workflow_client.deliver_event_requests[0])
+        event_metadata = delivered_event_metadata(
+            workflow_client.deliver_event_requests[0]
+        )
         self.assertEqual(event_metadata["slack"]["agent_route_id"], "file-shares")
         self.assertEqual(event_metadata["slack"]["subtype"], "file_share")
 
@@ -5448,7 +5454,9 @@ class SlackProviderTests(unittest.TestCase):
 
         self.assertEqual(operation_body(response)["ok"], True)
         self.assertEqual(len(workflow_client.deliver_event_requests), 1)
-        event_metadata = delivered_event_metadata(workflow_client.deliver_event_requests[0])
+        event_metadata = delivered_event_metadata(
+            workflow_client.deliver_event_requests[0]
+        )
         self.assertEqual(
             event_metadata["slack"]["agent_route_id"], "alert-bot-messages"
         )
@@ -5558,9 +5566,7 @@ class SlackProviderTests(unittest.TestCase):
             first_data["workflowKey"],
             second_data["workflowKey"],
         )
-        self.assertEqual(
-            first_data["workflowKey"], "slack:T123:C789:1712161829.000300"
-        )
+        self.assertEqual(first_data["workflowKey"], "slack:T123:C789:1712161829.000300")
 
         self.assertEqual(
             requests[0].event.id,
@@ -5848,11 +5854,16 @@ class SlackProviderTests(unittest.TestCase):
             ["local", "audit"],
         )
         self.assertEqual(
-            [request.event.subject for request in workflow_client.deliver_event_requests],
+            [
+                request.event.subject
+                for request in workflow_client.deliver_event_requests
+            ],
             ["brain", "audit"],
         )
 
-    def test_agent_delivery_failure_returns_non_2xx_even_with_deliver_route(self) -> None:
+    def test_agent_delivery_failure_returns_non_2xx_even_with_deliver_route(
+        self,
+    ) -> None:
         provider_module.configure(
             "slack",
             {
@@ -6402,7 +6413,8 @@ class SlackProviderTests(unittest.TestCase):
             )
 
         with mock.patch(
-            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            "internals.client.urllib.request.urlopen",
+            side_effect=with_public_channel_info(fake_urlopen),
         ):
             result = provider_module.conversations_get_message(
                 provider_module.GetMessageInput(
@@ -6413,6 +6425,7 @@ class SlackProviderTests(unittest.TestCase):
 
         self.assertEqual(result["data"]["message"]["ts"], "1712161829.000300")
         self.assertEqual(result["data"]["message"]["text"], "hello")
+        self.assertEqual(result["data"]["channel_name"], "general")
 
     def test_find_user_mentions_uses_history_contract(self) -> None:
         def fake_urlopen(
@@ -6450,7 +6463,8 @@ class SlackProviderTests(unittest.TestCase):
             )
 
         with mock.patch(
-            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            "internals.client.urllib.request.urlopen",
+            side_effect=with_public_channel_info(fake_urlopen),
         ):
             result = provider_module.conversations_find_user_mentions(
                 provider_module.FindUserMentionsInput(
@@ -6539,7 +6553,8 @@ class SlackProviderTests(unittest.TestCase):
             raise AssertionError(f"unexpected request {request.full_url}")
 
         with mock.patch(
-            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            "internals.client.urllib.request.urlopen",
+            side_effect=with_public_channel_info(fake_urlopen),
         ):
             result = provider_module.conversations_get_thread_participants(
                 provider_module.GetThreadParticipantsInput(
@@ -6653,7 +6668,8 @@ class SlackProviderTests(unittest.TestCase):
 
         with (
             mock.patch(
-                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+                "internals.client.urllib.request.urlopen",
+                side_effect=with_public_channel_info(fake_urlopen),
             ),
             mock.patch(
                 "internals.client.urllib.request.build_opener",
@@ -6717,7 +6733,8 @@ class SlackProviderTests(unittest.TestCase):
             )
 
         with mock.patch(
-            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            "internals.client.urllib.request.urlopen",
+            side_effect=with_public_channel_info(fake_urlopen),
         ):
             result = provider_module.conversations_get_thread_context(
                 provider_module.GetThreadContextInput(
@@ -7620,7 +7637,8 @@ class SlackProviderTests(unittest.TestCase):
 
         with (
             mock.patch(
-                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+                "internals.client.urllib.request.urlopen",
+                side_effect=with_public_channel_info(fake_urlopen),
             ),
             mock.patch("internals.client.time.sleep") as sleep,
         ):
@@ -7632,6 +7650,113 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(calls, 2)
         sleep.assert_called_once_with(0.0)
         self.assertEqual(result["data"]["message"]["text"], "after retry")
+
+    def test_channel_name_covers_private_channels_but_not_dms_or_failures(self) -> None:
+        responses = {
+            "CPUBLIC": (
+                '{"ok": true, "channel": {"name": "general", "is_channel": true}}',
+                "general",
+            ),
+            "CPRIVATE": (
+                '{"ok": true, "channel": {"name": "secret", "is_channel": true, "is_private": true}}',
+                "secret",
+            ),
+            "CLEGACY": (
+                '{"ok": true, "channel": {"name": "old-secret", "is_group": true, "is_private": true}}',
+                "old-secret",
+            ),
+            "CMPIM": (
+                '{"ok": true, "channel": {"name": "mpdm-a--b-1", "is_mpim": true, "is_group": true}}',
+                "",
+            ),
+            "CDM": ('{"ok": true, "channel": {"is_im": true}}', ""),
+            "CFAIL": ('{"ok": false, "error": "channel_not_found"}', ""),
+        }
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            parsed = urllib.parse.urlsplit(request.full_url)
+            if parsed.path == "/api/conversations.info":
+                channel = urllib.parse.parse_qs(parsed.query)["channel"][0]
+                return FakeHTTPResponse(responses[channel][0])
+            return FakeHTTPResponse(
+                '{"ok": true, "messages": [{"ts": "1.0", "text": "hi"}]}'
+            )
+
+        for channel, (_, expected) in responses.items():
+            with self.subTest(channel=channel):
+                with mock.patch(
+                    "internals.client.urllib.request.urlopen",
+                    side_effect=fake_urlopen,
+                ):
+                    result = provider_module.conversations_get_message(
+                        provider_module.GetMessageInput(channel=channel, ts="1.0"),
+                        gestalt.Request(token="test-token"),
+                    )
+                self.assertEqual(result["data"]["message"]["text"], "hi")
+                self.assertEqual(result["data"].get("channel_name", ""), expected)
+
+    def test_channel_name_lookup_is_cached(self) -> None:
+        info_calls = 0
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            nonlocal info_calls
+            if (
+                urllib.parse.urlsplit(request.full_url).path
+                == "/api/conversations.info"
+            ):
+                info_calls += 1
+                return FakeHTTPResponse(PUBLIC_CHANNEL_INFO)
+            return FakeHTTPResponse(
+                '{"ok": true, "messages": [{"ts": "1.0", "text": "hi"}]}'
+            )
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            for _ in range(3):
+                result = provider_module.conversations_get_message(
+                    provider_module.GetMessageInput(channel="C123", ts="1.0"),
+                    gestalt.Request(token="test-token"),
+                )
+                self.assertEqual(result["data"]["channel_name"], "general")
+
+        self.assertEqual(info_calls, 1)
+
+    def test_channel_name_cache_is_scoped_to_token(self) -> None:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            if (
+                urllib.parse.urlsplit(request.full_url).path
+                == "/api/conversations.info"
+            ):
+                if authorization_header(request) == "Bearer member-token":
+                    return FakeHTTPResponse(
+                        '{"ok": true, "channel": {"name": "secret", "is_channel": true, "is_private": true}}'
+                    )
+                return FakeHTTPResponse('{"ok": false, "error": "channel_not_found"}')
+            return FakeHTTPResponse(
+                '{"ok": true, "messages": [{"ts": "1.0", "text": "hi"}]}'
+            )
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            member = provider_module.conversations_get_message(
+                provider_module.GetMessageInput(channel="CPRIV", ts="1.0"),
+                gestalt.Request(token="member-token"),
+            )
+            outsider = provider_module.conversations_get_message(
+                provider_module.GetMessageInput(channel="CPRIV", ts="1.0"),
+                gestalt.Request(token="outsider-token"),
+            )
+
+        self.assertEqual(member["data"]["channel_name"], "secret")
+        self.assertNotIn("channel_name", outsider["data"])
 
 
 if __name__ == "__main__":
