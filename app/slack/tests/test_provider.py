@@ -7521,6 +7521,43 @@ class SlackProviderTests(unittest.TestCase):
             data["content"]["omitted_reason"], "file is hosted outside Slack"
         )
 
+    def test_files_get_maps_slack_errors_to_caller_statuses_contract(self) -> None:
+        cases = [
+            ("file_not_found", HTTPStatus.NOT_FOUND),
+            ("channel_not_found", HTTPStatus.NOT_FOUND),
+            ("not_in_channel", HTTPStatus.FORBIDDEN),
+            ("missing_scope", HTTPStatus.FORBIDDEN),
+            ("invalid_arguments", HTTPStatus.BAD_REQUEST),
+            ("ratelimited", HTTPStatus.TOO_MANY_REQUESTS),
+            ("internal_error", HTTPStatus.BAD_GATEWAY),
+            ("some_new_slack_error", HTTPStatus.BAD_GATEWAY),
+        ]
+
+        for error, expected in cases:
+            with self.subTest(error=error):
+
+                def fake_urlopen(
+                    request: urllib.request.Request, timeout: float = 30
+                ) -> FakeHTTPResponse:
+                    return FakeHTTPResponse(json.dumps({"ok": False, "error": error}))
+
+                with (
+                    mock.patch(
+                        "internals.client.urllib.request.urlopen",
+                        side_effect=fake_urlopen,
+                    ),
+                    mock.patch("internals.client.time.sleep"),
+                ):
+                    result = provider_module.files_get(
+                        provider_module.GetFileInput(file_id="F123"),
+                        gestalt.Request(token="test-token"),
+                    )
+
+                self.assertIsInstance(result, gestalt.Response)
+                response = cast(gestalt.Response[dict[str, str]], result)
+                self.assertEqual(response.status, expected)
+                self.assertEqual(response.body, {"error": error})
+
     def test_files_get_allows_five_mib_download_request_contract(self) -> None:
         five_mib = 5 * 1024 * 1024
         download_read_sizes: list[int] = []

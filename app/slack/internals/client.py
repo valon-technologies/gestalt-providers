@@ -19,6 +19,40 @@ SLACK_FILE_UPLOAD_PATH_PREFIX = "/upload/v1/"
 MAX_RATE_LIMIT_RETRIES = 2
 MAX_RETRY_AFTER_SECONDS = 5.0
 
+RATE_LIMIT_ERRORS = frozenset({"ratelimited", "rate_limited"})
+# Slack reports these with HTTP 200 and ok:false when the request names
+# something that does not exist or the token cannot see. They are caller
+# errors, not an unavailable upstream, so they must not surface as 5xx.
+NOT_FOUND_ERRORS = frozenset(
+    {
+        "channel_not_found",
+        "file_not_found",
+        "message_not_found",
+        "thread_not_found",
+        "user_not_found",
+    }
+)
+FORBIDDEN_ERRORS = frozenset(
+    {
+        "access_denied",
+        "missing_scope",
+        "no_permission",
+        "not_in_channel",
+        "restricted_action",
+    }
+)
+BAD_REQUEST_ERRORS = frozenset(
+    {
+        "invalid_arguments",
+        "invalid_cursor",
+        "invalid_limit",
+        "invalid_ts_latest",
+        "invalid_ts_oldest",
+        "msg_too_long",
+        "no_text",
+    }
+)
+
 
 class SlackAPIError(RuntimeError):
     def __init__(self, status: int, body: dict[str, str]) -> None:
@@ -189,6 +223,22 @@ class _SlackFileUploadRedirectHandler(urllib.request.HTTPRedirectHandler):
         raise SlackClientError("slack file upload redirects are not supported")
 
 
+def slack_error_status(error: str) -> HTTPStatus:
+    """Maps a Slack ok:false error code to the HTTP status callers should see.
+
+    Unknown codes stay 502 so a failing Slack is still counted as one.
+    """
+    if error in RATE_LIMIT_ERRORS:
+        return HTTPStatus.TOO_MANY_REQUESTS
+    if error in NOT_FOUND_ERRORS:
+        return HTTPStatus.NOT_FOUND
+    if error in FORBIDDEN_ERRORS:
+        return HTTPStatus.FORBIDDEN
+    if error in BAD_REQUEST_ERRORS:
+        return HTTPStatus.BAD_REQUEST
+    return HTTPStatus.BAD_GATEWAY
+
+
 def _request_json(request: urllib.request.Request) -> dict[str, Any]:
     body = b""
     for attempt in range(MAX_RATE_LIMIT_RETRIES + 1):
@@ -223,12 +273,7 @@ def _request_json(request: urllib.request.Request) -> dict[str, Any]:
     if isinstance(ok, bool) and not ok:
         error = payload.get("error")
         if isinstance(error, str) and error:
-            status = (
-                HTTPStatus.TOO_MANY_REQUESTS
-                if error in {"ratelimited", "rate_limited"}
-                else HTTPStatus.BAD_GATEWAY
-            )
-            raise SlackAPIError(status, {"error": error})
+            raise SlackAPIError(slack_error_status(error), {"error": error})
         raise SlackAPIError(HTTPStatus.BAD_GATEWAY, {"error": "slack API error"})
 
     return payload
