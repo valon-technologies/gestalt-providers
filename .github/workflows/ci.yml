@@ -279,7 +279,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: matrix.app.has_frontend && !matrix.app.has_typescript
         with:
-          node-version: '20'
+          node-version: '24'
       - name: Install Python
         if: matrix.app.has_python
         run: uv python install 3.13 3.14
