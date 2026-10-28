@@ -59,7 +59,7 @@ jobs:
       providers: ${{ steps.discover.outputs.providers }}
       darwin-providers: ${{ steps.discover.outputs.darwin-providers }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.provider-ref }}
       - name: Verify provider ref
@@ -139,10 +139,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.provider-ref }}
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
       - name: Build gestaltd
@@ -155,7 +155,7 @@ jobs:
           .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
           test "$(git -C "$toolchain_dir" rev-parse HEAD)" = "${{ inputs.gestalt-ref }}"
           (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: gestaltd-linux-amd64
           path: ${{ runner.temp }}/bin/gestaltd
@@ -173,20 +173,20 @@ jobs:
         provider: ${{ fromJson(needs.discover.outputs.providers) }}
     name: Build ${{ matrix.provider.dir }} linux/amd64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.provider-ref }}
       - name: Verify provider ref
         run: |
           test "$(git rev-parse HEAD)" = "${{ inputs.provider-ref }}"
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         if: matrix.provider.has_go
         with:
           go-version: '1.26'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         if: matrix.provider.has_frontend && !matrix.provider.has_typescript
         with:
-          node-version: '25'
+          node-version: '24'
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         if: matrix.provider.has_python
       - uses: oven-sh/setup-bun@v2
@@ -210,7 +210,7 @@ jobs:
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
           .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
           test "$(git -C "$toolchain_dir" rev-parse HEAD)" = "${{ inputs.gestalt-ref }}"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: gestaltd-linux-amd64
           path: ${{ runner.temp }}/bin
@@ -246,7 +246,7 @@ jobs:
           else
             (cd "$PROVIDER_DIR" && gestaltd provider package --version "$SNAPSHOT_VERSION" --platform linux/amd64)
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: snapshot-dist-${{ matrix.provider.key }}-linux-amd64
           path: ${{ matrix.provider.dir }}/dist/*.tar.gz
@@ -263,19 +263,19 @@ jobs:
         provider: ${{ fromJson(needs.discover.outputs.darwin-providers) }}
     name: Build ${{ matrix.provider.dir }} darwin/arm64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.provider-ref }}
       - name: Verify provider ref
         run: |
           test "$(git rev-parse HEAD)" = "${{ inputs.provider-ref }}"
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         if: matrix.provider.has_frontend && !matrix.provider.has_typescript
         with:
-          node-version: '25'
+          node-version: '24'
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         if: matrix.provider.has_python
       - uses: oven-sh/setup-bun@v2
@@ -325,7 +325,7 @@ jobs:
           else
             (cd "$PROVIDER_DIR" && gestaltd provider package --version "$SNAPSHOT_VERSION" --platform darwin/arm64)
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: snapshot-dist-${{ matrix.provider.key }}-darwin-arm64
           path: ${{ matrix.provider.dir }}/dist/*.tar.gz
@@ -346,13 +346,13 @@ jobs:
         provider: ${{ fromJson(needs.discover.outputs.providers) }}
     name: Publish ${{ matrix.provider.dir }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.provider-ref }}
       - name: Verify provider ref
         run: |
           test "$(git rev-parse HEAD)" = "${{ inputs.provider-ref }}"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: gestaltd-linux-amd64
           path: ${{ runner.temp }}/bin
@@ -360,17 +360,17 @@ jobs:
         run: |
           chmod +x "${RUNNER_TEMP}/bin/gestaltd"
           echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           pattern: snapshot-dist-${{ matrix.provider.key }}-*
           path: ${{ matrix.provider.dir }}/dist
           merge-multiple: true
-      - uses: google-github-actions/auth@v2
+      - uses: google-github-actions/auth@v3
         if: ${{ !inputs.dry-run }}
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-      - uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v3
         if: ${{ !inputs.dry-run }}
       - name: Publish snapshot
         env:

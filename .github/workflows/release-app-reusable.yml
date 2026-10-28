@@ -38,7 +38,7 @@ jobs:
       python-version: ${{ steps.detect.outputs.python-version }}
       version: ${{ steps.version.outputs.release }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Normalize version
         id: version
         run: echo "release=$(echo '${{ inputs.version }}' | sed 's/^v//')" >> "$GITHUB_OUTPUT"
@@ -107,14 +107,14 @@ jobs:
     env:
       GESTALT_REPOSITORY: valon-technologies/gestalt
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         if: needs.metadata.outputs.root == 'ui'
         with:
-          node-version: '25'
+          node-version: '24'
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         if: needs.metadata.outputs.source-language == 'python'
       - uses: oven-sh/setup-bun@v2
@@ -197,7 +197,7 @@ jobs:
         run: |
           cd "${{ inputs.app-dir }}"
           gestaltd provider package --version "${{ needs.metadata.outputs.version }}" --platform linux/amd64
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: dist-linux-amd64
           path: ${{ inputs.app-dir }}/dist/*.tar.gz
@@ -211,8 +211,8 @@ jobs:
     env:
       GESTALT_REPOSITORY: valon-technologies/gestalt
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
@@ -251,7 +251,7 @@ jobs:
           cd "${{ inputs.app-dir }}"
           bun install --frozen-lockfile
           gestaltd provider package --version "${{ needs.metadata.outputs.version }}" --platform linux/arm64
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: dist-linux-arm64
           path: ${{ inputs.app-dir }}/dist/*.tar.gz
@@ -265,8 +265,8 @@ jobs:
     env:
       GESTALT_REPOSITORY: valon-technologies/gestalt
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
       - uses: dtolnay/rust-toolchain@1.88.0
@@ -289,7 +289,7 @@ jobs:
         run: |
           cd "${{ inputs.app-dir }}"
           gestaltd provider package --version "${{ needs.metadata.outputs.version }}" --platform linux/arm64
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: dist-linux-arm64
           path: ${{ inputs.app-dir }}/dist/*.tar.gz
@@ -303,8 +303,8 @@ jobs:
     env:
       GESTALT_REPOSITORY: valon-technologies/gestalt
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
       - uses: oven-sh/setup-bun@v2
@@ -337,7 +337,7 @@ jobs:
           cd "${{ inputs.app-dir }}"
           bun install --frozen-lockfile
           gestaltd provider package --version "${{ needs.metadata.outputs.version }}" --platform darwin/arm64
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: dist-darwin-arm64
           path: ${{ inputs.app-dir }}/dist/*.tar.gz
@@ -351,8 +351,8 @@ jobs:
     env:
       GESTALT_REPOSITORY: valon-technologies/gestalt
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
       - uses: oven-sh/setup-bun@v2
@@ -385,7 +385,7 @@ jobs:
           cd "${{ inputs.app-dir }}"
           bun install --frozen-lockfile
           gestaltd provider package --version "${{ needs.metadata.outputs.version }}" --platform darwin/amd64
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: dist-darwin-amd64
           path: ${{ inputs.app-dir }}/dist/*.tar.gz
@@ -399,8 +399,8 @@ jobs:
     env:
       GESTALT_REPOSITORY: valon-technologies/gestalt
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
@@ -421,7 +421,7 @@ jobs:
           uv sync --frozen --no-dev
           GESTALT_PYTHON_DARWIN_ARM64="$PWD/.venv/bin/python" \
             gestaltd provider package --version "${{ needs.metadata.outputs.version }}" --platform darwin/arm64
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: dist-darwin-arm64
           path: ${{ inputs.app-dir }}/dist/*.tar.gz
@@ -435,8 +435,8 @@ jobs:
     env:
       GESTALT_REPOSITORY: valon-technologies/gestalt
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
@@ -457,7 +457,7 @@ jobs:
           uv sync --frozen --no-dev
           GESTALT_PYTHON_DARWIN_AMD64="$PWD/.venv/bin/python" \
             gestaltd provider package --version "${{ needs.metadata.outputs.version }}" --platform darwin/amd64
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: dist-darwin-amd64
           path: ${{ inputs.app-dir }}/dist/*.tar.gz
@@ -480,13 +480,13 @@ jobs:
       group: provider-registry-index
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           pattern: dist-*
           path: dist
