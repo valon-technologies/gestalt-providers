@@ -75,6 +75,14 @@ Representative operations include:
 - `replies.update`
 - `replies.delete`
 
+`files.get` and `files.list` accept the optional Google Drive `fields` query
+parameter for a partial response. Drive's default file response omits version,
+modification time, and download capability. Callers that need those fields must
+request them explicitly; for example, use
+`id,kind,name,mimeType,modifiedTime,version,trashed,parents,webViewLink,capabilities(canDownload)`
+for `files.get`, or prefix the file selection with `nextPageToken,files(...)`
+for `files.list`. File access remains governed by the connected Google identity.
+
 ## Usage Examples
 
 Hosted apps call this provider with `app.invoke`. Pass `runAs` or `credentialMode` in the invoke options when an operation needs a service-account identity or managed credentials instead of the caller's OAuth token.
