@@ -776,6 +776,12 @@ paths:
       description: Lists or searches files.
       operationId: drive.files.list
       parameters:
+      - description: Google Drive partial-response selector. Request only the metadata needed; for example, nextPageToken,files(id,name,mimeType,modifiedTime,version,trashed,parents,webViewLink,capabilities(canDownload)).
+        in: query
+        name: fields
+        schema:
+          maxLength: 1024
+          type: string
       - description: 'Groupings of files to which the query applies. Supported groupings
           are: ''user'' (files created by, opened by, or shared directly with the
           user), ''drive'' (files in the specified shared drive as indicated by the
@@ -1155,6 +1161,12 @@ paths:
       description: Gets a file's metadata or content by ID.
       operationId: drive.files.get
       parameters:
+      - description: Google Drive partial-response selector. For metadata freshness and access checks, request id,name,mimeType,modifiedTime,version,trashed,parents,webViewLink,capabilities(canDownload).
+        in: query
+        name: fields
+        schema:
+          maxLength: 1024
+          type: string
       - description: The ID of the file.
         in: path
         name: fileId

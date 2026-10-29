@@ -57,6 +57,10 @@ Representative operations include:
 - `viewer`
 - `issueCreate`
 
+The read-only `issue` and `issues` selections include the issue's labels, due
+date, and parent ID alongside its team, workflow state, and update time. The
+`issues` operation keeps its existing cursor pagination.
+
 - GraphQL and hosted MCP surfaces both default to the Linear OAuth connection with `read` and `write` scopes. The `ApiKey` connection instead sends a personal API key directly in the `Authorization` header, for subjects that prefer a manually issued credential over the OAuth flow.
 
 ## Usage Examples
