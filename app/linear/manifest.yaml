@@ -911,6 +911,54 @@ spec:
               issueRelation { id type createdAt updatedAt issue { id identifier title url } relatedIssue { id identifier title url } }
             }
           }
+    issueRelationsForIssue:
+      graphql:
+        operationName: IssueRelationsForIssue
+        document: |
+          query IssueRelationsForIssue(
+            $id: String!
+            $relationsFirst: Int
+            $relationsAfter: String
+            $inverseRelationsFirst: Int
+            $inverseRelationsAfter: String
+          ) {
+            issue(id: $id) {
+              id
+              identifier
+              relations(first: $relationsFirst, after: $relationsAfter) { nodes { id type relatedIssue { id identifier title url } } pageInfo { hasNextPage endCursor } }
+              inverseRelations(first: $inverseRelationsFirst, after: $inverseRelationsAfter) { nodes { id type issue { id identifier title url } } pageInfo { hasNextPage endCursor } }
+            }
+          }
+    issueRelationsForIssues:
+      graphql:
+        operationName: IssueRelationsForIssues
+        document: |
+          query IssueRelationsForIssues(
+            $ids: [ID!]!
+            $first: Int!
+          ) {
+            issues(filter: { id: { in: $ids } }, first: $first) {
+              nodes {
+                id
+                identifier
+                relations(first: 50) { nodes { id type relatedIssue { id identifier title url } } pageInfo { hasNextPage endCursor } }
+                inverseRelations(first: 50) { nodes { id type issue { id identifier title url } } pageInfo { hasNextPage endCursor } }
+              }
+            }
+          }
+    issueRelationDelete:
+      graphql:
+        operationName: IssueRelationDelete
+        document: |
+          mutation IssueRelationDelete(
+            $id: String!
+          ) {
+            issueRelationDelete(id: $id) {
+              success
+              lastSyncId
+              entityId
+            }
+          }
     attachmentCreate:
       graphql:
         operationName: AttachmentCreate
