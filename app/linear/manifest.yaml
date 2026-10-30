@@ -941,8 +941,8 @@ spec:
               nodes {
                 id
                 identifier
-                relations(first: 10) { nodes { id type relatedIssue { id identifier title url } } pageInfo { hasNextPage endCursor } }
-                inverseRelations(first: 10) { nodes { id type issue { id identifier title url } } pageInfo { hasNextPage endCursor } }
+                relations(first: 50) { nodes { id type relatedIssue { id identifier title url } } pageInfo { hasNextPage endCursor } }
+                inverseRelations(first: 50) { nodes { id type issue { id identifier title url } } pageInfo { hasNextPage endCursor } }
               }
             }
           }
