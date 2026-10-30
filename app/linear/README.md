@@ -61,6 +61,18 @@ The read-only `issue` and `issues` selections include the issue's labels, due
 date, and parent ID alongside its team, workflow state, and update time. The
 `issues` operation keeps its existing cursor pagination.
 
+`issueRelationsForIssue` returns one issue's `relations` (stored on the issue)
+and `inverseRelations` (stored on the other issue), each with its own
+`relationsAfter` / `inverseRelationsAfter` cursor. `issueRelationsForIssues`
+takes issue UUIDs in `ids` and a required `first`, and returns up to 10
+relations per side for each issue. When a side reports `hasNextPage`, page that
+issue with `issueRelationsForIssue`. Pass a relation `id` from either operation
+to `issueRelationDelete` to remove it.
+
+Linear scores query complexity from requested page sizes, not returned rows,
+and rejects a single query above 10,000 points. Set `first` to the number of
+IDs; each issue costs about 56 points, so keep batches to about 150 IDs.
+
 - GraphQL and hosted MCP surfaces both default to the Linear OAuth connection with `read` and `write` scopes. The `ApiKey` connection instead sends a personal API key directly in the `Authorization` header, for subjects that prefer a manually issued credential over the OAuth flow.
 
 ## Usage Examples
