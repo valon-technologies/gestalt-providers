@@ -38,5 +38,6 @@ spec:
       source: body
       path: cursor
     limitParam: page_size
-    defaultLimit: 10
+    defaultLimit: 30
+    maxPages: 100
     resultsPath: notes
