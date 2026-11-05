@@ -100,6 +100,11 @@ MIME types, base64, or injected attachment-message headers return HTTP 400 befor
 Gmail is contacted. Omitting attachments preserves existing behavior. No extra
 OAuth scope is required.
 
+`message/*` and `multipart/*` attachment types are not supported. Use
+`application/octet-stream` to attach an opaque file such as an `.eml` message.
+`attachments` must be an array of objects; invalid shapes and null attachment
+fields return HTTP 400 before Gmail is contacted.
+
 Example `messages.reply` call:
 
 ```ts

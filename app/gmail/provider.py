@@ -8,6 +8,7 @@ import gestalt
 import internals.client as client_module
 from internals.client import GmailAPIError, GmailClientError
 from internals.mime import (
+    MAX_ATTACHMENT_COUNT,
     MIMEAttachment,
     MIMEParams,
     decode_base64url,
@@ -625,6 +626,15 @@ def _read_token(_operation: str, req: gestalt.Request) -> str | ErrorResponse:
 def _mime_params_from_input(
     input: SendMessageInput | CreateDraftInput | UpdateDraftInput,
 ) -> MIMEParams:
+    # The SDK passes through nulls and values with the wrong container type.
+    if not isinstance(input.attachments, list):
+        raise ValueError("attachments must be an array")
+    if len(input.attachments) > MAX_ATTACHMENT_COUNT:
+        raise ValueError(f"At most {MAX_ATTACHMENT_COUNT} attachments are allowed")
+    if any(not isinstance(item, AttachmentInput) for item in input.attachments):
+        raise ValueError(
+            "Each attachment must be an object with filename, content_type, and content_base64"
+        )
     return MIMEParams(
         to=input.to,
         subject=input.subject,

@@ -271,6 +271,80 @@ class GmailAttachmentTests(unittest.TestCase):
                 post.assert_not_called()
                 put.assert_not_called()
 
+    def test_runtime_dispatch_rejects_invalid_attachment_shapes_and_composite_types(
+        self,
+    ) -> None:
+        file = {
+            "filename": "example.pdf",
+            "content_type": "application/pdf",
+            "content_base64": "Zg==",
+        }
+        invalid: list[Any] = [
+            None,
+            {},
+            "",
+            "file",
+            0,
+            [None],
+            ["file"],
+            [{}],
+            [file] * 21,
+        ]
+        invalid.extend([{**file, field: None}] for field in file)
+        invalid.extend(
+            [{**file, "content_type": content_type}]
+            for content_type in (
+                "message/rfc822",
+                "Message/RFC822",
+                "message/global",
+                "multipart/mixed",
+                "Multipart/Alternative",
+            )
+        )
+        for operation_id in ("messages.send", "drafts.create", "drafts.update"):
+            for attachments in invalid:
+                with (
+                    self.subTest(operation=operation_id, attachments=attachments),
+                    mock.patch.object(provider_module.client_module, "post_json") as post,
+                    mock.patch.object(provider_module.client_module, "put_json") as put,
+                ):
+                    result = provider_module.app.execute(
+                        operation_id,
+                        {
+                            "id": "draft-1",
+                            "to": "recipient@example.com",
+                            "subject": "Example",
+                            "body": "Hello",
+                            "attachments": attachments,
+                        },
+                        gestalt.Request(token="synthetic-token"),
+                    )
+                    self.assertEqual(result.status, HTTPStatus.BAD_REQUEST)
+                    post.assert_not_called()
+                    put.assert_not_called()
+
+    def test_opaque_email_attachment_preserves_original_bytes(self) -> None:
+        content = b"From: a@example.com\r\nSubject: Original\r\n\r\nBody\r\n"
+        raw = build_mime(
+            MIMEParams(
+                to="recipient@example.com",
+                subject="Example",
+                body="Hello",
+                attachments=(
+                    MIMEAttachment(
+                        "original.eml",
+                        "application/octet-stream",
+                        base64.b64encode(content).decode("ascii"),
+                    ),
+                ),
+            )
+        )
+        parsed = BytesParser(policy=policy.default).parsebytes(decode_base64url(raw))
+        part = next(parsed.iter_attachments())
+        self.assertEqual(part.get_filename(), "original.eml")
+        self.assertEqual(part.get_payload(decode=True), content)
+        self.assertFalse(part.defects)
+
 
 if __name__ == "__main__":
     unittest.main()

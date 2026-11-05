@@ -100,6 +100,8 @@ def build_mime_with_attachments(params: MIMEParams) -> str:
         "References": params.references,
     }
     for name, value in headers.items():
+        if not isinstance(value, str):
+            raise ValueError(f"{name} must be a string")
         if any(char in value for char in ("\r", "\n", "\x00")):
             raise ValueError(f"{name} must not contain newlines or NUL")
         if value:
@@ -109,6 +111,17 @@ def build_mime_with_attachments(params: MIMEParams) -> str:
         message.add_alternative(params.html_body, subtype="html")
     total = 0
     for attachment in params.attachments:
+        if not all(
+            isinstance(value, str)
+            for value in (
+                attachment.filename,
+                attachment.content_type,
+                attachment.content_base64,
+            )
+        ):
+            raise ValueError(
+                "Attachment filename, content_type, and content_base64 must be strings"
+            )
         if (
             not attachment.filename
             or len(attachment.filename) > 255
@@ -122,6 +135,12 @@ def build_mime_with_attachments(params: MIMEParams) -> str:
         ):
             raise ValueError(
                 "Attachment content_type must be a MIME type without parameters"
+            )
+        maintype, subtype = attachment.content_type.split("/", 1)
+        if maintype.lower() in ("message", "multipart"):
+            raise ValueError(
+                "Attachment message/* and multipart/* types are not supported; "
+                "use application/octet-stream for opaque files"
             )
         # Bound encoded input before allocating the decoded file body.
         if (
@@ -142,7 +161,6 @@ def build_mime_with_attachments(params: MIMEParams) -> str:
         total += len(content)
         if total > MAX_ATTACHMENT_BYTES:
             raise ValueError("Combined attachments exceed the 20 MiB limit")
-        maintype, subtype = attachment.content_type.split("/", 1)
         message.add_attachment(
             content, maintype=maintype, subtype=subtype, filename=attachment.filename
         )
