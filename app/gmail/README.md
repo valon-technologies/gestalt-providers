@@ -81,11 +81,29 @@ Example `messages.send` call:
 
 ```ts
 await app.invoke("gmail", "messages.send", {
-  to: ["recipient@example.com"],
+  to: "recipient@example.com",
   subject: "Status update",
-  text_body: "The report is ready.",
+  body: "The report is ready.",
+  attachments: [{
+    filename: "report.pdf",
+    content_type: "application/pdf",
+    content_base64: pdfBytes.toString("base64"),
+  }],
 });
 ```
+
+The optional `attachments` array is supported by `messages.send`, `drafts.create`,
+and `drafts.update`. Each entry requires a plain filename, a MIME `content_type`
+without parameters, and canonical padded `content_base64`. Up to 20 files and
+20 MiB of combined decoded attachment bytes are accepted. Invalid filenames,
+MIME types, base64, or injected attachment-message headers return HTTP 400 before
+Gmail is contacted. Omitting attachments preserves existing behavior. No extra
+OAuth scope is required.
+
+`message/*` and `multipart/*` attachment types are not supported. Use
+`application/octet-stream` to attach an opaque file such as an `.eml` message.
+`attachments` must be an array of objects; invalid shapes and null attachment
+fields return HTTP 400 before Gmail is contacted.
 
 Example `messages.reply` call:
 

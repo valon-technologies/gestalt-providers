@@ -15,6 +15,7 @@ operations:
   - name: maxResults
     type: integer
     description: Maximum number of messages to return
+    default: null
   - name: pageToken
     type: string
     description: Page token returned by a previous list call
@@ -172,6 +173,10 @@ operations:
     type: string
     description: HTML body (sent as alternative to plain text)
     default: ''
+  - name: attachments
+    type: array
+    description: Optional file attachments (at most 20, combined decoded size at most
+      20 MiB)
   tags:
   - email
   - mail
@@ -203,6 +208,10 @@ operations:
     type: string
     description: HTML body
     default: ''
+  - name: attachments
+    type: array
+    description: Optional file attachments (at most 20, combined decoded size at most
+      20 MiB)
   tags:
   - email
   - mail
@@ -238,6 +247,10 @@ operations:
     type: string
     description: HTML body
     default: ''
+  - name: attachments
+    type: array
+    description: Optional file attachments (at most 20, combined decoded size at most
+      20 MiB)
   tags:
   - email
   - mail

@@ -1,10 +1,25 @@
 from __future__ import annotations
 
 import base64
+import binascii
+import re
 import secrets
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from email.message import EmailMessage
+from email.policy import SMTP
 from typing import Any
+
+
+MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
+MAX_ATTACHMENT_COUNT = 20
+
+
+@dataclass(frozen=True, slots=True)
+class MIMEAttachment:
+    filename: str
+    content_type: str
+    content_base64: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,6 +32,7 @@ class MIMEParams:
     html_body: str = ""
     in_reply_to: str = ""
     references: str = ""
+    attachments: tuple[MIMEAttachment, ...] = ()
 
 
 def sanitize_header(value: str) -> str:
@@ -24,6 +40,8 @@ def sanitize_header(value: str) -> str:
 
 
 def build_mime(params: MIMEParams) -> str:
+    if params.attachments:
+        return build_mime_with_attachments(params)
     lines = [
         "MIME-Version: 1.0",
         f"To: {sanitize_header(params.to)}",
@@ -67,6 +85,86 @@ def build_mime(params: MIMEParams) -> str:
         raw_mime = "\r\n".join(lines)
 
     return encode_base64url(raw_mime.encode("utf-8"))
+
+
+def build_mime_with_attachments(params: MIMEParams) -> str:
+    if len(params.attachments) > MAX_ATTACHMENT_COUNT:
+        raise ValueError(f"At most {MAX_ATTACHMENT_COUNT} attachments are allowed")
+    message = EmailMessage(policy=SMTP)
+    headers = {
+        "To": params.to,
+        "Subject": params.subject,
+        "Cc": params.cc,
+        "Bcc": params.bcc,
+        "In-Reply-To": params.in_reply_to,
+        "References": params.references,
+    }
+    for name, value in headers.items():
+        if not isinstance(value, str):
+            raise ValueError(f"{name} must be a string")
+        if any(char in value for char in ("\r", "\n", "\x00")):
+            raise ValueError(f"{name} must not contain newlines or NUL")
+        if value:
+            message[name] = value
+    message.set_content(params.body)
+    if params.html_body:
+        message.add_alternative(params.html_body, subtype="html")
+    total = 0
+    for attachment in params.attachments:
+        if not all(
+            isinstance(value, str)
+            for value in (
+                attachment.filename,
+                attachment.content_type,
+                attachment.content_base64,
+            )
+        ):
+            raise ValueError(
+                "Attachment filename, content_type, and content_base64 must be strings"
+            )
+        if (
+            not attachment.filename
+            or len(attachment.filename) > 255
+            or any(ord(char) < 32 or ord(char) == 127 for char in attachment.filename)
+            or "/" in attachment.filename
+            or "\\" in attachment.filename
+        ):
+            raise ValueError("Attachment filename must be a bounded plain filename")
+        if not re.fullmatch(
+            r"[a-zA-Z0-9!#$&^_.+-]+/[a-zA-Z0-9!#$&^_.+-]+", attachment.content_type
+        ):
+            raise ValueError(
+                "Attachment content_type must be a MIME type without parameters"
+            )
+        maintype, subtype = attachment.content_type.split("/", 1)
+        if maintype.lower() in ("message", "multipart"):
+            raise ValueError(
+                "Attachment message/* and multipart/* types are not supported; "
+                "use application/octet-stream for opaque files"
+            )
+        # Bound encoded input before allocating the decoded file body.
+        if (
+            len(attachment.content_base64)
+            > ((MAX_ATTACHMENT_BYTES - total + 2) // 3) * 4
+        ):
+            raise ValueError("Combined attachments exceed the 20 MiB limit")
+        try:
+            content = base64.b64decode(attachment.content_base64, validate=True)
+        except (binascii.Error, ValueError) as error:
+            raise ValueError(
+                "Attachment content_base64 must be valid base64"
+            ) from error
+        if base64.b64encode(content).decode("ascii") != attachment.content_base64:
+            raise ValueError(
+                "Attachment content_base64 must use canonical padded base64"
+            )
+        total += len(content)
+        if total > MAX_ATTACHMENT_BYTES:
+            raise ValueError("Combined attachments exceed the 20 MiB limit")
+        message.add_attachment(
+            content, maintype=maintype, subtype=subtype, filename=attachment.filename
+        )
+    return encode_base64url(message.as_bytes())
 
 
 def random_boundary() -> str:
