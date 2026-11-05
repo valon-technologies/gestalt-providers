@@ -7,7 +7,12 @@ import gestalt
 
 import internals.client as client_module
 from internals.client import GmailAPIError, GmailClientError
-from internals.mime import MIMEParams, decode_base64url, encode_base64url
+from internals.mime import (
+    MIMEAttachment,
+    MIMEParams,
+    decode_base64url,
+    encode_base64url,
+)
 from internals.operations import (
     GmailForwardRequest,
     GmailReplyRequest,
@@ -132,6 +137,14 @@ class CommonFieldsInput(gestalt.Model):
     )
 
 
+class AttachmentInput(gestalt.Model):
+    filename: str = gestalt.field(description="Attachment filename without a path")
+    content_type: str = gestalt.field(description="Attachment MIME type")
+    content_base64: str = gestalt.field(
+        description="Standard padded base64 file content"
+    )
+
+
 class SendMessageInput(gestalt.Model):
     to: str = gestalt.field(description="Recipient email address")
     subject: str = gestalt.field(description="Email subject")
@@ -147,6 +160,11 @@ class SendMessageInput(gestalt.Model):
         default="",
         required=False,
     )
+    attachments: list[AttachmentInput] = gestalt.field(
+        description="Optional file attachments (at most 20, combined decoded size at most 20 MiB)",
+        default_factory=list,
+        required=False,
+    )
 
 
 class CreateDraftInput(gestalt.Model):
@@ -160,6 +178,11 @@ class CreateDraftInput(gestalt.Model):
         description="BCC recipients (comma-separated)", default="", required=False
     )
     html_body: str = gestalt.field(description="HTML body", default="", required=False)
+    attachments: list[AttachmentInput] = gestalt.field(
+        description="Optional file attachments (at most 20, combined decoded size at most 20 MiB)",
+        default_factory=list,
+        required=False,
+    )
 
 
 class UpdateDraftInput(gestalt.Model):
@@ -174,6 +197,11 @@ class UpdateDraftInput(gestalt.Model):
         description="BCC recipients (comma-separated)", default="", required=False
     )
     html_body: str = gestalt.field(description="HTML body", default="", required=False)
+    attachments: list[AttachmentInput] = gestalt.field(
+        description="Optional file attachments (at most 20, combined decoded size at most 20 MiB)",
+        default_factory=list,
+        required=False,
+    )
 
 
 class SendDraftInput(gestalt.Model):
@@ -441,6 +469,8 @@ def messages_send(input: SendMessageInput, req: gestalt.Request) -> OperationRes
 
     try:
         return send_message(req.token, _mime_params_from_input(input))
+    except ValueError as err:
+        return _bad_request(str(err))
     except GmailAPIError as err:
         return gestalt.Response(status=err.status, body=err.body)
     except GmailClientError as err:
@@ -462,6 +492,8 @@ def drafts_create(input: CreateDraftInput, req: gestalt.Request) -> OperationRes
 
     try:
         return create_draft(req.token, _mime_params_from_input(input))
+    except ValueError as err:
+        return _bad_request(str(err))
     except GmailAPIError as err:
         return gestalt.Response(status=err.status, body=err.body)
     except GmailClientError as err:
@@ -483,6 +515,8 @@ def drafts_update(input: UpdateDraftInput, req: gestalt.Request) -> OperationRes
 
     try:
         return update_draft(req.token, input.id, _mime_params_from_input(input))
+    except ValueError as err:
+        return _bad_request(str(err))
     except GmailAPIError as err:
         return gestalt.Response(status=err.status, body=err.body)
     except GmailClientError as err:
@@ -598,6 +632,14 @@ def _mime_params_from_input(
         cc=input.cc,
         bcc=input.bcc,
         html_body=input.html_body,
+        attachments=tuple(
+            MIMEAttachment(
+                filename=attachment.filename,
+                content_type=attachment.content_type,
+                content_base64=attachment.content_base64,
+            )
+            for attachment in input.attachments
+        ),
     )
 
 
