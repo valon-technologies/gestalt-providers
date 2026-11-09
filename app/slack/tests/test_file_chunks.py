@@ -181,6 +181,7 @@ class FileChunkTests(unittest.TestCase):
         for destination in [
             "https://files.slack.com:8443/file",
             "https://user:pass@files.slack.com/file",
+            "https://:@files.slack.com/file",
             "https://evil.example/file",
             "http://files.slack.com/file",
             "https://files.slack.com/file#fragment",

@@ -169,8 +169,8 @@ def is_slack_file_download_url(url: str) -> bool:
         if (
             parsed.scheme != "https"
             or not hostname
-            or parsed.username
-            or parsed.password
+            or parsed.username is not None
+            or parsed.password is not None
             or parsed.port not in (None, 443)
             or parsed.fragment
         ):
