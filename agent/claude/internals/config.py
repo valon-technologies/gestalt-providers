@@ -20,6 +20,7 @@ class ClaudeAgentConfig:
     run_store: str
     idempotency_store: str
     default_model: str = DEFAULT_MODEL
+    document_url_prefixes: tuple[str, ...] = ()
     cli_path: str = ""
     working_directory: str = ""
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
@@ -49,6 +50,7 @@ class ClaudeAgentConfig:
             run_store=run_store,
             idempotency_store=idempotency_store,
             default_model=_trimmed_text(raw_config.get("defaultModel")) or DEFAULT_MODEL,
+            document_url_prefixes=_document_prefixes(raw_config.get("documentUrlPrefixes")),
             cli_path=_trimmed_text(raw_config.get("cliPath")),
             working_directory=working_directory,
             timeout_seconds=_coerce_positive_float(
@@ -86,3 +88,40 @@ def _coerce_positive_float(raw_value: Any, *, default: float, field_name: str) -
 
 def _trimmed_text(raw_value: Any) -> str:
     return str(raw_value or "").strip()
+
+
+def _document_prefixes(raw: Any) -> tuple[str, ...]:
+    from urllib.parse import urlsplit
+
+    if raw is None:
+        return ()
+    if not isinstance(raw, list) or len(raw) > 10:
+        raise ValueError("documentUrlPrefixes must be an array of at most 10 HTTPS prefixes")
+    result = []
+    for item in raw:
+        if not isinstance(item, str):
+            raise ValueError("documentUrlPrefixes entries must be HTTPS URL prefixes")
+        if re.search(r"[\x00-\x20\x7f\\]", item):
+            raise ValueError("documentUrlPrefixes entries must be valid HTTPS URL prefixes")
+        try:
+            parsed = urlsplit(item)
+            port = parsed.port
+        except ValueError, TypeError:
+            raise ValueError("documentUrlPrefixes entries must be valid HTTPS URL prefixes") from None
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or port not in (None, 443)
+            or parsed.query
+            or parsed.fragment
+            or "@" in parsed.netloc
+            or not parsed.path.endswith("/")
+            or parsed.path == "/"
+            or "%" in parsed.path
+            or ".." in parsed.path
+        ):
+            raise ValueError("documentUrlPrefixes entries require an exact HTTPS origin and path ending in /")
+        result.append(item)
+    return tuple(result)

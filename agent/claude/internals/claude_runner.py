@@ -23,6 +23,7 @@ from claude_agent_sdk import (
 )
 
 from .config import ClaudeAgentConfig
+from .document_input import document_urls, native_document_prompt
 from .mcp_bridge import (
     MCP_SERVER_NAME,
     allowed_gestalt_mcp_tools,
@@ -57,6 +58,7 @@ PermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions", 
 class _ActiveTurn:
     loop: asyncio.AbstractEventLoop
     client: ClaudeSDKClient | None = None
+    input_task: asyncio.Task | None = None
 
 
 @dataclass(slots=True)
@@ -119,16 +121,20 @@ class ClaudeSDKRunner:
         with self._lock:
             self._canceled_turns.add(turn_id)
             active = self._active_turns.get(turn_id)
-        if active is not None and active.client is not None:
-            _schedule_interrupt(active.loop, active.client)
+            input_task = active.input_task if active is not None else None
+        if active is not None:
+            _schedule_input_cancel(active.loop, input_task)
+            if active.client is not None:
+                _schedule_interrupt(active.loop, active.client)
 
     def close(self) -> None:
         with self._lock:
-            active_turns = list(self._active_turns.values())
+            active_turns = [(active.loop, active.input_task, active.client) for active in self._active_turns.values()]
             self._canceled_turns.update(self._active_turns)
-        for active in active_turns:
-            if active.client is not None:
-                _schedule_interrupt(active.loop, active.client)
+        for loop, input_task, client in active_turns:
+            _schedule_input_cancel(loop, input_task)
+            if client is not None:
+                _schedule_interrupt(loop, client)
 
     async def _run_turn(
         self,
@@ -144,10 +150,13 @@ class ClaudeSDKRunner:
     ) -> gestalt.AgentTurnOutput:
         with self._active_turn(turn_id):
             self._raise_if_canceled(turn_id)
+            urls = document_urls(messages, self._config.document_url_prefixes)
             prompt = _messages_to_prompt(messages)
             if not prompt:
                 raise ClaudeExecutionError("turn prompt is empty")
 
+            native_messages = await self._prepare_document_input(turn_id, prompt, urls) if urls else None
+            self._raise_if_canceled(turn_id)
             with tempfile.TemporaryDirectory(prefix="gestalt-claude-sdk-") as config_dir:
                 options = self._options(
                     model=model,
@@ -163,10 +172,40 @@ class ClaudeSDKRunner:
                 self._register_active_client(turn_id, client)
                 self._raise_if_canceled(turn_id)
                 async with client:
-                    await client.query(prompt, session_id=session.session_id)
+                    self._raise_if_canceled(turn_id)
+
+                    async def prepared_input():
+                        for message in native_messages or []:
+                            self._raise_if_canceled(turn_id)
+                            yield message
+
+                    await client.query(
+                        prepared_input() if native_messages is not None else prompt, session_id=session.session_id
+                    )
                     output = await self._receive_result(client, turn_id=turn_id, schema=schema)
                     self._raise_if_canceled(turn_id)
                     return output
+
+    async def _prepare_document_input(self, turn_id: str, prompt: str, urls: list[str]) -> list[dict[str, Any]]:
+        async def collect():
+            return [message async for message in native_document_prompt(prompt, urls)]
+
+        task = asyncio.create_task(collect())
+        with self._lock:
+            active = self._active_turns[turn_id]
+            active.input_task = task
+            if turn_id in self._canceled_turns:
+                task.cancel()
+        try:
+            messages = await task
+            self._raise_if_canceled(turn_id)
+            return messages
+        except asyncio.CancelledError:
+            self._raise_if_canceled(turn_id)
+            raise
+        finally:
+            with self._lock:
+                active.input_task = None
 
     async def _receive_result(
         self, client: ClaudeSDKClient, *, turn_id: str, schema: dict[str, Any] | None
@@ -464,7 +503,10 @@ def _message_content(message: dict[str, Any]) -> str:
             chunks.append(json.dumps({"tool_result": tool_result}, sort_keys=True, separators=(",", ":")))
         image_ref = part.get("image_ref")
         if isinstance(image_ref, dict):
-            chunks.append(json.dumps({"image_ref": image_ref}, sort_keys=True, separators=(",", ":")))
+            if image_ref.get("mime_type") == "application/pdf":
+                chunks.append("[Attached PDF document]")
+            else:
+                chunks.append(json.dumps({"image_ref": image_ref}, sort_keys=True, separators=(",", ":")))
     return "\n".join(chunks).strip()
 
 
@@ -472,6 +514,14 @@ def _log_claude_stderr(line: str) -> None:
     text = str(line or "").strip()
     if text:
         logger.warning("Claude Agent SDK stderr: %s", _truncate(text))
+
+
+def _schedule_input_cancel(loop: asyncio.AbstractEventLoop, task: asyncio.Task | None) -> None:
+    if task is not None:
+        try:
+            loop.call_soon_threadsafe(task.cancel)
+        except RuntimeError:
+            pass  # The turn may have finished and closed its loop concurrently.
 
 
 def _schedule_interrupt(

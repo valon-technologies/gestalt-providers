@@ -3,6 +3,7 @@ name = "gestalt-agent-claude"
 version = "0.0.1a23"
 requires-python = "==3.14.*"
 dependencies = [
+    "httpx==0.28.1",
   "claude-agent-sdk==0.1.71",
   "jsonschema==4.26.0",
   "gestalt-sdk",
@@ -51,6 +52,7 @@ vulture-ignore-names = [
   "GetAllKeys",
   "OpenCursor",
   "Transaction",
+  "aclose",
 ]
 
 [tool.ruff]

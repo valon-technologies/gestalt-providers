@@ -4,6 +4,13 @@ properties:
   defaultModel:
     type: string
     default: claude-sonnet-4-5-20250929
+  documentUrlPrefixes:
+    type: array
+    default: []
+    maxItems: 10
+    description: Explicit trusted HTTPS download endpoint prefixes for native PDF input. Disabled when empty; downloads never follow redirects.
+    items:
+      type: string
   cliPath:
     type: string
   workingDirectory:
