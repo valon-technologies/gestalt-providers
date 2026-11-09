@@ -48,6 +48,7 @@ vulture-ignore-names = [
   "conversations_get_thread_participants",
   "conversations_get_thread_context",
   "files_get",
+  "files_get_chunk",
   "redirect_request",
   "Name",
   "WorkflowEvent",

@@ -1,5 +1,6 @@
 import base64
 import binascii
+import hashlib
 import json
 import re
 from http import HTTPStatus
@@ -24,6 +25,8 @@ SLACK_MESSAGE_URL_PATTERN = re.compile(
 USER_MENTION_PATTERN = re.compile(r"<@(U[A-Z0-9]+)>")
 DEFAULT_FILE_MAX_BYTES = 200_000
 HARD_FILE_MAX_BYTES = 5 * 1024 * 1024
+FILE_CHUNK_MAX_BYTES = 1024 * 1024
+FILE_CHUNK_TOTAL_MAX_BYTES = 25 * 1024 * 1024
 DEFAULT_UPLOAD_CONTENT_TYPE = "application/octet-stream"
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 EXTERNAL_FILE_OMITTED_REASON = "file is hosted outside Slack"
@@ -506,6 +509,80 @@ def get_file(
             include_image_data=True,
         )
     return {"data": result}
+
+
+def get_file_chunk(
+    token: str,
+    *,
+    file_id: str,
+    offset: int,
+    length: int,
+    expected_sha256: str = "",
+) -> dict[str, Any]:
+    """Return one bounded frame; a digest pins all chunks to identical original bytes.
+
+    The existing download client has no range contract. Each call therefore
+    reads at most 25 MiB plus one sentinel byte, hashes that complete file,
+    and returns at most 1 MiB. No token-bearing global file cache is retained.
+    """
+    if not isinstance(file_id, str) or not re.fullmatch(r"F[A-Z0-9]+", file_id):
+        raise ValueError("file_id must be a Slack file ID beginning with F")
+    if (
+        type(offset) is not int
+        or type(length) is not int
+        or offset < 0
+        or offset >= FILE_CHUNK_TOTAL_MAX_BYTES
+        or length <= 0
+        or length > FILE_CHUNK_MAX_BYTES
+    ):
+        raise ValueError(
+            "offset must be nonnegative and length must be 1–1048576 bytes"
+        )
+    if not isinstance(expected_sha256, str) or (
+        expected_sha256 and not re.fullmatch(r"[a-f0-9]{64}", expected_sha256)
+    ):
+        raise ValueError("expected_sha256 must be a lowercase SHA-256 digest")
+    if offset and not expected_sha256:
+        raise ValueError("expected_sha256 is required after the first chunk")
+    response = slack_get("files.info", {"file": file_id}, token)
+    file_data = map_field(response, "file")
+    if string_field(file_data, "id") != file_id:
+        raise ValueError("Slack returned a different file identity")
+    size = file_data.get("size")
+    if type(size) is not int or size <= 0 or size > FILE_CHUNK_TOTAL_MAX_BYTES:
+        raise ValueError("file must have a positive declared size at most 25 MiB")
+    if offset >= size:
+        raise ValueError("offset must be within the file")
+    url = string_field(file_data, "url_private_download") or string_field(
+        file_data, "url_private"
+    )
+    if not is_slack_file_download_url(url):
+        raise ValueError("file must have a Slack HTTPS download URL")
+    body, truncated = get_bytes(url, token, FILE_CHUNK_TOTAL_MAX_BYTES)
+    if truncated or len(body) != size:
+        raise ValueError("Slack did not return the complete declared file")
+    digest = hashlib.sha256(body).hexdigest()
+    if expected_sha256 and expected_sha256 != digest:
+        raise SlackAPIError(
+            HTTPStatus.CONFLICT,
+            {"error": "file content changed between chunks; restart the download"},
+        )
+    next_offset = min(offset + length, size)
+    return {
+        "data": {
+            "file_id": file_id,
+            "offset": offset,
+            "size": size,
+            "next_offset": next_offset,
+            "done": next_offset == size,
+            "sha256": digest,
+            "content_base64": base64.b64encode(body[offset:next_offset]).decode(
+                "ascii"
+            ),
+            "filename": string_field(file_data, "name"),
+            "content_type": string_field(file_data, "mimetype"),
+        }
+    }
 
 
 def upload_file(
