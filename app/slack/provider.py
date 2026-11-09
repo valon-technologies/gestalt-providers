@@ -67,6 +67,7 @@ from internals.models import (
 from internals.operations import (
     find_user_mentions,
     get_file,
+    get_file_chunk,
     get_message,
     get_thread_context,
     get_thread_participants,
@@ -234,6 +235,19 @@ class GetFileInput(gestalt.Model):
     max_bytes: int = gestalt.field(
         description="Maximum bytes to read from the Slack file",
         default=200_000,
+        required=False,
+    )
+
+
+class GetFileChunkInput(gestalt.Model):
+    file_id: str = gestalt.field(description="Caller-accessible Slack file ID")
+    offset: int = gestalt.field(description="Zero-based decoded byte offset", default=0)
+    length: int = gestalt.field(
+        description="Maximum decoded bytes, at most 1048576", default=1048576
+    )
+    expected_sha256: str = gestalt.field(
+        description="Digest returned by first chunk; required for subsequent chunks",
+        default="",
         required=False,
     )
 
@@ -1174,6 +1188,32 @@ def files_get(input: GetFileInput, req: gestalt.Request) -> OperationResult:
             include_content=input.include_content,
             max_bytes=input.max_bytes,
         )
+    except SlackAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except SlackClientError as err:
+        return _server_error(str(err))
+
+
+@gestalt.operation(
+    id="files.getChunk",
+    method="POST",
+    description="Read a caller-accessible Slack binary file up to 25 MiB in verified chunks of at most 1 MiB",
+    read_only=True,
+)
+def files_get_chunk(input: GetFileChunkInput, req: gestalt.Request) -> OperationResult:
+    token_error = _validate_token(req)
+    if token_error is not None:
+        return token_error
+    try:
+        return get_file_chunk(
+            req.token,
+            file_id=input.file_id,
+            offset=input.offset,
+            length=input.length,
+            expected_sha256=input.expected_sha256,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
     except SlackAPIError as err:
         return gestalt.Response(status=err.status, body=err.body)
     except SlackClientError as err:

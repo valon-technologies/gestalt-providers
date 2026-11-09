@@ -543,3 +543,25 @@ operations:
     type: integer
     description: Maximum bytes to read from the Slack file
     default: 200000
+- id: files.getChunk
+  method: POST
+  description: Read a caller-accessible Slack binary file up to 25 MiB in verified
+    chunks of at most 1 MiB
+  read_only: true
+  parameters:
+  - name: file_id
+    type: string
+    description: Caller-accessible Slack file ID
+    required: true
+  - name: offset
+    type: integer
+    description: Zero-based decoded byte offset
+    default: 0
+  - name: length
+    type: integer
+    description: Maximum decoded bytes, at most 1048576
+    default: 1048576
+  - name: expected_sha256
+    type: string
+    description: Digest returned by first chunk; required for subsequent chunks
+    default: ''

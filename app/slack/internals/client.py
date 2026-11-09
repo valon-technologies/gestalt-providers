@@ -113,9 +113,7 @@ def get_json(url: str, token: str) -> dict[str, Any]:
     return _request_json(request)
 
 
-def upload_bytes_to_slack_url(
-    url: str, body: bytes, content_type: str = ""
-) -> None:
+def upload_bytes_to_slack_url(url: str, body: bytes, content_type: str = "") -> None:
     if not is_slack_file_upload_url(url):
         raise SlackClientError("slack file upload URL must be a Slack HTTPS upload URL")
     request = urllib.request.Request(
@@ -165,13 +163,23 @@ def get_bytes(url: str, token: str, max_bytes: int) -> tuple[bytes, bool]:
 
 
 def is_slack_file_download_url(url: str) -> bool:
-    parsed = urlsplit(url)
-    hostname = parsed.hostname or ""
-    if parsed.scheme != "https" or not hostname:
+    try:
+        parsed = urlsplit(url)
+        hostname = parsed.hostname or ""
+        if (
+            parsed.scheme != "https"
+            or not hostname
+            or parsed.username
+            or parsed.password
+            or parsed.port not in (None, 443)
+            or parsed.fragment
+        ):
+            return False
+        return hostname in SLACK_FILE_DOWNLOAD_HOSTS or hostname.endswith(
+            SLACK_FILE_DOWNLOAD_HOST_SUFFIXES
+        )
+    except (ValueError, TypeError):
         return False
-    return hostname in SLACK_FILE_DOWNLOAD_HOSTS or hostname.endswith(
-        SLACK_FILE_DOWNLOAD_HOST_SUFFIXES
-    )
 
 
 def is_slack_file_upload_url(url: str) -> bool:

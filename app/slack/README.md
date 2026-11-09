@@ -570,3 +570,13 @@ await app.invoke("slack", "events.uploadFile", {
 ## Documentation
 - [Provider Development](https://gestaltd.ai/providers)
 - [Manifest Reference](https://gestaltd.ai/reference/app-manifests)
+
+### Bounded binary file chunks
+
+`files.getChunk` reads a caller-accessible Slack-hosted file of at most 25 MiB and returns at most 1 MiB of original bytes as `content_base64`. Pass `file_id`, zero-based `offset`, and `length` (1–1,048,576). The response includes `file_id`, `offset`, `size`, `next_offset`, `done`, `sha256`, `filename`, and `content_type`. After the first chunk, send its digest as `expected_sha256`; a changed file returns HTTP 409 so callers can restart instead of combining revisions. Callers must also verify response offsets, size, identity, digest, and decoded byte counts before saving a complete file.
+
+The existing `files.get` operation retains its 5 MiB download ceiling. This new read-only operation uses the caller's existing Slack token and `files.info`; it accepts no arbitrary URL or independent credentials. Only Slack HTTPS download hosts and standard HTTPS ports are accepted, including redirects through the existing guarded download client. External file links are rejected.
+
+The download client currently has no HTTP Range contract. Each chunk request therefore revalidates metadata, downloads at most 25 MiB plus one sentinel byte, hashes the complete content, and returns only the requested bounded frame. No token-bearing global byte cache is retained. This bounds RPC responses but is not an end-to-end streaming download; large files incur repeated bounded downloads.
+
+Consumers should enable this capability only after deploying a published provider snapshot containing `files.getChunk` and confirming normal operation authorization. Existing integrations do not automatically start using the larger limit.
