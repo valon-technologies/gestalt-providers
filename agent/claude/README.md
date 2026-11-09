@@ -190,6 +190,10 @@ Gestalt media input, idempotent replay, URL validation, truncation, HTTP errors,
 timeout/cancellation, and unchanged no-tools sessions. They do not call a live
 model. Before enabling a consumer, run a controlled synthetic scanned-PDF check
 against the deployed Claude CLI/model combination; this transport integration has
-not been exercised against a live model in development. See the official
+not successfully been exercised against a live model in development. A synthetic
+SDK integration attempt using installed CLI 2.1.154 reached the service but
+failed with expired OAuth authentication (401, zero cost); no login was initiated.
+The SDK-bundled CLI is 2.1.123, which still needs the controlled integration check.
+See the official
 [PDF API documentation](https://platform.claude.com/docs/en/build-with-claude/pdf-support)
 and [SDK streaming input documentation](https://code.claude.com/docs/en/agent-sdk/streaming-vs-single-mode).
