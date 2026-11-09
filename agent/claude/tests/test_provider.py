@@ -69,14 +69,12 @@ class _FakeHostApp(app_pb2_grpc.AppServicer):
         self.execute_error = ""
 
     def Invoke(self, request: Any, context: grpc.ServicerContext) -> Any:
-        params = json_format.MessageToDict(request.params, preserving_proto_field_name=True) if request.HasField("params") else {}
-        self.invoke_requests.append(
-            {
-                "app": request.app,
-                "operation": request.operation,
-                "params": params,
-            }
+        params = (
+            json_format.MessageToDict(request.params, preserving_proto_field_name=True)
+            if request.HasField("params")
+            else {}
         )
+        self.invoke_requests.append({"app": request.app, "operation": request.operation, "params": params})
         if self.execute_error:
             context.abort(grpc.StatusCode.UNKNOWN, self.execute_error)
         return app_pb2.OperationResult(status=200, body=b'{"ok":true}')
@@ -110,7 +108,7 @@ class _FakeClaudeSDKClient:
         self._interrupt_event = asyncio.Event()
 
     async def query(self, prompt: str, session_id: str = "default") -> None:
-        self.prompt = prompt
+        self.prompt = prompt if isinstance(prompt, str) else [message async for message in prompt]
         self.session_id = session_id
 
     async def receive_response(self) -> Any:
@@ -678,6 +676,43 @@ class ClaudeProviderTests(unittest.TestCase):
         tool_result = cast(Any, fake_client.tool_result)
         self.assertEqual(tool_result.content[0].text, '{"ok":true}')
         self.assertFalse(tool_result.isError)
+
+    def test_pdf_media_survives_persistence_and_enters_native_sdk_content_without_tools(self) -> None:
+        import base64
+        from internals import document_input
+
+        url = "https://files.example.test/private/download/synthetic-capability"
+        _, provider_client = _configure_provider(
+            {"documentUrlPrefixes": ["https://files.example.test/private/download/"]}
+        )
+        session = _create_owned_session(provider_client)
+        message = agent_pb2.AgentMessage(
+            role="user",
+            text="Transcribe physical page 1",
+            parts=[
+                agent_pb2.AgentMessagePart(
+                    type=agent_pb2.AGENT_MESSAGE_PART_TYPE_IMAGE_REF,
+                    image_ref=agent_pb2.AgentMessagePartImageRef(uri=url, mime_type="application/pdf"),
+                )
+            ],
+        )
+        request = _turn_request(turn_id="turn-pdf", session_id=session.id, messages=[message])
+        raw_pdf = b"%PDF-1.7\nsynthetic bytes"
+        with mock.patch.object(document_input, "_download_pdf", new=mock.AsyncMock(return_value=raw_pdf)) as download:
+            provider_client.CreateTurn(request)
+            _wait_for_turn(provider_client, "turn-pdf", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+            # Same idempotent turn must not download or run a second time.
+            provider_client.CreateTurn(request)
+            self.assertEqual(download.await_count, 1)
+        client = _FakeClaudeSDKClient.instances[-1]
+        blocks = cast(Any, client.prompt)[0]["message"]["content"]
+        self.assertEqual(blocks[1]["type"], "document")
+        self.assertEqual(base64.b64decode(blocks[1]["source"]["data"]), raw_pdf)
+        self.assertEqual(blocks[1]["source"]["media_type"], "application/pdf")
+        self.assertNotIn(url, str(client.prompt))
+        self.assertEqual(client.options.tools, [])
+        self.assertEqual(client.options.allowed_tools, [])
+        self.assertEqual(client.options.mcp_servers, {})
 
     def test_provider_completes_structured_none_turn_without_tools(self) -> None:
         _FakeClaudeSDKClient.mode = "structured_success"
@@ -1314,14 +1349,11 @@ class ClaudeProviderTests(unittest.TestCase):
         _wait_for_turn(provider_client, "turn-idem-a", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
         _wait_for_turn(provider_client, "turn-idem-b", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 
-
     def test_create_session_replays_same_subject_and_key(self) -> None:
         _, provider_client = _configure_provider()
         first = _create_owned_session(provider_client, idempotency_key="obligation-key")
         replay = _create_owned_session(provider_client, idempotency_key="obligation-key")
         self.assertEqual(replay.id, first.id)
-
-
 
     def test_create_session_same_key_different_subject_creates_distinct_sessions(self) -> None:
         _, provider_client = _configure_provider()

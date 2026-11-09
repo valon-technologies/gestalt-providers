@@ -165,3 +165,35 @@ chaining, pipes, redirection, and command substitution are rejected.
 
 Linux release artifacts are built only for `linux/amd64` and `linux/arm64`.
 The Claude Agent SDK does not publish a bundled CLI wheel for `linux/arm`.
+
+## Native PDF input
+
+PDF input is opt-in. Set `documentUrlPrefixes` to an array of exact trusted HTTPS
+endpoint prefixes ending in `/` (empty by default). Use the existing Gestalt
+message part `image_ref` with `mime_type: application/pdf` and a short-lived
+signed `uri` under one of those prefixes. The provider accepts one PDF per turn,
+downloads it without redirects or ambient proxy settings, validates the complete
+HTTP body and PDF signature, and supplies its bytes as a native `document` block
+through the Claude SDK async input stream. File URLs stay out of model text,
+download errors and HTTPX request logs. Existing text/non-PDF prompt behavior and
+session tool permissions remain unchanged.
+
+The maximum PDF size is 20 MiB; the serialized native input is capped at 30 MiB
+to leave room under the Claude API's 32 MiB request limit. A total 30-second async
+download deadline is cancellable, including when a server keeps sending small
+chunks. PDF transcription, page completeness and application access checks remain
+the caller's responsibility. Configure only trusted endpoints that authenticate
+each download using short-lived, object-scoped capabilities.
+
+Tests cover actual SDK message serialization with a mocked client, persisted
+Gestalt media input, idempotent replay, URL validation, truncation, HTTP errors,
+timeout/cancellation, and unchanged no-tools sessions. They do not call a live
+model. Before enabling a consumer, run a controlled synthetic scanned-PDF check
+against the deployed Claude CLI/model combination; this transport integration has
+not successfully been exercised against a live model in development. A synthetic
+SDK integration attempt using installed CLI 2.1.154 reached the service but
+failed with expired OAuth authentication (401, zero cost); no login was initiated.
+The SDK-bundled CLI is 2.1.123, which still needs the controlled integration check.
+See the official
+[PDF API documentation](https://platform.claude.com/docs/en/build-with-claude/pdf-support)
+and [SDK streaming input documentation](https://code.claude.com/docs/en/agent-sdk/streaming-vs-single-mode).
