@@ -1,0 +1,24 @@
+source: github.com/valon-technologies/gestalt-providers/app/outlook
+version: 0.0.1-alpha.1
+displayName: Microsoft Outlook
+description: Search, read, draft, send, and reply to Outlook mail through Microsoft's official Work IQ Mail MCP server.
+iconFile: assets/icon.svg
+kind: app
+spec:
+  configSchemaPath: schemas/config.schema.yaml
+  surfaces:
+    mcp:
+      connection: MCP
+      url: https://agent365.svc.cloud.microsoft/agents/servers/mcp_MailTools
+  connections:
+    MCP:
+      displayName: MCP
+      mode: subject
+      auth:
+        type: oauth2
+        authorizationUrl: https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize
+        tokenUrl: https://login.microsoftonline.com/organizations/oauth2/v2.0/token
+        acceptHeader: application/json
+        scopes:
+        - offline_access
+        - https://agent365.svc.cloud.microsoft/agents/servers/mcp_MailTools/.default
