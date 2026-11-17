@@ -126,6 +126,66 @@ Workspace documents (Docs, Sheets, and Slides) should be downloaded with
 `files.export` and an appropriate `mimeType` instead. Only use
 `acknowledgeAbuse: true` after warning the user about the download risk.
 
+### Upload local file bytes
+
+`files.create` is metadata-only. Use `files.generateIds` followed by
+`files.beginUpload` for a resumable binary upload. These operations use the
+connected caller's existing Drive OAuth connection and request no new scope.
+
+```ts
+const { ids } = await app.invoke("google_drive", "files.generateIds", {
+  count: 1, space: "drive", type: "files",
+});
+// Retain this ID in a private upload receipt before starting the session.
+const started = await app.invokeRaw({
+  app: "google_drive",
+  operation: "files.beginUpload",
+  params: {
+    uploadType: "resumable",
+    supportsAllDrives: true,
+    id: ids[0],
+    name: "Agreement.pdf",
+    mimeType: "application/pdf",
+    parents: ["AUTHORIZED_FOLDER_ID"],
+    "X-Upload-Content-Type": "application/pdf",
+    "X-Upload-Content-Length": bytes.byteLength,
+  },
+});
+// started.status must be 200; its empty body is not a JSON file resource.
+const location = Object.entries(started.headers)
+  .find(([name]) => name.toLowerCase() === "location")?.[1].values[0];
+```
+
+The `Location` URI is a secret upload capability, valid for one week. Do not
+print it, put it in a shared record, or forward the Gestalt bearer token to it.
+Validate that it is the expected HTTPS Google Drive upload endpoint, then PUT
+the exact original bytes to the returned session URI. The session URI carries
+the upload authorization; Google's documented single-request PUT uses no
+additional Authorization header. A completed upload returns the file resource.
+Check `files.get` for the retained file ID, size, name, and checksum before
+reporting completion or attaching it to another record. A local SHA-256 alone
+does not verify server content.
+
+The initial request does not change sharing permissions. Files inherit access
+from the destination folder, so the caller must explicitly choose an authorized
+folder. This operation creates new files; it does not overwrite existing files
+or add revisions to an existing Drive file.
+
+After an uncertain response, reconcile the retained file ID and existing session
+before trying again. Do not allocate another file ID or restart a new upload
+blindly. Google returns `308 Resume Incomplete` for unfinished sessions; follow
+the documented status/Range procedure rather than claiming success. The provider
+passes upstream status, headers, and body through `invokeRaw`.
+
+Offline upload contract checks:
+
+```sh
+python3 -m unittest discover -s app/google_drive -p 'test_*.py' -v
+```
+
+The checks require PyYAML. They verify route preservation and the declarative
+upload contract; no production upload is performed by these tests.
+
 ### Comments and replies
 
 For all comment and reply operations except `comments.delete` and `replies.delete`, Google requires a `fields` query parameter specifying which fields to return. Omitting `fields` causes the API to return an error.
@@ -255,3 +315,4 @@ await app.invoke("google_drive", "replies.delete", {
 - [Manifest Reference](https://gestaltd.ai/reference/plugin-manifests)
 - [Manage comments and replies](https://developers.google.com/drive/api/guides/manage-comments)
 - [Download and export files](https://developers.google.com/workspace/drive/api/guides/manage-downloads)
+- [Upload file data and resume interrupted uploads](https://developers.google.com/workspace/drive/api/guides/manage-uploads)

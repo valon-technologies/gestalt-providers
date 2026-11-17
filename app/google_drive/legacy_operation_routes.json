@@ -1,0 +1,90 @@
+{
+  "drive.about.get": {
+    "method": "GET",
+    "url": "https://www.googleapis.com/drive/v3/about"
+  },
+  "drive.comments.create": {
+    "method": "POST",
+    "url": "https://www.googleapis.com/drive/v3/files/{fileId}/comments"
+  },
+  "drive.comments.delete": {
+    "method": "DELETE",
+    "url": "https://www.googleapis.com/drive/v3/files/{fileId}/comments/{commentId}"
+  },
+  "drive.comments.get": {
+    "method": "GET",
+    "url": "https://www.googleapis.com/drive/v3/files/{fileId}/comments/{commentId}"
+  },
+  "drive.comments.list": {
+    "method": "GET",
+    "url": "https://www.googleapis.com/drive/v3/files/{fileId}/comments"
+  },
+  "drive.comments.update": {
+    "method": "PATCH",
+    "url": "https://www.googleapis.com/drive/v3/files/{fileId}/comments/{commentId}"
+  },
+  "drive.files.copy": {
+    "method": "POST",
+    "url": "https://www.googleapis.com/drive/v3/files/{fileId}/copy"
+  },
+  "drive.files.create": {
+    "method": "POST",
+    "url": "https://www.googleapis.com/drive/v3/files"
+  },
+  "drive.files.delete": {
+    "method": "DELETE",
+    "url": "https://www.googleapis.com/drive/v3/files/{fileId}"
+  },
+  "drive.files.export": {
+    "method": "GET",
+    "url": "https://www.googleapis.com/drive/v3/files/{fileId}/export"
+  },
+  "drive.files.get": {
+    "method": "GET",
+    "url": "https://www.googleapis.com/drive/v3/files/{fileId}"
+  },
+  "drive.files.list": {
+    "method": "GET",
+    "url": "https://www.googleapis.com/drive/v3/files"
+  },
+  "drive.files.update": {
+    "method": "PATCH",
+    "url": "https://www.googleapis.com/drive/v3/files/{fileId}"
+  },
+  "drive.permissions.create": {
+    "method": "POST",
+    "url": "https://www.googleapis.com/drive/v3/files/{fileId}/permissions"
+  },
+  "drive.permissions.delete": {
+    "method": "DELETE",
+    "url": "https://www.googleapis.com/drive/v3/files/{fileId}/permissions/{permissionId}"
+  },
+  "drive.permissions.list": {
+    "method": "GET",
+    "url": "https://www.googleapis.com/drive/v3/files/{fileId}/permissions"
+  },
+  "drive.permissions.update": {
+    "method": "PATCH",
+    "url": "https://www.googleapis.com/drive/v3/files/{fileId}/permissions/{permissionId}"
+  },
+  "drive.replies.create": {
+    "method": "POST",
+    "url": "https://www.googleapis.com/drive/v3/files/{fileId}/comments/{commentId}/replies"
+  },
+  "drive.replies.delete": {
+    "method": "DELETE",
+    "url": "https://www.googleapis.com/drive/v3/files/{fileId}/comments/{commentId}/replies/{replyId}"
+  },
+  "drive.replies.get": {
+    "method": "GET",
+    "url": "https://www.googleapis.com/drive/v3/files/{fileId}/comments/{commentId}/replies/{replyId}"
+  },
+  "drive.replies.list": {
+    "method": "GET",
+    "url": "https://www.googleapis.com/drive/v3/files/{fileId}/comments/{commentId}/replies"
+  },
+  "drive.replies.update": {
+    "method": "PATCH",
+    "url": "https://www.googleapis.com/drive/v3/files/{fileId}/comments/{commentId}/replies/{replyId}"
+  }
+}

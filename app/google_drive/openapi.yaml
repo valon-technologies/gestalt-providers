@@ -1,6 +1,6 @@
 openapi: 3.0.0
 servers:
-- url: https://www.googleapis.com/drive/v3
+- url: https://www.googleapis.com
 info:
   contact:
     name: Google
@@ -45,7 +45,7 @@ tags:
 - name: revisions
 - name: teamdrives
 paths:
-  /about:
+  /drive/v3/about:
     get:
       description: Gets information about the user, the user's Drive, and system capabilities.
       operationId: drive.about.get
@@ -95,7 +95,7 @@ paths:
     - $ref: '#/components/parameters/prettyPrint'
     - $ref: '#/components/parameters/quotaUser'
     - $ref: '#/components/parameters/userIp'
-  /changes:
+  /drive/v3/changes:
     get:
       description: Lists the changes for a user or shared drive.
       operationId: drive.changes.list
@@ -234,7 +234,7 @@ paths:
     - $ref: '#/components/parameters/prettyPrint'
     - $ref: '#/components/parameters/quotaUser'
     - $ref: '#/components/parameters/userIp'
-  /changes/startPageToken:
+  /drive/v3/changes/startPageToken:
     get:
       description: Gets the starting pageToken for listing future changes.
       operationId: drive.changes.getStartPageToken
@@ -307,7 +307,7 @@ paths:
     - $ref: '#/components/parameters/prettyPrint'
     - $ref: '#/components/parameters/quotaUser'
     - $ref: '#/components/parameters/userIp'
-  /changes/watch:
+  /drive/v3/changes/watch:
     parameters:
     - $ref: '#/components/parameters/alt'
     - $ref: '#/components/parameters/fields'
@@ -452,7 +452,7 @@ paths:
         - https://www.googleapis.com/auth/drive.readonly
       tags:
       - changes
-  /channels/stop:
+  /drive/v3/channels/stop:
     parameters:
     - $ref: '#/components/parameters/alt'
     - $ref: '#/components/parameters/fields'
@@ -503,7 +503,7 @@ paths:
         - https://www.googleapis.com/auth/drive.readonly
       tags:
       - channels
-  /drives:
+  /drive/v3/drives:
     get:
       description: Lists the user's shared drives.
       operationId: drive.drives.list
@@ -591,7 +591,7 @@ paths:
         - https://www.googleapis.com/auth/drive
       tags:
       - drives
-  /drives/{driveId}:
+  /drive/v3/drives/{driveId}:
     delete:
       description: Permanently deletes a shared drive for which the user is an organizer.
         The shared drive cannot contain any untrashed items.
@@ -705,7 +705,7 @@ paths:
         - https://www.googleapis.com/auth/drive
       tags:
       - drives
-  /drives/{driveId}/hide:
+  /drive/v3/drives/{driveId}/hide:
     parameters:
     - $ref: '#/components/parameters/alt'
     - $ref: '#/components/parameters/fields'
@@ -738,7 +738,7 @@ paths:
         - https://www.googleapis.com/auth/drive
       tags:
       - drives
-  /drives/{driveId}/unhide:
+  /drive/v3/drives/{driveId}/unhide:
     parameters:
     - $ref: '#/components/parameters/alt'
     - $ref: '#/components/parameters/fields'
@@ -771,7 +771,7 @@ paths:
         - https://www.googleapis.com/auth/drive
       tags:
       - drives
-  /files:
+  /drive/v3/files:
     get:
       description: Lists or searches files.
       operationId: drive.files.list
@@ -1016,7 +1016,7 @@ paths:
         - https://www.googleapis.com/auth/drive.file
       tags:
       - files
-  /files/generateIds:
+  /drive/v3/files/generateIds:
     get:
       description: Generates a set of file IDs which can be provided in create or
         copy requests.
@@ -1072,7 +1072,7 @@ paths:
     - $ref: '#/components/parameters/prettyPrint'
     - $ref: '#/components/parameters/quotaUser'
     - $ref: '#/components/parameters/userIp'
-  /files/trash:
+  /drive/v3/files/trash:
     delete:
       description: Permanently deletes all of the user's trashed files.
       operationId: drive.files.emptyTrash
@@ -1107,7 +1107,7 @@ paths:
     - $ref: '#/components/parameters/prettyPrint'
     - $ref: '#/components/parameters/quotaUser'
     - $ref: '#/components/parameters/userIp'
-  /files/{fileId}:
+  /drive/v3/files/{fileId}:
     delete:
       description: Permanently deletes a file owned by the user without moving it
         to the trash. If the file belongs to a shared drive the user must be an organizer
@@ -1367,7 +1367,7 @@ paths:
         - https://www.googleapis.com/auth/drive.scripts
       tags:
       - files
-  /files/{fileId}/comments:
+  /drive/v3/files/{fileId}/comments:
     get:
       description: Lists a file's comments.
       operationId: drive.comments.list
@@ -1467,7 +1467,7 @@ paths:
         - https://www.googleapis.com/auth/drive.file
       tags:
       - comments
-  /files/{fileId}/comments/{commentId}:
+  /drive/v3/files/{fileId}/comments/{commentId}:
     delete:
       description: Deletes a comment.
       operationId: drive.comments.delete
@@ -1589,7 +1589,7 @@ paths:
         - https://www.googleapis.com/auth/drive.file
       tags:
       - comments
-  /files/{fileId}/comments/{commentId}/replies:
+  /drive/v3/files/{fileId}/comments/{commentId}/replies:
     get:
       description: Lists a comment's replies.
       operationId: drive.replies.list
@@ -1695,7 +1695,7 @@ paths:
         - https://www.googleapis.com/auth/drive.file
       tags:
       - replies
-  /files/{fileId}/comments/{commentId}/replies/{replyId}:
+  /drive/v3/files/{fileId}/comments/{commentId}/replies/{replyId}:
     delete:
       description: Deletes a reply.
       operationId: drive.replies.delete
@@ -1835,7 +1835,7 @@ paths:
         - https://www.googleapis.com/auth/drive.file
       tags:
       - replies
-  /files/{fileId}/copy:
+  /drive/v3/files/{fileId}/copy:
     parameters:
     - $ref: '#/components/parameters/alt'
     - $ref: '#/components/parameters/fields'
@@ -1937,7 +1937,7 @@ paths:
         - https://www.googleapis.com/auth/drive.photos.readonly
       tags:
       - files
-  /files/{fileId}/export:
+  /drive/v3/files/{fileId}/export:
     get:
       description: Exports a Google Workspace document to the requested MIME type
         and returns exported byte content. Note that the exported content is limited
@@ -1982,7 +1982,7 @@ paths:
     - $ref: '#/components/parameters/prettyPrint'
     - $ref: '#/components/parameters/quotaUser'
     - $ref: '#/components/parameters/userIp'
-  /files/{fileId}/listLabels:
+  /drive/v3/files/{fileId}/listLabels:
     get:
       description: Lists the labels on a file.
       operationId: drive.files.listLabels
@@ -2046,7 +2046,7 @@ paths:
     - $ref: '#/components/parameters/prettyPrint'
     - $ref: '#/components/parameters/quotaUser'
     - $ref: '#/components/parameters/userIp'
-  /files/{fileId}/modifyLabels:
+  /drive/v3/files/{fileId}/modifyLabels:
     parameters:
     - $ref: '#/components/parameters/alt'
     - $ref: '#/components/parameters/fields'
@@ -2092,7 +2092,7 @@ paths:
         - https://www.googleapis.com/auth/drive.metadata
       tags:
       - files
-  /files/{fileId}/permissions:
+  /drive/v3/files/{fileId}/permissions:
     get:
       description: Lists a file's or shared drive's permissions.
       operationId: drive.permissions.list
@@ -2278,7 +2278,7 @@ paths:
         - https://www.googleapis.com/auth/drive.file
       tags:
       - permissions
-  /files/{fileId}/permissions/{permissionId}:
+  /drive/v3/files/{fileId}/permissions/{permissionId}:
     delete:
       description: Deletes a permission.
       operationId: drive.permissions.delete
@@ -2480,7 +2480,7 @@ paths:
         - https://www.googleapis.com/auth/drive.file
       tags:
       - permissions
-  /files/{fileId}/revisions:
+  /drive/v3/files/{fileId}/revisions:
     get:
       description: Lists a file's revisions.
       operationId: drive.revisions.list
@@ -2551,7 +2551,7 @@ paths:
     - $ref: '#/components/parameters/prettyPrint'
     - $ref: '#/components/parameters/quotaUser'
     - $ref: '#/components/parameters/userIp'
-  /files/{fileId}/revisions/{revisionId}:
+  /drive/v3/files/{fileId}/revisions/{revisionId}:
     delete:
       description: Permanently deletes a file version. You can only delete revisions
         for files with binary content in Google Drive, like images or videos. Revisions
@@ -2700,7 +2700,7 @@ paths:
         - https://www.googleapis.com/auth/drive.file
       tags:
       - revisions
-  /files/{fileId}/watch:
+  /drive/v3/files/{fileId}/watch:
     parameters:
     - $ref: '#/components/parameters/alt'
     - $ref: '#/components/parameters/fields'
@@ -2791,7 +2791,7 @@ paths:
         - https://www.googleapis.com/auth/drive.readonly
       tags:
       - files
-  /teamdrives:
+  /drive/v3/teamdrives:
     get:
       description: Deprecated use drives.list instead.
       operationId: drive.teamdrives.list
@@ -2879,7 +2879,7 @@ paths:
         - https://www.googleapis.com/auth/drive
       tags:
       - teamdrives
-  /teamdrives/{teamDriveId}:
+  /drive/v3/teamdrives/{teamDriveId}:
     delete:
       description: Deprecated use drives.delete instead.
       operationId: drive.teamdrives.delete
@@ -2979,6 +2979,83 @@ paths:
         - https://www.googleapis.com/auth/drive
       tags:
       - teamdrives
+  /upload/drive/v3/files:
+    post:
+      operationId: drive.files.beginUpload
+      summary: Begin an authenticated resumable file upload.
+      description: >-
+        Start a Google Drive resumable upload using the connected caller identity.
+        The successful response has an empty body and a Location header containing
+        the upload session URI; use invokeRaw to retain the response headers.
+        Upload bytes to that URI with PUT, then verify the resulting file with
+        files.get. Treat the session URI as a secret capability. This operation
+        does not upload bytes or change file permissions. Use a files.generateIds
+        ID and reconcile it before retrying an uncertain creation.
+      parameters:
+      - name: uploadType
+        in: query
+        required: true
+        schema:
+          type: string
+          enum: [resumable]
+      - name: supportsAllDrives
+        in: query
+        schema:
+          type: boolean
+      - name: fields
+        in: query
+        description: Fields returned after the completed upload.
+        schema:
+          type: string
+      - name: X-Upload-Content-Type
+        in: header
+        description: MIME type of the bytes to be uploaded.
+        schema:
+          type: string
+      - name: X-Upload-Content-Length
+        in: header
+        description: Exact number of bytes to be uploaded.
+        schema:
+          type: integer
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, mimeType]
+              properties:
+                id:
+                  type: string
+                  description: A file ID previously returned by files.generateIds.
+                name:
+                  type: string
+                  description: Original filename including its extension.
+                mimeType:
+                  type: string
+                  description: MIME type of the original file; do not request Workspace conversion.
+                parents:
+                  type: array
+                  items:
+                    type: string
+                  description: Authorized destination folder IDs. Permissions inherit from the folder.
+      responses:
+        '200':
+          description: Upload session created; empty body, session URI in Location.
+          headers:
+            Location:
+              description: Secret resumable upload session URI, valid for one week.
+              schema:
+                type: string
+                format: uri
+      security:
+      - Oauth2:
+        - https://www.googleapis.com/auth/drive
+        Oauth2c:
+        - https://www.googleapis.com/auth/drive
+      tags:
+      - files
 components:
   parameters:
     alt:
