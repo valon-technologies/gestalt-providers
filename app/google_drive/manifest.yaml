@@ -17,6 +17,10 @@ spec:
       alias: files.get
     drive.files.create:
       alias: files.create
+    drive.files.generateIds:
+      alias: files.generateIds
+    drive.files.beginUpload:
+      alias: files.beginUpload
     drive.files.update:
       alias: files.update
     drive.files.delete:
