@@ -70,6 +70,9 @@ The manifest keeps full GraphQL documents in `spec.allowedOperations.<operation>
 | `issueLabelUpdate` | Mutation | `IssueLabelPayload` | 3 | write | `manifest.yaml` | GCP audit logs |
 | `issueLabelCreate` | Mutation | `IssueLabelPayload` | 3 | write | `manifest.yaml` | GCP audit logs |
 | `attachmentDelete` | Mutation | `DeletePayload` | 3 | write | `manifest.yaml` | GCP audit logs |
+| `entityExternalLinkCreate` | Mutation | `EntityExternalLinkPayload` | 0 | write | `manifest.yaml` | Added on request (project resource links) |
+| `entityExternalLinkUpdate` | Mutation | `EntityExternalLinkPayload` | 0 | write | `manifest.yaml` | Added on request (project resource links) |
+| `entityExternalLinkDelete` | Mutation | `DeletePayload` | 0 | write | `manifest.yaml` | Added on request (project resource links) |
 | `archivedTeams` | Query | `Team` | 3 | read | `manifest.yaml` | GCP audit logs |
 | `agentSessions` | Query | `AgentSessionConnection` | 3 | read | `manifest.yaml` | GCP audit logs |
 | `userSettings` | Query | `UserSettings` | 2 | read | `manifest.yaml` | GCP audit logs |
