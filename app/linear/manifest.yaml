@@ -1074,6 +1074,46 @@ spec:
               entityId
             }
           }
+    entityExternalLinkCreate:
+      graphql:
+        operationName: EntityExternalLinkCreate
+        document: |
+          mutation EntityExternalLinkCreate(
+            $input: EntityExternalLinkCreateInput!
+          ) {
+            entityExternalLinkCreate(input: $input) {
+              success
+              lastSyncId
+              entityExternalLink { id label url sortOrder createdAt updatedAt }
+            }
+          }
+    entityExternalLinkUpdate:
+      graphql:
+        operationName: EntityExternalLinkUpdate
+        document: |
+          mutation EntityExternalLinkUpdate(
+            $input: EntityExternalLinkUpdateInput!
+            $id: String!
+          ) {
+            entityExternalLinkUpdate(input: $input, id: $id) {
+              success
+              lastSyncId
+              entityExternalLink { id label url sortOrder createdAt updatedAt }
+            }
+          }
+    entityExternalLinkDelete:
+      graphql:
+        operationName: EntityExternalLinkDelete
+        document: |
+          mutation EntityExternalLinkDelete(
+            $id: String!
+          ) {
+            entityExternalLinkDelete(id: $id) {
+              success
+              lastSyncId
+              entityId
+            }
+          }
     archivedTeams:
       graphql:
         operationName: ArchivedTeams
