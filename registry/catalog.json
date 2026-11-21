@@ -1631,6 +1631,35 @@
         "entryKind": "app",
         "section": "app"
       },
+      "description": "Search, read, draft, send, and reply to Outlook mail through Microsoft's official Work IQ Mail MCP server.",
+      "displayName": "Microsoft Outlook",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/outlook/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/outlook/README.md",
+          "sourcePath": "app/outlook/README.md",
+          "title": "Microsoft Outlook"
+        }
+      ],
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/outlook/assets/icon.svg",
+      "kind": "app",
+      "latestInstallableVersion": null,
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/outlook/manifest.yaml",
+      "manifestVersion": "0.0.1-alpha.1",
+      "name": "outlook",
+      "package": "github.com/valon-technologies/gestalt-providers/app/outlook",
+      "packagePath": "app/outlook",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/outlook/README.md",
+      "registryPath": "/providers/app/outlook/",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/outlook",
+      "versions": []
+    },
+    {
+      "configTarget": {
+        "entryKind": "app",
+        "section": "app"
+      },
       "description": "Manage incidents, services, and on-call schedules.",
       "displayName": "PagerDuty",
       "docs": [

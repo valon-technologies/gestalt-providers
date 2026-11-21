@@ -1,0 +1,12 @@
+type: object
+properties:
+  clientId:
+    type: string
+    description: Microsoft Entra OAuth client ID for the Microsoft Outlook integration.
+  clientSecret:
+    type: string
+    description: Microsoft Entra OAuth client secret for the Microsoft Outlook integration.
+required:
+  - clientId
+  - clientSecret
+additionalProperties: false
